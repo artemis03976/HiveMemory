@@ -1,4 +1,6 @@
-"""Workspace 会话与写入意图的公共错误。"""
+"""Workspace 会话、写入意图与任务进程交互提交的公共错误。"""
+
+from typing import Literal
 
 from hivememory.core.errors import WorkspaceDomainError
 
@@ -51,6 +53,40 @@ class IntentDispatchUnknownError(WorkspaceDomainError):
     code = "workspace.memory.intent.dispatch_unknown"
 
 
+ActiveFinalizationStage = Literal[
+    "interaction_admission",
+    "interaction_apply",
+]
+
+
+class ActiveInteractionFinalizationError(WorkspaceDomainError):
+    """任务进程的交互提交未能跨过接纳或应用的成功边界；会话仍保存了这一轮。
+
+    ``details`` 中 ``stage`` 区分没有被接纳与接纳后应用没有成功，``reason`` 是
+    原因码，``error_class`` 是应用失败时的异常类名。机器码沿用交互提交原有的
+    错误码，对客户端保持不变。
+    """
+
+    code = "patchouli.interaction.finalization_failed"
+
+    def __init__(
+        self,
+        *,
+        interaction_id: str,
+        stage: ActiveFinalizationStage,
+        reason: str,
+        error_class: str | None = None,
+    ) -> None:
+        super().__init__(
+            details={
+                "interaction_id": interaction_id,
+                "stage": stage,
+                "reason": reason,
+                "error_class": error_class,
+            }
+        )
+
+
 __all__ = [
     "SessionNotFoundError",
     "SessionBusyError",
@@ -60,4 +96,6 @@ __all__ = [
     "PendingUpdateNotAllowedError",
     "IntentDispatchRejectedError",
     "IntentDispatchUnknownError",
+    "ActiveFinalizationStage",
+    "ActiveInteractionFinalizationError",
 ]

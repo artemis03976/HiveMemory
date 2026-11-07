@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 记忆生成
@@ -294,14 +294,13 @@ WRITE/UPDATE -> 授权 -> 取得派发话题 -> workspace 登记 -> memory_inten
   -> 后台生成、持久化与结算事件
 
 CPU 有输出（completed/cancelled/failed）-> 封口 InteractionPayload
-  -> best-effort record pre-retrieval HITs
   -> root API 提交交互 -> interaction.submit：原样提交，等待交互应用
   -> 写入会话（话题取实际所在的话题）
 ```
 
 每次提交只携带一个意图：Coordinator 的 `submit_active()` 为它构建 spec，交给 Controller 的 `admit_generation()`，返回单个 `MemoryGenerationAdmission`。accepted 携带新建或幂等复用的任务快照；rejected 由 Controller 结算对应 PendingAtom failed，不伪造 FAILED 任务；unknown 不结算，可继续由实际接纳的任务给出终态。Coordinator 在构建 spec 时遇到确定性失败（如 UPDATE 基础不存在）同样结算 failed 并返回 rejected，遇到无法判断的失败或接纳请求本身失败则返回 unknown。稳定的 `active:{intent_id}` 是任务标识，同一 intent 携带不同 spec 重放时结果为 unknown，既有任务保留结算权，不能抢先发布 failed。
 
-Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动任务，也不返回任务列表。预检索 HIT 在提交之前记录，失败只记录 warning，不影响本轮。提交任务由任务进程持有并以 shield 等待，HTTP/SSE 调用方离开不会中止已经开始的提交；已接纳的交互也不随调用方取消撤回。CPU 失败、取消、进程关闭与失败 CALL 子帧都不撤回此前的显式写入。
+Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动任务，也不返回任务列表。提交任务由任务进程持有并以 shield 等待，HTTP/SSE 调用方离开不会中止已经开始的提交；已接纳的交互也不随调用方取消撤回。CPU 失败、取消、进程关闭与失败 CALL 子帧都不撤回此前的显式写入。
 
 主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。有输出轮次的当前交互留在话题中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。写入建立的话题若最终没有接收交互（例如写入后 CPU 没有输出），不被补偿删除，由空闲结算或 LRU 按没有材料的话题结束；已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
 

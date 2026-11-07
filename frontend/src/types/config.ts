@@ -189,7 +189,6 @@ export interface VitalityCalculatorConfig {
 export interface ReinforcementConfig {
   enable_event_history: boolean;
   event_history_limit: number;
-  hit_boost: number;
   citation_boost: number;
   positive_feedback_boost: number;
   negative_feedback_penalty: number;

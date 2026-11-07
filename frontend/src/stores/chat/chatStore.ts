@@ -47,6 +47,28 @@ interface ChatStore {
 }
 const errorText = (error: unknown) => error instanceof Error ? error.message : '会话操作失败';
 
+// 后端等交互应用完成没有时限；前端只等到能给出结论为止，超过上限交给用户稍后查看。
+const RELEASE_POLL_MS = 1000;
+const RELEASE_WAIT_MS = 60_000;
+
+/**
+ * 等会话不再被该进程认领：进程写入会话之后才释放认领，释放时这一轮若已保存，历史中就有它。
+ * 会话已不存在也算释放，交给读取历史处理；超过上限或读取失败时返回 false，不再猜测结局。
+ */
+async function waitForSessionRelease(sessionId: string, processId: string): Promise<boolean> {
+  const deadline = Date.now() + RELEASE_WAIT_MS;
+  for (;;) {
+    try {
+      const session = await sessionsApi.getSession(sessionId);
+      if (session.active_process_id !== processId) return true;
+    } catch (error) {
+      return error instanceof sessionsApi.SessionApiError && error.status === 404;
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise(resolve => setTimeout(resolve, RELEASE_POLL_MS));
+  }
+}
+
 export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => ({
   messages: [], connection: { status: 'disconnected', error: null },
   isStreaming: false, runStatus: 'idle', lastRunReason: null,
@@ -196,21 +218,30 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
           connection: { status: 'error', error: message }, _currentStreamingMessageId: null, _currentProcessId: null }));
       },
     });
-    // 连接在终态前结束：已收到 finalizing 时后端继续提交，提交结束后才写入会话，
-    // 改以服务端历史为准，提交尚未结束时读到的历史可能还没有这一轮；此前结束的轮次没有保存。
+    // 连接在终态前结束：已收到 finalizing 时后端继续提交，提交结束后才写入会话、释放会话认领。
+    // 等认领释放后再以服务端历史为准，历史中有这一轮才算已保存；此前结束的轮次没有保存。
     const endWithoutTerminal = async (error: Error) => {
       if (terminalReceived) return;
       const sessionId = get().currentSessionId;
-      if (get().runStatus !== 'finalizing' || !sessionId) {
+      const processId = get()._currentProcessId;
+      if (get().runStatus !== 'finalizing' || !sessionId || !processId) {
         callbacks.onConnectionError(error);
         return;
       }
       terminalReceived = true;
-      set(s => ({ messages: applyDone(s.messages, assistantMessageId, null), isStreaming: false,
-        compactionProgress: null,
-        runStatus: 'idle', _currentStreamingMessageId: null, _currentProcessId: null }));
+      // 等待期间保持 finalizing 与流式状态，界面不能发送下一轮或切换会话。
+      set(s => ({ messages: applyDone(s.messages, assistantMessageId, null), compactionProgress: null }));
+      const released = await waitForSessionRelease(sessionId, processId);
+      set({ isStreaming: false, runStatus: 'idle', _currentStreamingMessageId: null, _currentProcessId: null });
+      if (!released) {
+        set({ connection: { status: 'error', error: '连接中断，暂时无法确认本轮是否已保存，稍后重新选择会话查看' } });
+        return;
+      }
       await get().selectSession(sessionId);
-      set({ connection: { status: 'error', error: '连接中断，本轮已保存到会话' } });
+      const saved = get().messages.some(m => m.interactionId === processId);
+      // 没有保存的轮次与无输出的轮次一样回填输入，便于再次发送。
+      set(s => ({ connection: { status: 'error', error: saved ? '连接中断，本轮已保存到会话' : '连接中断，本轮未保存' },
+        draft: saved ? s.draft : [content, s.draft].filter(Boolean).join('\n') }));
       void get().refreshSessions();
     };
     try {

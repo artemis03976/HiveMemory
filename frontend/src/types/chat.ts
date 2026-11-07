@@ -85,6 +85,8 @@ export interface ContextCompactionEvent {
 export interface ChatErrorEvent {
   message: string;
   detail?: string;
+  /** Workspace 领域错误的机器码；系统错误不带。 */
+  code?: string;
 }
 
 export interface SubAgentStartEvent extends StreamNamespace {

@@ -230,17 +230,17 @@ async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
     memory = _make_memory()
     await memory_library.mid_term.upsert(memory)
 
-    result = await engine.record_hit(
+    result = await engine.record_citation(
         _identity_scope().workspace_identity, memory.id, source="integration"
     )
     updated = await memory_library.mid_term.get(
         _identity_scope().workspace_identity, memory.id, from_actor=_identity_scope().actor_identity
     )
 
-    assert result.event_type == EventType.HIT
+    assert result.event_type == EventType.CITATION
     assert updated.meta.lifecycle.access_count == 1
     assert updated.meta.lifecycle.vitality_score >= result.previous_vitality
-    # HIT 经受限 patch 持久化，只提交 4 个授权 lifecycle 字段
+    # CITATION 经受限 patch 持久化，只提交本事件授权的 lifecycle 字段
     assert len(mid_port.patch_calls) == 1
     key, patch = mid_port.patch_calls[0]
     assert key == _key(memory)
@@ -249,6 +249,7 @@ async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
         "meta.lifecycle.last_accessed_at",
         "meta.lifecycle.event_vitality_boost",
         "meta.lifecycle.vitality_score",
+        "meta.lifecycle.decay_anchor_at",
     }
     assert patch["meta.lifecycle.access_count"] == 1
 

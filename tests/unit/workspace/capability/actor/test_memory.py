@@ -1,4 +1,4 @@
-"""actor Memory 能力入口的读取授权与引用副作用测试。"""
+"""actor Memory 能力入口的读取授权与引用、检索命中副作用测试。"""
 
 from uuid import uuid4
 
@@ -16,6 +16,7 @@ from hivememory.core.models import (
     ReferenceResolution,
 )
 from hivememory.core.protocol.models import RetrievalRequest
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
@@ -42,6 +43,19 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
         ),
         payload=PayloadLayer(content="test content"),
     )
+
+
+class _StaticReader:
+    """读取器替身：每次检索按序交付给定的结果。"""
+
+    # 能力层经读取视图取得写入意图登记；本替身不登记意图。
+    intents = WriteIntentRegistry()
+
+    def __init__(self, *results: list[MemoryAtom]) -> None:
+        self._results = list(results)
+
+    async def search(self, request, *, scope):
+        return self._results.pop(0)
 
 
 class TestActorMemoryService:
@@ -122,6 +136,55 @@ class TestActorMemoryService:
         )
         assert request.identity_scope.workspace_identity == workspace
         assert captured["scope"] == expected_scope
+
+    @pytest.mark.asyncio
+    async def test_retrieve_records_hits_for_delivered_memories_at_search_time(
+        self, global_bus, workspace, composition, actor
+    ):
+        """检索即为交付的这一批记忆记录命中，scope 来自操作授权、来源是检索；没有结果时不记录。"""
+        hits = []
+
+        async def record_hits(memory_ids, *, identity_scope, source):
+            hits.append((tuple(memory_ids), identity_scope, source))
+
+        global_bus.register(PatchouliRoutes.RECORD_RETRIEVAL_HITS, record_hits)
+        delivered = [_make_memory_atom(title="A"), _make_memory_atom(title="B")]
+        service = ActorMemoryService(
+            global_bus=global_bus,
+            operation_authorizer=composition.authorizer,
+            memory_reader=_StaticReader(delivered, []),
+            threads=composition.threads,
+        )
+
+        await service.retrieve(RetrieveRequest(semantic_query="q"), actor=actor)
+        await service.retrieve(RetrieveRequest(semantic_query="无结果"), actor=actor)
+
+        expected_scope = composition.authorizer.authorize_agent(
+            actor, WorkspaceOperation.MEMORY_SEARCH, workspace
+        )
+        assert hits == [
+            ((delivered[0].id, delivered[1].id), expected_scope, "workspace.search"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_hit_failure_keeps_search_results(self, global_bus, composition, actor):
+        """命中记录是尽力而为的生命周期信号：记录失败只记日志，检索结果照常交付。"""
+
+        async def failing_hits(memory_ids, *, identity_scope, source):
+            raise RuntimeError("lifecycle unavailable")
+
+        global_bus.register(PatchouliRoutes.RECORD_RETRIEVAL_HITS, failing_hits)
+        delivered = [_make_memory_atom(title="A")]
+        service = ActorMemoryService(
+            global_bus=global_bus,
+            operation_authorizer=composition.authorizer,
+            memory_reader=_StaticReader(delivered),
+            threads=composition.threads,
+        )
+
+        result = await service.retrieve(RetrieveRequest(semantic_query="q"), actor=actor)
+
+        assert [atom.id for atom in result] == [delivered[0].id]
 
     @pytest.mark.asyncio
     async def test_reference_status_outside_formal_delivery_does_not_record_citation(

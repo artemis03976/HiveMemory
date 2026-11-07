@@ -24,7 +24,7 @@ related_docs:
   - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # HiveMemory 当前系统架构
@@ -201,14 +201,14 @@ TaskProcessService（workspace.process）
   -> PREPARE：
        -> workspace Profile 读取能力（系统执行，按管理语义读取执行者的图纸）
        -> 以执行者与图纸派生主线程
-       -> 预检索：以主线程经操作入口进入 actor API 的检索（按执行者的 memory.search 授权与可见性）
+       -> 预检索：以主线程经操作入口进入 actor API 的检索（按执行者的 memory.search 授权与可见性），actor API 随检索记录命中
        -> Gateway 指向已有话题：root API 确认话题并冻结为派发话题（系统执行）；指向新话题时不建立
        -> root API 读取存储健康；CPU 分配：附件租借（系统执行）与编译、记忆编译、组装 CPUInputManifest
   -> Actor 执行：把主线程的线程描述与线程句柄经 CPU 端口交给执行者（当前为 Alice，直接调用运行服务）
        新话题的第一次写入：root API 建立话题并冻结为派发话题（系统执行）
   -> CPU 结束：同步结束全部线程
   -> 任务进程封口交互记录（InteractionPayload），进入 FINALIZE
-  -> root API 记录预检索的命中；root API 提交交互并等待应用（系统执行，执行者作为参与者）
+  -> root API 提交交互并等待应用（系统执行，执行者作为参与者）
   -> 追加 ConversationSession（话题取交互实际所在的话题）
   -> 释放附件租借（已接纳写入继续生成）
   -> 在进程自己的 task 中关闭进程，交付 Agent 结果（记忆任务独立经事件观察）
@@ -219,12 +219,12 @@ TaskProcessService（workspace.process）
 关键语义：
 
 1. Gateway 必须先形成命令终态或完整决策；
-2. 预检索是执行者的 actor 操作，以主线程经操作入口提交，与 Alice 的 SEARCH 走同一条路：按执行者的白名单授权与可见性过滤，结果经读取视图交付；执行者没有 `memory.search` 时不检索，对话照常进行；
+2. 预检索是执行者的 actor 操作，以主线程经操作入口提交，与 Alice 的 SEARCH 走同一条路：按执行者的白名单授权与可见性过滤，结果经读取视图交付，命中随检索记录、不依赖本轮的结局；执行者没有 `memory.search` 时不检索，对话照常进行；
 3. 话题按需确定，不预先建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在第一次写入时建立，没有写入时在交互应用时建立；因此没有任何补偿或清理话题的路径，建立后没有接收交互的话题由空闲结算或 LRU 回收；
 4. 任务进程在 CPU 分配时取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、不透明的线程句柄（只用于提交操作请求，CPU 执行结束线程即结束）和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
 5. 执行结果为 completed/cancelled/failed 且有输出时，进入 FINALIZE 提交交互，应用之后追加 ConversationSession；无输出、进程异常与 FINALIZE 前断连不提交、不追加；附件租借无论结局如何都在进程结束时释放；
-6. 任务进程封口交互记录（只组装、不解析：交互内容只以结构化 `turn_events` 表达，由感知层解析），经 root API 的提交交互原样提交，与 Import Bus 共用同一个方法；检索命中在 Actor 有输出后经 root API 记录；WRITE/UPDATE 已在 actor 操作内独立派发；
-7. 每次阶段调用以真正执行它的身份授权：Gateway、Profile、附件、话题确认与建立、存储健康、检索命中与交互提交是系统级操作，由进程记录的系统 root 工作 actor 授权；预检索与 CPU 的请求是执行者的 actor 操作。交互中的执行 Agent 作为参与者显式交给提交，交互记录的发起者仍是它（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。
+6. 任务进程封口交互记录（只组装、不解析：交互内容只以结构化 `turn_events` 表达，由感知层解析），经 root API 的提交交互原样提交，与 Import Bus 共用同一个方法；WRITE/UPDATE 已在 actor 操作内独立派发；
+7. 每次阶段调用以真正执行它的身份授权：Gateway、Profile、附件、话题确认与建立、存储健康与交互提交是系统级操作，由进程记录的系统 root 工作 actor 授权；预检索与 CPU 的请求是执行者的 actor 操作。交互中的执行 Agent 作为参与者显式交给提交，交互记录的发起者仍是它（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。
 
 阶段顺序、停止与关闭见[任务进程](../workspace/task-process.md#51-主动链路)。
 

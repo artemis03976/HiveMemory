@@ -4,7 +4,7 @@ HiveMemory - 动态强化引擎
 处理记忆生命周期事件，动态调整生命力分数和置信度。
 
 事件效果:
-- HIT:              lifecycle.event_vitality_boost += 5,  access_count += 1,  不推进衰减基准
+- HIT:              只刷新 last_accessed_at；不计访问次数、不加事件加成、不推进衰减基准，生命力不变
 - CITATION:         lifecycle.event_vitality_boost += 20, access_count += 1,  推进衰减基准 (decay_anchor_at = now)
 - FEEDBACK_POSITIVE: lifecycle.event_vitality_boost += 50, access_count += 1, 不推进衰减基准
 - FEEDBACK_NEGATIVE: lifecycle.event_vitality_boost += -50, confidence ×0.5,  不推进衰减基准
@@ -12,8 +12,9 @@ HiveMemory - 动态强化引擎
 事件加成不再直接加减最终 vitality_score，而是累加进 event_vitality_boost (B 项)。
 最终 vitality_score 由 VitalityCalculator 重算时统一合并: V = V_0·D(t) + A + B。
 
-HIT 不推进 decay_anchor_at —— 让时间衰减在遗忘曲线上持续作用，符合艾宾浩斯语义；
-只有 CITATION (主动复习) 才推进 decay_anchor_at，对应"主动回忆重置遗忘曲线"。
+HIT 是检索把记忆交付给 Agent，每次检索都为全部结果记录，不表示记忆被用上，
+所以不改变生命力；记忆被用上由 CITATION 等事件表达。只有 CITATION (主动复习)
+才推进 decay_anchor_at，对应"主动回忆重置遗忘曲线"。
 内容时间 (updated_at) 属于内容事实，任何强化事件都不得改写。
 """
 
@@ -75,7 +76,6 @@ class DynamicReinforcementEngine:
         self._event_history: list[ReinforcementResult] = []
         self.vitality_calculator = vitality_calculator
         self.vitality_adjustments = {
-            EventType.HIT: self.config.hit_boost,
             EventType.CITATION: self.config.citation_boost,
             EventType.FEEDBACK_POSITIVE: self.config.positive_feedback_boost,
             EventType.FEEDBACK_NEGATIVE: self.config.negative_feedback_penalty,
@@ -117,6 +117,15 @@ class DynamicReinforcementEngine:
         # 记录当前状态
         previous_vitality = memory.meta.lifecycle.vitality_score
         previous_confidence = memory.meta.lifecycle.confidence_score
+        key = WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
+
+        if event.event_type == EventType.HIT:
+            # 检索命中只说明记忆被交付给了 Agent，不说明被用上；每次检索都为全部结果
+            # 记录，若计入访问次数或事件加成，经常被带出的无关记忆会被持续抬高。
+            # 命中只刷新最近访问时间，生命力不变。
+            memory.meta.lifecycle.last_accessed_at = current
+            await self._mid_term.patch_payload(key, {"meta.lifecycle.last_accessed_at": current})
+            return self._record_result(event, memory, previous_vitality, previous_confidence)
 
         # 应用事件特定的调整 (CITATION 推进 decay_anchor_at，FEEDBACK_NEGATIVE 调整 confidence)
         if event.event_type == EventType.CITATION:
@@ -133,8 +142,7 @@ class DynamicReinforcementEngine:
         )
 
         # 更新访问元信息（业务时间统一 UTC；持久化走受限 patch）
-        # 注意: 只更新 last_accessed_at；衰减基准仅在 CITATION 主动复习时推进
-        # (上面 _handle_citation 已处理)。HIT 不推进 decay_anchor_at，让遗忘曲线持续作用。
+        # 注意: 衰减基准仅在 CITATION 主动复习时推进（上面 _handle_citation 已处理）。
         memory.meta.lifecycle.access_count += 1
         memory.meta.lifecycle.last_accessed_at = current
 
@@ -154,31 +162,38 @@ class DynamicReinforcementEngine:
             patch["meta.lifecycle.decay_anchor_at"] = memory.meta.lifecycle.decay_anchor_at
         if event.event_type == EventType.FEEDBACK_NEGATIVE:
             patch["meta.lifecycle.confidence_score"] = memory.meta.lifecycle.confidence_score
-        key = WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
         await self._mid_term.patch_payload(key, patch)
+        return self._record_result(event, memory, previous_vitality, previous_confidence)
 
-        # 创建结果
+    def _record_result(
+        self,
+        event: MemoryEvent,
+        memory: MemoryAtom,
+        previous_vitality: float,
+        previous_confidence: float,
+    ) -> ReinforcementResult:
+        """以提交后的原子构造强化结果，记入事件历史。"""
+        lifecycle = memory.meta.lifecycle
         result = ReinforcementResult(
-            memory_id=memory_id,
+            memory_id=memory.id,
             previous_vitality=previous_vitality,
-            new_vitality=new_vitality,
+            new_vitality=lifecycle.vitality_score,
             previous_confidence=previous_confidence,
-            new_confidence=memory.meta.lifecycle.confidence_score,
+            new_confidence=lifecycle.confidence_score,
             event_type=event.event_type,
             timestamp=event.timestamp,
         )
-
-        # 记录事件历史
         if self.config.enable_event_history:
             self._add_to_history(result)
-
         logger.info(
-            f"Reinforcement applied: {memory_id} | "
-            f"{event.event_type.value} | "
-            f"Vitality: {previous_vitality:.1f} -> {new_vitality:.1f} | "
-            f"Confidence: {previous_confidence:.2f} -> {memory.meta.lifecycle.confidence_score:.2f}"
+            "强化事件已提交: memory_id=%s event=%s vitality=%.1f->%.1f confidence=%.2f->%.2f",
+            memory.id,
+            event.event_type.value,
+            previous_vitality,
+            lifecycle.vitality_score,
+            previous_confidence,
+            lifecycle.confidence_score,
         )
-
         return result
 
     def _handle_citation(self, memory: MemoryAtom, *, now: datetime) -> None:

@@ -22,7 +22,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Patchouli
@@ -99,6 +99,7 @@ PatchouliSystem
 GatewayDecision（任务进程持有）
   -> workspace 任务进程 PREPARE
        -> 预检索：主线程经操作入口 -> actor API（memory.search）-> patchouli.public.memory.retrieve
+            -> actor API -> patchouli.public.memory.record_retrieval_hits（交付的记忆，尽力而为）
        -> Gateway 指向已有话题：root API 确定话题 -> patchouli.public.topic.prepare（确认存在、刷新驻留）
        -> root API -> patchouli.public.storage.available
        -> CPU 分配（编译检索结果与附件，组装输入清单）
@@ -107,12 +108,11 @@ GatewayDecision（任务进程持有）
             -> 取得派发话题（新话题且本轮还没有时：root API -> patchouli.public.topic.prepare 建立话题）
             -> memory_intent.submit -> generation tasks
   -> workspace 任务进程：封口交互记录（InteractionPayload：MTP trace、实际使用的附件）
-       -> root API -> patchouli.public.memory.record_retrieval_hits（预检索的记忆，尽力而为）
        -> root API 提交交互 -> patchouli.public.interaction.submit（提交并等待应用）
             -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
 ```
 
-Patchouli 不参与任务进程的编排：它分别提供检索、话题准备、存储健康、检索命中与交互提交几项公开能力，由任务进程经操作入口或 root API 按顺序调用（[任务进程](../workspace/task-process.md)）；不解析 Profile、不编译记忆、不接触附件，也不运行 Alice。话题按需建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在本轮第一次写入时以 Gateway 的标题与摘要建立，没有写入则提交 `NEW_TOPIC`、在交互应用时建立；建立后没有接收交互的话题不补偿，由空闲结算、LRU 或关闭结算按没有材料的话题结束（[感知与短期话题](./perception.md#3-话题准备与-lru)）。交互提交等待本轮结构化事实成功摄入话题，结局由 root API 交回任务进程，applied 是 Chat 完成的硬成功边界。检索命中在 Actor 有输出之后、提交之前记录，只做单批去重，不自动 retry，失败不影响本轮，也不依赖提交的结局（[记忆检索](./retrieval.md#7-访问与生命力副作用)）。
+Patchouli 不参与任务进程的编排：它分别提供检索、话题准备、存储健康、检索命中与交互提交几项公开能力，由任务进程经操作入口或 root API 按顺序调用（[任务进程](../workspace/task-process.md)）；不解析 Profile、不编译记忆、不接触附件，也不运行 Alice。话题按需建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在本轮第一次写入时以 Gateway 的标题与摘要建立，没有写入则提交 `NEW_TOPIC`、在交互应用时建立；建立后没有接收交互的话题不补偿，由空闲结算、LRU 或关闭结算按没有材料的话题结束（[感知与短期话题](./perception.md#3-话题准备与-lru)）。交互提交等待本轮结构化事实成功摄入话题，结局由 root API 交回任务进程，applied 是 Chat 完成的硬成功边界。检索命中由 actor API 在每次检索时记录（含预检索），只做单批去重，不自动 retry，失败不影响检索结果，也不依赖本轮的结局（[记忆检索](./retrieval.md#7-访问与生命力副作用)）。
 
 Patchouli 的公开路由不保存跨调用的 scope 或身份。任务进程的每次 root 调用在 root API 的方法入口以系统的 root 工作 actor 授权；预检索由执行者经 actor API 以 `memory.search` 授权，没有该操作时不检索。交互提交另收参与者（本轮的执行 Agent），记为交互的发起者。进入提交队列后的交互记录独立携带归属与本轮发起者，调用方取消等待不会撤回已接纳的交互，也不会让它重新依赖调用方的授权。
 

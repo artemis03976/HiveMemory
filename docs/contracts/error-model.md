@@ -300,7 +300,7 @@ Memory 领域模型的 `validate_assignment` 使构造与就地赋值执行同�
 
 Profile 缺失和不可见统一隐藏为 `ResourceNotFoundError`；已找到但类型/配置不适用时为 `ProfileResolutionError`，reason 仅为 `type_mismatch` / `invalid_config`，必须携带 `agent_alias`。CALL 在出口转为既有 MTP 类别，CPU 分配按失败收尾，两者都不回退默认 Profile。
 
-Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明确的容量/停止接纳使用 `TopicSettleAdmissionError`。任务进程的交互提交没有跨过成功边界时，进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败：`stage` 为 `interaction_admission` 时接纳被拒，`reason` 取 `capacity_rejected` / `queue_stopped`；为 `interaction_apply` 时接纳后没有应用成功，`reason` 为 `apply_failed`（异常类名放在诊断字段 `error_class`），不设时限的等待停在应用之前只会因队列停止，`reason` 为 `queue_stopped`。其他提交异常原样传播，不能据此声称没有副作用。交互没有应用成功时（含提交异常），会话仍保存这一轮，话题为空；进程按失败收口，`chat.run.failed` 的 `reason` 为 `task_process_failed`，SSE 交付通用的 `error` 事件。生成任务的明确拒绝仅覆盖接纳前 codec、lane、容量与停止错误；任意 TypeError/ValueError、重复任务或未知队列失败保留 UNKNOWN 与原句柄结算权。
+Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明确的容量/停止接纳使用 `TopicSettleAdmissionError`。任务进程的交互提交没有跨过成功边界时，进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败：`stage` 为 `interaction_admission` 时接纳被拒，`reason` 取 `capacity_rejected` / `queue_stopped`；为 `interaction_apply` 时接纳后没有应用成功，`reason` 为 `apply_failed`（异常类名放在诊断字段 `error_class`），不设时限的等待停在应用之前只会因队列停止，`reason` 为 `queue_stopped`。其他提交异常原样传播，不能据此声称没有副作用。交互没有应用成功时（含提交异常），会话仍保存这一轮，话题为空；进程按失败收口。这个错误是 `workspace.contracts.errors` 中的 Workspace 领域错误：`stage`、`reason` 与 `error_class` 在 `details` 中，`chat.run.failed` 的 `reason` 与 SSE `error` 事件的 `code` 都是 `patchouli.interaction.finalization_failed`，前端据此提示会话已保存这一轮、记忆没有提交成功。生成任务的明确拒绝仅覆盖接纳前 codec、lane、容量与停止错误；任意 TypeError/ValueError、重复任务或未知队列失败保留 UNKNOWN 与原句柄结算权。
 
 ### 4.6 模型调用错误
 
@@ -393,7 +393,7 @@ SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP sta
 | `core.errors` 的五项 Session 错误、PendingUpdateNotAllowedError、IntentDispatchRejectedError/UnknownError | `workspace.contracts.errors`；仍表示本子系统的会话和意图失败，L0 不反向重导出 |
 | `core.mtp` 的 StorageOfflineError/ReadError/WriteError | `core.errors`；中立领域失败，已不继承 SystemFault；协议出口继续使用原 wire code |
 | root API 的 MemoryNotFoundError/MemoryLifecycleUnavailableError | `core.errors.ResourceNotFoundError` / `ResourceUnavailableError`；未知 ValueError/RuntimeError 不转换成资源错误 |
-| `patchouli.errors` 与 service 内的 ActiveInteractionFinalizationError | `patchouli.contracts.errors`；跨子系统只从 contracts 导入 |
+| `patchouli.errors` 与 service 内的 ActiveInteractionFinalizationError | `workspace.contracts.errors`（2026-11-07 起）：它只由任务进程抛出，作为 Workspace 领域错误让流式交付带出错误码，错误码不变 |
 | MTP MemoryIntentRejectedError/UnknownError | `agent_runtime.mtp.error_mapping` 的具名信息构造；内部控制流消费 Workspace 意图错误 |
 | SubAgentExecutionError/SubAgentBudgetExhaustedError/AgentModelUnavailableError | `alice.orchestration.call.response` 的具名信息构造，子帧终态无需异常对象 |
 | MTP MemoryNotFoundError/SubAgentUnexpectedSuspendError | 删除无生产用途的 Python 类型；原 wire code 仅保留为兼容类别 |

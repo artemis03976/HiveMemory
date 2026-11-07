@@ -138,7 +138,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     reinforcement: {
       enable_event_history: true,
       event_history_limit: 10,
-      hit_boost: 5.0,
       citation_boost: 20.0,
       positive_feedback_boost: 50.0,
       negative_feedback_penalty: 50.0,

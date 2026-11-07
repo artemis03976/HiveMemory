@@ -22,7 +22,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/architecture/data-model.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 身份与授权
@@ -120,7 +120,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | 方法 | 规则 | 拒绝 | 调用位置 |
 |:---|:---|:---|:---|
 | `authorize_agent(actor, operation, target)` | `operation` 是六项 `WorkspaceOperation` 之一，且在访问登记的白名单中 | `operation_not_allowed` | 只在 actor API 的方法入口（任务进程的预检索也以主线程经操作入口到达这里） |
-| `authorize_root(actor, target)` | actor 是保留的 `system` | `root_required` | root API 的方法入口（任务进程的话题确认与建立、存储健康、检索命中与交互提交，以及 Import Bus 的导入与确定话题都经它执行）；任务进程的 Gateway、Profile、附件与取消 |
+| `authorize_root(actor, target)` | actor 是保留的 `system` | `root_required` | root API 的方法入口（任务进程的话题确认与建立、存储健康与交互提交，以及 Import Bus 的导入与确定话题都经它执行）；任务进程的 Gateway、Profile、附件与取消 |
 
 两个方法共用三项前提，按顺序检查：准入记录仍然有效，否则 `ScopeRequiredError`（`actor_not_admitted`）；目标等于驻留 Workspace，否则 `OperationDeniedError`（`target_workspace_not_resident`）；actor 用户是目标 Workspace 的 owner，否则 `OperationDeniedError`（`target_owner_mismatch`）。全部通过才返回 `IdentityScope(actor, target)`。owner 检查因此分在两处：第 2 阶段检查要进入的 Workspace，第 3 阶段检查操作的目标。行为白名单不进入工作 actor：每次授权都按访问登记即时查询，不缓存授权结论。另有只读查询 `allowed_operations(actor)`：返回白名单，只供线程表生成线程描述的操作快照，不授予权限。
 
@@ -131,7 +131,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | actor API 的六项操作（执行线程、MCP 请求） | 执行线程或请求的工作 actor | `authorize_agent`，目标取驻留 Workspace |
 | 任务进程的预检索 | 任务进程的执行者（主线程） | 经操作入口进入 actor API，`authorize_agent(memory.search)`；执行者没有 `memory.search` 时不检索 |
 | root API（管理、会话、上传、提交交互与确定话题） | 请求的 `system` | `authorize_root`，目标由请求给出 |
-| 任务进程的 Gateway、Profile、附件、话题确认与建立、存储健康、检索命中与交互提交 | 系统的 root 工作 actor | `authorize_root`：Gateway、Profile 与附件由执行器或 CPU 分配授权，其余经 root API |
+| 任务进程的 Gateway、Profile、附件、话题确认与建立、存储健康与交互提交 | 系统的 root 工作 actor | `authorize_root`：Gateway、Profile 与附件由执行器或 CPU 分配授权，其余经 root API |
 | 取消 | 请求方（`system`） | `authorize_root(请求方, 进程的 Workspace)`，拒绝呈现为 `not_found` |
 | Import Bus 的导入与写入时的确定话题 | 系统的 root 工作 actor | `authorize_root`，在编排器调用的 root 方法入口，导入一轮与确定话题各一次 |
 
@@ -214,7 +214,7 @@ Interaction codec 为 v7，generation codec 的 `schema_version` 为字符串 `"
 - root 只由 actor 是否为保留的 `system` 判定；能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能），当前只有 HTTP server、系统自身的 principal 与 Profile 注入脚本可以，外部 harness 不能（[认证与访问登记](./authentication.md#1-两阶段认证)）。HTTP 管理路由要求管理凭据（[认证与访问登记](./authentication.md#1-两阶段认证)第 1 节），但请求头中的用户身份仍不做证明，管理凭据也只防误用：能读到凭据文件的本机程序仍能经管理路由以 `system` 声明进入 root API，这沿用本地单用户部署的信任假设；
 - principal 标识接入来源，一个外部 harness 对应一个 principal（[认证与访问登记](./authentication.md#1-两阶段认证)第 1 节），不与 Agent 绑定：同一个 harness 可以以不同的具体 Agent 运行，Agent 由经过凭据证明的来源声明，权限与记忆可见性只跟随 Agent，与经哪个来源接入无关。仍然存在的限制是可声明的 Agent 不要求已登记：用户级访问记录接纳该用户的任意具体 Agent，chat 需要对应的 Agent Profile，导入与 MCP 不要求。请求级提交只能检索、读取、写入与更新，RUN 与 CALL 仍需要执行线程；
 - 工作 actor 是普通值，进程内的防误用由构造、持有与调用位置的架构测试承担，不隔离刻意违规的进程内代码；
-- Patchouli 的交互提交（含状态查询与等待）、话题准备、检索命中、存储健康与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。前几条路由的生产调用方只有 root API（交互提交与等待只由提交交互调用，状态查询另由确定话题调用），意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成授权；
+- Patchouli 的交互提交（含状态查询与等待）、话题准备、存储健康、检索命中与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。前三类路由的生产调用方只有 root API（交互提交与等待只由提交交互调用，状态查询另由确定话题调用），检索命中与意图提交路由唯一的生产调用方是 actor API，分别在 `memory.search` 与 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成授权；
 - 第 3 阶段只接受目标等于驻留 Workspace，跨 Workspace 的授权模型尚不存在；后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
 
 ## 9. 代码与测试入口

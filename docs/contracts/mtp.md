@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Memory Tool Protocol (MTP)
@@ -78,7 +78,7 @@ Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格�
 - 结果由 MemoryCompiler 编译为 Retrieval Context；
 - 读取能力预热 workspace 完整原子缓存，后续交付仍重新检查当前 actor 的可见性；
 - 空结果仍为 `success`，并带 `no_memories_found` warning；
-- 不记录检索命中：命中只为任务进程的预检索、在 Actor 有输出之后记录（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。
+- actor API 随检索为交付的记忆记录检索命中，尽力而为，记录失败不改变检索结果（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。
 
 SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”当成系统故障。检索本身具有不确定性，空结果只说明当前查询没有证据；Agent 仍可以改写查询、继续回答或明确告知信息不足。
 
@@ -132,7 +132,7 @@ RUN 被保留在记忆协议中，是因为一部分记忆不仅需要被阅读�
 - 建立话题失败（例如活跃池已满且 LRU 候选都被占用）时这次写入以 `mtp.system.fault` 回填，不登记意图，下一次写入重新建立；
 - CPU 结果与 `InteractionPayload` 都不携带物化任务，交互提交不派发写入。
 
-ACK 表示意图已在 workspace 登记并被生成队列接纳，不表示长期记忆已经持久化。确定性拒绝返回 `mtp.memory.intent_rejected`（agent_fault），句柄为 FAILED；结果未知返回 `mtp.memory.intent_unknown`（system_fault），句柄保持 MATERIALIZING，若实际已接纳可继续收到结算。两类错误都不返回 ACK，详见[错误模型](./error-model.md)。
+ACK 表示意图已在 workspace 登记并被生成队列接纳，不表示长期记忆已经持久化。确定性拒绝返回 `mtp.memory.intent_rejected`（agent_fault），句柄为 FAILED；结果未知返回 `mtp.memory.intent_unknown`（system_fault），句柄保持 MATERIALIZING，若实际已接纳可继续收到结算。两类错误都不返回 ACK，详见[错误模型](./error-model.md)。为这一轮确定话题时话题正忙（新话题时活跃池已满且 LRU 候选都被占用，`TopicBusyError`）返回 `mtp.memory.topic_busy`（agent_fault）：写入在登记之前失败，没有句柄，可以稍后重试，与 MCP 的 `patchouli.topic.busy` 对应。
 
 显式保存意图不再等待整轮完成：长时间运行的 Agent 可以及时提交阶段成果，随后 CPU 失败、取消或进程关闭都不撤回它。PendingAtom 支持在正式提取、去重与持久化之前引用刚提交的内容，正式 MemoryAtom 仍由 Patchouli 生成链创建。结算句柄保留到重启；队列接纳是进程内承诺，不是跨重启耐久承诺。
 

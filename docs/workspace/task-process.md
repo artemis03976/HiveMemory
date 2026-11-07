@@ -27,7 +27,7 @@ related_docs:
   - docs/system/application-services.md
   - docs/system/attachments.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 任务进程
@@ -46,9 +46,9 @@ last_reviewed: 2026-11-06
 |:---|:---|:---|
 | `TaskProcessService`（注册入口，`workspace/process/service.py`） | 生命周期依赖：认证网关与组合根注入的系统自身的 principal（注册时的两次认证）、操作授权者（取消的 root 授权）、事件 emitter、进程表（组合根创建，与进程线程管理共享）、执行器 | 总线、CPU 端口、CPU 分配器、asset reader、编译配置等编排依赖 |
 | `TaskProcess`（进程状态容器，`workspace/process/task_process.py`） | 本进程独有的东西：进程记录（含执行者与系统的 root 工作 actor、观测标签与绑定了本进程关联字段的观测通道）、任务参数、工作集、线程表、`trace_id`、进程 task（本进程自己的执行流）与输出通道 | 任何跨进程共享的依赖 |
-| `TaskProcessRunner`（执行器，`workspace/process/runner.py`） | 所有进程共用的编排依赖：全局总线、CPU 端口、会话服务、`CPUAllocator`、进程线程管理 `ProcessThreads`、操作入口（预检索）、root 交互 API 与 root 记忆 API（交互提交、检索命中与存储健康）、操作授权者（Gateway 的 root 授权）、Gateway 超时与会话轮数配置；唯一的编排骨架 `run(process)` 与唯一的关闭流程 `close(process)`，二者都运行在进程 task 中 | 任何进程的状态 |
+| `TaskProcessRunner`（执行器，`workspace/process/runner.py`） | 所有进程共用的编排依赖：全局总线、CPU 端口、会话服务、`CPUAllocator`、进程线程管理 `ProcessThreads`、操作入口（预检索）、root 交互 API 与 root 记忆 API（交互提交与存储健康）、操作授权者（Gateway 的 root 授权）、Gateway 超时与会话轮数配置；唯一的编排骨架 `run(process)` 与唯一的关闭流程 `close(process)`，二者都运行在进程 task 中 | 任何进程的状态 |
 
-这样划分是为了让注册入口只管理进程的生命周期，而不认识具体流程，并让进程本身只是状态容器：进程记录与工作集，由所有进程共用的四阶段骨架驱动（理念见[第五代架构 Idea](../ideas/fifth-generation-architecture.md)第 3.2 节）。执行器与 `CPUAllocator` 由组合根构建并注入注册入口，入口不转交编排依赖。任务进程在能力层中只导入 root API：话题确认与建立、存储健康、检索命中与交互提交都是系统级操作，由 root API 在方法入口授权；预检索是执行者的 actor 操作，经操作入口的公共契约 `OperationEntry` 以主线程提交，与 CPU 一侧走同一条路，进程不取得 actor API 或操作入口的实现（架构测试守护）。执行器、CPU 分配与进程线程管理不导入认证一侧，子线程的被调用方经 `core.access` 的准入端口做准入（[Workspace](./README.md#4-包结构与依赖规则)）。
+这样划分是为了让注册入口只管理进程的生命周期，而不认识具体流程，并让进程本身只是状态容器：进程记录与工作集，由所有进程共用的四阶段骨架驱动（理念见[第五代架构 Idea](../ideas/fifth-generation-architecture.md)第 3.2 节）。执行器与 `CPUAllocator` 由组合根构建并注入注册入口，入口不转交编排依赖。任务进程在能力层中只导入 root API：话题确认与建立、存储健康与交互提交都是系统级操作，由 root API 在方法入口授权；预检索是执行者的 actor 操作，经操作入口的公共契约 `OperationEntry` 以主线程提交，与 CPU 一侧走同一条路，进程不取得 actor API 或操作入口的实现（架构测试守护）。执行器、CPU 分配与进程线程管理不导入认证一侧，子线程的被调用方经 `core.access` 的准入端口做准入（[Workspace](./README.md#4-包结构与依赖规则)）。
 
 ## 2. 注册
 
@@ -59,7 +59,7 @@ last_reviewed: 2026-11-06
 3. 使用请求 `session_id` 查找本 Workspace 会话，缺省则自动创建；同步检查容量与单进程认领，失败时回滚本次自动创建的空会话（[会话资源](./sessions.md#3-认领与容量)）；然后以通过认证的声明创建一次冻结的 `ExecutionLabels(agent_id, workspace_id)`，创建进程记录（写入两个工作 actor 与标签，并以标签绑定 `chat.run.*` 的事件发布器）与 `TaskProcess`，登记到进程表；认证通过后、登记完成前失败时只还原会话的认领与新建，工作 actor 是局部值，不登记就不留下任何状态；
 4. 签发并返回不透明的进程句柄（只读 `process_id/session_id`）；关闭时在进程注销后释放会话认领。
 
-`process_id` 由 server 入口在进入编排服务前生成并冻结。执行者与系统分开认证，是因为进程里的操作分属两个执行者（第 5.2 节）：执行者只做 actor 操作（主线程的预检索与 CPU 提交的请求），系统执行 Gateway、Profile、附件、话题确认与建立、存储健康、检索命中与交互提交，交互中的 Agent 作为参与者显式传递（[身份与授权](./identity-and-authorization.md#4-操作授权)）。
+`process_id` 由 server 入口在进入编排服务前生成并冻结。执行者与系统分开认证，是因为进程里的操作分属两个执行者（第 5.2 节）：执行者只做 actor 操作（主线程的预检索与 CPU 提交的请求），系统执行 Gateway、Profile、附件、话题确认与建立、存储健康与交互提交，交互中的 Agent 作为参与者显式传递（[身份与授权](./identity-and-authorization.md#4-操作授权)）。
 
 执行标签由进程记录持有：事件发布器以它绑定关联字段，会话轮次的 `agent_id` 取自它，CPU 分配把同一标签对象传给 `CPUInputManifest.labels`，供运行级观测（Alice 的 `agent.run.*`）与历史角色匹配使用；执行线程的标签由线程表放进线程描述（[执行线程](./execution-threads.md#5-主线程交给-cpu)）。标签只服务历史角色匹配、展示回退与观测，不能授权或选择资源目标。
 
@@ -103,6 +103,7 @@ TaskProcessService.run_process(handle)：创建进程 task；流式交付订阅�
        -> 解析执行者的 Agent Profile（workspace 读取视图，管理读取）  root 授权
        -> 以执行者与图纸派生主线程（读取操作快照、登记线程表）
        -> 预检索：按 Gateway 的检索计划，经操作入口以主线程提交 RetrieveRequest  actor API 授权 memory.search
+          actor API 随检索为交付的记忆记录检索命中（尽力而为）
        -> Gateway 指向已有话题：以主线程取得派发话题，root API 确认话题并冻结  root 授权
           Gateway 指向新话题：此时不建立话题
        -> root API 读取存储健康  root 授权
@@ -114,7 +115,6 @@ TaskProcessService.run_process(handle)：创建进程 task；流式交付订阅�
        -> Actor 阶段结束：同步结束全部线程，接受完成的历史压缩检查点
   -> 有输出的 completed/cancelled/failed：封口交互记录 -> 进入 FINALIZE -> 创建并持有提交 task
        -> 等待进行中的话题确定结束
-       -> root API 为预检索的记忆记录检索命中（尽力而为）  root 授权
        -> root API 提交交互并等待应用（interaction_id 取 process_id 值，参与者为执行者）  root 授权
        -> 写入会话（话题取交互实际所在的话题，没有应用成功时为空）
   -> 无输出、异常、FINALIZE 前交付方离开：不提交、不写会话
@@ -137,10 +137,10 @@ Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit
 |:---|:---|:---|
 | Gateway 的话题读取 | 系统 | 执行器在调用前 `authorize_root(system_actor, 目标)`：话题属于 Workspace，与 Agent 无关 |
 | Profile 解析、附件租借 | 系统 | CPU 分配在副作用前 `authorize_root(system_actor, 目标)`：两者是用户的选择，对用户可见 |
-| 话题确认与建立、存储健康、检索命中、交互提交 | 系统；交互提交时执行者作为参与者 | 经 root API（`RootTopicService.determine_topic`、`RootMemoryService.storage_available` 与 `record_retrieval_hits`、`RootInteractionService.submit_interaction`），由方法入口 `authorize_root(system_actor, 目标)` |
+| 话题确认与建立、存储健康、交互提交 | 系统；交互提交时执行者作为参与者 | 经 root API（`RootTopicService.determine_topic`、`RootMemoryService.storage_available`、`RootInteractionService.submit_interaction`），由方法入口 `authorize_root(system_actor, 目标)` |
 | 预检索 | 执行者 | 经操作入口以主线程提交 `RetrieveRequest`，actor API 以 `authorize_agent(执行者, memory.search, 驻留 Workspace)` 授权；执行者没有 `memory.search`（`operation_not_allowed`）时不检索，其他授权失败（如准入已失效）照常使进程失败 |
 
-是否预检索由执行器判定：请求关闭了记忆检索（`enable_memory_retrieval`）、Gateway 的检索计划为跳过或要求零条时不提交；否则按计划构造 `RetrieveRequest`（改写后的查询、关键词与条数），经操作入口以主线程提交，与 Alice 的 SEARCH 走同一条路。系统阶段不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成对话；它只是不预检索，对话照常进行。检索按执行者的可见性进行，结果经读取视图逐条做归属校验与交付授权，并预热读取缓存：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）。预检索以主线程提交而不由执行器自行授权，是为了让 `authorize_agent` 只在 actor API 一处调用；预检索也因此共用线程的存活判定，停止被接受后以 `ThreadEndedError` 被拒绝（第 12 节）。
+是否预检索由执行器判定：请求关闭了记忆检索（`enable_memory_retrieval`）、Gateway 的检索计划为跳过或要求零条时不提交；否则按计划构造 `RetrieveRequest`（改写后的查询、关键词与条数），经操作入口以主线程提交，与 Alice 的 SEARCH 走同一条路。系统阶段不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成对话；它只是不预检索，对话照常进行。检索按执行者的可见性进行，结果经读取视图逐条做归属校验与交付授权，并预热读取缓存：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）。actor API 随检索以执行者的 scope 为交付的记忆记录检索命中（[能力层](./capability.md#7-引用读取的副作用)），命中因此在 PREPARE 记录，本轮之后失败、停止或没有输出也不撤回。预检索以主线程提交而不由执行器自行授权，是为了让 `authorize_agent` 只在 actor API 一处调用；预检索也因此共用线程的存活判定，停止被接受后以 `ThreadEndedError` 被拒绝（第 12 节）。
 
 scope 不保存在工作集中等待使用，也不进入 CPU 输入清单、线程描述或任何 CPU 可见的对象。经 root API 的阶段调用由执行器或线程表交出进程记录的系统 root 工作 actor 与目标 Workspace，root 方法在入口授权一次，方法内部依次调用的公开路由不再各自授权；Workspace 归属由资源 owner 校验，进程不另行比对自家子系统的返回值。授权失败沿异常路径按进程失败收口；提交任务中的授权失败不影响已接纳写入。两个授权方法在 `workspace.process` 中的调用位置由架构测试锁定：`authorize_root` 只在执行器（Gateway）、CPU 分配（Profile 与附件）与注册入口（取消）中调用，`authorize_agent` 不在任务进程中调用。
 
@@ -187,12 +187,11 @@ CPU 的三种结局只要有回复文本或执行事件就封口并进入 FINALI
 进入 FINALIZE 后，进程持有的提交任务依次：
 
 1. 等待进行中的话题确定结束（第一次写入启动的建立可能仍在进行）；
-2. 经 root API 为预检索到的记忆记录检索命中（来源 `retrieval.pre_retrieval`）：只在 Actor 有输出后记录，不依赖提交的结局，CPU 失败但有输出的轮次同样记录；命中是生命周期的强化信号，尽力而为，失败只记日志；
-3. 经 root API 提交交互并等待应用：交互标识取 `process_id`，来源为 `active_chat`，参与者为执行者，不设等待时限；有派发话题时提交到它，否则携带 Gateway 的新话题决定，话题在应用时建立。查重、提交与等待应用都在这一次调用之内，接纳、等待与结局的归类只在 Patchouli 做一次（[能力层](./capability.md#3-root-api)）；
-4. 写入会话，话题取交互实际所在的话题；提交被拒或应用没有成功时照样写入，话题为空（[会话资源](./sessions.md#4-写入会话的时机)）；
-5. 本轮话题在应用时才建立的，此时绑定 `chat.run.*` 事件的话题。
+2. 经 root API 提交交互并等待应用：交互标识取 `process_id`，来源为 `active_chat`，参与者为执行者，不设等待时限；有派发话题时提交到它，否则携带 Gateway 的新话题决定，话题在应用时建立。查重、提交与等待应用都在这一次调用之内，接纳、等待与结局的归类只在 Patchouli 做一次（[能力层](./capability.md#3-root-api)）；
+3. 写入会话，话题取交互实际所在的话题；提交被拒或应用没有成功时照样写入，话题为空（[会话资源](./sessions.md#4-写入会话的时机)）；
+4. 本轮话题在应用时才建立的，此时绑定 `chat.run.*` 事件的话题。
 
-提交被拒（提交队列容量已满或已停止）或应用没有成功时，进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）按失败收口：接纳被拒记为接纳阶段，应用失败或队列停止使等待停在应用之前，都记为应用阶段。会话在提交之后才写入，是因为下一轮 Gateway 续接上一轮要用交互实际所在的话题；FINALIZE 期间会话里还没有这一轮，而进程仍持有会话认领，同一会话的下一轮不会在此期间开始。运行结果与 `done` 的 `topic_id` 都是交互实际所在的话题。
+提交被拒（提交队列容量已满或已停止）或应用没有成功时，进程以 Workspace 领域错误 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）按失败收口：接纳被拒记为接纳阶段，应用失败或队列停止使等待停在应用之前，都记为应用阶段，阶段与原因码在错误的 `details` 中；流式交付的 `error` 事件带这个错误码。会话在提交之后才写入，是因为下一轮 Gateway 续接上一轮要用交互实际所在的话题；FINALIZE 期间会话里还没有这一轮，而进程仍持有会话认领，同一会话的下一轮不会在此期间开始。运行结果与 `done` 的 `topic_id` 都是交互实际所在的话题。
 
 已输出的取消或失败轮次仍是后续会话的事实，因此同时保存到会话和记忆材料，并标明结局。这样既保留“内容够了就停止”的回复，又维持一轮对应一个 process/interaction；不引入待用户下一轮确认的中间状态。后续若支持编辑重发，需单独处理已提交轮次的分叉，不能以停止代替撤回。
 
@@ -243,7 +242,7 @@ chat 路由订阅流式交付，不轮询断连，也不为每个事件创建 ta
 
 取消响应点只有两处：只有 Gateway 与 Actor 执行两个阶段会取消当前 `active_task`，因为这两个阶段在前台调用 LLM。PREPARE 不可中断，正在进行的工作照常完成：停止被接受后主线程随之结束，此后才开始的预检索与已有话题的确认以 `ThreadEndedError` 被拒绝，进程随即按 PREPARE 阶段的取消收口；其余时刻（Profile 解析、正在进行的预检索、存储健康与 CPU 分配期间）收到的停止在进入 Actor 执行前统一检查一次（CPU 分配之后的检查与 `_run_interruptible` 的入口检查）。两种情形都跳过 Actor 执行与提交，返回 cancelled 结果，在关闭流程中释放租借；阶段交接窗口只记录 stop，下一阶段不会启动；FINALIZE 与 Terminal 拒绝 stop。停止在任何时刻都立即取消当前可中断阶段的子 task：Actor 中无论 CPU 在等模型还是阻塞在输出通道写入上。外部取消的入口是 `POST /chat/stop`（必须携带明确的 `process_id`）与交付方离开（HTTP 为客户端断连）。
 
-**停止与执行线程**：停止请求同步记录停止（Actor 阶段同时取消 Actor 子 task），进程的全部执行线程随之结束：存活判定读取进程结局，此后的 actor 操作（含 PREPARE 中的预检索）、取得派发话题与 CALL 派生都以 `ThreadEndedError` 拒绝，停止路径不通知线程表。CPU 只用已产生的内容组装 cancelled 结果（CPU 端口要求取消后的收尾不依赖 actor 操作）；Actor 阶段收尾标记全部线程结束、接受检查点，之后的封口、检索命中、交互提交与会话写入都由系统经 root API 完成，不依赖任何线程。停止那一刻 CPU 内的在途读取随子 task 的取消中断，已开始派发的写入受取消保护照常完成；正在等待话题确定的写入不登记意图（随 Actor 子 task 一起取消，或在登记前的同步段被拒绝），话题确定本身照常完成，已经建立的话题没有写入。
+**停止与执行线程**：停止请求同步记录停止（Actor 阶段同时取消 Actor 子 task），进程的全部执行线程随之结束：存活判定读取进程结局，此后的 actor 操作（含 PREPARE 中的预检索）、取得派发话题与 CALL 派生都以 `ThreadEndedError` 拒绝，停止路径不通知线程表。CPU 只用已产生的内容组装 cancelled 结果（CPU 端口要求取消后的收尾不依赖 actor 操作）；Actor 阶段收尾标记全部线程结束、接受检查点，之后的封口、交互提交与会话写入都由系统经 root API 完成，不依赖任何线程。停止那一刻 CPU 内的在途读取随子 task 的取消中断，已开始派发的写入受取消保护照常完成；正在等待话题确定的写入不登记意图（随 Actor 子 task 一起取消，或在登记前的同步段被拒绝），话题确定本身照常完成，已经建立的话题没有写入。
 
 用户 stop 在编排骨架内被翻译为私有 `_ProcessCancelled` 分支，下游只传播原生 `asyncio.CancelledError`。`_run_interruptible()` 区分“stop 取消 child task”和“进程 task 自身被取消”；后者只来自系统关闭的硬取消，必须原样向上传播。child task 可能把取消转为返回值（CPU 在最外层这样做），等待方的取消请求会随之丢失，因此 child task 正常结束后同样按进入时记录的 `cancelling()` 判断，重新抛出硬取消。资源所有者在 unwind 中关闭自己创建的 LLM 流与 provider response；收尾异常只记录日志，不能替换正在传播的 `CancelledError`。
 
@@ -276,7 +275,7 @@ chat 路由订阅流式交付，不轮询断连，也不为每个事件创建 ta
 - 封口：与 Import Bus 共用的 [`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；
 - 公共契约：[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)、[`workspace/contracts/process.py`](../../src/hivememory/workspace/contracts/process.py)；HTTP 入口：[`server/routers/chat.py`](../../src/hivememory/server/routers/chat.py)；
 - 测试：
-  - `tests/unit/workspace/process/test_gateway_chat_flow.py`（系统阶段以 root scope 执行、提交的参与者是执行者；预检索按 Gateway 的计划经读取视图交付，执行者没有 `memory.search` 或请求关闭检索时不检索；已有话题在 CPU 分配前确定，新话题且没有写入时由提交建立；提交没有成功时会话仍有这一轮、话题为空；检索命中在有输出后记录、记录失败不影响本轮；PREPARE 中停止拒绝预检索；Actor 中停止在等 CPU 与阻塞于通道写入时的响应，以及 Gateway 之前的模型预取）；
+  - `tests/unit/workspace/process/test_gateway_chat_flow.py`（系统阶段以 root scope 执行、提交的参与者是执行者；预检索按 Gateway 的计划经读取视图交付，执行者没有 `memory.search` 或请求关闭检索时不检索；已有话题在 CPU 分配前确定，新话题且没有写入时由提交建立，CPU 返回时写入仍在建立话题则提交先等它结束、提交到同一话题；提交没有成功时会话仍有这一轮、话题为空；检索命中随预检索以执行者的 scope 记录；PREPARE 中停止拒绝预检索；Actor 中停止在等 CPU 与阻塞于通道写入时的响应，以及 Gateway 之前的模型预取）；
   - `tests/unit/workspace/process/test_chat_run_control_contract.py`（注册的两次认证与失败时不登记、取消的 root 授权、输出通道的容量与离开语义、订阅者暂停时进程仍推进、五种结局的唯一退出路径、交付方离开不等待关闭）；
   - `tests/unit/workspace/process/test_cpu_allocation.py`（Profile 的管理读取与附件租借以 root scope 执行、准入失效或 Profile 解析失败时先于预检索与话题失败、租借释放与关闭顺序）；
   - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局与执行异常）；

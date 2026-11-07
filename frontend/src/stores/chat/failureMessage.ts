@@ -13,3 +13,9 @@ export function chatFailureMessage(reason?: string | null): string {
       return '本轮执行失败';
   }
 }
+
+/** 流式错误的提示：交互提交失败时会话已保存这一轮，只是记忆没有提交；其余沿用后端给出的安全文案。 */
+export function chatErrorMessage(code?: string | null, message?: string | null): string {
+  if (code === 'patchouli.interaction.finalization_failed') return '本轮已保存到会话，但记忆没有提交成功';
+  return message || '系统错误，请检查后端服务器';
+}

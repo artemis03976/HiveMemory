@@ -25,7 +25,7 @@ related_docs:
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/archive/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 身份隔离与执行安全治理
@@ -41,7 +41,7 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 | Memory visibility | MemoryAtom 独立持有归属、`MemoryAccessPolicy` 与来源记录；Patchouli 是可见性所有者 | workspace resolver 在 L1 命中与 L2 交付时重验归属及 actor policy；canonical 变更失效原子、旧 alias 和 Profile 派生项，不提供通知未送达补偿 |
 | PendingAtom | workspace registry 独立保存 `belong_to`、`from_actor` 与 `process_id`；actor API 分别以 `memory.write` / `memory.update` 授权登记、以 `memory.read` 授权回读 | 第一版不设 Pending policy，同 Workspace 中获读授权的 Actor 可读回意图；跨 Workspace 不可读，无持久化 ledger；结算 redirect 仍逐次校验 canonical 可见性 |
 | Agent Profile | Profile 作为 MemoryAtom，主线程 Profile 由任务进程 CPU 分配以系统的 root 授权、按管理语义读取（只检查 Workspace 归属，加载哪份图纸取自认证得到的执行者），CALL 目标经 actor API 的 `agent.call` 按调用方的可见性解析；ProfileCache 按 Workspace/alias 定位，actor 读取命中时以源 policy 对当前 actor 重验 | 主线程与 CALL 目标共用 workspace 读取视图，来源 UUID 失效与代次回填保护已生效；事件通知无持久重放或未送达补偿 |
-| 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的系统阶段（Gateway、Profile、附件、话题确认与建立、存储健康、检索命中与交互提交）、取消与 Import Bus 的确定话题和交互提交同样以 root 授权、由 `system` 执行，交互提交与确定话题只有 root API 的一组方法；预检索是执行者的 actor 操作，以主线程经操作入口按 `memory.search` 授权 | 能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能，2026-10-29），当前只有 HTTP server、系统自身的 principal 与 Profile 注入脚本；HTTP 管理面要求管理凭据、后端默认只监听本机地址（2026-11-05），agent 顺手调用管理接口与其他机器都被拒绝；但凭据只防误用，请求头中的用户身份仍不做证明，能读到凭据文件的本机程序仍能经管理路由以 `system` 进入 root API，沿用本地单用户部署的信任假设 |
+| 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的系统阶段（Gateway、Profile、附件、话题确认与建立、存储健康与交互提交）、取消与 Import Bus 的确定话题和交互提交同样以 root 授权、由 `system` 执行，交互提交与确定话题只有 root API 的一组方法；预检索是执行者的 actor 操作，以主线程经操作入口按 `memory.search` 授权 | 能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能，2026-10-29），当前只有 HTTP server、系统自身的 principal 与 Profile 注入脚本；HTTP 管理面要求管理凭据、后端默认只监听本机地址（2026-11-05），agent 顺手调用管理接口与其他机器都被拒绝；但凭据只防误用，请求头中的用户身份仍不做证明，能读到凭据文件的本机程序仍能经管理路由以 `system` 进入 root API，沿用本地单用户部署的信任假设 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、任务进程 task、可中断阶段 task、进程输出通道与 `SinkRunOutput` | frame registry/CALL record、进程 task 与可中断阶段 task、输出通道和流序号均按进程或 run 隔离；执行模型只含观测标签；CALL 子帧以被调用方身份运行（子线程记录持有被调用方的工作 actor，按被调用方的白名单与可见性授权），调用方持有 `agent.call` 即可经 CALL 返回值取得被调用方的 PRIVATE 内容，没有“谁能调用谁”的细粒度策略 |
 | MTP permission | Agent 权限只由访问登记的 actor 操作白名单表达，Profile 不承载权限；Alice 把所属线程描述的操作快照翻译为 frame 动词集合，同时驱动提示词与 Koakuma 执行前检查，资源操作由 actor API 逐次授权 | prompt 教学不是硬安全保证；`sys_*` 系统工具不设权限，所有 Agent 都可写文件与执行 Python；白名单只能改配置并重启；子 agent 按被调用方自己的白名单运行，被调用方须在本 Workspace 准入 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |

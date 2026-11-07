@@ -113,7 +113,7 @@ READ/SEARCH 输出都经过 MemoryCompiler。MTP handler 不维护另一套记�
 
 代码正文由 MemoryAtom 提供，命令 args 作为 `params` 注入受限 namespace。它仍使用与 Python REPL 相同的本地子进程限制，不能因为代码来自“记忆”就推断其来源可信。
 
-WRITE/UPDATE 的确定性拒绝映射为 `mtp.memory.intent_rejected`（agent_fault），结果未知映射为 `mtp.memory.intent_unknown`（system_fault），两者均不返回 ACK。中英文文案区分拒绝与未知；未知不能解释为未入队，详见[错误模型](../contracts/error-model.md)。
+WRITE/UPDATE 的确定性拒绝映射为 `mtp.memory.intent_rejected`（agent_fault），结果未知映射为 `mtp.memory.intent_unknown`（system_fault），两者均不返回 ACK。中英文文案区分拒绝与未知；未知不能解释为未入队，详见[错误模型](../contracts/error-model.md)。确定话题时话题正忙映射为 `mtp.memory.topic_busy`（agent_fault），写入没有登记，文案提示可以稍后重试（[MTP 契约](../contracts/mtp.md)）。
 
 ## 6. 错误、warning、citation 与 i18n
 

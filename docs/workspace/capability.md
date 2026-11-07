@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/execution-threads.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/attachments.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 能力层
@@ -29,7 +29,7 @@ last_reviewed: 2026-11-06
 | 调用面 | 代码 | 执行者与授权 | 检查（共用的准入与目标检查之外） | 调用方 |
 |:---|:---|:---|:---|:---|
 | actor API | `workspace/capability/actor/` | 执行线程或请求的工作 actor，`authorize_agent`，目标取驻留 Workspace | 访问登记白名单包含该 actor 操作 | 只有操作入口 `WorkspaceOperationEntry`（第 6 节）；执行线程经线程提交（CPU 的请求与任务进程的预检索），MCP 入口经门面取得同一入口的请求级提交 |
-| root API | `workspace/capability/root/` | 请求的 `system`，`authorize_root`，目标由请求给出 | actor 是保留的 `system`；不读取白名单 | 门面暴露给 server 的 HTTP 管理入口；Profile 注入脚本；任务进程（话题确认与建立、存储健康、检索命中与交互提交）；Import Bus 编排器（交互提交与写入时确定话题）；后两者由组合根注入 |
+| root API | `workspace/capability/root/` | 请求的 `system`，`authorize_root`，目标由请求给出 | actor 是保留的 `system`；不读取白名单 | 门面暴露给 server 的 HTTP 管理入口；Profile 注入脚本；任务进程（话题确认与建立、存储健康与交互提交）；Import Bus 编排器（交互提交与写入时确定话题）；后两者由组合根注入 |
 | 阶段调用 | `workspace/process/`（`TaskProcessRunner` 的 Gateway、`CPUAllocator` 的 Profile 与附件、注册入口的取消） | `authorize_root` | 不检查 actor 操作 | 任务进程自身的编排（[任务进程](./task-process.md#52-阶段调用)） |
 
 **为什么分成三个调用面**：能力层最初从 System 层的应用服务原样迁入，管理方法与 actor 方法混在同一批服务中，管理能力是可以登记给任何 actor 的普通 operation；actor 一侧的方法也与 actor 能做的事对不齐，任务进程的阶段调用还借用 actor 的 operation，没有检索许可的 Agent 在准备阶段就会失败。现在的划分按“谁在做这件事”区分：
@@ -47,7 +47,7 @@ last_reviewed: 2026-11-06
 | operation | MTP 动词 | 请求 | actor API 方法 | 说明 |
 |:---|:---|:---|:---|:---|
 | `memory.read` | READ（含 Agent Profile 原子；CALL 的 `context_refs` 也以此请求逐项解析） | `ResolveReferencesRequest` | `ActorMemoryService.resolve_references` | 交付正式原子时记录引用 |
-| `memory.search` | SEARCH | `RetrieveRequest` | `ActorMemoryService.retrieve` | 结果预热原子缓存；不记录引用 |
+| `memory.search` | SEARCH | `RetrieveRequest` | `ActorMemoryService.retrieve` | 结果预热原子缓存；为交付的记忆记录检索命中（第 7 节），不记录引用 |
 | `memory.run` | RUN 的记忆中用户工具 | `ResolveRunTargetRequest` | `ActorMemoryService.resolve_run_target` | 交付执行目标时记录引用；`sys_*` 系统工具在 Alice 本地执行，不经能力层 |
 | `memory.write` | WRITE | `SubmitWriteIntentRequest` | `ActorMemoryService.submit_write_intent` | ACK 表示已登记并被生成队列接纳 |
 | `memory.update` | UPDATE | `SubmitUpdateIntentRequest` | `ActorMemoryService.submit_update_intent` | 基础原子按正式原子 policy 验证；不记录引用 |
@@ -57,11 +57,11 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 ## 3. root API
 
-管理方法与原管理用例一致，另有任务进程与 Import Bus 共用的系统操作：提交交互、为一轮确定话题，以及任务进程的检索命中与存储健康。每个方法在入口 root 授权一次，方法内部依次调用的公开路由不再各自授权。授权为 root 授权：只接受保留的 `system`，任何具体 Agent 即使持有全部 actor 操作也以 `root_required` 被拒绝，`system` 也不需要（不能配置）白名单。管理读取经 Patchouli 公开路由直接读取，不进入 actor 读取视图的缓存。
+管理方法与原管理用例一致，另有任务进程与 Import Bus 共用的系统操作：提交交互、为一轮确定话题，以及任务进程的存储健康。每个方法在入口 root 授权一次，方法内部依次调用的公开路由不再各自授权。授权为 root 授权：只接受保留的 `system`，任何具体 Agent 即使持有全部 actor 操作也以 `root_required` 被拒绝，`system` 也不需要（不能配置）白名单。管理读取经 Patchouli 公开路由直接读取，不进入 actor 读取视图的缓存。
 
 | 服务 | 方法 | 行为 |
 |:---|:---|:---|
-| `RootMemoryService` | `create_memory`、`list_memories`、`get_memory`、`update_memory`、`record_feedback`、`delete_memory`、`record_retrieval_hits`、`storage_available` | 以授权返回的 `IdentityScope` 经 Patchouli public route 执行；创建与编辑只提交 API 字段，原子由 Patchouli 构造与校验，root API 不组装 `MemoryAtom`。列表查询显式排除 `AGENT_PROFILE`，避免普通记忆管理与 Profile 资产混为一类；不存在的 get/update 使用共享的 `ResourceNotFoundError`。`record_retrieval_hits` 为一批检索到的记忆逐条记录命中，尽力而为，单条失败只由 Patchouli 记日志；`storage_available` 读取存储是否可用。两者只供任务进程使用（命中只记预检索，存储健康决定提示词的离线提示），没有 HTTP 管理路由 |
+| `RootMemoryService` | `create_memory`、`list_memories`、`get_memory`、`update_memory`、`record_feedback`、`delete_memory`、`storage_available` | 以授权返回的 `IdentityScope` 经 Patchouli public route 执行；创建与编辑只提交 API 字段，原子由 Patchouli 构造与校验，root API 不组装 `MemoryAtom`。列表查询显式排除 `AGENT_PROFILE`，避免普通记忆管理与 Profile 资产混为一类；不存在的 get/update 使用共享的 `ResourceNotFoundError`。`storage_available` 读取存储是否可用，只供任务进程使用（存储健康决定提示词的离线提示），没有 HTTP 管理路由 |
 | `RootAgentProfileService` | `create_agent_profile`、`list_agent_profiles` | 只提交创建材料并列出 `AGENT_PROFILE`，Profile 原子的构造、持久化和可见性都由 Patchouli 负责；`agent_config` 是资产内容，不是 System 直接解释的运行时权限 |
 | `RootSessionService` | `create_session`、`list_sessions`、`get_session`、`rename_session`、`delete_session` | 委托共享会话服务（[会话资源](./sessions.md)） |
 | `RootTopicService` | `list_active_topics`、`settle_topic`、`evict_topic`、`determine_topic` | 授权后以返回的 scope 经 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`determine_topic` 为一轮确认或建立话题，返回真实话题标识与是否新建，不检索：话题来源是任务进程的 Gateway 决定，或一轮待路由的外部交互（`PassiveTurnRouting`：用户消息、最近几轮，以及续接上一轮所需的话题或交互标识）。后者先按交互标识查进度，已应用的返回实际所在的话题，已提交仍在应用的不返回话题，否则以 PASSIVE_MEMORY 模式请求 Gateway 路由；然后经 Patchouli 的话题准备路由确认已有话题并刷新驻留，或以 Gateway 的标题与摘要建立新话题（必要时先按 LRU 结算）。它供任务进程的线程表与 Import Bus 的编排器使用，没有 HTTP 管理路由 |
@@ -109,6 +109,8 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 引用读取的副作用由 actor API 拥有：READ（`resolve_references`）与 RUN（`resolve_run_target`）共享同一解析与引用记录路径，对实际交付的可读正式 atom 或 redirect 目标记录 `source="workspace.reference_read"` 的 citation，同次请求按正式 UUID 去重，缓存命中仍计数；pending、failed、discarded、not_found 与无可读目标的 redirect 不计数。RUN 在类型检查和工具执行前已交付目标，所以后续执行失败仍计数；CALL context_refs 经 READ 请求，是一次独立读取。UPDATE 基础校验与 SEARCH 不属于引用交付，不因此记录 citation。引用记录的普通失败只记录日志，不改变读取结果；取消继续传播，已经完成的 citation 不回滚。
 
+检索命中同样由 actor API 记录：SEARCH（`retrieve`）在读取视图交付结果之后，以授权返回的 scope 把这一批记忆整批交给 Patchouli 的检索命中路由（来源 `workspace.search`），没有结果时不记录，同一批的去重由 Patchouli 完成。任务进程的预检索、Alice 的 SEARCH 与 MCP 的 `memory_search` 都经这里，命中与检索同时记录，不等 Actor 有输出，本轮之后失败、停止或没有输出也不撤回（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。root API 的管理读取是 owner 的管理，不记录命中。命中记录的普通失败只记录日志，不改变检索结果；取消继续传播。
+
 ## 8. 结构守护
 
 架构测试限定：
@@ -133,4 +135,4 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 - [`workspace/capability/root/`](../../src/hivememory/workspace/capability/root/)（root API）、[`workspace/capability/actor/`](../../src/hivememory/workspace/capability/actor/)（actor API）、[`WorkspaceOperationEntry`](../../src/hivememory/workspace/capability/operations.py)、[`backing.py`](../../src/hivememory/workspace/capability/backing.py)；
 - 公共契约：[`workspace/contracts/operations.py`](../../src/hivememory/workspace/contracts/operations.py)；操作目录：[`core/access.py`](../../src/hivememory/core/access.py)；
-- 测试：`tests/unit/workspace/capability/root/`（含 [`test_interaction.py`](../../tests/unit/workspace/capability/root/test_interaction.py)：提交交互的发起者是参与者，话题来源决定请求的话题与新话题字段，已应用与仍在应用的轮次不再路由与提交，应用失败的重新路由，上一轮的话题按进度续接；[`test_topic.py`](../../tests/unit/workspace/capability/root/test_topic.py)：Gateway 决定不经路由直接确认或建立话题，已应用的轮次返回实际所在的话题，仍在应用的不返回话题；[`test_memory.py`](../../tests/unit/workspace/capability/root/test_memory.py)：检索命中以 root scope 整批交给 Patchouli）、`tests/unit/workspace/capability/actor/`、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权，含提交交互与确定话题：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用，目标不是驻留 Workspace 时先于任何路由拒绝）、[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（含请求级的检索、读取、写入与更新，回调与请求类型不符时的拒绝，更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`test_profile_injection_script.py`](../../tests/integration/workspace/test_profile_injection_script.py)、[`test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（只有 SEARCH 的 Agent 完成 chat，预检索按执行者过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）。
+- 测试：`tests/unit/workspace/capability/root/`（含 [`test_interaction.py`](../../tests/unit/workspace/capability/root/test_interaction.py)：提交交互的发起者是参与者，话题来源决定请求的话题与新话题字段，已应用与仍在应用的轮次不再路由与提交，应用失败的重新路由，上一轮的话题按进度续接；[`test_topic.py`](../../tests/unit/workspace/capability/root/test_topic.py)：Gateway 决定不经路由直接确认或建立话题，已应用的轮次返回实际所在的话题，仍在应用的不返回话题）、`tests/unit/workspace/capability/actor/`（含 [`test_memory.py`](../../tests/unit/workspace/capability/actor/test_memory.py)：检索为交付的记忆整批记录命中、scope 来自操作授权，没有结果时不记录，记录失败不改变检索结果）、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权，含提交交互与确定话题：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用，目标不是驻留 Workspace 时先于任何路由拒绝）、[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（含请求级的检索、读取、写入与更新，回调与请求类型不符时的拒绝，更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`test_profile_injection_script.py`](../../tests/integration/workspace/test_profile_injection_script.py)、[`test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（只有 SEARCH 的 Agent 完成 chat，预检索按执行者过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）。
