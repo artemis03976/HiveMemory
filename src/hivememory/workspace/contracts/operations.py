@@ -53,7 +53,7 @@ class ResolveReferencesRequest(OperationRequest[list[ReferenceResolution]]):
 
 @dataclass(frozen=True)
 class ResolveRunTargetRequest(OperationRequest[ReferenceResolution]):
-    """RUN：解析单个执行目标，独立检查 memory.run 并记录正式引用。"""
+    """RUN：解析单个执行目标，独立检查 memory.run，只为可执行的目标记录正式引用。"""
 
     alias: str
 

@@ -379,17 +379,15 @@ async def test_read_with_only_memory_read_delivers_and_records_citation(single_o
 
 
 @pytest.mark.asyncio
-async def test_run_with_only_memory_run_delivers_target_and_records_citation(
-    single_operation_setup,
-):
-    """RUN 只需 memory.run：交付单个执行目标，引用记录与 READ 相同。"""
+async def test_run_with_only_memory_run_delivers_target(single_operation_setup):
+    """RUN 只需 memory.run：交付单个执行目标；目标不是 CODE_SNIPPET，不记录引用。"""
     harness, _access, thread = await single_operation_setup(WorkspaceOperation.MEMORY_RUN)
 
     result = await harness.entry.execute(ResolveRunTargetRequest("base"), thread=thread)
 
     assert (result.requested_alias, result.kind) == ("base", "atom")
     assert result.atom.payload.content == "正式基础内容"
-    assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
+    assert harness.citations == []
     assert harness.registry.size == 0
     assert _cold_reads(harness) == 1
 

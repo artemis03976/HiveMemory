@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-07
 ---
 
 # HiveMemory 故障排查
@@ -105,15 +105,17 @@ Provider/Model 列表 API 只返回脱敏 key；看到掩码代表“存在一�
 
 ## 6. 页面显示了数据，但写操作全部失败
 
-Memory、Agent、Settings 和开发模式 Memory task 存在 mock fallback。典型迹象：
+Memory、Agent、Settings 和 Memory task 的 mock fallback 只在 debug 模式下启用，即前端以 `VITE_DEBUG=true` 启动或构建时（[状态与传输](../frontend/state-and-transports.md#6-mock-降级边界)第 6 节）。默认不启用：后端读取失败时 Memory 列表显示错误，Agent 页提示“Agent 列表读取失败，请检查后端服务后刷新”，Settings 显示“配置加载失败”。
+
+debug 模式下的典型迹象：
 
 - 后端日志没有对应 list 请求成功记录；
 - Memory 显示固定示例内容，页面却没有错误；
 - Agent 出现演示 Profile；
 - Settings 显示旧版完整配置，但保存报错；
-- task 只在开发环境显示固定任务。
+- task 面板显示固定任务。
 
-当前 mock 标识并不统一。确认真实后端可达并重新加载页面后再判断数据是否存在；不要在 mock 页面上执行删除或编辑来验证后端能力。
+debug 模式的页面没有 mock 标识。验证后端能力时不要设置 `VITE_DEBUG`；确认真实后端可达并重新加载页面后再判断数据是否存在，不要在 mock 页面上执行删除或编辑。
 
 ## 7. Settings 某些分类空白或报错
 
@@ -165,7 +167,7 @@ Memory、Agent、Settings 和开发模式 Memory task 存在 mock fallback。典
 - 访问的端口与 `/health`、`/health/ready` 结果；
 - 去除密钥后的配置差异；
 - 相关后端日志、浏览器 console/network 错误；
-- 是否出现 mock fallback；
+- 前端是否以 debug 模式（`VITE_DEBUG=true`）运行；
 - 最小复现步骤与期望/实际结果。
 
 不要把 API key、完整 `.env` 或 `providers.secrets.yaml` 附在 Issue 中。

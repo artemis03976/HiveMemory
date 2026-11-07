@@ -96,8 +96,9 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 请先用 SEARCH 找到正确的 alias。"
     ),
     "mtp.run.type_mismatch": (
-        "[Type Mismatch] alias '{alias}' 不是可执行工具（类型：{memory_type}）。\n"
-        "Suggestion: RUN 只支持 CODE_SNIPPET 类型的记忆。"
+        "[Not Runnable] 记忆 '{alias}' 不可通过 RUN 运行：RUN 只能执行 CODE_SNIPPET 类型的记忆，"
+        "这条记忆的类型是 {memory_type}。\n"
+        "Suggestion: 不要再对这条记忆使用 RUN。"
     ),
     "mtp.run.terminal_alias_not_runnable": (
         "[Alias Not Found] 工具 alias '{alias}' 当前不可执行（状态：{status}）。\n"
@@ -273,8 +274,9 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: Use SEARCH to discover the correct alias first."
     ),
     "mtp.run.type_mismatch": (
-        "[Type Mismatch] Alias '{alias}' is not a runnable tool (type: {memory_type}).\n"
-        "Suggestion: RUN only supports CODE_SNIPPET memories."
+        "[Not Runnable] Memory '{alias}' cannot be run with RUN: RUN only executes "
+        "CODE_SNIPPET memories, and this memory is of type {memory_type}.\n"
+        "Suggestion: Do not use RUN on this memory again."
     ),
     "mtp.run.terminal_alias_not_runnable": (
         "[Alias Not Found] Tool alias '{alias}' is not runnable (status: {status}).\n"

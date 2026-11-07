@@ -48,7 +48,7 @@ last_reviewed: 2026-11-07
 |:---|:---|:---|:---|:---|
 | `memory.read` | READ（含 Agent Profile 原子；CALL 的 `context_refs` 也以此请求逐项解析） | `ResolveReferencesRequest` | `ActorMemoryService.resolve_references` | 交付正式原子时记录引用 |
 | `memory.search` | SEARCH | `RetrieveRequest` | `ActorMemoryService.retrieve` | 结果预热原子缓存；为交付的记忆记录检索命中（第 7 节），不记录引用 |
-| `memory.run` | RUN 的记忆中用户工具 | `ResolveRunTargetRequest` | `ActorMemoryService.resolve_run_target` | 交付执行目标时记录引用；`sys_*` 系统工具在 Alice 本地执行，不经能力层 |
+| `memory.run` | RUN 的记忆中用户工具 | `ResolveRunTargetRequest` | `ActorMemoryService.resolve_run_target` | 交付 `CODE_SNIPPET` 执行目标时记录引用；`sys_*` 系统工具在 Alice 本地执行，不经能力层 |
 | `memory.write` | WRITE | `SubmitWriteIntentRequest` | `ActorMemoryService.submit_write_intent` | ACK 表示已登记并被生成队列接纳 |
 | `memory.update` | UPDATE | `SubmitUpdateIntentRequest` | `ActorMemoryService.submit_update_intent` | 基础原子按正式原子 policy 验证；不记录引用 |
 | `agent.call` | CALL（只有 Alice 使用） | `DeriveCallThreadRequest` | `ActorAgentService.resolve_call_target` | 以调用方的可见性解析 CALL 目标 Profile，只交回图纸；子线程由操作入口在同一次提交内交给线程表派生（[执行线程](./execution-threads.md#6-call-派生与子线程)）；内置 Profile 同样授权 |
@@ -107,7 +107,7 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 ## 7. 引用读取的副作用
 
-引用读取的副作用由 actor API 拥有：READ（`resolve_references`）与 RUN（`resolve_run_target`）共享同一解析与引用记录路径，对实际交付的可读正式 atom 或 redirect 目标记录 `source="workspace.reference_read"` 的 citation，同次请求按正式 UUID 去重，缓存命中仍计数；pending、failed、discarded、not_found 与无可读目标的 redirect 不计数。RUN 在类型检查和工具执行前已交付目标，所以后续执行失败仍计数；CALL context_refs 经 READ 请求，是一次独立读取。UPDATE 基础校验与 SEARCH 不属于引用交付，不因此记录 citation。引用记录的普通失败只记录日志，不改变读取结果；取消继续传播，已经完成的 citation 不回滚。
+引用读取的副作用由 actor API 拥有：READ（`resolve_references`）与 RUN（`resolve_run_target`）共享同一解析与引用记录路径，对实际交付的可读正式 atom 或 redirect 目标记录 `source="workspace.reference_read"` 的 citation，同次请求按正式 UUID 去重，缓存命中仍计数；pending、failed、discarded、not_found 与无可读目标的 redirect 不计数。RUN 只为 `CODE_SNIPPET` 目标记录引用：其他类型的目标会被 Actor 的工具运行时拒绝，不构成一次使用（owner，2026-11-07）；可执行目标在工具执行前已交付，所以后续执行失败仍计数；CALL context_refs 经 READ 请求，是一次独立读取。UPDATE 基础校验与 SEARCH 不属于引用交付，不因此记录 citation。引用记录的普通失败只记录日志，不改变读取结果；取消继续传播，已经完成的 citation 不回滚。
 
 检索命中同样由 actor API 记录：SEARCH（`retrieve`）在读取视图交付结果之后，以授权返回的 scope 把这一批记忆整批交给 Patchouli 的检索命中路由（来源 `workspace.search`），没有结果时不记录，同一批的去重由 Patchouli 完成。任务进程的预检索、Alice 的 SEARCH 与 MCP 的 `memory_search` 都经这里，命中与检索同时记录，不等 Actor 有输出，本轮之后失败、停止或没有输出也不撤回（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。root API 的管理读取是 owner 的管理，不记录命中。命中记录的普通失败只记录日志，不改变检索结果；取消继续传播。
 
@@ -129,7 +129,6 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 - `sys_*` 系统工具不设 Agent 权限，所有 Agent 都可使用全部已注册系统工具（含文件写入与 Python 执行），执行安全的缺口见[身份与执行安全治理](../governance/security/identity-and-execution-safety.md)；
 - 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 对调用方可见以及被调用方的准入，没有“谁能调用谁”的细粒度策略；
-- 只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用，见 [RUN 目标的可执行性检查 Todo](../todo/run-target-executability-check.md)。
 
 ## 10. 代码与测试入口
 

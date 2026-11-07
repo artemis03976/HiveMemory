@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Todo
@@ -20,15 +20,13 @@ last_reviewed: 2026-11-06
 - [推理模型重新加载时的事件循环停顿](./model-reload-event-loop-stall.md)（2026-10-30 由空闲卸载计划的实测验收登记：onnxruntime 创建会话与卸载时的 `gc.collect()` 持有 GIL，重新加载期间其他请求最长等待约 1～3.7 秒，两个模型同时加载时最长；owner 决定记为已知限制，之后单独优化，未排期）；
 - [生成查重的决策信号](./generation-dedup-decision-signal.md)（2026-10-29 由 Import Bus 真实使用观察登记：dense top-1 余弦在记忆对记忆的比较中分不开同一工作与同项目的其他记忆；2026-10-30 补充：同项目记忆增多后，查重判出的 UPDATE 整体覆盖了两条记忆的主要内容；2026-10-31 owner 决定命中后先落库再融合，覆盖问题随 v0.7.2 的[查重与更新计划](../archive/plans/v0.7.2-dedup-merge.md)解决并于同日归档；判定信号暂不改动，信号部分留在本 Todo；2026-11-01 查询改为与入库的嵌入文本同形，阈值不变）；
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)（2026-10-27 排查常驻内存时登记：重排模型 int8 先做实验评估，另有 ONNX 内存池保留推理峰值、嵌入截断上限 8192 token、配置项不生效与 Docker 预下载落空；后四项已于同日完成；int8 评估 owner 2026-10-30 决定现在不是必要项，移出 v0.7.1，未排期）；
-- [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
+- [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：alias 占用查询的 payload index；无 alias 记忆的寻址已于 2026-11-07 改为回退到 `mem_<memory id>`）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)（单一身份入口已建立，剩下切换时的持久化、失效与清理，在登录或 Workspace 切换出现前没有使用方）；
 - [Work Queue Runtime 多 lane 拓扑技术债](./work-queue-runtime-lane-topology.md)；
-- [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [Memory 可见性策略前端组件](./memory-visibility-policy-ui.md)（依赖 Memory CRUD 契约先支持 `access_policy` 读写）；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
-- [RUN 目标的可执行性检查](./run-target-executability-check.md)（能力层分层审查遗留：只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用）；
 
 已完成的事项，以及升级为计划、并入计划或删除的事项，登记在 [Archived Todo](../archive/todo/README.md)。
 

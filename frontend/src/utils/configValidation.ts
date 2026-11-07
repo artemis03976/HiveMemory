@@ -2,7 +2,7 @@ import type { HiveMemoryConfig, ValidationError } from '../types/config';
 
 /**
  * 只校验与后端配置结构一致的字段：读取后端配置中不存在的段会抛出，
- * 让设置页退回 mock 数据。
+ * 由设置页记录为加载错误；只有 debug 模式会改用 mock 数据。
  */
 export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
   const errors: ValidationError[] = [];

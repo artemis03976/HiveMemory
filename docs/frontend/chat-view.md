@@ -19,7 +19,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Chat 视图
@@ -96,7 +96,7 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 
 ### 5.2 Memory Runtime
 
-`memory.task.*` RuntimeEvent 在 WRITE/UPDATE 执行期间即可投影任务创建与状态变化，面板挂载时调用任务列表 API 补齐 best-effort 事件的遗漏；done 不再触发按任务 ID 刷新。任务按创建时间倒序排列，不显示“当前轮”标记或置顶（任务事件没有 process_id）。用户可以刷新、选择和取消 task；task 数据本身不写入 localStorage，重载后重新以后端查询为准。开发模式下 memory task API 失败可能使用 mock task，这一降级必须与真实执行状态区分。
+`memory.task.*` RuntimeEvent 在 WRITE/UPDATE 执行期间即可投影任务创建与状态变化，面板挂载时调用任务列表 API 补齐 best-effort 事件的遗漏；done 不再触发按任务 ID 刷新。任务按创建时间倒序排列，不显示“当前轮”标记或置顶（任务事件没有 process_id）。用户可以刷新、选择和取消 task；task 数据本身不写入 localStorage，重载后重新以后端查询为准。memory task API 失败时只有 debug 模式换用 mock task，默认如实报错（[状态与传输](./state-and-transports.md#6-mock-降级边界)第 6 节）。
 
 ### 5.3 Workspace Terminal
 

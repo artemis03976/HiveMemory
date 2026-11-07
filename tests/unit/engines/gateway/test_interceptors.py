@@ -1,3 +1,7 @@
+import logging
+
+import pytest
+
 from hivememory.config.gateway import RuleInterceptorConfig
 from hivememory.core.protocol.gateway import CommandParseStatus
 from hivememory.engines.gateway.interceptors import RuleInterceptor
@@ -128,3 +132,26 @@ def test_disabled_system_command_matching_filters_slash_command_as_unknown():
     assert result.command is not None
     assert result.command.command_id is None
     assert result.command.parse_status == CommandParseStatus.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("with_registry", "query", "content"),
+    [
+        pytest.param(False, "/secret-token", "secret-token", id="slash-without-registry"),
+        pytest.param(True, "/help secret-token", "secret-token", id="registered-command"),
+        pytest.param(False, "谢谢", "谢谢", id="simple-chat"),
+    ],
+)
+def test_interception_debug_logs_do_not_record_user_input(with_registry, query, content, caplog):
+    """L1 拦截的 debug 日志只记录命令标识、解析状态或长度，任何路径都不记录用户输入。"""
+    caplog.set_level(logging.DEBUG, logger="hivememory.engines.gateway.interceptors")
+    interceptor = RuleInterceptor(
+        config=RuleInterceptorConfig(),
+        command_registry=create_builtin_command_registry() if with_registry else None,
+    )
+
+    assert interceptor.intercept(query) is not None
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(message.startswith("L1 ") for message in messages)
+    assert not any(content in message for message in messages)

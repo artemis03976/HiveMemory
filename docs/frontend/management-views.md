@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-07
 ---
 
 # 前端管理页面
@@ -53,7 +53,7 @@ Memory Library 加载时逐页调用 `GET /api/v1/memories?limit=100`，跟随�
 - 加载时取全整个记忆库，记忆数到数千条时首次加载会变慢；页面只在进入和创建记忆后重新加载，后台生成的新记忆要重新进入页面才会出现；
 - `selectedTags` 参与过滤，但没有对应的 CommandBar UI；
 - Pin 按钮只显示“施工中”，没有免疫 GC 或锁定语义；没有 archive/revive 操作和统计大屏；
-- 读取失败会静默改用 `MOCK_MEMORIES` 并清除页面错误，用户可能把演示数据误认为真实记忆；在 mock 状态下继续编辑、创建或删除仍会请求后端并失败。
+- 读取失败时清空列表并显示错误，只有 debug 模式改用 `MOCK_MEMORIES`（[状态与传输](./state-and-transports.md#6-mock-降级边界)第 6 节）；debug 模式下继续编辑、创建或删除仍会请求后端并失败。
 
 因此旧 Memory Garden 设计中的 Pin/Lock、归档筛选和完整统计仍是设想，不属于当前事实。
 
@@ -76,7 +76,7 @@ Agent Profile 是存储在 Patchouli 中的 `AGENT_PROFILE` 记忆，也是 Alic
 - 管理页不编辑权限：Agent Profile 不承载权限，Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，`sys_*` 系统工具不设权限；
 - Active/Inactive 只是前端字段，`toPayload()` 不发送 status，启停按钮没有后端运行语义；
 - model 是自由文本，而不是 Model Registry 选择器，可能保存不存在的 model ID；
-- Profile 获取失败会回退到 `MOCK_AGENT_CONFIGS`，这些条目看似可编辑，但保存仍需要真实后端；
+- Profile 获取失败时列表为空，页面提示“Agent 列表读取失败，请检查后端服务后刷新”；只有 debug 模式回退到 `MOCK_AGENT_CONFIGS`，这些条目看似可编辑，但保存仍需要真实后端；
 - Chat 消息中的 Agent 名称和图标有一部分仍依赖静态 `MOCK_AGENTS`，不完全反映 Profile 元数据。
 
 权限的后端契约与 runtime 闸门以 [MTP 契约](../contracts/mtp.md)第 4 节和 [System 配置](../system/configuration.md)的访问登记为准。
@@ -99,13 +99,13 @@ Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建�
 
 与后端配置结构一致的只有 General 与“内部引擎”两个分类。内部引擎读写 `gateway.llm`、`patchouli.llm` 与 `shared.embedding.default.model_name`：两个组件各有一份模型选择（`ModelSelection`），模型从模型注册表中选择（另有“注册表默认模型”一项），temperature、top_p 与 max_tokens 可以留空表示沿用模型默认值，保存后重启生效；配置为 `null`（不使用 LLM）时只显示提示，需要在 `configs/config.yaml` 中改回，因为页面不知道各组件的默认生成参数，从页面重新启用会丢掉它们。 General 读取的 `system.version` 已从后端配置删除，显示为空。
 
-其余分类（基础设施、全局网关、记忆感知、记忆生成、记忆检索、生命周期、MTP 引擎）的表单仍按旧的前端配置结构读写，后端配置中没有对应的段或子结构不同，渲染真实配置会报错；页面对这些分类只显示“尚未与后端配置结构对齐”的提示，不渲染表单，需要修改时直接编辑 `configs/config.yaml` 并重启。加载时的校验同样只检查与后端一致的字段，读取不存在的段会让页面退回 mock 数据。`ConfigResponse` 返回的段也不是完整配置：`workspace`、`memory_compiler`、`import_bus` 与附件配置不在响应中，保存时由当前的 `config.yaml` 补齐。Provider 与 Model Registry 使用独立 API，不受这一具体类型偏差影响。
+其余分类（基础设施、全局网关、记忆感知、记忆生成、记忆检索、生命周期、MTP 引擎）的表单仍按旧的前端配置结构读写，后端配置中没有对应的段或子结构不同，渲染真实配置会报错；页面对这些分类只显示“尚未与后端配置结构对齐”的提示，不渲染表单，需要修改时直接编辑 `configs/config.yaml` 并重启。加载时的校验同样只检查与后端一致的字段，读取不存在的段会抛出异常。`ConfigResponse` 返回的段也不是完整配置：`workspace`、`memory_compiler`、`import_bus` 与附件配置不在响应中，保存时由当前的 `config.yaml` 补齐。Provider 与 Model Registry 使用独立 API，不受这一具体类型偏差影响。
 
-后端不可达时，主配置页会加载 `MOCK_CONFIG` 并保留 error；页面仍可能显示完整表单，但保存会失败。Settings 草稿只存在内存中，不会跨刷新恢复。
+后端不可达时，主配置页保持未加载并显示“配置加载失败”，“恢复默认”失败以错误 toast 提示；只有 debug 模式加载 `MOCK_CONFIG` 并保留 error，页面仍可能显示完整表单，但保存会失败。Settings 草稿只存在内存中，不会跨刷新恢复。
 
 ## 4. 人工干预不变量
 
-- 页面展示的 Memory、Agent、Provider、Model 与 Config 必须能追溯到明确后端来源或显式标记的 mock；
+- 页面展示的 Memory、Agent、Provider、Model 与 Config 必须能追溯到明确后端来源，mock 数据只在 debug 模式下出现；
 - 乐观更新失败时必须恢复或显著提示失配，不能让“界面消失”冒充“后端删除成功”；
 - Agent persona 与权限字段分离，权限以 runtime 校验为准；
 - API key 不在列表响应中返回明文，不把密钥写进受版本控制的配置或模型文件；
