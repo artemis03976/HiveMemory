@@ -107,7 +107,7 @@ class KoakumaRuntime:
 
         self._compiler = MemoryCompiler()
 
-        logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
+        logger.info("KoakumaRuntime (MTP runtime) initialized")
 
     # ========== frame 执行策略 ==========
 

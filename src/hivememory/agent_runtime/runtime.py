@@ -68,7 +68,7 @@ class AgentRuntime:
                     self.resolve_model(frame.agent_profile, model_selection)
                 )
         except ModelNotFoundError as error:
-            logger.error("Frame model resolution failed: %s", error)
+            logger.error("frame 模型解析失败: %s", error)
             return FrameExecutionResult(
                 status=FrameExecutionStatus.FAILED,
                 error=error,

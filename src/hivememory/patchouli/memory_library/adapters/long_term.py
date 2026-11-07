@@ -71,7 +71,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         )
         index_key = self._index_key(key)
         if index_key in self._index:
-            logger.warning("Memory already in cold storage, overwriting: memory_id=%s", memory.id)
+            logger.warning("记忆已在冷存储中，覆盖写入: memory_id=%s", memory.id)
 
         data = memory.model_dump(mode="json")
         file_path = self._get_file_path(memory.workspace_identity, memory.id)

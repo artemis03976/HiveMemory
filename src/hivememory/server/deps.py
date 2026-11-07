@@ -37,7 +37,7 @@ def init_system(config: HiveMemoryConfig | None = None) -> HiveMemorySystem:
     """lifespan startup 时调用，组装并返回 HiveMemorySystem"""
     global _system
     _system = HiveMemorySystem.build(config=config)
-    logger.info("HiveMemorySystem 组装完成")
+    logger.info("HiveMemorySystem assembled")
     return _system
 
 
@@ -46,7 +46,7 @@ async def shutdown_system() -> None:
     global _system
     if _system:
         await _system.stop()
-        logger.info("HiveMemorySystem 已关闭")
+        logger.info("HiveMemorySystem closed")
     _system = None
 
 

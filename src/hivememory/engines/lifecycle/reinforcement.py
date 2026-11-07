@@ -186,7 +186,7 @@ class DynamicReinforcementEngine:
         if self.config.enable_event_history:
             self._add_to_history(result)
         logger.info(
-            "强化事件已提交: memory_id=%s event=%s vitality=%.1f->%.1f confidence=%.2f->%.2f",
+            "Reinforcement event committed: memory_id=%s event=%s vitality=%.1f->%.1f confidence=%.2f->%.2f",
             memory.id,
             event.event_type.value,
             previous_vitality,

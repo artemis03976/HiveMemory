@@ -300,7 +300,7 @@ class RetrievalFamiliar:
                 from_actor=from_actor,
             )
             if atom is None:
-                logger.debug("Alias not found during alias retrieval: %s", normalized)
+                logger.debug("按 alias 检索未命中: %s", normalized)
                 continue
             memories.append(atom)
         return memories
@@ -366,7 +366,7 @@ class RetrievalFamiliar:
                 persist=False,
             )
         except Exception as e:
-            logger.warning("Failed to refresh retrieval vitality scores: %s", e)
+            logger.warning("刷新检索结果的生命力分数失败: %s", e)
 
     @staticmethod
     def _build_business_filters(
