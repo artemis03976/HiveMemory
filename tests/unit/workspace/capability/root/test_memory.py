@@ -142,3 +142,42 @@ class TestRootMemoryService:
                 source="ui.memory_ref",
                 actor=actor,
             )
+
+
+@pytest.mark.asyncio
+async def test_record_retrieval_hits_delivers_whole_batch_with_source_under_root_scope():
+    """检索命中由系统记录：Patchouli 收到这一批的全部记忆与命中来源，scope 来自 root 授权。"""
+    workspace = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+        default_workspace=workspace,
+    )
+    bus = GlobalSystemBus()
+    received: list[dict] = []
+
+    async def record_hits(memory_ids, *, identity_scope, source):
+        received.append(
+            {"memory_ids": tuple(memory_ids), "identity_scope": identity_scope, "source": source}
+        )
+
+    bus.register(PatchouliRoutes.RECORD_RETRIEVAL_HITS, record_hits)
+    service = RootMemoryService(bus, operation_authorizer=composition.authorizer)
+    memory_ids = [uuid4(), uuid4()]
+
+    await service.record_retrieval_hits(
+        memory_ids,
+        target_workspace=workspace,
+        source="retrieval.pre_retrieval",
+        actor=await composition.authenticate(agent_id="system", user_id="u1"),
+    )
+
+    assert received == [
+        {
+            "memory_ids": tuple(memory_ids),
+            "identity_scope": IdentityScope(
+                actor_identity=ActorIdentity(user_id="u1", agent_id="system"),
+                workspace_identity=workspace,
+            ),
+            "source": "retrieval.pre_retrieval",
+        }
+    ]

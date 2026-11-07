@@ -31,6 +31,7 @@ from hivememory.workspace.capability.root import (
     RootMemoryTaskService,
     RootTopicService,
 )
+from hivememory.workspace.capability.root.passive_routing import PassiveTurnRouting
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.memory import make_memory_metadata
@@ -46,13 +47,18 @@ _MEMORY_ID = UUID("da42f85f-63c6-44c1-b7c8-5b7084133508")
 
 @dataclass(frozen=True)
 class _Case:
-    """一个管理方法对应的公共路由与合法输入，不携带授权结果。"""
+    """一个管理方法对应的公共路由与合法输入，不携带授权结果。
+
+    ``route`` 是方法最终交付的路由；``prior_routes`` 是方法在它之前依次调用的
+    路由，例如提交交互先查进度。
+    """
 
     service: str
     method: str
     route: str | None
     arguments: tuple = ()
     keywords: tuple[tuple[str, object], ...] = ()
+    prior_routes: tuple[str, ...] = ()
 
 
 _ROUTED_CASES = [
@@ -103,42 +109,35 @@ _ROUTED_CASES = [
     _Case("tasks", "get_memory_task", PatchouliRoutes.MEMORY_TASK_GET, ("task-1",)),
     _Case("tasks", "cancel_memory_task", PatchouliRoutes.MEMORY_TASK_CANCEL, ("task-1",)),
     _Case(
+        "memory",
+        "record_retrieval_hits",
+        PatchouliRoutes.RECORD_RETRIEVAL_HITS,
+        ((_MEMORY_ID,),),
+        (("source", "root.test"),),
+    ),
+    _Case("memory", "storage_available", PatchouliRoutes.STORAGE_AVAILABLE),
+    _Case(
         "interaction",
         "submit_interaction",
         PatchouliRoutes.INTERACTION_SUBMIT,
         keywords=(
             ("participant", ActorIdentity(user_id="u1", agent_id="test_agent")),
             ("payload", make_interaction_payload()),
-            ("requested_topic_id", "NEW_TOPIC"),
             ("interaction_id", "import_1"),
             ("origin", "import_bus"),
+            ("topic", "topic-1"),
         ),
-    ),
-    _Case(
-        "interaction",
-        "interaction_status",
-        PatchouliRoutes.INTERACTION_STATUS,
-        keywords=(("interaction_id", "import_1"),),
-    ),
-    _Case(
-        "interaction",
-        "wait_interaction",
-        PatchouliRoutes.INTERACTION_WAIT,
-        keywords=(("interaction_id", "import_1"), ("timeout_seconds", 1.0)),
+        prior_routes=(PatchouliRoutes.INTERACTION_STATUS,),
     ),
     _Case(
         "topic",
-        "route_passive_turn",
-        GatewayPublicRoutes.PROCESS,
-        keywords=(("message", "用户消息"), ("session_turns", ()), ("request_timeout_ms", 1000)),
-    ),
-    _Case(
-        "topic",
-        "prepare_topic",
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        keywords=(("interaction_id", "import_1"), ("gateway_decision", make_gateway_decision())),
+        "determine_topic",
+        PatchouliRoutes.PREPARE_TOPIC,
+        keywords=(("interaction_id", "import_1"), ("topic_source", make_gateway_decision())),
     ),
 ]
+# 存储健康不涉及任何 Workspace 的资源，路由不接收 scope。
+_UNSCOPED_ROUTES = frozenset({PatchouliRoutes.STORAGE_AVAILABLE})
 # 上传不经 Patchouli 路由，副作用落在进程内资产 Store。
 _UPLOAD_CASE = _Case(
     "assets",
@@ -154,19 +153,27 @@ _CASES = [*_ROUTED_CASES, _UPLOAD_CASE]
 
 
 class _OwnerBoundary:
-    """资源 owner 的外部替身；记录收到的请求并提供管理服务所需的领域结果。"""
+    """资源 owner 与 Gateway 的外部替身；记录收到的请求并提供管理服务所需的领域结果。
+
+    进度查询回答“未接纳”，提交交互因此继续提交；话题准备确认 ``topic-1``。
+    """
 
     def __init__(self, bus: GlobalSystemBus) -> None:
-        self.accepted: list[tuple[str, IdentityScope]] = []
+        self.accepted: list[tuple[str, IdentityScope | None]] = []
+        routes = {GatewayPublicRoutes.PROCESS}
         for case in _ROUTED_CASES:
-            bus.register(case.route, self._handler(case.route))
+            routes.update((case.route, *case.prior_routes))
+        for route in routes:
+            bus.register(route, self._handler(route))
 
     def _handler(self, route):
         async def handle(*args, **kwargs):
             scope = kwargs.get("identity_scope")
-            if scope is None:
-                scope = args[0]
             self.accepted.append((route, scope))
+            if route == PatchouliRoutes.INTERACTION_STATUS:
+                return None
+            if route == PatchouliRoutes.PREPARE_TOPIC:
+                return "topic-1"
             if route in {
                 PatchouliRoutes.MEMORY_CREATE,
                 PatchouliRoutes.AGENT_PROFILE_CREATE,
@@ -216,7 +223,9 @@ def _services(composition):
         "profiles": RootAgentProfileService(bus, operation_authorizer=composition.authorizer),
         "topic": RootTopicService(bus, operation_authorizer=composition.authorizer),
         "tasks": RootMemoryTaskService(bus, operation_authorizer=composition.authorizer),
-        "interaction": RootInteractionService(bus, operation_authorizer=composition.authorizer),
+        "interaction": RootInteractionService(
+            bus, operation_authorizer=composition.authorizer, gateway_request_timeout_ms=1000
+        ),
         "assets": make_upload_service(
             store=store, parser_config=AttachmentParserConfig(), access_composition=composition
         ),
@@ -287,17 +296,77 @@ async def _system_root_services():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", _ROUTED_CASES, ids=lambda case: case.method)
 async def test_each_routed_root_method_reaches_owner_as_system_without_actor_operations(case):
-    """system 只经准入与目标校验即可调用管理路由，owner 收到 system 发起的可信 scope。"""
+    """system 只经准入与目标校验即可调用管理路由，owner 收到 system 发起的可信 scope。
+
+    方法内部依次调用的路由沿用入口授权得到的同一个 scope，不再各自授权。
+    """
     composition, services, owner, _store, actor = await _system_root_services()
 
     await _invoke(case, services, composition, actor)
 
-    assert len(owner.accepted) == 1
-    route, scope = owner.accepted[0]
-    assert route == case.route
-    assert scope.workspace_identity == composition.default_workspace
-    assert scope.actor_identity.agent_id == "system"
-    assert scope.actor_identity.user_id == "u1"
+    system_scope = IdentityScope(
+        actor_identity=ActorIdentity(user_id="u1", agent_id="system"),
+        workspace_identity=composition.default_workspace,
+    )
+    assert owner.accepted == [
+        (route, None if route in _UNSCOPED_ROUTES else system_scope)
+        for route in (*case.prior_routes, case.route)
+    ]
+
+
+_PASSIVE_TURN = PassiveTurnRouting(message="用户消息")
+# 为一轮路由的 root 方法：带待路由的一轮时会依次查进度、调用 Gateway。
+_PASSIVE_ROUTING_CASES = [
+    _Case(
+        "interaction",
+        "submit_interaction",
+        PatchouliRoutes.INTERACTION_SUBMIT,
+        keywords=(
+            ("participant", ActorIdentity(user_id="u1", agent_id="test_agent")),
+            ("payload", make_interaction_payload()),
+            ("interaction_id", "import_1"),
+            ("origin", "import_bus"),
+            ("topic", _PASSIVE_TURN),
+        ),
+    ),
+    _Case(
+        "topic",
+        "determine_topic",
+        PatchouliRoutes.PREPARE_TOPIC,
+        keywords=(("interaction_id", "import_1"), ("topic_source", _PASSIVE_TURN)),
+    ),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", _PASSIVE_ROUTING_CASES, ids=lambda case: case.method)
+async def test_routing_root_method_rejects_non_resident_target_before_any_route(case):
+    """为一轮路由的 root 方法：目标不是 system 驻留的 Workspace 时在查进度与路由之前拒绝。"""
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1", agent_id="system", allowed_operations=frozenset()
+            ),
+            # system 在目标 Workspace 也有准入：拒绝只能来自目标不是驻留的 Workspace。
+            make_actor_access_record(
+                owner_user_id="u1",
+                workspace_id="isolation_workspace",
+                agent_id="system",
+                allowed_operations=frozenset(),
+            ),
+        ]
+    )
+    services, owner, _store = _services(composition)
+    actor = await composition.authenticate(agent_id="system")
+    target = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
+
+    with pytest.raises(OperationDeniedError) as denied:
+        await getattr(services[case.service], case.method)(
+            **dict(case.keywords), target_workspace=target, actor=actor
+        )
+
+    assert denied.value.details["reason"] == "target_workspace_not_resident"
+    assert owner.accepted == []
 
 
 @pytest.mark.asyncio

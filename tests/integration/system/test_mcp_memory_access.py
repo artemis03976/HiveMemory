@@ -35,7 +35,7 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.mcp_server import create_mcp_server
-from hivememory.patchouli.contracts import PatchouliRoutes, PreparedAgentRun
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.interaction_submission import (
     InteractionStatus,
     InteractionSubmitResult,
@@ -84,9 +84,9 @@ def _memory(alias: str, title: str, content: str) -> MemoryAtom:
 
 
 class _Patchouli:
-    """在公共 RPC 边界替换 Patchouli：保存记忆、话题与交互，记录读取、引用与接纳的意图。
+    """在公共 RPC 边界替换 Patchouli：保存记忆、话题与交互，记录读取、引用、话题准备与接纳的意图。
 
-    prepare 把新话题预建为 ``topic-prepared``；提交的交互立即以请求的话题应用。
+    话题准备把新话题建立为 ``topic-prepared``；提交的交互立即以请求的话题应用。
     """
 
     def __init__(self, bus: GlobalSystemBus) -> None:
@@ -96,15 +96,15 @@ class _Patchouli:
         self.reads = 0
         self.citations: list[object] = []
         self.applied_topics: dict[str, str] = {}
+        self.prepared_topics: list[str] = []
         self.admission = install_intent_admission(bus)
         bus.register(PatchouliRoutes.MEMORY_RETRIEVE, self._retrieve)
         bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, self._retrieve_by_aliases)
         bus.register(PatchouliRoutes.MEMORY_READ, self._read)
         bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, self._record_citation)
-        bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, self._prepare)
+        bus.register(PatchouliRoutes.PREPARE_TOPIC, self._prepare_topic)
         bus.register(PatchouliRoutes.INTERACTION_SUBMIT, self._submit_interaction)
         bus.register(PatchouliRoutes.INTERACTION_STATUS, self._interaction_status)
-        bus.register(PatchouliRoutes.INTERACTION_WAIT, self._wait_interaction)
 
     async def settle(self, pending_alias: str, intent_id: str, memory: MemoryAtom) -> None:
         """生成完成：保存正式记忆并发布结算事件。"""
@@ -135,17 +135,16 @@ class _Patchouli:
     async def _record_citation(self, *, memory_id, source, identity_scope):
         self.citations.append(memory_id)
 
-    async def _prepare(self, *, identity_scope, interaction_id, gateway_decision, **kwargs):
-        return PreparedAgentRun(
-            belong_to=identity_scope.workspace_identity,
-            interaction_id=interaction_id,
-            topic_id="topic-prepared",
-            is_new_topic=True,
-        )
+    async def _prepare_topic(self, *, target_topic_id, **kwargs):
+        topic_id = "topic-prepared" if target_topic_id == "NEW_TOPIC" else target_topic_id
+        self.prepared_topics.append(topic_id)
+        return topic_id
 
     async def _submit_interaction(self, *, interaction_id, requested_topic_id, **kwargs):
         self.applied_topics[interaction_id] = requested_topic_id
-        return InteractionSubmitResult(interaction_id=interaction_id, work_id="w", state="queued")
+        return InteractionSubmitResult(
+            interaction_id=interaction_id, state="succeeded", topic_id=requested_topic_id
+        )
 
     async def _interaction_status(self, *, interaction_id, **kwargs):
         topic_id = self.applied_topics.get(interaction_id)
@@ -154,9 +153,6 @@ class _Patchouli:
         return InteractionStatus(
             interaction_id=interaction_id, state="succeeded", topic_id=topic_id
         )
-
-    async def _wait_interaction(self, **kwargs):
-        return await self._interaction_status(**kwargs)
 
 
 class _Gateway:
@@ -224,7 +220,12 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
         backing=BusCanonicalReadBackend(bus), atom_capacity=16, profile_capacity=16
     )
     read_view.subscribe(bus)
-    threads = ProcessThreads(ProcessTable(), admission=gateway, authorizer=authorizer)
+    root_topics = RootTopicService(
+        bus, operation_authorizer=authorizer, gateway_request_timeout_ms=1000
+    )
+    threads = ProcessThreads(
+        ProcessTable(), admission=gateway, authorizer=authorizer, topics=root_topics
+    )
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             bus, operation_authorizer=authorizer, memory_reader=read_view.memory, threads=threads
@@ -234,9 +235,10 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
     )
     import_bus = ImportBusService(
         ingestor=ImportBusIngestor(
-            interactions=RootInteractionService(bus, operation_authorizer=authorizer),
-            topics=RootTopicService(bus, operation_authorizer=authorizer),
-            gateway_request_timeout_ms=1000,
+            interactions=RootInteractionService(
+                bus, operation_authorizer=authorizer, gateway_request_timeout_ms=1000
+            ),
+            topics=root_topics,
             gateway_session_turn_limit=3,
             apply_wait_seconds=2,
         ),
@@ -390,3 +392,23 @@ async def test_written_memory_reads_back_redirects_after_settlement_and_turn_lan
     assert intent.topic_id == patchouli.applied_topics[result.interaction_id] == "topic-prepared"
     # 写入时确定话题路由过一次，回流沿用该话题，不再路由。
     assert gateway.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_denied_write_never_determines_a_topic():
+    """没有 memory.write 的 Agent 经 MCP 写入：actor API 拒绝在先，Import Bus 不认证 system、
+    不路由、不建立话题，也不登记或派发意图。
+    """
+    system, patchouli, gateway = _compose(_READ_AND_SEARCH)
+    authentications = _record_authentications(system.access_gateway)
+
+    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+        result = await session.call_tool(
+            "memory_write", {"content": "部署改为手动执行。", "turn": _TURN}
+        )
+
+    assert tool_error(result)["reason"] == "operation_not_allowed"
+    assert authentications == [("mcp", "harness:claude-code")]
+    assert gateway.calls == 0
+    assert patchouli.prepared_topics == []
+    assert patchouli.admission.submissions == []

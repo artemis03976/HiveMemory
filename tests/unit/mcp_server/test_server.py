@@ -67,19 +67,20 @@ class _Gateway:
 
 
 class _Entry:
-    """记录请求级提交与派发话题，返回预置结果或抛出预置异常。"""
+    """记录请求级提交，返回预置结果或抛出预置异常；给出回调时调用它并记录派发话题。"""
 
     def __init__(self, result=None, error: Exception | None = None) -> None:
         self.result = result
         self.error = error
         self.calls: list[tuple[object, object]] = []
-        self.dispatch_topics: list[str | None] = []
+        self.dispatch_topics: list[str] = []
 
-    async def execute_request(self, request, *, actor, dispatch_topic_id=None):
+    async def execute_request(self, request, *, actor, dispatch_topic=None):
         self.calls.append((request, actor))
-        self.dispatch_topics.append(dispatch_topic_id)
         if self.error is not None:
             raise self.error
+        if dispatch_topic is not None:
+            self.dispatch_topics.append(await dispatch_topic())
         return self.result
 
 
@@ -297,10 +298,10 @@ async def test_subscriptions_listen_is_neither_advertised_nor_served():
     ],
     ids=["write", "update"],
 )
-async def test_intent_places_the_turn_then_submits_with_its_topic_under_one_actor(
+async def test_intent_submits_with_a_callback_placing_the_turn_under_one_actor(
     tool, arguments, expected
 ):
-    """先以连接器补上的轮次确定话题，再带该话题经请求级提交；只认证一次，两步共用同一个工作 actor。"""
+    """经请求级提交，派发话题由回调以连接器补上的轮次确定；只认证一次，两步共用同一个工作 actor。"""
     pending = _pending()
     system = _system(_Entry(result=pending))
     gateway = system.access_gateway
@@ -336,8 +337,8 @@ async def test_intent_without_turn_is_rejected_before_authentication():
 
 
 @pytest.mark.asyncio
-async def test_placement_failure_is_projected_without_submission():
-    """确定话题失败按 HTTP 出口的投影返回，不提交写入。"""
+async def test_placement_failure_is_projected():
+    """确定话题失败按 HTTP 出口的投影返回。"""
     system = _system(
         _Entry(result=_pending()),
         import_bus=_ImportBus(error=ImportBusUnavailableError(reason="gateway_unavailable")),
@@ -348,4 +349,3 @@ async def test_placement_failure_is_projected_without_submission():
 
     error = tool_error(result)
     assert (error["error"], error["reason"]) == ("import_bus.unavailable", "gateway_unavailable")
-    assert system.operation_entry.calls == []

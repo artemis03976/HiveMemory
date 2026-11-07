@@ -589,23 +589,39 @@ async def test_request_level_search_delivers_without_citation(operation_setup):
     assert harness.citations == []
 
 
+class _DispatchTopic:
+    """请求级入口给出的确定话题回调：返回固定话题，记录每次调用时持久化边界与意图登记的状态。"""
+
+    def __init__(self, harness: _OperationHarness, topic_id: str = "placed-topic") -> None:
+        self._harness = harness
+        self._topic_id = topic_id
+        self.calls: list[dict[str, int]] = []
+
+    async def __call__(self) -> str:
+        self.calls.append(
+            {"cold_reads": _cold_reads(self._harness), "registered": self._harness.registry.size}
+        )
+        return self._topic_id
+
+
 @pytest.mark.asyncio
 async def test_request_level_write_and_update_register_without_thread_and_dispatch_to_given_topic(
     operation_setup,
 ):
-    """请求级写入与更新：登记不带进程与线程关联，以调用方给出的派发话题派发，接纳后返回句柄。"""
+    """请求级写入与更新：登记不带进程与线程关联，以回调确定的派发话题派发，接纳后返回句柄。"""
     harness, access = operation_setup
     actor = await access.authenticate()
+    dispatch_topic = _DispatchTopic(harness)
 
     write = await harness.entry.execute_request(
         SubmitWriteIntentRequest(WriteFocus(content="写入正文")),
         actor=actor,
-        dispatch_topic_id="placed-topic",
+        dispatch_topic=dispatch_topic,
     )
     update = await harness.entry.execute_request(
         SubmitUpdateIntentRequest("base", "更新指令"),
         actor=actor,
-        dispatch_topic_id="placed-topic",
+        dispatch_topic=dispatch_topic,
     )
 
     stored = [
@@ -625,33 +641,98 @@ async def test_request_level_write_and_update_register_without_thread_and_dispat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("request_", "dispatch_topic_id"),
+    ("request_", "with_dispatch_topic"),
     [
         # RUN 授权本会通过：执行发生在执行单元的环境中，请求级提交不开放。
-        (ResolveRunTargetRequest("base"), None),
-        # 写入没有确定的话题就无处派发。
-        (SubmitWriteIntentRequest(WriteFocus(content="正文")), None),
-        # 读取不涉及话题，给出派发话题即是接线错误。
-        (ResolveReferencesRequest(("base",)), "placed-topic"),
+        (ResolveRunTargetRequest("base"), False),
+        # 写入没有确定话题的回调就无处派发。
+        (SubmitWriteIntentRequest(WriteFocus(content="正文")), False),
+        # 读取不涉及话题，给出确定话题的回调即是接线错误。
+        (ResolveReferencesRequest(("base",)), True),
     ],
     ids=["run", "write-without-topic", "read-with-topic"],
 )
 async def test_request_level_submission_rejects_mismatched_requests_without_side_effects(
-    operation_setup, request_, dispatch_topic_id
+    operation_setup, request_, with_dispatch_topic
 ):
-    """请求级提交只按请求类型接受派发话题：不符时在登记、读取与派发之前拒绝。"""
+    """请求级提交只按请求类型接受确定话题的回调：不符时在确定话题、登记、读取与派发之前拒绝。"""
     harness, access = operation_setup
     actor = await access.authenticate()
+    dispatch_topic = _DispatchTopic(harness)
 
     with pytest.raises(TypeError):
         await harness.entry.execute_request(
-            request_, actor=actor, dispatch_topic_id=dispatch_topic_id
+            request_, actor=actor, dispatch_topic=dispatch_topic if with_dispatch_topic else None
         )
 
+    assert dispatch_topic.calls == []
     assert harness.registry.size == 0
     assert harness.admission.submissions == []
     assert harness.citations == []
     assert harness.owner_calls == []
+
+
+@pytest.mark.asyncio
+async def test_request_level_update_determines_topic_after_base_read_and_before_registration(
+    operation_setup,
+):
+    """请求级更新的顺序：授权与基础冷读在确定话题之前，登记意图在确定话题之后。"""
+    harness, access = operation_setup
+    actor = await access.authenticate()
+    dispatch_topic = _DispatchTopic(harness)
+
+    await harness.entry.execute_request(
+        SubmitUpdateIntentRequest("base", "更新指令"), actor=actor, dispatch_topic=dispatch_topic
+    )
+
+    assert dispatch_topic.calls == [{"cold_reads": 1, "registered": 0}]
+    assert harness.registry.size == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_", "allowed_operations", "error_type"),
+    [
+        (
+            SubmitWriteIntentRequest(WriteFocus(content="正文")),
+            set(WorkspaceOperation) - {WorkspaceOperation.MEMORY_WRITE},
+            OperationDeniedError,
+        ),
+        (
+            SubmitUpdateIntentRequest("base", "更新指令"),
+            set(WorkspaceOperation) - {WorkspaceOperation.MEMORY_UPDATE},
+            OperationDeniedError,
+        ),
+        (
+            SubmitUpdateIntentRequest("missing", "更新指令"),
+            set(WorkspaceOperation),
+            ResourceNotFoundError,
+        ),
+    ],
+    ids=["write-denied", "update-denied", "update-base-missing"],
+)
+async def test_rejected_request_level_intent_never_determines_a_topic(
+    request_, allowed_operations, error_type
+):
+    """授权拒绝或基础原子不可读的写入与更新不调用确定话题的回调：不路由、不建立话题。"""
+    access = make_access_composition(
+        [make_actor_access_record(allowed_operations=allowed_operations)]
+    )
+    harness = _OperationHarness(access=access)
+    _seed_base(harness)
+    dispatch_topic = _DispatchTopic(harness)
+    try:
+        with pytest.raises(error_type):
+            await harness.entry.execute_request(
+                request_, actor=await access.authenticate(), dispatch_topic=dispatch_topic
+            )
+
+        assert dispatch_topic.calls == []
+        assert harness.registry.size == 0
+        assert harness.admission.submissions == []
+    finally:
+        harness.runtime.close()
+        access.gateway.close()
 
 
 @pytest.mark.asyncio

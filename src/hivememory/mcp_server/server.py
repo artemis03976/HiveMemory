@@ -293,21 +293,25 @@ async def _submit_intent(
     turn: InFlightTurn | None,
     request: OperationRequest[PendingAtom],
 ) -> PendingAtom:
-    """写入与更新：先为这一轮确定话题，再以该话题经请求级提交；两步共用同一个工作 actor。
+    """写入与更新：认证后经请求级提交，授权通过才经 Import Bus 为这一轮确定话题。
 
     缺少轮次信息时在认证前拒绝，不确定话题也不登记意图：写入必须落在这一轮最终
-    所在的话题，不退化为不绑定话题。确定话题由系统执行，与 Agent 的许可无关；
-    提交由 actor API 按工作 actor 的操作白名单授权。目标 Workspace 取工作
-    actor 驻留的 Workspace，与导入相同。
+    所在的话题，不退化为不绑定话题。提交由 actor API 按工作 actor 的操作白名单
+    授权，授权之后才调用确定话题的回调，被拒的写入因此不会路由、建立话题或
+    触发 LRU 结算；确定话题由系统执行，与 Agent 的许可无关。目标 Workspace 取
+    工作 actor 驻留的 Workspace，与导入相同。
     """
     if turn is None:
         raise APIError("request.turn_required")
     actor = await _authenticate(system, headers)
-    topic_id = await system.import_bus_service.place_turn(
-        turn, actor=actor, target_workspace=actor.workspace
-    )
+
+    async def determine_topic() -> str:
+        return await system.import_bus_service.place_turn(
+            turn, actor=actor, target_workspace=actor.workspace
+        )
+
     return await system.operation_entry.execute_request(
-        request, actor=actor, dispatch_topic_id=topic_id
+        request, actor=actor, dispatch_topic=determine_topic
     )
 
 

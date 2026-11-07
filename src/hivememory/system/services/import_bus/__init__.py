@@ -6,13 +6,12 @@ system 层的 Import Bus 子模块，收口外部 harness 交互导入的编排�
     - ImportBusIngestor
     - ImportedTurn / ImportedTurnEvent / ImportedRecentTurn / InFlightTurn
     - ImportConversationKey / ImportTurnResult / derive_import_interaction_id
-    - ImportBusUnavailableError / ImportBusApplyFailedError / ImportBusContractError
+    - ImportBusUnavailableError / ImportBusApplyFailedError
     - ImportBusEventEmitter
 """
 
 from hivememory.system.services.import_bus.errors import (
     ImportBusApplyFailedError,
-    ImportBusContractError,
     ImportBusUnavailableError,
     ImportUnavailableReason,
     is_recoverable_gateway_error,
@@ -35,7 +34,6 @@ from hivememory.system.services.import_bus.models import (
 __all__ = [
     "IMPORT_INTERACTION_PREFIX",
     "ImportBusApplyFailedError",
-    "ImportBusContractError",
     "ImportBusEventEmitter",
     "ImportBusIngestor",
     "ImportBusUnavailableError",

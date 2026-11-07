@@ -4,8 +4,8 @@
 授权方法，按“谁在执行这项操作”区分：
 
 - :meth:`~WorkspaceOperationAuthorizer.authorize_agent`：Agent 在 actor 执行
-  期间发起的操作（actor API、任务进程 prepare 的检索），按访问登记的白名单
-  授权；
+  期间发起的操作（actor API，含任务进程以主线程提交的预检索），按访问登记的
+  白名单授权；
 - :meth:`~WorkspaceOperationAuthorizer.authorize_root`：系统以保留的
   ``system`` 执行的操作（root API、任务进程的系统阶段与取消、Import Bus
   的确定话题与交互提交），不检查白名单。
@@ -53,7 +53,7 @@ class WorkspaceOperationAuthorizer:
         """actor 操作授权：共同前提通过后，要求访问登记的白名单含该 operation。
 
         缺少行为许可是授权失败，不是身份认证失败，以 ``operation_not_allowed``
-        拒绝。生产调用面限定在 actor API 与任务进程 prepare 的检索。
+        拒绝。生产调用面限定在 actor API。
         """
         if not isinstance(operation, WorkspaceOperation):
             raise TypeError("operation 必须是 WorkspaceOperation")
@@ -87,8 +87,8 @@ class WorkspaceOperationAuthorizer:
     def allowed_operations(self, actor: WorkingActor) -> frozenset[WorkspaceOperation]:
         """读取工作 actor 当前获准的 actor 操作集合；只读查询，不授予权限。
 
-        供线程表生成线程描述中的操作快照（提示词与执行策略）；actor API 与
-        prepare 的检索仍逐次授权。准入记录已不再有效时与授权一样以
+        供线程表生成线程描述中的操作快照（提示词与执行策略）；actor API 仍
+        逐次授权。准入记录已不再有效时与授权一样以
         ``actor_not_admitted`` 拒绝；空白名单照常返回。
         """
         return self._admission_record(actor).allowed_operations

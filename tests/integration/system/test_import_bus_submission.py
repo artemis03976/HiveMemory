@@ -232,11 +232,19 @@ async def test_import_is_rejected_before_routing(
 
 def _import_bus_service(bus, composition, config) -> ImportBusService:
     """与组合根相同地装配 Import Bus 服务：编排器经 root 交互提交 API 提交。"""
+    gateway_timeout_ms = config.gateway.workflow.default_request_timeout_ms
     return ImportBusService(
         ingestor=ImportBusIngestor(
-            interactions=RootInteractionService(bus, operation_authorizer=composition.authorizer),
-            topics=RootTopicService(bus, operation_authorizer=composition.authorizer),
-            gateway_request_timeout_ms=config.gateway.workflow.default_request_timeout_ms,
+            interactions=RootInteractionService(
+                bus,
+                operation_authorizer=composition.authorizer,
+                gateway_request_timeout_ms=gateway_timeout_ms,
+            ),
+            topics=RootTopicService(
+                bus,
+                operation_authorizer=composition.authorizer,
+                gateway_request_timeout_ms=gateway_timeout_ms,
+            ),
             gateway_session_turn_limit=config.gateway.context_preparation.session_turn_limit,
             apply_wait_seconds=config.import_bus.apply_wait_seconds,
         ),
