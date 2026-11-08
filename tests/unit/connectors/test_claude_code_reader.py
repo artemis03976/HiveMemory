@@ -214,9 +214,11 @@ def test_connector_constants_match_plugin_declarations():
     """标记依赖插件名与 server 名，导入依赖 principal，补轮次信息依赖 hooks 的 matcher：
     插件清单、.mcp.json 或 hooks.json 改名时这里失败。"""
     plugin_root = Path(__file__).resolve().parents[3] / "integrations" / "claude-code"
-    manifest = json.loads((plugin_root / ".claude-plugin" / "plugin.json").read_text())
-    servers = json.loads((plugin_root / ".mcp.json").read_text())["mcpServers"]
-    hooks = json.loads((plugin_root / "hooks" / "hooks.json").read_text())["hooks"]
+    manifest = json.loads(
+        (plugin_root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
+    servers = json.loads((plugin_root / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    hooks = json.loads((plugin_root / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
 
     assert manifest["name"] == PLUGIN_NAME
     assert list(servers) == [MCP_SERVER_NAME]

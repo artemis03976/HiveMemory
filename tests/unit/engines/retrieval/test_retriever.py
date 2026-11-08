@@ -9,9 +9,8 @@ MemoryRetriever 单元测试
 """
 
 import asyncio
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -189,8 +188,8 @@ class TestDenseRetriever:
     @pytest.mark.asyncio
     async def test_time_decay_with_aware_datetime(self):
         """测试 aware datetime 衰减基准不抛异常"""
-        # 相对固定决策时刻 1 天前，保留非 datetime.UTC 的 aware tzinfo
-        anchor = (FIXED_NOW - timedelta(days=1)).astimezone(ZoneInfo("UTC"))
+        # 相对固定决策时刻 1 天前，换到 UTC+8：基准是带非 UTC 时区的 aware datetime
+        anchor = (FIXED_NOW - timedelta(days=1)).astimezone(timezone(timedelta(hours=8)))
         self.memory1.meta.lifecycle.decay_anchor_at = anchor
         self.mock_storage.search = AsyncMock(return_value=[{"memory": self.memory1, "score": 0.9}])
 
