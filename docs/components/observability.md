@@ -56,7 +56,7 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 
 运行时事件按"一次运行"归组展示，一条事件按下列规则归组，先匹配的规则生效：
 
-1. `memory.task.*` 与 `work.*` 按 `task_id` 归组（Work Queue 的 `task_id` 是 work id）：它们是队列中的任务，跨越提交者与 worker 两个 context，trace 前后不同。
+1. `memory.task.*` 与 `work.*` 按 `task_id` 归组（Work Queue 的 `task_id` 是 work id）：它们是队列中的任务，有自己的起止：`work.*` 的执行事件在 worker 中发出、trace 为 `system`，`memory.task.*` 沿用提交者的 trace，按 trace 归组会把一个任务拆开或并进提交它的运行。
 2. 其余 `trace_id` 不是 `system` 的事件按 `trace_id` 归组。设置 trace 的运行有三种：chat 任务进程（`task-` 前缀）、一轮导入（`import-`）与一次 MCP 工具调用（`mcp-`）。运行内的 Gateway、Alice、actor 操作与新建话题的事件都从 contextvars 继承所在运行的 trace，不必各自携带运行标识。
 3. 剩下的事件各自是单条运行：`maintenance.task.*`、`system.*`、`subsystem.operation.*`，以及空闲结算等不在任何运行内发生的 `topic.*`。
 

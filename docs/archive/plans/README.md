@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Archived Plans
@@ -19,6 +19,7 @@ last_reviewed: 2026-11-06
 
 ## 版本之外
 
+- [Runtime Event 体系完善](./runtime-event-system.md)：2026-11-07，PR #193；[运行时事件与可观测性](../../components/observability.md#11-一次运行)、[事件契约](../../contracts/routes-and-events.md#4-runtimeevent-观测契约)
 - [交互提交收束与话题按需创建](./interaction-submission-and-topic-on-demand.md)：2026-11-06，PR #186；[任务进程](../../workspace/task-process.md)、[能力层](../../workspace/capability.md)、[Import Bus](../../system/import-bus.md)
 - [WorkspaceAsset 的归属拆分](./workspace-asset-ownership-split.md)：2026-11-06，PR #185；[WorkspaceAsset](../../workspace/assets.md#3-身份与归属)、[身份与授权](../../workspace/identity-and-authorization.md)
 - [Import Bus 的授权移入能力层](./import-bus-authorization-in-capability-layer.md)：2026-11-06，PR #184；[Import Bus](../../system/import-bus.md#41-认证与授权)、[能力层](../../workspace/capability.md)

@@ -1,6 +1,9 @@
 ---
 title: Runtime Event 体系完善
-status: active
+status: archived
+archived_at: 2026-11-07
+implemented_by: PR #193
+superseded_by: docs/components/observability.md
 owner: components
 target: 版本之外的工作（观测与日志由 owner 于 2026-11-03 定为不绑定版本；2026-11-07 决定全局运行页以事件为主视图，本计划是它的前提）
 scope: run-grouping-actor-operation-and-topic-events-catalog-and-producer-convergence
@@ -21,7 +24,7 @@ updates:
 
 # Runtime Event 体系完善
 
-本计划实施[正式的 Runtime Event 体系与全局运行页 Idea](../ideas/runtime-event-system-and-run-view.md)第 3.1 至 3.4 节：让每一次运行的事件能归到一组，补齐 actor 操作与话题生命周期的事件，事件目录只在事件契约一处维护，全部生产端经领域 emitter 投影（观测治理 W6）。运行页本身（Idea 第 3.5 节）在本计划完成、新事件成为当前事实之后另写计划。对 Idea 候选设计的调整见第 4.8 节。
+本计划实施[正式的 Runtime Event 体系与全局运行页 Idea](../../ideas/runtime-event-system-and-run-view.md)第 3.1 至 3.4 节：让每一次运行的事件能归到一组，补齐 actor 操作与话题生命周期的事件，事件目录只在事件契约一处维护，全部生产端经领域 emitter 投影（观测治理 W6）。运行页本身（Idea 第 3.5 节）在本计划完成、新事件成为当前事实之后另写计划。对 Idea 候选设计的调整见第 4.8 节。
 
 ## 1. 背景和问题
 
@@ -38,7 +41,7 @@ owner 于 2026-11-07 决定：全局运行页的主视图是运行时事件，�
 
 1. chat 任务进程、一次导入、一次 MCP 工具调用与一个生成任务，各自的事件都能按第 4.2 节的规则归为一组。
 2. actor 操作与话题生命周期有事件（第 4.3、4.4 节）。
-3. 事件目录只在[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)第 4 节维护：每个类型写明生产方、分组键、是否终态与 `data` 字段；删除三个没有生产方的类型。
+3. 事件目录只在[事件契约](../../contracts/routes-and-events.md#4-runtimeevent-观测契约)第 4 节维护：每个类型写明生产方、分组键、是否终态与 `data` 字段；删除三个没有生产方的类型。
 4. 全部生产端经领域 emitter 投影到 `RuntimeEventPublisher`，组装根注入 publisher 而不是 sink；已有类型的 wire format 不变（第 6 节写明的两处例外除外）。
 5. 前端的事件类型与回放对齐实际契约（第 4.9 节）。
 
@@ -125,7 +128,7 @@ owner 于 2026-11-07 决定：全局运行页的主视图是运行时事件，�
 | `subsystem.operation.*` | `started` | `completed`、`failed` |
 | `system.*` | `starting`、`shutting_down` | `ready`、`start_failed`、`stopped`、`stop_failed` |
 
-这条规则写进[运行时事件与可观测性](../components/observability.md)，运行页的计划依据它分组。
+这条规则写进[运行时事件与可观测性](../../components/observability.md)，运行页的计划依据它分组。
 
 ### 4.3 actor 操作事件
 
@@ -178,7 +181,7 @@ trace 同时进入日志格式（`[trace_id/span_name]`），导入与 MCP 的�
 ### 4.6 删除没有生产方的类型
 
 - `command.executed`：命令只以 `data.command_id` 出现在 `chat.run.completed` 与 `gateway.workflow.completed` 中，命令在进程中何时、由谁运行仍是搁置问题（Q-5a）。
-- `gateway.workflow.cancelled`：取消直接离开 Gateway、不发事件是有意的设计（[Gateway Workflow](../gateway/workflow.md#7-观测不是控制面)第 7 节），所在运行的终态收尾。
+- `gateway.workflow.cancelled`：取消直接离开 Gateway、不发事件是有意的设计（[Gateway Workflow](../../gateway/workflow.md#7-观测不是控制面)第 7 节），所在运行的终态收尾。
 - `agent.run.status`：Alice 只发起止事件。
 
 ### 4.7 生产端收敛
@@ -221,7 +224,7 @@ trace 同时进入日志格式（`[trace_id/span_name]`），导入与 MCP 的�
 - **mcp_server**：工具调用设置 trace。
 - **server**：`/runtime-events/stream` 的回放点优先级。
 - **frontend**：`types/workspace.ts`、`types/memoryTask.ts` 与 `stores/memory/runtimeEventTaskMapper.ts`。
-- **契约**：事件契约第 4 节改为事件目录表；[MCP 记忆访问](../contracts/mcp.md)写明工具调用的 trace 与 actor 操作事件。
+- **契约**：事件契约第 4 节改为事件目录表；[MCP 记忆访问](../../contracts/mcp.md)写明工具调用的 trace 与 actor 操作事件。
 - **数据**：没有持久化结构变化；事件记录文件出现新类型，导入与 MCP 的事件带上各自的 trace。
 
 ## 6. 兼容与迁移
@@ -275,17 +278,17 @@ cd frontend && npm run lint && npm test && npm run build
 
 ## 9. 完成时必须更新的当前文档
 
-- [运行时事件与可观测性](../components/observability.md)：第 1 节写入分组规则与 trace 的三种运行；第 3、4、7 节改为全部经领域 emitter，删去"渐进迁移"的现状描述。
-- [事件契约](../contracts/routes-and-events.md)第 4 节：事件组表改为事件目录（类型、生产方、分组键、是否终态、`data` 字段），失败原因码表补上 `actor.operation`。
-- [MCP 记忆访问](../contracts/mcp.md)：工具调用的 trace 与 actor 操作事件。
-- [日志与运行时事件](../governance/observability/logs-and-events.md)：W6 改为已完成。
-- [Gateway Workflow](../gateway/workflow.md)第 7 节：改用 emitter；取消不发事件的说明不再提到删除的类型。
-- [能力层](../workspace/capability.md)：操作入口发 actor 操作事件。
-- [感知与短期话题](../patchouli/perception.md)：话题事件。
-- [Import Bus](../system/import-bus.md)：一轮导入的 trace。
-- [状态与传输](../frontend/state-and-transports.md)：回放点的优先级。
+- [运行时事件与可观测性](../../components/observability.md)：第 1 节写入分组规则与 trace 的三种运行；第 3、4、7 节改为全部经领域 emitter，删去"渐进迁移"的现状描述。
+- [事件契约](../../contracts/routes-and-events.md)第 4 节：事件组表改为事件目录（类型、生产方、分组键、是否终态、`data` 字段），失败原因码表补上 `actor.operation`。
+- [MCP 记忆访问](../../contracts/mcp.md)：工具调用的 trace 与 actor 操作事件。
+- [日志与运行时事件](../../governance/observability/logs-and-events.md)：W6 改为已完成。
+- [Gateway Workflow](../../gateway/workflow.md)第 7 节：改用 emitter；取消不发事件的说明不再提到删除的类型。
+- [能力层](../../workspace/capability.md)：操作入口发 actor 操作事件。
+- [感知与短期话题](../../patchouli/perception.md)：话题事件。
+- [Import Bus](../../system/import-bus.md)：一轮导入的 trace。
+- [状态与传输](../../frontend/state-and-transports.md)：回放点的优先级。
 - Idea 与 Ideas 索引：登记第 3.1 至 3.4 节已实施，运行页仍待计划。
-- [ROADMAP](../ROADMAP.md) 的观测与日志一行。
+- [ROADMAP](../../ROADMAP.md) 的观测与日志一行。
 
 ## 10. 实施记录
 
@@ -301,4 +304,7 @@ cd frontend && npm run lint && npm test && npm run build
 - `pytest tests/unit tests/integration -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-fail-under=85`：3236 个通过，覆盖率 94.85%；`ruff check .`、`black --check .`、`mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py`（446 个文件）通过。
 - 前端 `node --test tests/*.test.mjs` 41 个通过，`npm run lint` 与 `npm run build` 成功。
 - 反向确认：结算任务来源、回放点优先级、MCP 的 trace 与导入的 trace 四个新用例，在改动之前的代码上都失败。
-- 尚未进行：第 7 节的手动验收，需要用本分支重启正在使用的后端。验收之后本计划归档。
+- 实际使用核对（2026-11-07，后端以合并后的 master 重启）：MCP 的检索、读取与更新各成一次 `mcp-` 运行，更新为这一轮确定话题引起的 Gateway 路由、新建话题与生成任务入队都在同一个 trace 下；Claude Code 的每轮回流各成一次 `import-` 运行，写入时已确定话题的那一轮回流沿用话题、不再路由；前端可以看到更新的事件（owner）。归档前没有观察到话题的空闲结算。
+- owner 2026-11-07 决定：实际验收不阻止计划归档，实现合并、测试通过即归档，之后的实际使用观察另行跟进。
+
+归档后的后续：同日 owner 决定删除 `gateway.step.completed`，各步结果并入 Gateway workflow 终态事件的 `data`（`step_durations_ms` 与 `fallbacks`），当前事实见[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)。
