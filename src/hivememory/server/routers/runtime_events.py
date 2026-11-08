@@ -43,6 +43,7 @@ async def stream_runtime_events(
     request: Request,
     last_event_id_query: str | None = Query(default=None, alias="last_event_id"),
     last_event_id_header: str | None = Header(default=None, alias="Last-Event-ID"),
+    replay_last: int = Query(default=100, ge=1),
     system=Depends(get_system),
 ):
     bus = system.runtime_events
@@ -60,9 +61,12 @@ async def stream_runtime_events(
     # 浏览器自动重连沿用首次连接的 URL，查询参数里是那时的回放点；请求头带的是
     # 此后最新收到的事件，两者都在时以请求头为准，否则会把收到过的事件再推一遍。
     last_event_id = header_id or query_id
+    # 没有回放点的新连接回放缓冲中最近 replay_last 条，超过缓冲大小时就是整个缓冲；
+    # 带回放点的续传回放其后的全部，不受它影响。
+    replay_count = replay_last if isinstance(replay_last, int) else 100
 
     async def _event_generator():
-        subscription = bus.subscribe(last_event_id=last_event_id)
+        subscription = bus.subscribe(replay_last=replay_count, last_event_id=last_event_id)
         try:
             async for event in subscription.events():
                 if await request.is_disconnected():
