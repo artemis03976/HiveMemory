@@ -186,13 +186,13 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
     assert result.decision.retrieval_plan.top_k == 9
     assert len(llm_service.calls) == 2
-    completed = [
+    completed = next(
         event
         for event in events.events
-        if event.event_type == RuntimeEventType.GATEWAY_STEP_COMPLETED.value
-    ]
-    assert completed[-1].data["step_id"] == "user_query_analysis"
-    assert completed[-1].data["is_fallback"] is False
+        if event.event_type == RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value
+    )
+    assert list(completed.data["step_durations_ms"])[-1] == "user_query_analysis"
+    assert completed.data["fallbacks"] == []
     capability_events = [
         event
         for event in events.events

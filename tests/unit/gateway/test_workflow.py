@@ -288,18 +288,11 @@ async def test_declared_fallbacks_form_a_complete_conservative_decision() -> Non
     assert events.events[0].event_type == (RuntimeEventType.GATEWAY_WORKFLOW_STARTED.value)
     assert events.events[-1].event_type == (RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value)
     assert {event.workspace_id for event in events.events} == {"main_workspace"}
-    completed = [
-        event
-        for event in events.events
-        if event.event_type == RuntimeEventType.GATEWAY_STEP_COMPLETED.value
-    ]
-    assert [event.data["is_fallback"] for event in completed] == [
-        False,
-        True,
-        True,
-        True,
-        True,
-    ]
+    # 逐步结果汇总在终态事件里：入口之后的四步都以声明的降级收口。
+    completed = events.events[-1].data
+    steps = list(completed["step_durations_ms"])
+    assert len(steps) == 5
+    assert [fallback["step_id"] for fallback in completed["fallbacks"]] == steps[1:]
 
 
 @pytest.mark.parametrize(
@@ -349,7 +342,7 @@ async def test_step_fallback_only_covers_invoke_failures() -> None:
         fallback=fallback,
     )
     with pytest.raises(ValueError, match="selector"):
-        await workflow._run_step(state, selector_error, 0)
+        await workflow._run_step(state, selector_error, [])
     fallback.assert_not_called()
 
     projector_error = GatewayWorkflowStep(
@@ -360,7 +353,7 @@ async def test_step_fallback_only_covers_invoke_failures() -> None:
         fallback=fallback,
     )
     with pytest.raises(ValueError, match="projector"):
-        await workflow._run_step(state, projector_error, 0)
+        await workflow._run_step(state, projector_error, [])
     fallback.assert_not_called()
 
     unknown_update = GatewayWorkflowStep(
@@ -371,7 +364,7 @@ async def test_step_fallback_only_covers_invoke_failures() -> None:
         fallback=fallback,
     )
     with pytest.raises(ValueError, match="未知字段"):
-        await workflow._run_step(state, unknown_update, 0)
+        await workflow._run_step(state, unknown_update, [])
     fallback.assert_not_called()
 
     recoverable = GatewayWorkflowStep(
@@ -381,7 +374,7 @@ async def test_step_fallback_only_covers_invoke_failures() -> None:
         project=Mock(),
         fallback=fallback,
     )
-    await workflow._run_step(state, recoverable, 0)
+    await workflow._run_step(state, recoverable, [])
     assert state.topic_id == "NEW_TOPIC"
     fallback.assert_called_once()
 
@@ -408,7 +401,7 @@ async def test_step_timeout_uses_local_fallback() -> None:
         fallback=lambda _selected, _error: {"topic_id": "NEW_TOPIC"},
     )
 
-    await workflow._run_step(state, step, 0)
+    await workflow._run_step(state, step, [])
 
     assert state.topic_id == "NEW_TOPIC"
     step.project.assert_not_called()

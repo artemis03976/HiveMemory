@@ -73,6 +73,8 @@ class GatewayWorkflow:
         workspace_id = state.identity_scope.workspace_identity.workspace_id
         current_step_id: str | None = None
         completed_steps = 0
+        # 每一步的耗时与降级原因（没有降级为 None），只汇总进终态事件，不逐步发事件。
+        step_records: list[tuple[str, float, str | None]] = []
         loop = asyncio.get_running_loop()
         deadline = (
             loop.time() + request_timeout_ms / 1000 if request_timeout_ms is not None else None
@@ -88,7 +90,7 @@ class GatewayWorkflow:
             deadline_reached = await self._run_step(
                 state,
                 self._entry_step,
-                completed_steps,
+                step_records,
                 deadline=deadline,
             )
             if deadline_reached:
@@ -103,7 +105,7 @@ class GatewayWorkflow:
                 outcome = state.finalize()
                 self._emit_completed(
                     outcome,
-                    completed_steps,
+                    step_records,
                     started_at,
                     workspace_id=workspace_id,
                 )
@@ -114,7 +116,7 @@ class GatewayWorkflow:
                 deadline_reached = await self._run_step(
                     state,
                     step,
-                    completed_steps,
+                    step_records,
                     deadline=deadline,
                 )
                 if deadline_reached:
@@ -133,7 +135,7 @@ class GatewayWorkflow:
             deadline_reached = await self._run_step(
                 state,
                 analysis_step,
-                completed_steps,
+                step_records,
                 deadline=deadline,
             )
             if deadline_reached:
@@ -143,7 +145,7 @@ class GatewayWorkflow:
             outcome = state.finalize()
             self._emit_completed(
                 outcome,
-                completed_steps,
+                step_records,
                 started_at,
                 workspace_id=workspace_id,
             )
@@ -168,6 +170,7 @@ class GatewayWorkflow:
                     "step_id": current_step_id,
                     "completed_steps": completed_steps,
                     "duration_ms": _elapsed_ms(started_at),
+                    **_step_summary(step_records),
                 },
             )
             raise
@@ -176,11 +179,11 @@ class GatewayWorkflow:
         self,
         state: GatewayExecutionState,
         step: GatewayWorkflowStep[Any, Any],
-        step_index: int,
+        step_records: list[tuple[str, float, str | None]],
         *,
         deadline: float | None = None,
     ) -> bool:
-        """统一执行一次 Step，并保证只有一次 state apply。"""
+        """统一执行一次 Step，并保证只有一次 state apply；耗时与降级原因记入 ``step_records``。"""
 
         step_started_at = perf_counter()
         selected_input = step.select_input(state.snapshot())
@@ -206,15 +209,7 @@ class GatewayWorkflow:
                     fallback_reason=fallback_reason,
                 )
             )
-            self._emit_step_completed(
-                step,
-                step_index,
-                step_started_at,
-                is_fallback=is_fallback,
-                fallback_reason=fallback_reason,
-                flow_end_reason=flow_end_reason,
-                workspace_id=state.identity_scope.workspace_identity.workspace_id,
-            )
+            step_records.append((step.step_id, _elapsed_ms(step_started_at), fallback_reason))
             return True
 
         step_timeout_seconds = step.timeout_ms / 1000 if step.timeout_ms is not None else None
@@ -262,15 +257,7 @@ class GatewayWorkflow:
                 fallback_reason=fallback_reason,
             )
         )
-        self._emit_step_completed(
-            step,
-            step_index,
-            step_started_at,
-            is_fallback=is_fallback,
-            fallback_reason=fallback_reason,
-            flow_end_reason=flow_end_reason,
-            workspace_id=state.identity_scope.workspace_identity.workspace_id,
-        )
+        step_records.append((step.step_id, _elapsed_ms(step_started_at), fallback_reason))
         return is_fallback and fallback_reason == "request_deadline_exceeded"
 
     @staticmethod
@@ -279,42 +266,19 @@ class GatewayWorkflow:
             return None
         return deadline - asyncio.get_running_loop().time()
 
-    def _emit_step_completed(
-        self,
-        step: GatewayWorkflowStep[Any, Any],
-        step_index: int,
-        step_started_at: float,
-        *,
-        is_fallback: bool,
-        fallback_reason: str | None,
-        flow_end_reason: str | None,
-        workspace_id: str,
-    ) -> None:
-        self._emit(
-            RuntimeEventType.GATEWAY_STEP_COMPLETED,
-            workspace_id=workspace_id,
-            data={
-                "step_id": step.step_id,
-                "step_index": step_index,
-                "duration_ms": _elapsed_ms(step_started_at),
-                "is_fallback": is_fallback,
-                "fallback_reason": fallback_reason,
-                "flow_ended": flow_end_reason is not None,
-            },
-        )
-
     def _emit_completed(
         self,
         outcome: GatewayProcessResult,
-        completed_steps: int,
+        step_records: list[tuple[str, float, str | None]],
         started_at: float,
         *,
         workspace_id: str,
     ) -> None:
         data: dict[str, Any] = {
             "duration_ms": _elapsed_ms(started_at),
-            "completed_steps": completed_steps,
+            "completed_steps": len(step_records),
             "outcome_kind": outcome.kind,
+            **_step_summary(step_records),
         }
         if outcome.kind == "decision":
             data.update(
@@ -346,6 +310,18 @@ class GatewayWorkflow:
         self._runtime_events.bind(workspace_id=workspace_id).emit(
             event_type, severity=severity, reason=reason, message=message, data=data
         )
+
+
+def _step_summary(step_records: list[tuple[str, float, str | None]]) -> dict[str, Any]:
+    """终态事件中的各步耗时与发生过的降级；降级很少出现，平时 ``fallbacks`` 为空列表。"""
+    return {
+        "step_durations_ms": {step_id: duration for step_id, duration, _ in step_records},
+        "fallbacks": [
+            {"step_id": step_id, "reason": reason}
+            for step_id, _, reason in step_records
+            if reason is not None
+        ],
+    }
 
 
 def _elapsed_ms(started_at: float) -> float:

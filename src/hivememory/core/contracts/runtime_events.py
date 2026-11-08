@@ -24,7 +24,6 @@ class RuntimeEventType(str, Enum):
     IMPORT_TURN_DEFERRED = "import.turn.deferred"
 
     GATEWAY_WORKFLOW_STARTED = "gateway.workflow.started"
-    GATEWAY_STEP_COMPLETED = "gateway.step.completed"
     GATEWAY_WORKFLOW_COMPLETED = "gateway.workflow.completed"
     GATEWAY_WORKFLOW_FAILED = "gateway.workflow.failed"
     GATEWAY_ANALYSIS_CAPABILITY_COMPLETED = "gateway.analysis.capability.completed"

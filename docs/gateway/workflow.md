@@ -151,7 +151,7 @@ Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat app
 
 ## 7. 观测不是控制面
 
-Workflow 在组合根注入的 publisher 上发布 started、step completed、completed 和 failed RuntimeEvent。Step 事件会记录 `step_id`、序号、耗时、是否 fallback 和原因；终态事件记录 outcome kind 与总耗时；命令结果还记录 `command_id`（解析失败时为解析出的命令名）。原生 task cancellation 直接离开 Gateway，不发终态事件，也不伪装成 failed 观测：Gateway 事件归入所在的运行（任务进程或一轮导入），由那次运行的终态收尾。
+Workflow 在组合根注入的 publisher 上发布 started、completed 和 failed RuntimeEvent，不逐步发事件：一次处理走固定的几步，绝大多数步骤耗时可以忽略、也不降级，逐步发事件只会让事件量成倍增长。各步的结果汇总在终态事件的 `data` 中：`step_durations_ms` 是按执行顺序的各步耗时，`fallbacks` 是发生过的降级（步骤名与原因），平时为空列表。终态事件另记录 outcome kind 与总耗时；命令结果还记录 `command_id`（解析失败时为解析出的命令名）；failed 另记录出错的步骤。原生 task cancellation 直接离开 Gateway，不发终态事件，也不伪装成 failed 观测：Gateway 事件归入所在的运行（任务进程或一轮导入），由那次运行的终态收尾。
 
 RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入公共 outcome。关于 RuntimeEvent 的统一边界见 [运行时事件与可观测性](../components/observability.md)。
 

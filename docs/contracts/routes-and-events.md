@@ -183,7 +183,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 |:---|:---|:---|:---|:---|
 | Chat | `chat.run.created`、`status`、`cancel_requested`、`cancelled`、`completed`、`failed`（信封 `topic_id` 在本轮话题确定之后才带上：已有话题在 PREPARE 确认，新话题在第一次写入时建立或在交互应用之后） | 任务进程 | 进程的 `trace_id`；另带 `process_id` | `completed`、`cancelled`、`failed` |
 | Agent | `agent.run.started`、`completed`、`cancelled`、`failed`（信封 `topic_id` 取输入清单的话题，Gateway 指向新话题时为空），`agent.context.compaction`、`agent.context.budget_exceeded` | Alice | 所在进程的 `trace_id`；另带 `process_id`、`agent_run_id` | `completed`、`cancelled`、`failed` |
-| Gateway | `gateway.workflow.started`、`completed`、`failed`，`gateway.step.completed`，`gateway.analysis.capability.completed` | Gateway workflow 与查询分析 | 所在运行的 `trace_id` | `completed`、`failed`；取消直接离开 Gateway，不发终态 |
+| Gateway | `gateway.workflow.started`、`completed`、`failed`（逐步结果汇总在终态事件中，不逐步发事件），`gateway.analysis.capability.completed` | Gateway workflow 与查询分析 | 所在运行的 `trace_id` | `completed`、`failed`；取消直接离开 Gateway，不发终态 |
 | Import Bus | `import.turn.accepted`、`duplicate`、`skipped`、`deferred`；提交生命周期复用 `work.*` | Import Bus | 这一轮导入的 `trace_id` | 每轮一个结局 |
 | Actor 操作 | `actor.operation` | 操作入口 | 所在运行的 `trace_id`；线程提交另带 `process_id` | 一次操作一个事件，`status` 为 `completed`、`rejected` 或 `failed` |
 | 话题 | `topic.created`、`topic.settled`、`topic.deleted` | Patchouli 感知层 | `topic_id`；在运行内发生时带所在运行的 `trace_id` | `settled`、`deleted` |
@@ -231,7 +231,7 @@ Alice CPU 端口的交互输出与 `/runtime-events/stream` 是两条独立通�
 | `import.turn.deferred.reason` | `gateway_unavailable`（Gateway 整体抛出可恢复异常）、`queue_unavailable`（提交队列容量已满或已停止）、`apply_pending`（等待应用超时）或 `apply_failed`（应用失败）；`data.error_class` 为异常类型名，等待类原因为 None |
 | `import.turn.duplicate.reason` / `import.turn.skipped.reason` | 分别为 `interaction_already_accepted` 与 `no_output` |
 | Gateway workflow failed 的 `reason` | `gateway_timeout`、`dependency_unavailable` 或 `workflow_failed`；message 为固定失败说明 |
-| Gateway step 的 `data.fallback_reason` | `request_deadline_exceeded`、`step_timeout` 或 `dependency_unavailable`；无 fallback 为 None |
+| Gateway workflow 终态事件的 `data.fallbacks` | 发生过的降级，每项为 `step_id` 与 `reason`，`reason` 为 `request_deadline_exceeded`、`step_timeout` 或 `dependency_unavailable`；没有降级时为空列表。同一 `data` 中的 `step_durations_ms` 是按执行顺序的各步耗时 |
 | 查询分析 capability 的 `data.error` | 失败为 `query_understanding_failed`，成功为 None |
 | Work Queue 接纳观测的 `reason` | `unknown_lane`、`runtime_stopped`、`unknown_payload_codec`、`capacity_rejected`、`duplicate_work_item`；未确认接纳为 `admission_unknown` |
 | 生成 lane 的 `work.failed.reason` 与 `memory.task.failed.reason` | `merge_aborted.<memory_missing、not_mergeable、version_changed 或 model_output_invalid>`、`model_context_window_exceeded`、`model_provider_failed`、`memory_generation_timed_out`、其他领域错误的 `code`，其余为 `memory_generation_failed`（[Patchouli 生成](../patchouli/generation.md#61-失败原因码)第 6.1 节）；`memory.task.failed` 的 `data.error_class` 为异常类名，取消终态的 `reason` 为取消原因 |
