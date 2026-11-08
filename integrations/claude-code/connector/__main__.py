@@ -41,18 +41,14 @@ def main(arguments: list[str]) -> int:
     log = ConnectorLog(config.state_dir)
     try:
         if arguments == ["hook", "PreToolUse"]:
-            payload = json.load(sys.stdin)
-            output = pre_tool_use(
-                payload if isinstance(payload, dict) else {}, reader=reader, store=store
-            )
+            output = pre_tool_use(_read_hook_input(), reader=reader, store=store)
             # 输出完整算出后才写：失败时标准输出保持为空，工具调用照常进行。
             if output is not None:
                 sys.stdout.write(json.dumps(output))
         elif len(arguments) == 2 and arguments[0] == "hook":
-            payload = json.load(sys.stdin)
             handle_hook(
                 arguments[1],
-                payload if isinstance(payload, dict) else {},
+                _read_hook_input(),
                 sync=sync,
                 reader=reader,
                 store=store,
@@ -75,13 +71,29 @@ def main(arguments: list[str]) -> int:
     return 0
 
 
+def _read_hook_input() -> dict:
+    """读取 Claude Code 写到标准输入的 hook JSON。
+
+    Claude Code 以 UTF-8 写入；按字节交给 json 解码，不经 ``sys.stdin`` 的文本层。
+    Windows 上文本层按本地代码页（如 cp1252）解码，中文参数会变成乱码，再经
+    ``PreToolUse`` 写回工具参数。
+    """
+    payload = json.load(sys.stdin.buffer)
+    return payload if isinstance(payload, dict) else {}
+
+
 def _spawn_detached(command: list[str], config: ConnectorConfig) -> None:
-    """在独立会话中启动后台同步，不继承标准输入输出，不等待它结束。"""
+    """在独立会话中启动后台同步，不继承标准输入输出，不等待它结束。
+
+    Windows 上给它一个没有窗口的独立控制台，而不是不带控制台（``DETACHED_PROCESS``）：
+    venv 的 ``python.exe`` 是启动器，会再起真正的解释器；启动器没有控制台时，
+    解释器会新开一个可见的控制台窗口，每次 hook 都闪一下。
+    """
     environment = dict(os.environ, HIVEMEMORY_CONNECTOR_STATE_DIR=str(config.state_dir))
     options: dict = {}
     if os.name == "nt":
         options["creationflags"] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
         )
     else:
         options["start_new_session"] = True

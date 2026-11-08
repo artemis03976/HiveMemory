@@ -43,7 +43,8 @@ def load_management_credential(path: Path) -> str:
         return credential
 
     credential = secrets.token_urlsafe(32)
-    # mkstemp 创建的文件只有当前用户可读写；写完再原子替换，其他进程不会读到半截凭据。
+    # POSIX 上 mkstemp 创建的文件只有当前用户可读写；Windows 没有这类权限位，文件沿用所在
+    # 目录的 ACL。写完再原子替换，其他进程不会读到半截凭据。
     tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix="management_token_", suffix=".tmp")
     try:
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:

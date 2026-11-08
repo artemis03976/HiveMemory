@@ -59,6 +59,13 @@ def setup(tmp_path):
     return hook, store, log, spawned
 
 
+def _hook_stdin(text: str) -> io.TextIOWrapper:
+    """Claude Code 写给 hook 的标准输入：UTF-8 字节，文本层是 Windows 上的本地代码页。"""
+    return io.TextIOWrapper(
+        io.BytesIO(text.encode("utf-8")), encoding="cp1252", errors="surrogateescape"
+    )
+
+
 @pytest.mark.parametrize(("event", "outcome"), [("Stop", "completed"), ("StopFailure", "failed")])
 def test_stop_events_record_the_last_turn_and_wake_its_sync(setup, event, outcome):
     """轮次结束的通知把最后一轮记为对应结局，并只唤醒这份会话记录的同步。"""
@@ -146,7 +153,7 @@ def test_events_without_transcript_or_unknown_events_do_nothing(setup, tmp_path)
 def test_hook_entry_exits_zero_and_stays_silent_on_bad_input(tmp_path, monkeypatch, capsys, event):
     """连接器的失败只进日志：无法解析的 hook 输入不打断 Claude Code，也不输出半截结果。"""
     monkeypatch.setenv("HIVEMEMORY_CONNECTOR_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    monkeypatch.setattr("sys.stdin", _hook_stdin("not json"))
 
     assert main(["hook", event]) == 0
     captured = capsys.readouterr()
@@ -159,7 +166,7 @@ def test_hook_entry_registers_transcript_from_stdin(tmp_path, monkeypatch):
     log = TranscriptWriter(tmp_path / "session.jsonl")
     log.turn("p1")
     monkeypatch.setenv("HIVEMEMORY_CONNECTOR_STATE_DIR", str(tmp_path / "state"))
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"transcript_path": str(log.path)})))
+    monkeypatch.setattr("sys.stdin", _hook_stdin(json.dumps({"transcript_path": str(log.path)})))
     spawned = []
     monkeypatch.setattr(
         "connector.__main__._spawn_detached", lambda command, config: spawned.append(command)
@@ -267,23 +274,28 @@ def test_pre_tool_use_without_current_turn_or_tool_input_gives_no_output(
 def test_pre_tool_use_entry_writes_only_the_output_without_registering(
     tmp_path, monkeypatch, capsys
 ):
-    """PreToolUse 入口把输出作为唯一的 JSON 写到标准输出，不登记会话记录、不唤醒同步。"""
+    """PreToolUse 入口把输出作为唯一的 JSON 写到标准输出，不登记会话记录、不唤醒同步。
+
+    标准输入按 UTF-8 读取：文本层是本地代码页时，中文参数也原样写回。
+    """
     log = TranscriptWriter(tmp_path / "session.jsonl")
     log.prompt("p1", "记住这个")
     monkeypatch.setenv("HIVEMEMORY_CONNECTOR_STATE_DIR", str(tmp_path / "state"))
+    tool_input = {"alias": "deploy_flow", "instruction": "改为手动"}
     payload = {
         "transcript_path": str(log.path),
         "tool_name": plugin_tool_name("memory_update"),
-        "tool_input": {"alias": "deploy_flow", "instruction": "改为手动"},
+        "tool_input": tool_input,
     }
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    monkeypatch.setattr("sys.stdin", _hook_stdin(json.dumps(payload, ensure_ascii=False)))
     spawned = []
     monkeypatch.setattr(
         "connector.__main__._spawn_detached", lambda command, config: spawned.append(command)
     )
 
     assert main(["hook", "PreToolUse"]) == 0
-    output = json.loads(capsys.readouterr().out)
-    assert output["hookSpecificOutput"]["updatedInput"]["turn"]["external_turn_id"] == "p1"
+    updated = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["updatedInput"]
+    assert {key: updated[key] for key in tool_input} == tool_input
+    assert updated["turn"]["external_turn_id"] == "p1"
     assert StateStore(tmp_path / "state").registered_transcripts() == []
     assert spawned == []

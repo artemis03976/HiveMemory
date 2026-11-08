@@ -4,7 +4,8 @@
 保护的契约：确认后游标才前进；可重试错误保留游标并停止处理该会话记录；
 4xx 与连续三次服务器内部错误写入拒绝记录并前进；结局先于提交写入、重发
 沿用原结局；首次见到的旧会话不回填；游标失效时从最后一个已确认的轮次之后
-继续，找不到该轮时停止处理并写入拒绝记录；并发读改写不损坏状态。
+继续，找不到该轮时停止处理并写入拒绝记录；并发读改写不损坏状态；凭据只取
+Claude Code 自己的环境变量。
 """
 
 from __future__ import annotations
@@ -505,6 +506,19 @@ def test_request_carries_identity_claims_and_import_fields(tmp_path):
         "Authorization": "Bearer token-1",
         "X-User-ID": "alice",
     }
+
+
+def test_config_reads_only_claude_code_token():
+    """凭据只取 Claude Code 自己的变量；同一环境里还有通用变量或别的 harness 的凭据时不取它们。"""
+    config = ConnectorConfig.from_env(
+        {
+            "HIVEMEMORY_TOKEN": "shared-token",
+            "HIVEMEMORY_DSH_TOKEN": "dsh-token",
+            "HIVEMEMORY_CLAUDE_CODE_TOKEN": "claude-code-token",
+        }
+    )
+
+    assert config.token == "claude-code-token"
 
 
 def test_concurrent_updates_keep_state_consistent(tmp_path):

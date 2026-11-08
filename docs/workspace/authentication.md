@@ -63,7 +63,7 @@ last_reviewed: 2026-11-06
 
 - 范围：server 的一个 ASGI 中间件（`server/management_credential.py`）只按路径判定、默认拒绝。路径以 `/api/` 开头的 HTTP 请求与 WebSocket 连接都要求管理凭据，导入 `POST /api/v1/import/turns` 除外；`/health`、`/health/ready`、`/mcp` 与前端页面不要求。以后在 `/api/` 下新增的路由自动受保护，前端使用的 `config`、`providers`、`models`、运行时事件与日志这些不经认证网关的接口也在其中。
 - 校验：凭据放在 `Authorization: Bearer` 请求头或名为 `hivememory_management` 的 cookie 中，任一与后端持有的凭据一致即可，以常量时间比较。缺少或不一致时，HTTP 以 401 `request.management_credential_invalid` 拒绝，WebSocket 在接受连接之前以策略违规（1008）关闭，路由处理函数都不会执行。
-- 凭据保存在 `configs/management.token`，与 `providers.secrets.yaml` 同目录，被 `.gitignore` 与 `.dockerignore` 排除。后端启动时读取它：不存在就生成随机凭据，以只有当前用户可读写的权限原子写入；文件为空时启动失败。删除文件后重启即得到新凭据，没有环境变量覆盖与轮换。读入之前，中间件把要求凭据的请求一律按凭据无效拒绝。
+- 凭据保存在 `configs/management.token`，与 `providers.secrets.yaml` 同目录，被 `.gitignore` 与 `.dockerignore` 排除。后端启动时读取它：不存在就生成随机凭据并原子写入，POSIX 上文件只有当前用户可读写；Windows 没有这类权限位，文件沿用所在目录的 ACL，本机其他账户能否读到它取决于目录权限。文件为空时启动失败。删除文件后重启即得到新凭据，没有环境变量覆盖与轮换。读入之前，中间件把要求凭据的请求一律按凭据无效拒绝。
 - 前端源码不处理凭据：Vite 开发服务器的 `/api` 代理每次转发 HTTP 与 WebSocket 请求时读这个文件并附上请求头；后端提供页面时，返回页面的同时下发 `HttpOnly`、`SameSite=Strict`、`Path=/` 的 cookie，页面的同源请求、SSE 与 WebSocket 自动携带它，页面脚本读不到它。
 - 凭据属于 server，不进入接入登记：它保护的是 HTTP 管理面，不参与 Workspace 准入。通过检查的请求照旧以 server 的 principal 经网关认证，请求头中的用户身份仍是声明。它只防误用，边界见第 8 节。
 

@@ -14,7 +14,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-08
 ---
 
 # 接入 DeepSeek Harness
@@ -46,8 +46,8 @@ HiveMemory 的使用手册 skill 随 Claude Code 插件维护（`integrations/cl
 
 | 步骤 | 在哪一侧 | 内容 |
 |:---|:---|:---|
-| 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 写 `HIVEMEMORY_DSH_TOKEN`，dsh 一侧写同值的 `HIVEMEMORY_TOKEN`（第 2 节） |
-| 配置插件 | dsh | 设置 `HIVEMEMORY_URL` 与 `HIVEMEMORY_TOKEN`（第 3 节） |
+| 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 与 dsh 一侧写同值的 `HIVEMEMORY_DSH_TOKEN`（第 2 节） |
+| 配置插件 | dsh | 设置 `HIVEMEMORY_URL` 与 `HIVEMEMORY_DSH_TOKEN`（第 3 节） |
 | 安装插件 | dsh | 桌面端完全退出后用它自带的命令安装（第 4.1 节），命令行用 `dsh plugin add`（第 4.2 节） |
 | 安装使用手册 skill（可选） | dsh | 把 skill 复制到 dsh 的 skill 目录（第 4.3 节） |
 | 核对访问登记 | HiveMemory | 默认登记已包含 Agent `dsh`，自定义过登记时补齐（第 5 节） |
@@ -61,16 +61,16 @@ HiveMemory 的使用手册 skill 随 Claude Code 插件维护（`integrations/cl
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-把同一个值写入两侧，变量名不同：
+把同一个值写入两侧，变量名都是 `HIVEMEMORY_DSH_TOKEN`：
 
-| 一侧 | 环境变量 | 写在哪里 |
-|:---|:---|:---|
-| HiveMemory | `HIVEMEMORY_DSH_TOKEN` | 仓库根 `.env`（与其他密钥放在一起，Docker 路径同样读取它），或启动后端的环境 |
-| dsh | `HIVEMEMORY_TOKEN` | 插件读取的环境（第 3 节） |
+| 一侧 | 写在哪里 |
+|:---|:---|
+| HiveMemory | 仓库根 `.env`（与其他密钥放在一起，Docker 路径同样读取它），或启动后端的环境 |
+| dsh | 插件读取的环境（第 3 节） |
 
 修改 `.env` 后重启 HiveMemory：接入登记与凭据都在后端启动时装载，更新到包含 `harness:dsh` 登记的版本之后同样需要重启。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝：HiveMemory 照常启动并在启动日志中提示凭据环境变量未设置，插件保留进度等待补发，记忆工具返回错误（第 8 节）。
 
-插件一侧的变量名与 Claude Code 连接器相同。两个 harness 在同一个环境中运行、共用一个 `HIVEMEMORY_TOKEN` 时，HiveMemory 一侧的 `HIVEMEMORY_DSH_TOKEN` 与 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 要设成同一个值。组合 A 中 Claude Code 在 WSL、dsh 桌面端在 Windows，两边的 `HIVEMEMORY_TOKEN` 互不影响，可以各用一份凭据。
+变量名带上 harness，是为了让多个 harness 共用一套环境变量时（例如 Claude Code 插件的 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 与本插件同在一个 Windows 用户环境中）各读各的凭据，不会拿别的 harness 的凭据冒充 `harness:dsh`。HiveMemory 先读进程环境变量、没有时再读 `.env`，所以后端与 dsh 在同一套环境中运行时，设置一次即可同时供两侧使用。
 
 ## 3. 配置插件
 
@@ -79,7 +79,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 | 环境变量 | 默认值 | 说明 |
 |:---|:---|:---|
 | `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 后端地址。默认值对应 Docker 路径；本地开发路径（含脚本的 `serve` 模式）的后端在 `8769`，需要设为 `http://127.0.0.1:8769`。MCP 只接受本机地址（`localhost`、`127.0.0.1` 或 `[::1]`，带端口） |
-| `HIVEMEMORY_TOKEN` | 不设置 | 接入凭据，见第 2 节 |
+| `HIVEMEMORY_DSH_TOKEN` | 不设置 | 接入凭据，见第 2 节 |
 | `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入与访问；不设置时使用服务端的默认用户 `default` |
 | `HIVEMEMORY_AGENT_ID` | `dsh` | 以哪个 Agent 导入与访问；不能使用保留的 `system` |
 | `HIVEMEMORY_CONNECTOR_STATE_DIR` | `~/.hivememory/dsh-connector` | 插件状态、日志与拒绝记录的目录；Windows 上默认是 `%USERPROFILE%\.hivememory\dsh-connector` |
@@ -88,7 +88,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ```powershell
 setx HIVEMEMORY_URL http://127.0.0.1:8769
-setx HIVEMEMORY_TOKEN <第 2 节生成的凭据>
+setx HIVEMEMORY_DSH_TOKEN <第 2 节生成的凭据>
 ```
 
 `setx` 只影响之后启动的程序。桌面端关闭窗口后仍驻留在系统托盘，要从托盘菜单选择退出，再重新打开。
@@ -103,7 +103,7 @@ curl.exe http://127.0.0.1:8769/health
 
 ```bash
 export HIVEMEMORY_URL=http://127.0.0.1:8769
-export HIVEMEMORY_TOKEN=<第 2 节生成的凭据>
+export HIVEMEMORY_DSH_TOKEN=<第 2 节生成的凭据>
 ```
 
 ## 4. 安装插件
@@ -192,7 +192,7 @@ cp <HiveMemory 仓库路径>/integrations/claude-code/skills/hivememory/SKILL.md
 | 日志中有 `connect failed`，记忆工具不出现 | HiveMemory 未运行，或 `HIVEMEMORY_URL` 不对（本地开发与 `serve` 模式在 `8769`，Docker 在 `8000`）；组合 A 先在 Windows 中用 `curl.exe` 确认后端可达。恢复后新建一个会话，或重新打开 dsh |
 | 工具返回 `HiveMemory 暂时无法访问` | 同上：调用时后端不可达 |
 | 工具返回 `HiveMemory MCP 请求失败，HTTP 421` | `HIVEMEMORY_URL` 不是本机地址（例如填了 WSL 虚拟机的 IP），改用 `127.0.0.1` 或 `localhost` |
-| 工具返回 `invalid_credential`，日志的 `stopped` 行带 `status=403 reason=invalid_credential` | 两侧凭据不一致或没有配置：HiveMemory 一侧为 `.env` 中的 `HIVEMEMORY_DSH_TOKEN`（后端启动日志会提示它未设置），dsh 一侧为 `HIVEMEMORY_TOKEN`。改正后重启 HiveMemory、重新打开 dsh，积压的轮次随后补发 |
+| 工具返回 `invalid_credential`，日志的 `stopped` 行带 `status=403 reason=invalid_credential` | 两侧凭据不一致或没有配置：两侧都是 `HIVEMEMORY_DSH_TOKEN`，HiveMemory 一侧先取进程环境变量、再取 `.env`（后端启动日志会提示它未设置）。改正后重启 HiveMemory、重新打开 dsh，积压的轮次随后补发 |
 | `stopped` 行带 `reason=unknown_principal` | HiveMemory 的接入登记中没有 `harness:dsh`：更新仓库后需要重启后端 |
 | 工具返回 `operation_not_allowed` | `workspace_actors.yaml` 中该 Agent 的白名单缺少对应的 `memory.*` 操作（第 5 节）；修改后重启 HiveMemory |
 | 工具返回 `当前没有进行中的一轮` | 写入与更新只能在一轮对话进行中调用 |

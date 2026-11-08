@@ -41,7 +41,7 @@ related_plans:
   - docs/archive/plans/v0.7.1-memory-access-mcp.md
   - docs/archive/plans/v0.7.2-plugin-write-update.md
   - docs/archive/plans/dsh-plugin-integration.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-08
 ---
 
 # Import Bus
@@ -283,7 +283,7 @@ Gateway 请求时限（`gateway.workflow.default_request_timeout_ms`，默认 80
 
 - `integrations/.claude-plugin/marketplace.json`：本地 marketplace `hivememory-local`，只列出插件 `hivememory-connector`（来源 `./claude-code`），供本机安装，不发布。
 - `integrations/claude-code/.claude-plugin/plugin.json` 与 `hooks/hooks.json`：插件清单与五个命令 hook；插件说明同时覆盖对话回流与记忆访问。
-- `integrations/claude-code/.mcp.json`：插件声明的 MCP server `hivememory`（HTTP，`${HIVEMEMORY_URL:-http://localhost:8000}/mcp`），请求头带 principal、`Bearer ${HIVEMEMORY_TOKEN}`、用户与 Agent 声明；插件启用后 Claude Code 自动连接，HiveMemory 不可用时重试后标为连接失败，工具不出现，工作照常进行（[MCP 记忆访问](../contracts/mcp.md)）。
+- `integrations/claude-code/.mcp.json`：插件声明的 MCP server `hivememory`（HTTP，`${HIVEMEMORY_URL:-http://localhost:8000}/mcp`），请求头带 principal、`Bearer ${HIVEMEMORY_CLAUDE_CODE_TOKEN}`、用户与 Agent 声明；插件启用后 Claude Code 自动连接，HiveMemory 不可用时重试后标为连接失败，工具不出现，工作照常进行（[MCP 记忆访问](../contracts/mcp.md)）。
 - `hivememory_hook.py`：启动脚本，把插件根目录放进导入路径后交给 `connector` 的命令行入口（`hook <事件>`、`sync --transcript <路径>`、`sync --all`）。
 - `connector/core/`：与 harness 无关的公共骨架——配置、状态与游标、提交与结果分类、同步循环、日志；`connector/claude_code/`：Claude Code 会话记录的读取器与 hook 处理。接入第二个 harness 时只需新增读取器。
 - `scripts/transcript_stats.py`：维护工具，只统计会话记录的字段名、类型、计数与固定标记，不输出正文，用于在 Claude Code 升级后核对记录结构。
@@ -346,10 +346,10 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 | `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 服务地址 |
 | `HIVEMEMORY_USER_ID` | 不发送 | 作为 `X-User-ID` 请求头发送；缺省时由服务端取默认用户 |
 | `HIVEMEMORY_AGENT_ID` | `claude_code` | 请求体中的 `agent_id` |
-| `HIVEMEMORY_TOKEN` | 不发送 | 接入凭据，作为 `Authorization: Bearer` 发送（去掉首尾空白）；未设置时服务端以 `invalid_credential` 拒绝，连接器保留游标等待补发 |
+| `HIVEMEMORY_CLAUDE_CODE_TOKEN` | 不发送 | 接入凭据，作为 `Authorization: Bearer` 发送（去掉首尾空白）；未设置时服务端以 `invalid_credential` 拒绝，连接器保留游标等待补发 |
 | `HIVEMEMORY_CONNECTOR_STATE_DIR` | 见下 | 状态目录 |
 
-每次提交另以常量 `harness:claude-code` 作为 `X-Principal-ID` 发送。服务端一侧对应的凭据环境变量是 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，两侧需要配置同一份凭据（[配置](./configuration.md)）。
+每次提交另以常量 `harness:claude-code` 作为 `X-Principal-ID` 发送。服务端核对这份凭据的环境变量与连接器同名，两侧需要配置同一份凭据（[配置](./configuration.md)）；变量名带上 harness，多个 harness 共用一套环境变量时各读各的凭据。
 
 状态目录依次取 `HIVEMEMORY_CONNECTOR_STATE_DIR`、Claude Code 提供的插件数据目录 `CLAUDE_PLUGIN_DATA`，都没有时用 `~/.hivememory/claude-code-connector`；后台同步进程沿用 hook 解析出的状态目录。目录中保存 `transcripts/`（各会话记录的状态）、`connector.json`（首次运行时间）、`rejections.jsonl`（拒绝记录：会话与轮次标识、状态码、错误码与原因）与 `connector.log`（超过 1 MiB 时轮转一份）。状态、拒绝记录与日志只保存标识、位置与状态，不保存会话正文。
 
@@ -403,7 +403,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 ### 9.5 配置与状态目录
 
-插件从环境变量读取配置，变量名与 Claude Code 连接器相同，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-配置插件)第 3 节）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`；服务端一侧的凭据环境变量是 `HIVEMEMORY_DSH_TOKEN`（[配置](./configuration.md)）。
+插件从环境变量读取配置：地址、用户与 Agent 的变量与 Claude Code 连接器同名，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`；凭据变量是 `HIVEMEMORY_DSH_TOKEN`，与服务端核对这份凭据的变量同名（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-配置插件)第 3 节，服务端一侧见[配置](./configuration.md)）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`。
 
 状态目录中保存 `sessions/`（各会话的状态）、`connector.json`（首次运行时间）、`rejections.jsonl`（拒绝记录：会话标识、轮号、状态码、错误码与原因）与 `connector.log`（超过 1 MiB 时轮转一份），只保存标识、轮号与状态，不保存会话正文。dsh 的插件代码在一个线程中运行，状态以同步文件操作读改写、替换写入，同一进程内不需要文件锁。
 

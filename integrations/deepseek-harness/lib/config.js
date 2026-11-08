@@ -17,8 +17,10 @@ const DEFAULT_TIMEOUT_MS = 60_000
  * 读取服务地址、身份声明与接入凭据。
  *
  * 环境变量为 `HIVEMEMORY_URL`、`HIVEMEMORY_USER_ID`、`HIVEMEMORY_AGENT_ID` 与
- * `HIVEMEMORY_TOKEN`，与 Claude Code 连接器相同；凭据去掉首尾空白，复制时带入的
- * 换行不会让核对失败。`userId` 为空时不发送用户请求头，由服务端取默认用户；
+ * `HIVEMEMORY_DSH_TOKEN`。凭据变量名带上 harness：多个 harness 共用一套用户
+ * 环境变量时（例如原生 Windows）各读各的凭据，不会拿别的 harness 的凭据冒充
+ * 本插件的 principal；服务端核对这份凭据的变量也是这个名字。凭据去掉首尾空白，
+ * 复制时带入的换行不会让核对失败。`userId` 为空时不发送用户请求头，由服务端取默认用户；
  * `token` 为空时不发送，服务端以凭据无效拒绝。状态目录保存水位、拒绝记录与
  * 日志，优先使用 `HIVEMEMORY_CONNECTOR_STATE_DIR`，否则使用用户目录下的固定位置。
  */
@@ -27,7 +29,7 @@ export function configFromEnv(env = process.env) {
     url: (env.HIVEMEMORY_URL || DEFAULT_URL).replace(/\/+$/, ''),
     agentId: env.HIVEMEMORY_AGENT_ID || DEFAULT_AGENT_ID,
     userId: env.HIVEMEMORY_USER_ID || null,
-    token: (env.HIVEMEMORY_TOKEN || '').trim() || null,
+    token: (env.HIVEMEMORY_DSH_TOKEN || '').trim() || null,
     stateDir: env.HIVEMEMORY_CONNECTOR_STATE_DIR || join(homedir(), '.hivememory', 'dsh-connector'),
     timeoutMs: DEFAULT_TIMEOUT_MS,
   }

@@ -37,8 +37,11 @@ class ConnectorConfig:
         """读取服务地址、身份声明与接入凭据。
 
         环境变量为 ``HIVEMEMORY_URL``、``HIVEMEMORY_USER_ID``、
-        ``HIVEMEMORY_AGENT_ID`` 与 ``HIVEMEMORY_TOKEN``；凭据去掉首尾空白，
-        复制环境变量时带入的换行不会让核对失败。
+        ``HIVEMEMORY_AGENT_ID`` 与 ``HIVEMEMORY_CLAUDE_CODE_TOKEN``；凭据去掉
+        首尾空白，复制环境变量时带入的换行不会让核对失败。凭据变量名带上
+        harness：多个 harness 共用一套用户环境变量时（例如原生 Windows），
+        各自读自己的凭据，不会拿别的 harness 的凭据冒充本插件的 principal。
+        服务端核对这份凭据的变量也是这个名字。
 
         状态目录优先使用 ``HIVEMEMORY_CONNECTOR_STATE_DIR``，其次是插件的持久
         数据目录 ``CLAUDE_PLUGIN_DATA``；两者都没有时（例如不经插件手动运行）
@@ -55,5 +58,5 @@ class ConnectorConfig:
             agent_id=values.get("HIVEMEMORY_AGENT_ID") or DEFAULT_AGENT_ID,
             user_id=values.get("HIVEMEMORY_USER_ID") or None,
             state_dir=Path(state_dir).expanduser(),
-            token=(values.get("HIVEMEMORY_TOKEN") or "").strip() or None,
+            token=(values.get("HIVEMEMORY_CLAUDE_CODE_TOKEN") or "").strip() or None,
         )

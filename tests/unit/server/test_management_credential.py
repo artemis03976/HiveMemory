@@ -2,6 +2,7 @@
 
 import re
 import stat
+import sys
 
 import pytest
 from fastapi import FastAPI, WebSocket
@@ -19,15 +20,25 @@ CREDENTIAL = "test-management-credential"
 REJECTED = "request.management_credential_invalid"
 
 
-def test_load_generates_owner_only_credential_when_file_missing(tmp_path):
+def test_load_generates_credential_when_file_missing(tmp_path):
     path = tmp_path / "management.token"
 
     credential = load_management_credential(path)
 
     assert len(credential) >= 32
     assert path.read_text(encoding="utf-8").strip() == credential
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert load_management_credential(path) == credential
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows 没有 POSIX 权限位，凭据文件沿用所在目录的 ACL"
+)
+def test_generated_credential_file_is_owner_only(tmp_path):
+    path = tmp_path / "management.token"
+
+    load_management_credential(path)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
 def test_load_reuses_existing_credential_without_surrounding_whitespace(tmp_path):
