@@ -182,13 +182,13 @@ async def test_candidate_preparation_has_independent_timeout_fallback() -> None:
 
     assert result.kind == "decision"
     assert router.route.await_args.kwargs["topic_snapshots"] == ()
-    fallback_steps = [
-        event.data["step_id"]
+    fallbacks = [
+        fallback
         for event in events.events
-        if event.event_type == RuntimeEventType.GATEWAY_STEP_COMPLETED.value
-        and event.data["is_fallback"]
+        if event.event_type == RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value
+        for fallback in event.data["fallbacks"]
     ]
-    assert fallback_steps == ["candidate_topics_preparation"]
+    assert fallbacks == [{"step_id": "candidate_topics_preparation", "reason": "step_timeout"}]
 
 
 @pytest.mark.asyncio
@@ -236,10 +236,10 @@ async def test_routed_topic_preparation_has_independent_timeout_fallback() -> No
     context = resolver.resolve.await_args.args[0]
     assert context.routed_topic_data is None
     fallback_steps = [
-        event.data["step_id"]
+        fallback["step_id"]
         for event in events.events
-        if event.event_type == RuntimeEventType.GATEWAY_STEP_COMPLETED.value
-        and event.data["is_fallback"]
+        if event.event_type == RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value
+        for fallback in event.data["fallbacks"]
     ]
     assert fallback_steps == ["routed_topic_preparation"]
 

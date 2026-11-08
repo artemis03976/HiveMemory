@@ -34,7 +34,6 @@ export type RuntimeEventType =
   | 'import.turn.skipped'
   | 'import.turn.deferred'
   | 'gateway.workflow.started'
-  | 'gateway.step.completed'
   | 'gateway.workflow.completed'
   | 'gateway.workflow.failed'
   | 'gateway.analysis.capability.completed'
