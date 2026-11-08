@@ -206,7 +206,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 - `RuntimeEventBus.emit()` 尽力而为，内部失败只记录 warning；
 - 每次 emit 会覆盖 timestamp 并分配递增 sequence；
-- 总线保留有界 ring buffer，支持 replay last 或从 `last_event_id` 后回放；
+- 总线保留有界 ring buffer，支持 replay last 或从 `last_event_id` 后回放；`/runtime-events/stream` 不带回放点的新连接按查询参数 `replay_last`（正整数，缺省 100）回放最近的事件，超过缓冲大小时回放整个缓冲，带回放点的续传回放其后的全部，不受它影响；
 - 找不到客户端提供的 `last_event_id` 时，先生成 `event.stream.gap`；
 - 每个订阅者队列有界，满时丢弃最旧事件；
 - RuntimeEvent 不承诺跨进程连续、持久化或 exactly-once。

@@ -24,7 +24,7 @@ last_reviewed: 2026-11-07
 
 本文讨论两件互相依赖的事：前端用什么展示"后端正在做什么"，以及为此需要把运行时事件建成怎样的体系。owner 已于 2026-11-07 决定运行页以事件为主视图（第 2 节），本文其余部分是候选设计与默认值，不是 owner 决定，可在计划评审时调整。
 
-2026-11-07：第 3.1 至 3.4 节经计划 [Runtime Event 体系完善](../archive/plans/runtime-event-system.md) 实施，当前事实见[运行时事件与可观测性](../components/observability.md#11-一次运行)与[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)，计划对本文候选设计的调整见其第 4.8 节。运行页（第 3.5 节）于同日形成计划 [全局运行页](../plans/run-view.md)。
+2026-11-07：第 3.1 至 3.4 节经计划 [Runtime Event 体系完善](../archive/plans/runtime-event-system.md) 实施，当前事实见[运行时事件与可观测性](../components/observability.md#11-一次运行)与[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)，计划对本文候选设计的调整见其第 4.8 节。运行页（第 3.5 节）于同日经计划 [全局运行页](../plans/run-view.md) 实施，当前事实见[全局运行页](../frontend/run-view.md)；计划归档时本文一并归档。
 
 事件机制、信封与 best-effort 语义的当前事实见[运行时事件与可观测性](../components/observability.md)，日志写法与事件生产端收敛的治理见[日志与运行时事件](../governance/observability/logs-and-events.md)，本文不重复。
 

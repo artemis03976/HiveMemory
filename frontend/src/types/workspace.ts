@@ -1,8 +1,5 @@
 /**
- * Workspace Terminal Type Definitions
- *
- * Types for the Workspace Terminal panel with real-time log streaming,
- * WebSocket connection management, and cross-window synchronization.
+ * 后端日志与运行时事件的类型：日志 WebSocket、事件流、连接状态与多窗口同步。
  */
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
@@ -181,7 +178,6 @@ export interface WorkspaceStore {
   // State
   logs: LogEntry[];
   runtimeEvents: RuntimeEvent[];
-  traceGroups: Map<string, TraceGroup>;
   connection: ConnectionState;
   runtimeEventConnection: RuntimeEventConnectionState;
   filters: FilterState;
@@ -204,10 +200,6 @@ export interface WorkspaceStore {
   clearLogs: () => void;
   addRuntimeEvent: (event: RuntimeEvent) => void;
   clearRuntimeEvents: () => void;
-
-  // Actions - Trace Management
-  toggleTraceCollapse: (trace_id: string) => void;
-  toggleSpanCollapse: (trace_id: string, span_name: string) => void;
 
   // Actions - Filter Management
   setLogLevel: (level: LogLevel | null) => void;
@@ -254,25 +246,3 @@ export type BroadcastMessage =
       }
     }
   | { type: 'PRIMARY_HEARTBEAT'; timestamp: number };
-
-/**
- * Span group - logs grouped by span_name within a trace
- */
-export interface SpanGroup {
-  span_name: string;
-  logs: LogEntry[];
-  collapsed: boolean;
-  task_type: 'foreground' | 'background';
-  first_timestamp: string;
-  last_timestamp: string;
-}
-
-/**
- * Trace group - top-level grouping by trace_id
- */
-export interface TraceGroup {
-  trace_id: string;
-  spans: Map<string, SpanGroup>;
-  task_type: 'foreground' | 'background';
-  collapsed: boolean;
-}

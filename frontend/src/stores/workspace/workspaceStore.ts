@@ -1,5 +1,5 @@
 /**
- * Workspace Store - Zustand state management for the Workspace Terminal.
+ * Workspace Store - 后端日志与运行时事件的连接和缓冲，供运行页与 Memory Runtime 使用。
  *
  * The store keeps the public state/actions in one place while connection
  * lifecycles and pure reducers live in focused store modules.
@@ -9,7 +9,7 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { checkAndClaimPrimaryWindow, handleBroadcastMessage, startPrimaryHeartbeat } from '@/stores/workspace/broadcastSync';
 import { BROADCAST_CHANNEL_NAME, LEGACY_PERSIST_KEY, PERSIST_KEY, PRIMARY_WINDOW_KEY } from '@/stores/workspace/constants';
-import { appendBounded, groupLogsByTrace, toggleSpanCollapseInGroups, toggleTraceCollapseInGroups } from '@/stores/workspace/logReducers';
+import { appendBounded } from '@/stores/workspace/logReducers';
 import { clearWebSocketReconnectTimer, disconnectWebSocket, initializeWebSocket } from '@/stores/workspace/logWebSocket';
 import { initializeRuntimeEventStream } from '@/stores/workspace/runtimeEventStream';
 import { filterLogs } from '@/stores/workspace/selectors';
@@ -35,7 +35,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       (set, get) => ({
         logs: [],
         runtimeEvents: [],
-        traceGroups: new Map(),
         connection: {
           status: 'disconnected',
           error: null,
@@ -221,7 +220,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             const logs = appendBounded(state.logs, [newLog], state.ui.maxBufferSize);
             return {
               logs,
-              traceGroups: groupLogsByTrace(logs),
               stats: {
                 ...state.stats,
                 totalLogs: state.stats.totalLogs + 1,
@@ -243,7 +241,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             const allLogs = appendBounded(state.logs, newLogs, state.ui.maxBufferSize);
             return {
               logs: allLogs,
-              traceGroups: groupLogsByTrace(allLogs),
               stats: {
                 ...state.stats,
                 totalLogs: state.stats.totalLogs + newLogs.length,
@@ -255,7 +252,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         clearLogs: () => {
           set({
             logs: [],
-            traceGroups: new Map(),
             stats: {
               totalLogs: 0,
               filteredCount: 0,
@@ -339,14 +335,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           set((state) => ({
             ui: { ...state.ui, maxBufferSize: size },
           }));
-        },
-
-        toggleTraceCollapse: (trace_id) => {
-          set((state) => ({ traceGroups: toggleTraceCollapseInGroups(state.traceGroups, trace_id) }));
-        },
-
-        toggleSpanCollapse: (trace_id, span_name) => {
-          set((state) => ({ traceGroups: toggleSpanCollapseInGroups(state.traceGroups, trace_id, span_name) }));
         },
       }),
       {

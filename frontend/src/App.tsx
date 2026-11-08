@@ -9,6 +9,7 @@ import ChatLayout from './components/ChatLayout';
 import MemoryLibrary from './components/MemoryLibrary';
 import SettingsPanel from './components/SettingsPanel';
 import AgentManagement from './components/AgentManagement';
+import RunView from './components/runs/RunView';
 import DynamicToast from './components/common/DynamicToast';
 import { useChatUiStore } from '@/stores';
 
@@ -33,6 +34,9 @@ export default function App() {
         )}
         {activeNavTab === 'agents' && (
           <AgentManagement />
+        )}
+        {activeNavTab === 'terminal' && (
+          <RunView />
         )}
         {activeNavTab === 'settings' && (
           <SettingsPanel />

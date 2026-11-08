@@ -172,3 +172,56 @@ async def test_runtime_events_stream_header_last_event_id_emits_gap_when_evicted
     assert evicted_id in chunk
 
     await response.body_iterator.aclose()
+
+
+def _bus_with_statuses(*statuses: str) -> RuntimeEventBus:
+    bus = RuntimeEventBus()
+    for status in statuses:
+        bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_STATUS, status=status))
+    return bus
+
+
+async def _replayed_statuses(response, count: int) -> list[str]:
+    statuses = []
+    for _ in range(count):
+        chunk = await response.body_iterator.__anext__()
+        data = json.loads(chunk.split("data: ", 1)[1])
+        statuses.append(data["status"])
+    await response.body_iterator.aclose()
+    return statuses
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("replay_last", "expected"),
+    [(2, ["second", "third"]), (1000, ["first", "second", "third"])],
+)
+async def test_runtime_events_stream_replays_last_n_for_new_connection(replay_last, expected):
+    """新连接按 replay_last 回放最近的事件，超过缓冲大小时回放整个缓冲。"""
+    system = SimpleNamespace(
+        runtime_events=_bus_with_statuses("first", "second", "third"),
+        config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
+    )
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+
+    response = await stream_runtime_events(request=request, replay_last=replay_last, system=system)
+
+    assert await _replayed_statuses(response, len(expected)) == expected
+
+
+@pytest.mark.asyncio
+async def test_runtime_events_stream_resume_ignores_replay_last():
+    """带回放点的续传回放其后的全部事件，不按 replay_last 截断。"""
+    bus = _bus_with_statuses("first", "second", "third")
+    first_id = bus.buffer_snapshot[0].event_id
+    system = SimpleNamespace(
+        runtime_events=bus,
+        config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
+    )
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+
+    response = await stream_runtime_events(
+        request=request, last_event_id_header=first_id, replay_last=1, system=system
+    )
+
+    assert await _replayed_statuses(response, 2) == ["second", "third"]

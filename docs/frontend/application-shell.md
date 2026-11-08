@@ -27,14 +27,15 @@ App
   ├─ ChatLayout
   │    ├─ ContextSidebar (288px / collapsed 48px)
   │    ├─ ChatPane (flex)
-  │    └─ WorkspaceVision (320 / 440 / 600px, collapsed 48px)
+  │    └─ WorkspaceVision (320 / 440px, collapsed 48px)
   ├─ MemoryLibrary
   ├─ AgentManagement
+  ├─ RunView（Terminal 入口）
   ├─ SettingsPanel
   └─ DynamicToast
 ```
 
-`activeNavTab` 决定四个主页面中的哪一个被渲染。这里没有 React Router，也没有按 URL 恢复页面、浏览器前进后退或页面级深链接。GlobalNavBar 的 Terminal 按钮会把状态切为 `terminal`，但 App 没有该分支，因此当前会出现空白主区。
+`activeNavTab` 决定五个主页面中的哪一个被渲染。这里没有 React Router，也没有按 URL 恢复页面、浏览器前进后退或页面级深链接。GlobalNavBar 底部的 Terminal 按钮打开[全局运行页](./run-view.md)。
 
 Chat View 也不是旧设计中的可拖拽四栏：左侧 Context Sidebar 和右侧 Workspace Vision 采用固定宽度，支持折叠；中央 Chat Pane 使用剩余空间。`react-resizable-panels` 尚未被源码使用，不能把依赖存在等同于拖拽布局已经落地。
 
@@ -110,7 +111,6 @@ HiveMemory 的价值不仅在最终回答，还在回答依赖了哪些记忆、
 ## 7. 当前限制
 
 - 无客户端路由、深链接和浏览器历史集成；
-- 顶层 Terminal tab 未接线；
 - 用户头像为固定外部图片 URL，不代表账户或身份能力；
 - Chat 侧栏固定宽度，窄屏与移动端没有正式适配；
 - 没有已配置的前端组件测试、视觉回归或可访问性自动化门槛；

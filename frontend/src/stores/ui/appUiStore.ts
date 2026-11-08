@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { NavTab } from '@/types';
+import type { RunFilters } from '@/stores/runs';
+import { CHAT_UI_STORE_VERSION, migrateChatUiState } from '@/stores/ui/chatUiMigration';
 
 type ContextSidebarTab = 'sessions' | 'config';
-type WorkspaceVisionTab = 'context' | 'memory-runtime' | 'terminal';
+type WorkspaceVisionTab = 'context' | 'memory-runtime';
 type ThemeMode = 'dark' | 'light';
 
 interface ChatUiStore {
@@ -38,6 +40,10 @@ interface ChatUiStore {
   // OmniInput preferences
   enableMemory: boolean;
   setEnableMemory: (enabled: boolean) => void;
+
+  // 运行页的列表筛选（视图偏好）
+  runFilters: RunFilters;
+  setRunFilters: (filters: Partial<RunFilters>) => void;
 }
 
 export const useChatUiStore = create<ChatUiStore>()(
@@ -69,37 +75,14 @@ export const useChatUiStore = create<ChatUiStore>()(
 
         enableMemory: true,
         setEnableMemory: (enabled) => set({ enableMemory: enabled }),
+
+        runFilters: { kind: 'all', onlyActive: false, onlyIssues: false, query: '' },
+        setRunFilters: (filters) => set((s) => ({ runFilters: { ...s.runFilters, ...filters } })),
       }),
       {
         name: 'chat-ui-store',
-        version: 4,
-        migrate: (persisted, version) => {
-          const state = persisted as {
-            contextSidebarTab?: string;
-            activeNavTab?: string;
-            isKernelVisionCollapsed?: boolean;
-            kernelVisionTab?: WorkspaceVisionTab;
-            isWorkspaceVisionCollapsed?: boolean;
-            workspaceVisionTab?: WorkspaceVisionTab;
-          };
-          if (version < 4 && state.contextSidebarTab === 'topics') state.contextSidebarTab = 'sessions';
-          // v2: 'theme' 标签已改为主题切换开关，迁移历史状态中失效的标签值
-          if (version < 2 && state.activeNavTab === 'theme') {
-            state.activeNavTab = 'chat';
-          }
-          // v3: 右侧观测面板由 Kernel Vision 改称 Workspace Vision，迁移折叠状态与选中的 tab
-          if (version < 3) {
-            if (state.isKernelVisionCollapsed !== undefined) {
-              state.isWorkspaceVisionCollapsed = state.isKernelVisionCollapsed;
-            }
-            if (state.kernelVisionTab !== undefined) {
-              state.workspaceVisionTab = state.kernelVisionTab;
-            }
-            delete state.isKernelVisionCollapsed;
-            delete state.kernelVisionTab;
-          }
-          return persisted as ChatUiStore;
-        },
+        version: CHAT_UI_STORE_VERSION,
+        migrate: (persisted, version) => migrateChatUiState(persisted, version) as ChatUiStore,
       },
     ),
     { name: 'ChatUiStore' },
