@@ -1,6 +1,6 @@
 # HiveMemory 插件：把已结束的轮次导入 HiveMemory，并注册四个记忆工具。
 # 服务地址、身份声明与接入凭据取自环境变量 HIVEMEMORY_URL、HIVEMEMORY_USER_ID、
-# HIVEMEMORY_AGENT_ID 与 HIVEMEMORY_TOKEN。
+# HIVEMEMORY_AGENT_ID 与 HIVEMEMORY_DSH_TOKEN。
 - insert:
     - id: hivememory
       name: hivememory-connector

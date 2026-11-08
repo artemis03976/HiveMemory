@@ -403,7 +403,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 ### 9.5 配置与状态目录
 
-插件从环境变量读取配置，变量名与 Claude Code 连接器相同，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-配置插件)第 3 节）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`；服务端一侧的凭据环境变量是 `HIVEMEMORY_DSH_TOKEN`（[配置](./configuration.md)）。
+插件从环境变量读取配置：地址、用户与 Agent 的变量与 Claude Code 连接器同名，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`；凭据变量是 `HIVEMEMORY_DSH_TOKEN`，与服务端核对这份凭据的变量同名（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-配置插件)第 3 节，服务端一侧见[配置](./configuration.md)）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`。
 
 状态目录中保存 `sessions/`（各会话的状态）、`connector.json`（首次运行时间）、`rejections.jsonl`（拒绝记录：会话标识、轮号、状态码、错误码与原因）与 `connector.log`（超过 1 MiB 时轮转一份），只保存标识、轮号与状态，不保存会话正文。dsh 的插件代码在一个线程中运行，状态以同步文件操作读改写、替换写入，同一进程内不需要文件锁。
 

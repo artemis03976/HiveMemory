@@ -55,7 +55,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 | HiveMemory | 仓库根 `.env`（与其他密钥放在一起，Docker 路径同样读取它），或启动后端的环境 |
 | Claude Code | 启动 Claude Code 的环境，或 `~/.claude/settings.json` 的 `env` |
 
-变量名带上 harness，是为了让多个 harness 共用一套环境变量时（例如 dsh 插件读的 `HIVEMEMORY_TOKEN` 与本插件同在一个 Windows 用户环境中）各读各的凭据，不会拿别的 harness 的凭据冒充 `harness:claude-code`。HiveMemory 先读进程环境变量、没有时再读 `.env`，所以后端与 Claude Code 在同一套环境中运行时，设置一次即可同时供两侧使用。
+变量名带上 harness，是为了让多个 harness 共用一套环境变量时（例如 dsh 插件的 `HIVEMEMORY_DSH_TOKEN` 与本插件同在一个 Windows 用户环境中）各读各的凭据，不会拿别的 harness 的凭据冒充 `harness:claude-code`。HiveMemory 先读进程环境变量、没有时再读 `.env`，所以后端与 Claude Code 在同一套环境中运行时，设置一次即可同时供两侧使用。
 
 修改后重启 HiveMemory，并重新打开 Claude Code。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝：HiveMemory 照常启动并在启动日志中提示凭据环境变量未设置，连接器保留进度等待补发，MCP 工具返回错误（第 9 节）。凭据只用于防止本机其他程序冒用 Claude Code 的身份，不进入日志与错误响应。
 

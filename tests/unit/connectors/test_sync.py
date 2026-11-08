@@ -508,10 +508,14 @@ def test_request_carries_identity_claims_and_import_fields(tmp_path):
     }
 
 
-def test_config_reads_claude_code_token_not_shared_token():
-    """凭据只取 Claude Code 自己的变量；环境里同时有别的 harness 用的通用变量时不取它。"""
+def test_config_reads_only_claude_code_token():
+    """凭据只取 Claude Code 自己的变量；同一环境里还有通用变量或别的 harness 的凭据时不取它们。"""
     config = ConnectorConfig.from_env(
-        {"HIVEMEMORY_TOKEN": "dsh-token", "HIVEMEMORY_CLAUDE_CODE_TOKEN": "claude-code-token"}
+        {
+            "HIVEMEMORY_TOKEN": "shared-token",
+            "HIVEMEMORY_DSH_TOKEN": "dsh-token",
+            "HIVEMEMORY_CLAUDE_CODE_TOKEN": "claude-code-token",
+        }
     )
 
     assert config.token == "claude-code-token"
