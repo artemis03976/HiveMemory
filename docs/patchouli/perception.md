@@ -20,7 +20,7 @@ related_contracts:
   - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 感知与短期话题
@@ -126,6 +126,8 @@ settle / compact / evict 是三个概念独立的具名用例，由 `PerceptionF
 - **settle**（`_settle_topic` 统一时序，所有来源共用）：获取 lease → 冻结全部交互记录与折叠记录，构建 `TopicMaterializeTask` → 锁外 generation admission → 删除话题并移除驻留。admission 失败时话题内容原样保留可重试，无需 abort——记录从未被改动。
 - **compact**（`compact_topic`，是否需要由 `needs_compact` 判断）：取得 lease 后，把工作视图中保留后缀之前的旧 blocks 交给 RelayController 生成新的状态摘要，再经 `fold_topic` 追加一条折叠记录写回。被折叠的块仍留在交互记录中，工作视图向后推进，token 统计随之只计入保留的块。话题已被结算或驱逐时直接结束，正被占用时以 `TopicBusyError` 留待重试；摘要返回后才一次写回，中途失败或取消都不改动话题。
 - **evict**（`evict_topic`）：从 Store 与驻留集合移除话题，不结算、不写记忆；话题被占用时报 `removed=False` 而不是阻塞。
+
+三个用例的结局各有一个运行时事件（[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)第 4 节）：新建话题发 `topic.created`（`created_by` 为 `interaction` 或 `prepare`），话题以 settle 结束发 `topic.settled`（带触发原因与是否提交了生成），evict 删除话题发 `topic.deleted`。admission 失败、话题保留时不发 `topic.settled`；compact 不发话题事件，以 Work Queue 的 `work.*` 出现。事件只是旁路观测，发布失败不影响话题的存储与结算。
 
 历史上曾由 `TriggerManager`/`TRIGGER_PLANS` 决策矩阵与记录字段状态机（`BufferState`）承担这些流程，现已删除：占用权建模为 WorkingSet 的 lease，而不是记录状态，补偿校验随之消失。
 

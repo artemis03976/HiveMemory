@@ -349,3 +349,25 @@ def test_only_composition_root_imports_the_llm_implementation():
         for module in _llm_implementation_imports(path)
     ]
     assert violations == []
+
+
+def test_only_the_event_package_constructs_runtime_events():
+    """生产端经 RuntimeEventPublisher 发布事件，只有 components.events 直接构造信封。
+
+    各域直接组装 RuntimeEvent 会让默认 severity、关联字段与 best-effort 边界再次
+    漂移；领域 emitter 在注入的 publisher 上投影事实。
+    """
+    events_package = SRC_ROOT / "components" / "events"
+    violations = []
+    for path in _source_files():
+        if events_package in path.parents:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            if name == "RuntimeEvent":
+                violations.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
+    assert violations == []

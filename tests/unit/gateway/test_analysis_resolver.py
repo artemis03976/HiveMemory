@@ -8,6 +8,7 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import SystemGatewayConfig, UserQueryAnalysisConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import ActorIdentity
@@ -131,7 +132,7 @@ async def test_llm_resolver_converts_engine_error_to_recoverable() -> None:
     resolver = LLMUserQueryAnalysisResolver(
         config=UserQueryAnalysisConfig(),
         engine=engine,
-        runtime_events=events,
+        runtime_events=RuntimeEventPublisher(events),
     )
 
     with pytest.raises(RecoverableGatewayError, match="查询分析不可用"):
@@ -168,7 +169,7 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
     runtime = GatewayRuntime(
         config=SystemGatewayConfig(user_query_analysis=UserQueryAnalysisConfig(default_top_k=9)),
         global_bus=bus,
-        runtime_events=events,
+        runtime_events=RuntimeEventPublisher(events),
         llm_service=llm_service,
         llm_params=DEFAULT_LLM_PARAMS,
     )

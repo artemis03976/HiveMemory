@@ -121,6 +121,35 @@ async def test_runtime_events_stream_replays_after_last_event_id_query():
 
 
 @pytest.mark.asyncio
+async def test_runtime_events_stream_header_last_event_id_wins_over_stale_query():
+    """自动重连沿用首次连接的 URL：请求头带最新收到的事件时按它续传，不重复推送。"""
+    bus = RuntimeEventBus()
+    bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_CREATED))
+    stale_id = bus.buffer_snapshot[0].event_id
+    bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_STATUS, status="streaming"))
+    latest_seen_id = bus.buffer_snapshot[1].event_id
+    bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_COMPLETED))
+    system = SimpleNamespace(
+        runtime_events=bus,
+        config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
+    )
+    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
+
+    response = await stream_runtime_events(
+        request=request,
+        last_event_id_query=stale_id,
+        last_event_id_header=latest_seen_id,
+        system=system,
+    )
+    chunk = await response.body_iterator.__anext__()
+
+    assert "chat.run.completed" in chunk
+    assert "streaming" not in chunk
+
+    await response.body_iterator.aclose()
+
+
+@pytest.mark.asyncio
 async def test_runtime_events_stream_header_last_event_id_emits_gap_when_evicted():
     bus = RuntimeEventBus(buffer_size=1)
     bus.emit(RuntimeEvent(event_type=RuntimeEventType.CHAT_RUN_CREATED))

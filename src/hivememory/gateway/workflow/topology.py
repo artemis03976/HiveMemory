@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import (
     GatewayContextPreparationConfig,
     TopicRouterConfig,
@@ -80,7 +80,7 @@ def build_gateway_workflow(
     context_config: GatewayContextPreparationConfig,
     topic_router_config: TopicRouterConfig,
     analysis_config: UserQueryAnalysisConfig,
-    runtime_events: RuntimeEventSink | None = None,
+    runtime_events: RuntimeEventPublisher | None = None,
 ) -> GatewayWorkflow:
     """把固定能力边界装配为唯一 Gateway workflow 拓扑。"""
 

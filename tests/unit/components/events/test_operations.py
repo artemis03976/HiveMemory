@@ -4,12 +4,13 @@ import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.operations import RuntimeOperationObserver
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 
 
 def _observer(recorder: RecordingRuntimeEventSink | None = None) -> RuntimeOperationObserver:
     return RuntimeOperationObserver(
-        recorder,
+        RuntimeEventPublisher(recorder) if recorder is not None else None,
         subsystem="patchouli",
         component="patchouli_runtime",
         operation_key="patchouli.test_operation",

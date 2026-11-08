@@ -10,10 +10,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import (
     QueuePolicy,
@@ -94,18 +91,18 @@ class MemoryGenerationTaskController:
         self,
         *,
         bus: PatchouliBus,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
         memory_queue: MemoryGenerationQueue | None = None,
         queue_policy: QueuePolicy | None = None,
         pending_atom_settler: PendingAtomSettler | None = None,
     ) -> None:
         self._bus = bus
         self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
-        event_sink = runtime_events or NullRuntimeEventSink()
-        self._task_events = MemoryTaskEventEmitter(RuntimeEventPublisher(event_sink))
+        events = runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
+        self._task_events = MemoryTaskEventEmitter(events)
         self._queue = memory_queue or MemoryGenerationQueue(
             self._execute_generation,
-            runtime_events=event_sink,
+            runtime_events=events,
             policy=queue_policy,
         )
 

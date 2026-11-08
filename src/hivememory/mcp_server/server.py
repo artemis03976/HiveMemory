@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Annotated
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -20,6 +21,11 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
 from hivememory import __version__
+from hivememory.components.trace_context import (
+    generate_trace_id,
+    reset_trace_context,
+    set_trace_context,
+)
 from hivememory.core.access import WorkingActor
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import MemoryAtom, PendingAtom, ReferenceResolution, WriteFocus
@@ -125,16 +131,17 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
     ) -> CallToolResult:
         started = time.monotonic()
         headers = ctx.headers or {}
-        try:
-            system = get_system()
-            memories = await _submit(system, headers, RetrieveRequest(semantic_query=query))
-            text = _search_text(
-                compiler, memories, system.config.memory_compiler.retrieval_context.strategy
-            )
-        except Exception as error:
-            return _failed("memory_search", headers, started, error)
-        _log_call("memory_search", headers, started, f"results={len(memories)}")
-        return _text_result(text)
+        with _call_trace("memory_search"):
+            try:
+                system = get_system()
+                memories = await _submit(system, headers, RetrieveRequest(semantic_query=query))
+                text = _search_text(
+                    compiler, memories, system.config.memory_compiler.retrieval_context.strategy
+                )
+            except Exception as error:
+                return _failed("memory_search", headers, started, error)
+            _log_call("memory_search", headers, started, f"results={len(memories)}")
+            return _text_result(text)
 
     # Claude Code 连接器按参数名把 aliases 归一化为 READ 的作用对象，改名时同步修改它的识别表。
     @server.tool(
@@ -149,16 +156,17 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
     ) -> CallToolResult:
         started = time.monotonic()
         headers = ctx.headers or {}
-        try:
-            system = get_system()
-            results = await _submit(
-                system, headers, ResolveReferencesRequest(aliases=tuple(aliases))
-            )
-            text, unresolved = _read_text(compiler, aliases, results)
-        except Exception as error:
-            return _failed("memory_read", headers, started, error)
-        _log_call("memory_read", headers, started, f"unresolved={len(unresolved)}")
-        return _text_result(text)
+        with _call_trace("memory_read"):
+            try:
+                system = get_system()
+                results = await _submit(
+                    system, headers, ResolveReferencesRequest(aliases=tuple(aliases))
+                )
+                text, unresolved = _read_text(compiler, aliases, results)
+            except Exception as error:
+                return _failed("memory_read", headers, started, error)
+            _log_call("memory_read", headers, started, f"unresolved={len(unresolved)}")
+            return _text_result(text)
 
     # Claude Code 连接器的 PreToolUse hook 按参数名填写 turn，回流时把它从参数中去掉；
     # 改名时同步修改连接器。
@@ -179,16 +187,17 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
     ) -> CallToolResult:
         started = time.monotonic()
         headers = ctx.headers or {}
-        try:
-            system = get_system()
-            request = SubmitWriteIntentRequest(
-                WriteFocus(content=content, title=title, reason=reason)
-            )
-            pending = await _submit_intent(system, headers, turn, request)
-        except Exception as error:
-            return _failed("memory_write", headers, started, error)
-        _log_call("memory_write", headers, started, f"intent_id={pending.intent_id}")
-        return _text_result(_ACCEPTED.format(operation="写入", alias=pending.pending_alias))
+        with _call_trace("memory_write"):
+            try:
+                system = get_system()
+                request = SubmitWriteIntentRequest(
+                    WriteFocus(content=content, title=title, reason=reason)
+                )
+                pending = await _submit_intent(system, headers, turn, request)
+            except Exception as error:
+                return _failed("memory_write", headers, started, error)
+            _log_call("memory_write", headers, started, f"intent_id={pending.intent_id}")
+            return _text_result(_ACCEPTED.format(operation="写入", alias=pending.pending_alias))
 
     # Claude Code 连接器按参数名把 alias 归一化为 UPDATE 的作用对象，turn 的处理与
     # memory_write 相同；改名时同步修改它的识别表。
@@ -207,16 +216,17 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
     ) -> CallToolResult:
         started = time.monotonic()
         headers = ctx.headers or {}
-        try:
-            system = get_system()
-            request = SubmitUpdateIntentRequest(
-                base_alias=alias, instruction=instruction, content=content
-            )
-            pending = await _submit_intent(system, headers, turn, request)
-        except Exception as error:
-            return _failed("memory_update", headers, started, error)
-        _log_call("memory_update", headers, started, f"intent_id={pending.intent_id}")
-        return _text_result(_ACCEPTED.format(operation="更新", alias=pending.pending_alias))
+        with _call_trace("memory_update"):
+            try:
+                system = get_system()
+                request = SubmitUpdateIntentRequest(
+                    base_alias=alias, instruction=instruction, content=content
+                )
+                pending = await _submit_intent(system, headers, turn, request)
+            except Exception as error:
+                return _failed("memory_update", headers, started, error)
+            _log_call("memory_update", headers, started, f"intent_id={pending.intent_id}")
+            return _text_result(_ACCEPTED.format(operation="更新", alias=pending.pending_alias))
 
     return server
 
@@ -254,6 +264,20 @@ def _new_server() -> MCPServer:
         )
     finally:
         root.removeHandler(placeholder)
+
+
+@contextmanager
+def _call_trace(tool: str) -> Iterator[None]:
+    """一次工具调用在自己的 trace 中进行。
+
+    actor 操作、写入时确定话题引起的 Gateway 被动路由与新建话题的事件都继承它，
+    归为同一次运行；日志也带上它。外部 agent 在等待结果，按前台工作呈现。
+    """
+    tokens = set_trace_context(generate_trace_id("mcp"), tool, "foreground")
+    try:
+        yield
+    finally:
+        reset_trace_context(tokens)
 
 
 async def _authenticate(system: HiveMemorySystem, headers: Mapping[str, str]) -> WorkingActor:

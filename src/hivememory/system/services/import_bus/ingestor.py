@@ -33,8 +33,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.serial_gate import KeyedSerialGate
+from hivememory.components.trace_context import (
+    generate_trace_id,
+    reset_trace_context,
+    set_trace_context,
+)
 from hivememory.core.access import WorkingActor
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewaySessionTurn
@@ -80,7 +85,7 @@ class ImportBusIngestor:
         topics: RootTopicService,
         gateway_session_turn_limit: int,
         apply_wait_seconds: float,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
     ) -> None:
         self._interactions = interactions
         self._topics = topics
@@ -114,17 +119,26 @@ class ImportBusIngestor:
         路由时 Gateway 的可恢复异常、提交队列拥塞、等待应用超时与关闭中以
         ``ImportBusUnavailableError`` 交回，应用失败以 ``ImportBusApplyFailedError``
         交回，都可用同一轮次重发；契约错误、程序错误与取消原样传播。
+
+        一轮导入在自己的 trace 中进行：Gateway 的被动路由、交互提交与新建话题
+        发出的事件都继承它，与 ``import.turn.*`` 归为同一次运行，日志也带上它。
         """
         interaction_id = self._interaction_id(turn, participant, principal_id)
-        async with self._serialized(turn, participant):
-            return await self._ingest_serialized(
-                turn,
-                system_actor=system_actor,
-                target_workspace=target_workspace,
-                participant=participant,
-                principal_id=principal_id,
-                interaction_id=interaction_id,
-            )
+        trace_tokens = set_trace_context(
+            generate_trace_id("import"), "ImportBus.Turn", "background"
+        )
+        try:
+            async with self._serialized(turn, participant):
+                return await self._ingest_serialized(
+                    turn,
+                    system_actor=system_actor,
+                    target_workspace=target_workspace,
+                    participant=participant,
+                    principal_id=principal_id,
+                    interaction_id=interaction_id,
+                )
+        finally:
+            reset_trace_context(trace_tokens)
 
     async def place(
         self,

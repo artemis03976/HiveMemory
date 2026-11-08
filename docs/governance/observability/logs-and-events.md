@@ -71,10 +71,10 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 | W2 | 维护任务空转不发事件 | 已完成（2026-11-03，[归档 Todo](../../archive/todo/maintenance-event-noise.md)） |
 | W3 | 失败事件带稳定原因码（生成任务之外） | 已完成（2026-11-03，[归档 Todo](../../archive/todo/failure-event-reason-codes.md)）；生成任务的原因码随 v0.7.3 于同日完成（[归档计划](../../archive/plans/v0.7.3-generation-failure-reason-codes.md)），见[已归档的收敛 Idea](../../archive/ideas/generation-source-convergence.md) 第 4.3 节 |
 | W4 | 默认日志格式带 `trace_id` 与 `span_name` | 已完成（2026-11-07，PR #190） |
-| W5 | 存量日志按领域收敛到第 2.2 节的写法 | 部分完成（2026-11-07，PR #189、PR #190）：f-string 全部改为 `%` 占位符，日志不再记录第 3 节所列内容，任务进程的失败日志带 `process_id`，每次检索的引擎内部日志降为 debug；同一模块中英文混用的 14 个模块按各自的多数语言统一（2026-11-07）。剩余级别与关联标识的逐域收敛 |
-| W6 | RuntimeEvent 生产端收敛 | 未排期：Gateway、Scheduler 与 System lifecycle 仍各自组装信封，按领域迁移到窄领域 emitter 或 scoped publisher，迁移不得改变 wire format；由原 RuntimeEvent 生产端迁移 Todo 转入（2026-11-03）。2026-11-07 并入[正式的 Runtime Event 体系 Idea](../../ideas/runtime-event-system-and-run-view.md)：全局运行页以事件为主视图，生产端收敛是它的前提之一 |
+| W5 | 存量日志按领域收敛到第 2.2 节的写法 | 部分完成（2026-11-07，PR #189、PR #190、PR #192）：f-string 全部改为 `%` 占位符，日志不再记录第 3 节所列内容，任务进程的失败日志带 `process_id`，每次检索的引擎内部日志降为 debug；同一模块中英文混用的 14 个模块按各自的多数语言统一（2026-11-07）。剩余级别与关联标识的逐域收敛 |
+| W6 | RuntimeEvent 生产端收敛 | 已完成（2026-11-07，计划 [Runtime Event 体系完善](../../plans/runtime-event-system.md)）：全部生产端在组合根注入的 publisher 上投影事件，只有 `components.events` 直接构造信封，已有类型的 wire format 不变 |
 
-W1～W3 已于 2026-11-03 完成，W4 于 2026-11-07 完成。W5 的剩余部分与 W6 在动到对应领域、或 owner 排期时登记为 Todo 或计划。
+W1～W3 已于 2026-11-03 完成，W4 与 W6 于 2026-11-07 完成。W5 的剩余部分在动到对应领域、或 owner 排期时登记为 Todo 或计划。
 
 ## 5. 长期目标与非目标
 

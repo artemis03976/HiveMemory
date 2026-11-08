@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime
 
-from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.components.events.publisher import (
     RuntimeEventPublisher,
     Severity,
@@ -38,9 +37,8 @@ def _duration_ms(start: datetime | None, end: datetime | None) -> float | None:
 class WorkQueueEventEmitter:
     """只发布安全摘要、不暴露业务 payload 的 work 事件。"""
 
-    def __init__(self, sink: RuntimeEventSink) -> None:
-        self._publisher = RuntimeEventPublisher(
-            sink,
+    def __init__(self, publisher: RuntimeEventPublisher) -> None:
+        self._publisher = publisher.scoped(
             subsystem="system",
             source="system.work_queue",
             component="work_queue",

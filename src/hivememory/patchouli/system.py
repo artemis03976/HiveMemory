@@ -31,10 +31,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.models import MaintenanceTaskSpec
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.runtime import SchedulerConfig
@@ -85,7 +83,7 @@ class PatchouliSystem(SubsystemProtocol):
         config: PatchouliConfig,
         global_bus: GlobalSystemBus | None = None,
         scheduler: AsyncMaintenanceScheduler | None = None,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
         workspace_asset_reader: WorkspaceAssetReaderPort | None = None,
         *,
         shared_config: SharedConfig | None = None,
@@ -99,7 +97,7 @@ class PatchouliSystem(SubsystemProtocol):
         self._shared_config = shared_config or SharedConfig()
         self._scheduler_config = scheduler_config or SchedulerConfig()
         self._global_bus = global_bus
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        self._runtime_events = runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
 
         # 1. 初始化 Runtime（运行时负责组装感知、检索、生成、生命周期组件图）
         self.runtime = PatchouliRuntime(
@@ -115,7 +113,7 @@ class PatchouliSystem(SubsystemProtocol):
             self.runtime.perception_familiar.apply_interaction,
             compaction=self.runtime.perception_familiar,
             runtime_events=self._runtime_events.scoped(
-                "patchouli",
+                subsystem="patchouli",
                 component="interaction_submission_queue",
             ),
         )

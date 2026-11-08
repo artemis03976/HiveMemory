@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import MemoryMergeAbortedError
@@ -97,7 +98,9 @@ class TestMemoryGenerationTaskController:
             return []
 
         bus = Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
-        controller = MemoryGenerationTaskController(bus=bus, runtime_events=recorder)
+        controller = MemoryGenerationTaskController(
+            bus=bus, runtime_events=RuntimeEventPublisher(recorder)
+        )
         await controller.start()
         spec = _spec(
             source=MemoryGenerationSource.WRITE,
@@ -259,7 +262,9 @@ class TestMemoryGenerationTaskController:
             )
         )
         bus.publish = AsyncMock()
-        controller = MemoryGenerationTaskController(bus=bus, runtime_events=recorder)
+        controller = MemoryGenerationTaskController(
+            bus=bus, runtime_events=RuntimeEventPublisher(recorder)
+        )
         await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
@@ -304,7 +309,9 @@ class TestMemoryGenerationTaskController:
         bus = Mock()
         bus.request = AsyncMock(return_value=results)
         bus.publish = AsyncMock()
-        controller = MemoryGenerationTaskController(bus=bus, runtime_events=recorder)
+        controller = MemoryGenerationTaskController(
+            bus=bus, runtime_events=RuntimeEventPublisher(recorder)
+        )
         await controller.start()
 
         memory_task = await controller.submit_generation(
@@ -478,7 +485,7 @@ class TestMemoryGenerationTaskController:
         bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(
             bus=bus,
-            runtime_events=recorder,
+            runtime_events=RuntimeEventPublisher(recorder),
         )
         await controller.start()
 
@@ -530,7 +537,7 @@ class TestMemoryGenerationTaskController:
         bus = Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
         controller = MemoryGenerationTaskController(
             bus=bus,
-            runtime_events=recorder,
+            runtime_events=RuntimeEventPublisher(recorder),
         )
         await controller.start()
 

@@ -21,6 +21,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import ResourceNotFoundError
@@ -110,6 +112,7 @@ def _make_familiar(
     bus=None,
     clock=None,
     engine="default",
+    events: RecordingRuntimeEventSink | None = None,
 ):
     """构造 (familiar, store, working_set, bus) 测试组合。
 
@@ -135,8 +138,18 @@ def _make_familiar(
         working_set=working_set,
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=idle_timeout),
+        runtime_events=RuntimeEventPublisher(events) if events is not None else None,
     )
     return familiar, store, working_set, bus
+
+
+def _topic_events(events: RecordingRuntimeEventSink) -> list[tuple[str, str | None, dict]]:
+    """话题事件的类型、话题与 data，按发出顺序。"""
+    return [
+        (event.event_type, event.topic_id, event.data)
+        for event in events.events
+        if event.event_type.startswith("topic.")
+    ]
 
 
 # ========== apply_interaction：核心摄入用例 ==========
@@ -485,7 +498,8 @@ class TestCompact:
 class TestNamedUseCases:
     @pytest.mark.asyncio
     async def test_manual_settle_admits_task_then_deletes_topic(self):
-        familiar, store, _, bus = _make_familiar()
+        events = RecordingRuntimeEventSink()
+        familiar, store, _, bus = _make_familiar(events=events)
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(),
@@ -503,10 +517,19 @@ class TestNamedUseCases:
         assert result.generation_submitted is True
         assert store.get(scope.workspace_identity, topic_id) is None
         assert bus.request.await_args.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
+        assert _topic_events(events) == [
+            ("topic.created", topic_id, {"created_by": "interaction"}),
+            (
+                "topic.settled",
+                topic_id,
+                {"reason": TriggerReason.MANUAL_SETTLE.value, "generation_submitted": True},
+            ),
+        ]
 
     @pytest.mark.asyncio
     async def test_manual_settle_empty_topic_skips_generation(self):
-        familiar, store, _, bus = _make_familiar()
+        events = RecordingRuntimeEventSink()
+        familiar, store, _, bus = _make_familiar(events=events)
         scope = _identity_scope()
         topic_id = await familiar.prepare_topic(
             "NEW_TOPIC", "标题", "摘要", scope.workspace_identity
@@ -518,6 +541,14 @@ class TestNamedUseCases:
         assert result.generation_task_id is None
         bus.request.assert_not_awaited()
         assert store.get(scope.workspace_identity, topic_id) is None
+        assert _topic_events(events) == [
+            ("topic.created", topic_id, {"created_by": "prepare"}),
+            (
+                "topic.settled",
+                topic_id,
+                {"reason": TriggerReason.MANUAL_SETTLE.value, "generation_submitted": False},
+            ),
+        ]
 
     @pytest.mark.asyncio
     async def test_manual_settle_busy_topic_raises_busy_error(self):
@@ -545,7 +576,8 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_evict_topic_removes_without_settlement(self):
-        familiar, store, working_set, bus = _make_familiar()
+        events = RecordingRuntimeEventSink()
+        familiar, store, working_set, bus = _make_familiar(events=events)
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(),
@@ -560,6 +592,10 @@ class TestNamedUseCases:
         assert store.get(scope.workspace_identity, topic_id) is None
         assert working_set.list_shutdown_candidates() == []
         bus.request.assert_not_awaited()  # evict 不触发结算
+        assert [event_type for event_type, _, _ in _topic_events(events)] == [
+            "topic.created",
+            "topic.deleted",
+        ]
 
     @pytest.mark.asyncio
     async def test_evict_busy_topic_reports_not_removed(self):
@@ -585,7 +621,8 @@ class TestNamedUseCases:
     async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_retry(
         self, failure
     ):
-        familiar, store, _, bus = _make_familiar()
+        events = RecordingRuntimeEventSink()
+        familiar, store, _, bus = _make_familiar(events=events)
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload("question", "answer"),
@@ -603,6 +640,7 @@ class TestNamedUseCases:
         assert after is not None
         assert [b.user_message for b in after.blocks] == [b.user_message for b in before.blocks]
         assert after.state_summary == before.state_summary
+        assert "topic.settled" not in [event_type for event_type, _, _ in _topic_events(events)]
 
         # 修复 admission 后可再次重试并成功结束生命周期
         bus.request = AsyncMock(return_value=None)

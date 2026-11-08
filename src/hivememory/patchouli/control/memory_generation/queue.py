@@ -7,7 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import (
     FailureAction,
     FailureDecision,
@@ -407,7 +407,7 @@ class MemoryGenerationQueue:
         execute_generation: ExecuteGeneration,
         *,
         store: InMemoryWorkStore | None = None,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
         policy: QueuePolicy | None = None,
     ) -> None:
         if policy is not None and policy.max_attempts != 1:

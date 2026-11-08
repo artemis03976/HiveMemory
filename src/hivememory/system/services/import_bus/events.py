@@ -12,8 +12,9 @@
 
 from __future__ import annotations
 
-from hivememory.components.events.bus import NullRuntimeEventSink, RuntimeEventSink
-from hivememory.core.contracts.runtime_events import RuntimeEvent, RuntimeEventType
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher, Severity
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.system.services.import_bus.models import ImportedTurn
 
@@ -21,13 +22,18 @@ from hivememory.system.services.import_bus.models import ImportedTurn
 class ImportBusEventEmitter:
     """把一次导入的结局投影为结构化 RuntimeEvent。
 
-    emit 失败不得影响业务流程，因此本类只做纯粹的构造与转发；背压与异常
-    吞吐由底层 ``RuntimeEventBus`` 负责。事件中的 Agent 是交互的参与者，
-    Workspace 是这次导入的目标；执行导入的 ``system`` 不出现在事件中。
+    emit 失败不得影响业务流程，发布失败由 publisher 吞下。事件中的 Agent 是
+    交互的参与者，Workspace 是这次导入的目标；执行导入的 ``system`` 不出现在
+    事件中。
     """
 
-    def __init__(self, sink: RuntimeEventSink | None = None) -> None:
-        self._sink = sink or NullRuntimeEventSink()
+    def __init__(self, publisher: RuntimeEventPublisher | None = None) -> None:
+        # 导入没有用户在 HiveMemory 一侧等待，按后台工作呈现。
+        self._events = (
+            (publisher or RuntimeEventPublisher(NullRuntimeEventSink()))
+            .scoped(subsystem="system", component="import_bus")
+            .bind(task_type="background")
+        )
 
     def _emit(
         self,
@@ -38,32 +44,29 @@ class ImportBusEventEmitter:
         participant: ActorIdentity,
         interaction_id: str,
         status: str,
-        severity: str = "info",
+        severity: Severity = "info",
         reason: str | None = None,
         topic_id: str | None = None,
         data: dict[str, object] | None = None,
     ) -> None:
-        self._sink.emit(
-            RuntimeEvent(
-                event_type=event_type,
-                # 导入没有用户在 HiveMemory 一侧等待，按后台工作呈现。
-                task_type="background",
-                agent_id=participant.agent_id,
-                # Workspace 仅作为观测标签，不参与 EventBus 的路由或序号语义。
-                workspace_id=workspace.workspace_id,
-                topic_id=topic_id,
-                status=status,
-                reason=reason,
-                severity=severity,  # type: ignore[arg-type]
-                data={
-                    "source": turn.source,
-                    "external_conversation_id": turn.external_conversation_id,
-                    "external_turn_id": turn.external_turn_id,
-                    "interaction_id": interaction_id,
-                    "event_count": len(turn.events),
-                    **(data or {}),
-                },
-            )
+        # Workspace 仅作为观测标签，不参与 EventBus 的路由或序号语义。
+        self._events.bind(
+            agent_id=participant.agent_id,
+            workspace_id=workspace.workspace_id,
+            topic_id=topic_id,
+        ).emit(
+            event_type,
+            status=status,
+            reason=reason,
+            severity=severity,
+            data={
+                "source": turn.source,
+                "external_conversation_id": turn.external_conversation_id,
+                "external_turn_id": turn.external_turn_id,
+                "interaction_id": interaction_id,
+                "event_count": len(turn.events),
+                **(data or {}),
+            },
         )
 
     def accepted(

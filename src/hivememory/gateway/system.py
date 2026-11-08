@@ -6,10 +6,8 @@ import logging
 from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.core.contracts.subsystem import SubsystemProtocol
 from hivememory.gateway.contracts.public_routes import GatewayPublicRoutes
@@ -29,14 +27,14 @@ class GatewaySystem(SubsystemProtocol):
         self,
         config: SystemGatewayConfig,
         global_bus: GlobalSystemBus,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
         *,
         llm_service: BaseLLMService | None = None,
         llm_params: LLMRequestParams | None = None,
     ) -> None:
         self._config = config
         self._global_bus = global_bus
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        self._runtime_events = runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
 
         # 共享的 LLM 服务与由 Gateway 组件配置转换的请求参数都由组合根注入；
         # 未配置模型时没有请求参数，分析能力按无 LLM 降级。

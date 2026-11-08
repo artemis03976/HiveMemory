@@ -227,7 +227,6 @@ def _build_system(
         workspace_read_view=make_workspace_read_view(),
         sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
-        event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),
     )
     services = _ServicesBundle(
@@ -429,7 +428,6 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         workspace_read_view=make_workspace_read_view(),
         sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
-        event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),
     )
     services = _ServicesBundle(

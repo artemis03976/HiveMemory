@@ -11,6 +11,7 @@ import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.config.patchouli import (
     ArtifactConfig,
@@ -224,7 +225,9 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         memory_library=library,
     )
     events = RecordingRuntimeEventSink()
-    controller = MemoryGenerationTaskController(bus=local_bus, runtime_events=events)
+    controller = MemoryGenerationTaskController(
+        bus=local_bus, runtime_events=RuntimeEventPublisher(events)
+    )
     coordinator = MemoryGenerationCoordinator(bus=local_bus, recent_block_limit=5)
 
     async def storage_health() -> bool:

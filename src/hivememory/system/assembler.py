@@ -24,7 +24,6 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import (
     NullRuntimeEventSink,
     RuntimeEventBus,
-    RuntimeEventSink,
 )
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
@@ -90,7 +89,7 @@ class _RuntimeBundle:
     workspace_read_view: WorkspaceReadView
     sessions: ConversationSessionService
     event_bus: RuntimeEventBus | None
-    event_sink: RuntimeEventSink
+    # 各生产方经它的作用域发布事件；sink 只留在总线与 publisher 内部。
     event_publisher: RuntimeEventPublisher
 
 
@@ -252,14 +251,13 @@ class SystemAssembler:
             if runtime_events_config.enabled
             else None
         )
-        event_sink: RuntimeEventSink = event_bus or NullRuntimeEventSink()
-        event_publisher = RuntimeEventPublisher(event_sink)
+        event_publisher = RuntimeEventPublisher(event_bus or NullRuntimeEventSink())
 
         scheduler = GlobalMaintenanceScheduler(
             tick_seconds=self._config.scheduler.tick_seconds,
             shutdown_wait_seconds=self._config.scheduler.shutdown_wait_seconds,
-            runtime_events=event_sink.scoped(
-                "system",
+            runtime_events=event_publisher.scoped(
+                subsystem="system",
                 component="maintenance_scheduler",
             ),
         )
@@ -271,7 +269,6 @@ class SystemAssembler:
             workspace_read_view=workspace_read_view,
             sessions=ConversationSessionService(self._config.workspace.sessions),
             event_bus=event_bus,
-            event_sink=event_sink,
             event_publisher=event_publisher,
         )
 
@@ -421,6 +418,7 @@ class SystemAssembler:
             memory,
             agent=agent,
             threads=processes.process_threads,
+            runtime_events=runtime.event_publisher,
         )
         return _CapabilitiesBundle(memory=memory, agent=agent, operations=operations)
 
@@ -439,7 +437,7 @@ class SystemAssembler:
         gateway = GatewaySystem(
             config=self._config.gateway,
             global_bus=runtime.global_bus,
-            runtime_events=runtime.event_sink.scoped("gateway"),
+            runtime_events=runtime.event_publisher.scoped(subsystem="gateway"),
             llm_service=llm.service,
             llm_params=llm.gateway_params,
         )
@@ -448,7 +446,7 @@ class SystemAssembler:
             config=self._config.patchouli,
             global_bus=runtime.global_bus,
             scheduler=runtime.scheduler,
-            runtime_events=runtime.event_sink.scoped("patchouli"),
+            runtime_events=runtime.event_publisher.scoped(subsystem="patchouli"),
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给
             # Patchouli runtime：供 Artifact promotion 在生成时按任务的归属取得内容。
             workspace_asset_reader=runtime.workspace_asset_store,
@@ -553,8 +551,8 @@ class SystemAssembler:
                     self._config.gateway.context_preparation.session_turn_limit
                 ),
                 apply_wait_seconds=self._config.import_bus.apply_wait_seconds,
-                runtime_events=runtime.event_sink.scoped(
-                    "system",
+                runtime_events=runtime.event_publisher.scoped(
+                    subsystem="system",
                     component="import_bus",
                 ),
             ),

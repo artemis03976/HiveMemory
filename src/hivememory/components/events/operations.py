@@ -6,15 +6,9 @@ from collections.abc import Awaitable, Callable
 from time import monotonic
 from typing import Any, Literal, TypeVar
 
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-    safe_runtime_event_value,
-)
-from hivememory.core.contracts.runtime_events import (
-    RuntimeEvent,
-    RuntimeEventType,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 
 T = TypeVar("T")
 
@@ -24,7 +18,7 @@ class RuntimeOperationObserver:
 
     def __init__(
         self,
-        sink: RuntimeEventSink | None = None,
+        publisher: RuntimeEventPublisher | None = None,
         *,
         subsystem: str,
         component: str,
@@ -33,13 +27,14 @@ class RuntimeOperationObserver:
         operation_kind: str | None = None,
         task_type: Literal["foreground", "background"] | None = "background",
     ) -> None:
-        self._sink = sink or NullRuntimeEventSink()
-        self._subsystem = subsystem
-        self._component = component
+        self._events = (
+            (publisher or RuntimeEventPublisher(NullRuntimeEventSink()))
+            .scoped(subsystem=subsystem, source=operation_key, component=component)
+            .bind(task_type=task_type)
+        )
         self._operation_key = operation_key
         self._operation_name = operation_name or operation_key.rsplit(".", 1)[-1]
         self._operation_kind = operation_kind
-        self._task_type = task_type
 
     async def observe(
         self,
@@ -140,19 +135,7 @@ class RuntimeOperationObserver:
             "duration_ms": duration_ms,
             **(data or {}),
         }
-        self._sink.emit(
-            RuntimeEvent(
-                event_type=event_type,
-                task_type=self._task_type,
-                source=self._operation_key,
-                subsystem=self._subsystem,
-                component=self._component,
-                severity=severity,
-                status=status,
-                reason=reason,
-                data=safe_runtime_event_value(payload),
-            )
-        )
+        self._events.emit(event_type, status=status, severity=severity, reason=reason, data=payload)
 
 
 __all__ = ["RuntimeOperationObserver"]

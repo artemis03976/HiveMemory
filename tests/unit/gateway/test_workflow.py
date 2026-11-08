@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import (
     GatewayContextPreparationConfig,
     RuleInterceptorConfig,
@@ -98,7 +99,7 @@ def _make_workflow(
         ),
         topic_router_config=TopicRouterConfig(timeout_ms=20),
         analysis_config=UserQueryAnalysisConfig(overall_timeout_ms=20),
-        runtime_events=events,
+        runtime_events=RuntimeEventPublisher(events),
     )
 
 

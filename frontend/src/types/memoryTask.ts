@@ -5,12 +5,12 @@ export type MemoryGenerationTaskStatus =
   | 'cancelled'
   | 'failed';
 
+/** 与后端 `MemoryGenerationSource` 一致：主动写入、更新、话题结算与合并。 */
 export type MemoryGenerationTaskSource =
   | 'WRITE'
   | 'UPDATE'
-  | 'ARCHIVE'
-  | 'MERGE'
-  | 'SPLIT';
+  | 'SETTLE'
+  | 'MERGE';
 
 export interface MemoryGenerationTask {
   task_id: string;

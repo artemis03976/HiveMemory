@@ -36,6 +36,8 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.components.trace_context import current_trace_id
 from hivememory.components.work_queue import QueuePolicy
 from hivememory.core.access import WorkingActor
 from hivememory.core.constants import SYSTEM_AGENT_ID
@@ -217,7 +219,7 @@ async def _harness(
             ),
             gateway_session_turn_limit=session_turn_limit,
             apply_wait_seconds=apply_wait_seconds,
-            runtime_events=events,
+            runtime_events=RuntimeEventPublisher(events),
         ),
         queue=queue,
         events=events,
@@ -556,6 +558,25 @@ async def test_runtime_events_carry_identifiers_without_content() -> None:
         "is_new_topic": True,
     }
     assert SECRET not in accepted.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_each_import_runs_in_its_own_trace_and_restores_it() -> None:
+    """一轮导入在自己的 import- trace 中进行，被动路由继承它；导入结束后 trace 复原。"""
+    traces: list[str] = []
+
+    async def gateway(**kwargs):
+        traces.append(current_trace_id.get())
+        return GatewayDecisionOutcome(decision=_decision())
+
+    async with _harness(gateway) as harness:
+        await harness.ingest(_turn())
+        await harness.ingest(_turn(external_turn_id="prompt-2"))
+
+    assert len(traces) == 2
+    assert all(trace.startswith("import-") for trace in traces)
+    assert traces[0] != traces[1]
+    assert current_trace_id.get() == "system"
 
 
 @pytest.mark.asyncio
