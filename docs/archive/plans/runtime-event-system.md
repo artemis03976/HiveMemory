@@ -17,14 +17,14 @@ updates:
   - docs/patchouli/perception.md
   - docs/system/import-bus.md
   - docs/frontend/state-and-transports.md
-  - docs/ideas/runtime-event-system-and-run-view.md
+  - docs/archive/ideas/runtime-event-system-and-run-view.md
   - docs/ideas/README.md
   - docs/ROADMAP.md
 ---
 
 # Runtime Event 体系完善
 
-本计划实施[正式的 Runtime Event 体系与全局运行页 Idea](../../ideas/runtime-event-system-and-run-view.md)第 3.1 至 3.4 节：让每一次运行的事件能归到一组，补齐 actor 操作与话题生命周期的事件，事件目录只在事件契约一处维护，全部生产端经领域 emitter 投影（观测治理 W6）。运行页本身（Idea 第 3.5 节）在本计划完成、新事件成为当前事实之后另写计划。对 Idea 候选设计的调整见第 4.8 节。
+本计划实施[正式的 Runtime Event 体系与全局运行页 Idea](../ideas/runtime-event-system-and-run-view.md)第 3.1 至 3.4 节：让每一次运行的事件能归到一组，补齐 actor 操作与话题生命周期的事件，事件目录只在事件契约一处维护，全部生产端经领域 emitter 投影（观测治理 W6）。运行页本身（Idea 第 3.5 节）在本计划完成、新事件成为当前事实之后另写计划。对 Idea 候选设计的调整见第 4.8 节。
 
 ## 1. 背景和问题
 

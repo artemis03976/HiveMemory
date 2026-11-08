@@ -3,7 +3,7 @@ title: Research
 status: current
 owner: project
 scope: external-systems-papers-and-technical-research
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-07
 ---
 
 # 调研资料
@@ -18,6 +18,8 @@ last_reviewed: 2026-11-01
 |:---|:---|
 | [外部 harness 接口调研需求](./harness-interface-survey.md) | [2026-10-20 调研快照](./harness-interface-survey-snapshot.md)已完成资料调研；模型实测待验证，随 controller 模式退回候选方向暂缓（2026-10-20）。 |
 | [DeepSeek Harness 插件接入调研需求与报告](./deepseek-harness-plugin-survey.md) | 同文第 7 节已形成 2026-11-01 证据快照；27 项能力、hook 对应、路径比较与接入要求已核对，无真实凭据机制探针通过。接入路径由 owner 选为原生插件，已于 2026-11-01 实施（[归档计划](../archive/plans/dsh-plugin-integration.md)）。 |
+| [Codex 插件接入调研需求与报告](./codex-plugin-survey.md) | 同文第 7 节已形成 2026-11-07 证据快照；固定 rust-v0.167.0，32 项能力、hook 对应、两条路径与原生记忆共存已作答。仅资料核对，Windows 原生最小实测未执行（无 Windows 执行端），接入路径未决定。 |
+| [pi 插件接入调研需求与报告](./pi-plugin-survey.md) | 同文第 7 节已形成 2026-11-07 证据快照；固定 v1.5.0，31 项能力、事件对应、三条路径与会话树影响已作答。仅资料核对，Windows 原生最小实测未执行（无 Windows 执行端），接入路径未决定。 |
 
 ## 报告索引
 
@@ -25,6 +27,8 @@ last_reviewed: 2026-11-01
 |:---|:---|:---|:---|
 | Agent harness 接口与接入 | [外部 harness 程序化接口调研快照](./harness-interface-survey-snapshot.md) | 2026-10-20 | Codex、Claude Code、pi 与 ACP；接口对比、会话、取消、输入、权限、MCP 与许可。资料核对及本地版本/离线 schema 检查；模型实测待验证。调研需求见[外部 harness 接口调研需求](./harness-interface-survey.md)。 |
 | Agent harness 插件接入 | [DeepSeek Harness 插件接入调研](./deepseek-harness-plugin-survey.md#7-调研结果) | 2026-11-01 | dsh 0.2.2-alpha.2 固定源码、插件/MCP/会话/skill 与 HiveMemory 适配要求；本地脚本化模型及 HTTP MCP 探针通过；之后选定原生插件并实施（[归档计划](../archive/plans/dsh-plugin-integration.md)）。 |
+| Agent harness 插件接入 | [Codex 插件接入调研](./codex-plugin-survey.md#7-调研结果) | 2026-11-07 | rust-v0.167.0 固定源码与当日官方文档；插件、可信参数改写、终态/历史读取、Windows 与原生记忆。Windows 实测未执行，失败回流和间接调用回声仍有边界；仅比较路径。 |
+| Agent harness 插件接入 | [pi 插件接入调研](./pi-plugin-survey.md#7-调研结果) | 2026-11-07 | v1.5.0 固定源码/文档；原生扩展、内建 MCP、参数改写、最终空闲事件、会话树与 Honcho 样本。Windows 实测未执行，轮次持久身份和间接调用回声仍待接入方案处理；仅比较路径。 |
 | Agent 上下文与记忆管理 | [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | 2026-10-16 | Claude Code、Codex、Hermes、pi、OpenCode V2 的固定源码/文档快照；预算、历史投影、检查点、取消与恢复。保留当时的适配建议，未做真实长会话质量对比。 |
 
 新报告按主题加入本索引；Memory 系统设计、Agent 架构、检索与存储、论文与算法等方向均可在此积累。报告增多后再按稳定主题拆分子目录。

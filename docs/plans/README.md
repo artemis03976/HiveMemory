@@ -22,9 +22,9 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 ## 未绑定版本
 
-生效计划：[全局运行页](./run-view.md)（`active`，2026-11-07 建立并开始实施），前端 UI 优化与空入口接线方向。身份与访问主线是版本之外的工作，后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
+当前没有生效计划；前端 UI 优化与其余空入口接线另写计划。身份与访问主线是版本之外的工作，后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
 
-Runtime Event 体系完善（2026-11-07）、交互提交收束与话题按需创建、WorkspaceAsset 的归属拆分、Import Bus 的授权移入能力层与统一身份授权入口（2026-11-06）、HTTP 管理面的管理凭据（2026-11-05）、此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，其余工作包以治理主题跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
+全局运行页、Runtime Event 体系完善（2026-11-07）、交互提交收束与话题按需创建、WorkspaceAsset 的归属拆分、Import Bus 的授权移入能力层与统一身份授权入口（2026-11-06）、HTTP 管理面的管理凭据（2026-11-05）、此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，其余工作包以治理主题跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
 
 ## 准入规则
 
