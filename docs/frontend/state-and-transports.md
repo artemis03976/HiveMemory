@@ -48,12 +48,12 @@ Chat tokens / logs / RuntimeEvents
 
 | Store | 持久化 | 明确不持久化 |
 |:---|:---|:---|
-| `chat-ui-store` | 主导航、主题、左右面板折叠、侧栏 tab、Settings 分类、记忆预检索开关 | toast、页面业务数据 |
+| `chat-ui-store` | 主导航、主题、左右面板折叠、侧栏 tab、Settings 分类、记忆预检索开关、运行页的列表筛选；持久化版本 5，已移除的 Workspace Vision 终端标签在加载时迁移为引用记忆 | toast、页面业务数据、运行页的选中运行与日志 trace 筛选 |
 | `chat-runtime-config-store` | 会话的模型选择 `modelSelection`（`model_id` 与 temperature/top_p/max_tokens）、是否覆盖参数；持久化版本 3，旧版本的 `generationOptions` 在加载时迁移 | 某次请求终态 |
 | `chat-store` | 当前 Session ID 与 Agent ID | messages、会话列表/历史、输入草稿、引用记忆、连接、process ID、run status、压缩进度/检查点、本轮失败码 |
 | `memory-view-store` | search mode、类型、status filter、排序、grid/list | search query、selected tags、Memory 数据 |
 | `memory-task-store` | 是否显示 terminal tasks | task、选中 task、请求状态 |
-| `workspace-store` | filters、trace/span UI | logs、trace groups、RuntimeEvents、连接、主窗口状态 |
+| `workspace-store` | 日志筛选（级别、logger 前缀、文本）与 ui 偏好（暂停、缓冲上限） | logs、RuntimeEvents、连接、主窗口状态 |
 | `topic-store` | 无 | Topic 池、loading、error |
 
 Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store 的运行期字段，供无输出停止时回填，两者都不跨刷新恢复。Topic `settle`/`delete` 使用乐观移除并在失败时回滚；这里的 `settle` 是结束 Topic 生命周期并交给记忆生成，不是 Memory Library 的 `archive`。Memory 删除同样先移除，后端删除失败时放回并提示（[管理页面](./management-views.md)）。
@@ -66,7 +66,7 @@ Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store �
 | Chat | fetch-based SSE | `POST /api/v1/chat` | `done` / `error`；无断线续传 |
 | Stop | HTTP | `POST /api/v1/chat/stop` | best-effort 请求，等待流终态确认 |
 | Sessions / Topics / Memories / Agents / Config / Registries / Tasks | HTTP JSON | 相对 `/api/v1/...` | 请求级成功失败；页面按能力 refetch 或乐观更新 |
-| RuntimeEvent | EventSource SSE | `/api/v1/runtime-events/stream` | 支持 `last_event_id`/gap 的后端语义：`Last-Event-ID` 请求头优先于 URL 中的回放点，浏览器自动重连沿用首次连接的 URL 时按最新收到的事件续传；浏览器只保留当前运行期 |
+| RuntimeEvent | EventSource SSE | `/api/v1/runtime-events/stream` | 新连接以 `/runtime-events/status` 返回的 `buffer_size` 作为 `replay_last`，取回后端缓冲内的全部事件；支持 `last_event_id`/gap 的后端语义：`Last-Event-ID` 请求头优先于 URL 中的回放点，浏览器自动重连沿用首次连接的 URL 时按最新收到的事件续传；浏览器只保留当前运行期 |
 | Logs | WebSocket | `/api/v1/ws/logs` | ping/pong、有限重连，无历史恢复 |
 
 Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送请求体。RuntimeEvent 是 GET 流，使用 EventSource。日志需要双向 ping/pong 和持续推送，使用 WebSocket。
@@ -99,7 +99,7 @@ HTTP、SSE（chat 与 RuntimeEvent）与日志 WebSocket 的 URL 都由 `transpo
 
 ## 5. 多窗口日志同步
 
-Workspace store 通过 `hivememory_primary_window` localStorage heartbeat 判断主窗口。主窗口建立 WebSocket 与 RuntimeEvent 连接，再通过 `hivememory_workspace_logs` BroadcastChannel 广播新日志、事件和连接状态；次窗口只消费广播。
+[全局运行页](./run-view.md)挂载时建立日志 WebSocket 与事件流，Chat 页的 Workspace Vision 挂载时建立事件流；离开页面不断开，Memory Runtime 依赖事件流。Workspace store 通过 `hivememory_primary_window` localStorage heartbeat 判断主窗口。主窗口建立 WebSocket 与 RuntimeEvent 连接，再通过 `hivememory_workspace_logs` BroadcastChannel 广播新日志、事件和连接状态；次窗口只消费广播。
 
 这个机制减少重复连接，但没有服务端 lease，也没有跨浏览器实例协调。浏览器冻结、localStorage 清理、时钟漂移或主窗口非正常终止时可能短暂出现无主或多主；它不能替代后端订阅身份和可靠消费语义。
 

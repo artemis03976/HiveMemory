@@ -47,7 +47,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 
 ## 2. 当前产品表面
 
-`App.tsx` 由持久化的 `activeNavTab` 条件渲染四个主要页面，没有使用前端路由器：
+`App.tsx` 由持久化的 `activeNavTab` 条件渲染五个主要页面，没有使用前端路由器：
 
 | 页面 | 当前责任 | 当前事实来源 |
 |:---|:---|:---|
@@ -55,8 +55,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 | Memory Library | 记忆浏览、客户端筛选、语义检索、创建、编辑与删除；短期话题池的 settle 与 delete | memories API、topics API；读取失败时显示错误，debug 模式下回退 mock |
 | Agent Management | Agent Profile 列表、创建、编辑与删除 | agents API + generic memories API；读取失败时提示，debug 模式下回退 mock |
 | Settings | 通用配置草稿、Provider 凭证和 Model Registry 管理 | config/providers/models API |
-
-全局导航还显示 Terminal 入口，但 `App.tsx` 当前没有对应渲染分支，选择后主区域为空。这是未完成入口，不是第五个已交付页面。
+| 运行（Terminal 入口） | 运行时事件按一次运行展示的列表与时间线，以及后端日志尾部；只看不改 | RuntimeEvent 流、logs WebSocket |
 
 ## 3. 应用边界
 
@@ -82,6 +81,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - [应用壳与视觉系统](./application-shell.md)：导航、布局、主题、视觉隐喻与部署方式；
 - [Chat 视图](./chat-view.md)：会话管理与历史恢复、对话主流程、SSE 事件、Topic 标注、MTP、子 Agent 与 Workspace Vision；
 - [管理页面](./management-views.md)：Memory Library、Agent Management、Settings 与人工干预边界；
+- [全局运行页](./run-view.md)：Terminal 入口的运行列表、事件时间线、后端日志与有限历史；
 - [状态、持久化与传输](./state-and-transports.md)：状态所有权、本地持久化矩阵、HTTP/SSE/WebSocket 和 mock 降级。
 
 旧的 `FrontendDesign.md`、`MemoryGardenUI.md` 与 `frontend-state-persistence-research.md` 已移入 Archive，不再作为当前依据；它们保留设计演进和调研过程，当前事实均以本组文档为准。
@@ -95,6 +95,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 | 应用入口与导航 | `frontend/src/App.tsx`、`components/GlobalNavBar.tsx` |
 | Chat 视图与观测面板 | `components/ChatLayout.tsx`、`components/chat/` |
 | 管理页面 | `components/MemoryLibrary.tsx`、`AgentManagement.tsx`、`SettingsPanel.tsx` |
+| 全局运行页 | `components/runs/`、`stores/runs/` |
 | 状态所有权 | `frontend/src/stores/`、`hooks/` |
 | API 与流传输 | `frontend/src/services/`、`transports/` |
 | 主题与视觉 token | `frontend/src/index.css` |
@@ -107,7 +108,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - 会话历史由后端进程内的 ConversationSession 持有，刷新页面可以恢复，后端重启后丢失；SSE 断线不续传；
 - Memory、Agent 与 Settings 的 mock fallback 只在 debug 模式下启用，此时页面没有 mock 标识，看似可用但写操作仍会失败；
 - Settings 的主配置中只有 General 与“内部引擎”两个分类与后端配置结构一致，其余分类尚未对齐，不能视为可靠控制面；
-- `#` 引用、消息复制/点赞/重试、Memory Pin 和顶层 Terminal 页面仍是未接线入口；
+- `#` 引用、消息复制/点赞/重试与 Memory Pin 仍是未接线入口；
 - UI 为固定桌面工作台布局，尚没有路由级深链接、正式响应式策略、账户系统或无障碍验收证据。
 
 这些限制意味着当前前端适合个人开发、系统观察与能力验证，而不是已经完成的多用户管理后台。未来功能只有在形成 Plan 并落地后，才能改写本目录的当前能力描述。

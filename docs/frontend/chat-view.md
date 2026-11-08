@@ -90,6 +90,8 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 
 ## 5. Workspace Vision
 
+Workspace Vision 有引用记忆与 Memory Runtime 两个标签；后端日志与运行时事件在[全局运行页](./run-view.md)查看，不随会话显示。
+
 ### 5.1 引用记忆
 
 `memory_refs` 映射为本轮后端明确引用的 MemoryAtom。用户可以查看摘要与详情，并通过 feedback API 提交正/负反馈。新一轮开始时旧引用会被清空，避免把上轮证据错配给当前回答。
@@ -97,12 +99,6 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 ### 5.2 Memory Runtime
 
 `memory.task.*` RuntimeEvent 在 WRITE/UPDATE 执行期间即可投影任务创建与状态变化，面板挂载时调用任务列表 API 补齐 best-effort 事件的遗漏；done 不再触发按任务 ID 刷新。任务按创建时间倒序排列，不显示“当前轮”标记或置顶（任务事件没有 process_id）。用户可以刷新、选择和取消 task；task 数据本身不写入 localStorage，重载后重新以后端查询为准。memory task API 失败时只有 debug 模式换用 mock task，默认如实报错（[状态与传输](./state-and-transports.md#6-mock-降级边界)第 6 节）。
-
-### 5.3 Workspace Terminal
-
-日志通过 `/api/v1/ws/logs` WebSocket 进入，RuntimeEvent 通过 `/api/v1/runtime-events/stream` EventSource 进入。Workspace store 维护过滤、trace/span 折叠与连接状态，但日志和事件不是业务账本，也不会跨刷新恢复。
-
-为避免多个窗口各自占用连接，前端以 localStorage heartbeat 选举一个主窗口持有流连接，再通过 BroadcastChannel 把新日志与事件同步给其他窗口。这是浏览器级资源优化，不是跨进程可靠消费或 leader election 契约。
 
 ## 6. 当前交互能力与空壳入口
 
@@ -115,7 +111,7 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 - 会话管理、历史恢复、逐轮 Topic 标注、压缩进度与可展开摘要边界；
 - 流式状态、停止生成；finalizing 期间停止按钮禁用，等待提交完成；
 - MTP 与子 Agent 卡片；
-- 引用记忆、memory task 和 Workspace Terminal 日志面板；
+- 引用记忆与 memory task 面板（日志与运行时事件在[全局运行页](./run-view.md)）；
 - 附件上传（拖拽/Paperclip 进入同一串行队列，请求内解析到 READY/FAILED）、READY 附件的本轮选择与发送时冻结，选择随 `attachments` 字段提交。
 
 尚未接线：

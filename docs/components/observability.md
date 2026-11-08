@@ -60,7 +60,7 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 2. 其余 `trace_id` 不是 `system` 的事件按 `trace_id` 归组。设置 trace 的运行有三种：chat 任务进程（`task-` 前缀）、一轮导入（`import-`）与一次 MCP 工具调用（`mcp-`）。运行内的 Gateway、Alice、actor 操作与新建话题的事件都从 contextvars 继承所在运行的 trace，不必各自携带运行标识。
 3. 剩下的事件各自是单条运行：`maintenance.task.*`、`system.*`、`subsystem.operation.*`，以及空闲结算等不在任何运行内发生的 `topic.*`。
 
-不同运行之间经 `topic_id` 互相链接：导入或对话写入话题，话题结算引起生成任务。生成任务与维护任务不设置 trace。同一个 trace 也出现在日志格式中（[System 配置](../system/configuration.md)），一次运行的日志与事件可以互相对应。
+不同运行之间经 `topic_id` 互相链接：导入或对话写入话题，话题结算引起生成任务。生成任务与维护任务不设置 trace。前端的[全局运行页](../frontend/run-view.md)按这些规则把事件展示为运行列表与时间线。同一个 trace 也出现在日志格式中（[System 配置](../system/configuration.md)），一次运行的日志与事件可以互相对应。
 
 ## 2. RuntimeEventBus 语义
 

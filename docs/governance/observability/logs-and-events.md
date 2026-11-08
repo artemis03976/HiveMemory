@@ -58,7 +58,7 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 |:---|:---|
 | 日志配置 | 按天切分、只替换自己装上的输出、uvicorn 与 `warnings` 并入根 logger，已经成熟（`server/logging_setup.py`）。默认格式带上 `TraceInjectFilter` 注入的 `trace_id` 与 `span_name`（2026-11-07）：任务进程中的日志与该进程的运行时事件是同一个 `trace_id`，进程之外是 `system/main` |
 | 日志写法 | 约 300 处日志调用，全部使用 `%` 占位符（2026-11-07）；中文约 190 处、英文约 110 处，每个模块只用一种语言（2026-11-07）；关联标识只在部分消息中写成 `key=value` |
-| 事件的消费与记录 | 前端实时面板，以及配置后单独写入的事件记录文件；开发脚本写到 `.hivememory/logs/runtime-events.jsonl`，`scripts/runtime_event_timeline.py` 按关联标识排时间线 |
+| 事件的消费与记录 | 前端的全局运行页（[运行页](../../frontend/run-view.md)），以及配置后单独写入的事件记录文件；开发脚本写到 `.hivememory/logs/runtime-events.jsonl`，`scripts/runtime_event_timeline.py` 按关联标识排时间线 |
 | 失败事件的原因码 | 失败事件都有稳定原因码，异常类名在 `data.error_class`（[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)第 4.4 节）；生成任务的原因码由失败分类按异常给出（2026-11-03） |
 | 只有事件没有日志 | Gateway workflow 与查询分析的失败只发事件，不记日志 |
 | 内容进日志 | 2026-11-07 起不再记录：Gateway L1 拦截器的原始用户消息改为命令标识、解析状态或输入长度；感知应用交互时的用户消息、检索文本、WRITE 内容、UPDATE 指令、CALL 任务文本改为长度，记忆标题与修订 changelog 改为 `memory_id` |
