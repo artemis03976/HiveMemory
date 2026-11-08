@@ -1,21 +1,23 @@
 ---
 title: Runtime Event System and the Global Run View
-status: idea
-horizon: candidate
+status: archived
+archived_at: 2026-11-07
+implemented_by: Runtime Event 体系完善（PR #193，第 3.1 至 3.4 节）与全局运行页（PR #195，第 3.5 节）
+superseded_by: docs/components/observability.md
 owner: components
 scope: runtime-event-catalog-coverage-producers-and-global-run-view
 code_paths:
   - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/components/events/
   - src/hivememory/workspace/process/runner.py
-  - frontend/src/components/chat/WorkspaceVision.tsx
-  - frontend/src/components/chat/WorkspaceTerminalTab.tsx
+  - frontend/src/components/runs/
+  - frontend/src/stores/runs/
   - frontend/src/stores/workspace/
 related_docs:
   - docs/components/observability.md
   - docs/governance/observability/logs-and-events.md
   - docs/contracts/routes-and-events.md
-  - docs/frontend/chat-view.md
+  - docs/frontend/run-view.md
   - docs/frontend/README.md
 last_reviewed: 2026-11-07
 ---
@@ -24,22 +26,22 @@ last_reviewed: 2026-11-07
 
 本文讨论两件互相依赖的事：前端用什么展示"后端正在做什么"，以及为此需要把运行时事件建成怎样的体系。owner 已于 2026-11-07 决定运行页以事件为主视图（第 2 节），本文其余部分是候选设计与默认值，不是 owner 决定，可在计划评审时调整。
 
-2026-11-07：第 3.1 至 3.4 节经计划 [Runtime Event 体系完善](../archive/plans/runtime-event-system.md) 实施，当前事实见[运行时事件与可观测性](../components/observability.md#11-一次运行)与[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)，计划对本文候选设计的调整见其第 4.8 节。运行页（第 3.5 节）于同日经计划 [全局运行页](../plans/run-view.md) 实施，当前事实见[全局运行页](../frontend/run-view.md)；计划归档时本文一并归档。
+2026-11-07：第 3.1 至 3.4 节经计划 [Runtime Event 体系完善](../plans/runtime-event-system.md) 实施，当前事实见[运行时事件与可观测性](../../components/observability.md#11-一次运行)与[事件契约](../../contracts/routes-and-events.md#4-runtimeevent-观测契约)，计划对本文候选设计的调整见其第 4.8 节。运行页（第 3.5 节）于同日经计划 [全局运行页](../plans/run-view.md) 实施（PR #195），当前事实见[全局运行页](../../frontend/run-view.md)；本文随之归档，只供追溯。
 
-事件机制、信封与 best-effort 语义的当前事实见[运行时事件与可观测性](../components/observability.md)，日志写法与事件生产端收敛的治理见[日志与运行时事件](../governance/observability/logs-and-events.md)，本文不重复。
+事件机制、信封与 best-effort 语义的当前事实见[运行时事件与可观测性](../../components/observability.md)，日志写法与事件生产端收敛的治理见[日志与运行时事件](../../governance/observability/logs-and-events.md)，本文不重复。
 
 ## 1. 背景：两路观测在前端互相冲突
 
 ### 1.1 前端现在怎样展示
 
-- **入口**：全局导航的 Terminal 入口在 `App.tsx` 中没有渲染分支，选择后主区域为空（[前端索引](../frontend/README.md)）。实际的观测面板做在 Chat 页右栏 Workspace Vision 的"终端"标签里（[Chat 视图](../frontend/chat-view.md#53-workspace-terminal)第 5.3 节）。
+- **入口**：全局导航的 Terminal 入口在 `App.tsx` 中没有渲染分支，选择后主区域为空（[前端索引](../../frontend/README.md)）。实际的观测面板做在 Chat 页右栏 Workspace Vision 的"终端"标签里（[Chat 视图](../../frontend/chat-view.md#53-workspace-terminal)第 5.3 节）。
 - **日志视图**：后端日志经 `/api/v1/ws/logs` WebSocket 广播，前端按 `trace_id`、`span_name` 折叠。trace 只有 chat 任务进程会设置（`workspace/process/runner.py`），Import Bus、MCP 与后台维护的日志都落在 `system/main` 一组里。
 - **事件视图**：同一标签可以切到事件，事件经 `/api/v1/runtime-events/stream` 进入，展示为平铺列表，每条只标出 `task_id`、`process_id`、`agent_run_id` 或 `trace_id` 中的一个。
-- **记忆任务**：右栏的 Memory Runtime 标签把 `memory.task.*` 事件投影为任务列表，这是事件目前唯一按语义消费的地方（[Chat 视图](../frontend/chat-view.md#52-memory-runtime)第 5.2 节）。
+- **记忆任务**：右栏的 Memory Runtime 标签把 `memory.task.*` 事件投影为任务列表，这是事件目前唯一按语义消费的地方（[Chat 视图](../../frontend/chat-view.md#52-memory-runtime)第 5.2 节）。
 
 ### 1.2 冲突在哪里
 
-- **分组做在了日志上**：[运行时事件与可观测性](../components/observability.md)开头写明，事件保留 trace 与关联字段，是为了让前端按运行上下文分组、折叠；实现却是日志按 trace/span 折叠、事件平铺。日志是自由文本，同一模块中英文混用，可能带异常正文，不适合作为界面数据；而 trace 只覆盖 chat 任务进程，日常使用的 plugin 模式（Claude Code、dsh 经 Import Bus 与 MCP）看不到分组。
+- **分组做在了日志上**：[运行时事件与可观测性](../../components/observability.md)开头写明，事件保留 trace 与关联字段，是为了让前端按运行上下文分组、折叠；实现却是日志按 trace/span 折叠、事件平铺。日志是自由文本，同一模块中英文混用，可能带异常正文，不适合作为界面数据；而 trace 只覆盖 chat 任务进程，日常使用的 plugin 模式（Claude Code、dsh 经 Import Bus 与 MCP）看不到分组。
 - **位置放错了**：观测面板挂在 Chat 页，Chat 页是可选的 controller 式入口，而后端观测是全局的：导入、MCP 访问、生成任务与维护都不经过 Chat 页。
 
 ### 1.3 事件还不是一个完整的体系
@@ -80,7 +82,7 @@ last_reviewed: 2026-11-07
 ### 3.2 事件目录
 
 - 每个事件族都有终态事件，运行页才能判断一次运行是否结束；没有生产方的类型，要么补上生产方，要么删除。
-- 事件目录只在[事件契约](../contracts/routes-and-events.md#44-失败与降级观测)一处维护，写明每个类型的生产方、分组键与 `data` 字段。
+- 事件目录只在[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)一处维护，写明每个类型的生产方、分组键与 `data` 字段。
 
 ### 3.3 补齐覆盖
 
@@ -122,7 +124,7 @@ last_reviewed: 2026-11-07
 
 ## 6. 相关文档
 
-- [运行时事件与可观测性](../components/observability.md)：信封、总线语义、事件记录文件与生产端现状；
-- [日志与运行时事件](../governance/observability/logs-and-events.md)：日志写法、W6 生产端收敛；
-- [事件契约](../contracts/routes-and-events.md)：公开事件与原因码；
-- [Chat 视图](../frontend/chat-view.md)：Workspace Vision 的当前面板。
+- [运行时事件与可观测性](../../components/observability.md)：信封、总线语义、事件记录文件与生产端现状；
+- [日志与运行时事件](../../governance/observability/logs-and-events.md)：日志写法、W6 生产端收敛；
+- [事件契约](../../contracts/routes-and-events.md)：公开事件与原因码；
+- [Chat 视图](../../frontend/chat-view.md)：Workspace Vision 的当前面板。

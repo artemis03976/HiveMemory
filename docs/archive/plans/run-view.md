@@ -1,6 +1,9 @@
 ---
 title: 全局运行页
-status: active
+status: archived
+archived_at: 2026-11-07
+implemented_by: PR #195
+superseded_by: docs/frontend/run-view.md
 owner: frontend
 target: 版本之外的工作（前端 UI 优化与空入口接线方向，桌面打包之前；owner 2026-11-07 决定 Terminal 入口为全局运行页）
 scope: terminal-entry-run-view-run-grouping-timeline-backend-logs-and-chat-panel-removal
@@ -12,14 +15,14 @@ updates:
   - docs/frontend/application-shell.md
   - docs/contracts/routes-and-events.md
   - docs/components/observability.md
-  - docs/ideas/runtime-event-system-and-run-view.md
+  - docs/archive/ideas/runtime-event-system-and-run-view.md
   - docs/ideas/README.md
   - docs/ROADMAP.md
 ---
 
 # 全局运行页
 
-本计划实施[正式的 Runtime Event 体系与全局运行页 Idea](../ideas/runtime-event-system-and-run-view.md)第 3.5 节：导航里的 Terminal 入口渲染一个全局运行页，主视图把运行时事件按"一次运行"展示，第二个标签是后端日志；Chat 右栏的终端标签移除。事件体系与分组规则已经由 [Runtime Event 体系完善](../archive/plans/runtime-event-system.md)落地（[运行时事件与可观测性](../components/observability.md#11-一次运行)第 1.1 节），本计划只做页面与一处回放参数。
+本计划实施[正式的 Runtime Event 体系与全局运行页 Idea](../ideas/runtime-event-system-and-run-view.md)第 3.5 节：导航里的 Terminal 入口渲染一个全局运行页，主视图把运行时事件按"一次运行"展示，第二个标签是后端日志；Chat 右栏的终端标签移除。事件体系与分组规则已经由 [Runtime Event 体系完善](./runtime-event-system.md)落地（[运行时事件与可观测性](../../components/observability.md#11-一次运行)第 1.1 节），本计划只做页面与一处回放参数。
 
 ## 1. 背景和问题
 
@@ -33,7 +36,7 @@ updates:
 ### 2.1 目标
 
 1. Terminal 入口渲染运行页，主视图是"运行"标签：左侧运行列表，右侧所选运行的事件时间线。
-2. 运行按[分组规则](../components/observability.md#11-一次运行)在前端派生，标题、状态、耗时与关联话题由事件计算，不另设后端接口。
+2. 运行按[分组规则](../../components/observability.md#11-一次运行)在前端派生，标题、状态、耗时与关联话题由事件计算，不另设后端接口。
 3. 第二个标签是后端日志：平铺的日志尾部，可按级别、logger、文本与 trace 筛选，并能从运行详情跳到这次运行的日志。
 4. 打开或刷新页面时取回后端缓冲内的全部事件（有限历史）。
 5. Chat 右栏移除终端标签，日志视图不再按 trace/span 折叠，相关的折叠状态与 reducer 删除。
@@ -91,7 +94,7 @@ updates:
 
 ### 4.3 运行的归组与派生
 
-纯函数 `groupRuns(events)` 把事件列表派生为运行列表，规则与[分组规则](../components/observability.md#11-一次运行)一致，并加两处只影响展示的挂接：
+纯函数 `groupRuns(events)` 把事件列表派生为运行列表，规则与[分组规则](../../components/observability.md#11-一次运行)一致，并加两处只影响展示的挂接：
 
 | 运行种类 | 归组键 | 标题 | 终态 |
 |:---|:---|:---|:---|
@@ -169,7 +172,7 @@ Workspace Vision 移除终端标签，保留"引用记忆"与"记忆任务"两�
 
 - **frontend**：新页面 `components/runs/`（运行页、列表、详情、日志标签）；`App.tsx` 增加 terminal 分支；派生函数放在 `stores/runs/`（`groupRuns` 与事件描述）；`stores/workspace` 删除 trace 折叠、增加 trace 筛选与 `replay_last`；`WorkspaceVision` 删去终端标签；`appUiStore` 的持久化迁移。
 - **server**：`/runtime-events/stream` 的 `replay_last` 参数。
-- **契约**：[事件契约](../contracts/routes-and-events.md)写明 `replay_last`；事件本身不变。
+- **契约**：[事件契约](../../contracts/routes-and-events.md)写明 `replay_last`；事件本身不变。
 - **数据**：没有持久化数据变化；localStorage 新增运行页的筛选偏好。
 
 ## 6. 兼容与迁移
@@ -209,18 +212,18 @@ ruff check . && black --check .
 ## 9. 完成时必须更新的当前文档
 
 - 新增运行页的当前事实文档 `docs/frontend/run-view.md`：页面结构、运行的派生、时间线描述、日志标签、连接与缓冲。
-- [前端索引](../frontend/README.md)：Terminal 入口不再是空白页。
-- [Chat 视图](../frontend/chat-view.md)：第 5.3 节删去，Workspace Vision 只剩两个标签。
-- [应用外壳](../frontend/application-shell.md)：导航的五个页面。
-- [状态与传输](../frontend/state-and-transports.md)：事件流的 `replay_last` 与运行页的连接时机。
-- [事件契约](../contracts/routes-and-events.md)：`replay_last` 参数。
-- [运行时事件与可观测性](../components/observability.md)：消费方改为运行页。
+- [前端索引](../../frontend/README.md)：Terminal 入口不再是空白页。
+- [Chat 视图](../../frontend/chat-view.md)：第 5.3 节删去，Workspace Vision 只剩两个标签。
+- [应用外壳](../../frontend/application-shell.md)：导航的五个页面。
+- [状态与传输](../../frontend/state-and-transports.md)：事件流的 `replay_last` 与运行页的连接时机。
+- [事件契约](../../contracts/routes-and-events.md)：`replay_last` 参数。
+- [运行时事件与可观测性](../../components/observability.md)：消费方改为运行页。
 - Idea 与 Ideas 索引：第 3.5 节实施后，整份 Idea 归档。
-- [ROADMAP](../ROADMAP.md) 的前端一节。
+- [ROADMAP](../../ROADMAP.md) 的前端一节。
 
 ## 10. 实施记录
 
-2026-11-07 在分支 `feat/run-view` 上实施，按第 4 节落地，当前事实写入[全局运行页](../frontend/run-view.md)。实施中按实际事件调整的几处：
+2026-11-07 在分支 `feat/run-view` 上实施，同日合并（PR #195）后归档，按第 4 节落地，当前事实写入[全局运行页](../../frontend/run-view.md)。实施中按实际事件调整的几处：
 
 - **单条独立事件**：不属于任何运行的单条事件（第 4.3 节规则之外的兜底）是瞬时观测，显示为完成，不会在 10 分钟后变成"未见终态"混进异常。
 - **种类的归属**：挂不上的 work 与关闭期间的 `subsystem.operation.*` 归入"系统"；应用交互时建立话题的 `topic.created` 在 worker 中发出、trace 为 `system`，自成一次"话题建立"运行。
