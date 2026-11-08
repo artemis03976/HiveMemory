@@ -3,7 +3,7 @@ title: Research
 status: current
 owner: project
 scope: external-systems-papers-and-technical-research
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-07
 ---
 
 # 调研资料
@@ -18,6 +18,8 @@ last_reviewed: 2026-11-01
 |:---|:---|
 | [外部 harness 接口调研需求](./harness-interface-survey.md) | [2026-10-20 调研快照](./harness-interface-survey-snapshot.md)已完成资料调研；模型实测待验证，随 controller 模式退回候选方向暂缓（2026-10-20）。 |
 | [DeepSeek Harness 插件接入调研需求与报告](./deepseek-harness-plugin-survey.md) | 同文第 7 节已形成 2026-11-01 证据快照；27 项能力、hook 对应、路径比较与接入要求已核对，无真实凭据机制探针通过。接入路径由 owner 选为原生插件，已于 2026-11-01 实施（[归档计划](../archive/plans/dsh-plugin-integration.md)）。 |
+| [Codex 插件接入调研需求](./codex-plugin-survey.md) | 2026-11-07 建立，尚未调研；结果写入同文第 7 节。 |
+| [pi 插件接入调研需求](./pi-plugin-survey.md) | 2026-11-07 建立，尚未调研；结果写入同文第 7 节。 |
 
 ## 报告索引
 
