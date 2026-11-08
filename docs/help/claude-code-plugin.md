@@ -14,7 +14,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-08
 ---
 
 # 接入 Claude Code
@@ -34,7 +34,7 @@ last_reviewed: 2026-11-01
 
 | 步骤 | 在哪一侧 | 内容 |
 |:---|:---|:---|
-| 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 写 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，Claude Code 的环境写同值的 `HIVEMEMORY_TOKEN`（第 2 节） |
+| 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 与 Claude Code 的环境写同值的 `HIVEMEMORY_CLAUDE_CODE_TOKEN`（第 2 节） |
 | 安装插件 | Claude Code | 添加本地 marketplace 并安装 `hivememory-connector`（第 3 节） |
 | 配置连接器 | Claude Code | 至少设置 `HIVEMEMORY_URL`（第 4 节） |
 | 核对访问登记 | HiveMemory | 默认登记已包含 Agent `claude_code`，自定义过登记时补齐（第 5 节） |
@@ -48,12 +48,14 @@ last_reviewed: 2026-11-01
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-把同一个值写入两侧，变量名不同：
+把同一个值写入两侧，变量名都是 `HIVEMEMORY_CLAUDE_CODE_TOKEN`：
 
-| 一侧 | 环境变量 | 写在哪里 |
-|:---|:---|:---|
-| HiveMemory | `HIVEMEMORY_CLAUDE_CODE_TOKEN` | 仓库根 `.env`（与其他密钥放在一起，Docker 路径同样读取它），或启动后端的环境 |
-| Claude Code | `HIVEMEMORY_TOKEN` | 启动 Claude Code 的环境，或 `~/.claude/settings.json` 的 `env` |
+| 一侧 | 写在哪里 |
+|:---|:---|
+| HiveMemory | 仓库根 `.env`（与其他密钥放在一起，Docker 路径同样读取它），或启动后端的环境 |
+| Claude Code | 启动 Claude Code 的环境，或 `~/.claude/settings.json` 的 `env` |
+
+变量名带上 harness，是为了让多个 harness 共用一套环境变量时（例如 dsh 插件读的 `HIVEMEMORY_TOKEN` 与本插件同在一个 Windows 用户环境中）各读各的凭据，不会拿别的 harness 的凭据冒充 `harness:claude-code`。HiveMemory 先读进程环境变量、没有时再读 `.env`，所以后端与 Claude Code 在同一套环境中运行时，设置一次即可同时供两侧使用。
 
 修改后重启 HiveMemory，并重新打开 Claude Code。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝：HiveMemory 照常启动并在启动日志中提示凭据环境变量未设置，连接器保留进度等待补发，MCP 工具返回错误（第 9 节）。凭据只用于防止本机其他程序冒用 Claude Code 的身份，不进入日志与错误响应。
 
@@ -75,7 +77,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 | 环境变量 | 默认值 | 说明 |
 |:---|:---|:---|
 | `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 后端地址。默认值对应 Docker 路径；本地开发路径（含脚本的 `serve` 模式）的后端在 `8769`，需要设为 `http://localhost:8769`。MCP 只接受本机地址（`localhost`、`127.0.0.1` 或 `[::1]`，带端口） |
-| `HIVEMEMORY_TOKEN` | 不设置 | 接入凭据，见第 2 节 |
+| `HIVEMEMORY_CLAUDE_CODE_TOKEN` | 不设置 | 接入凭据，见第 2 节 |
 | `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入与访问；不设置时使用服务端的默认用户 `default` |
 | `HIVEMEMORY_AGENT_ID` | `claude_code` | 以哪个 Agent 导入与访问；不能使用保留的 `system` |
 | `HIVEMEMORY_CONNECTOR_STATE_DIR` | 见第 7 节 | 连接器状态、日志与拒绝记录的目录 |
@@ -84,7 +86,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ```bash
 export HIVEMEMORY_URL=http://localhost:8769
-export HIVEMEMORY_TOKEN=<第 2 节生成的凭据>
+export HIVEMEMORY_CLAUDE_CODE_TOKEN=<第 2 节生成的凭据>
 ```
 
 ## 5. 访问登记
@@ -128,7 +130,7 @@ export HIVEMEMORY_TOKEN=<第 2 节生成的凭据>
 | 现象 | 原因与处理 |
 |:---|:---|
 | `/mcp` 显示 `hivememory` 连接失败，工具不出现 | HiveMemory 未运行或 `HIVEMEMORY_URL` 不对（本地开发与 `serve` 模式在 `8769`，Docker 在 `8000`）。启动后在 Claude Code 中执行 `/mcp reconnect all` 或重新打开会话 |
-| 工具调用返回 `invalid_credential`，`connector.log` 的 `stopped` 行带 403 `invalid_credential` | 两侧凭据不一致或没有配置：HiveMemory 一侧为 `.env` 中的 `HIVEMEMORY_CLAUDE_CODE_TOKEN`（后端启动日志会提示它未设置），Claude Code 一侧为 `HIVEMEMORY_TOKEN`。改正后重启 HiveMemory、重新打开 Claude Code；连接器保留了进度，下一次唤醒时补发未导入的轮次 |
+| 工具调用返回 `invalid_credential`，`connector.log` 的 `stopped` 行带 403 `invalid_credential` | 两侧凭据不一致或没有配置：两侧都是 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，HiveMemory 一侧先取进程环境变量、再取 `.env`（后端启动日志会提示它未设置）。改正后重启 HiveMemory、重新打开 Claude Code；连接器保留了进度，下一次唤醒时补发未导入的轮次 |
 | 导入返回 400 `request.principal_required` | 服务端已更新而插件仍是旧版本：更新插件（第 10 节）后重启 Claude Code，积压的轮次随后补发 |
 | 工具调用返回 `operation_not_allowed` | `workspace_actors.yaml` 中该 Agent 的白名单缺少对应的 `memory.*` 操作（第 5 节）；修改后重启 HiveMemory |
 | 写入或更新返回 `request.turn_required` | 插件的 `PreToolUse` hook 没有运行：确认插件已更新、已重启 Claude Code |

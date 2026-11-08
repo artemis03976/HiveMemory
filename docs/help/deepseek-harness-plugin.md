@@ -14,7 +14,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-08
 ---
 
 # 接入 DeepSeek Harness
@@ -70,7 +70,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 修改 `.env` 后重启 HiveMemory：接入登记与凭据都在后端启动时装载，更新到包含 `harness:dsh` 登记的版本之后同样需要重启。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝：HiveMemory 照常启动并在启动日志中提示凭据环境变量未设置，插件保留进度等待补发，记忆工具返回错误（第 8 节）。
 
-插件一侧的变量名与 Claude Code 连接器相同。两个 harness 在同一个环境中运行、共用一个 `HIVEMEMORY_TOKEN` 时，HiveMemory 一侧的 `HIVEMEMORY_DSH_TOKEN` 与 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 要设成同一个值。组合 A 中 Claude Code 在 WSL、dsh 桌面端在 Windows，两边的 `HIVEMEMORY_TOKEN` 互不影响，可以各用一份凭据。
+Claude Code 插件的凭据变量是 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，与本插件的 `HIVEMEMORY_TOKEN` 不同名。两个 harness 在同一套环境变量中运行时各读各的凭据，`HIVEMEMORY_DSH_TOKEN` 与 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 各用一份凭据即可。
 
 ## 3. 配置插件
 
