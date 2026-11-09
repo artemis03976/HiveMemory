@@ -36,6 +36,7 @@ from tests.unit.connectors.codex_rollouts import RolloutWriter
 from tests.unit.connectors.transcripts import TranscriptWriter, text, tool_use
 
 STARTED_AT = 1792569600.0  # 合成会话记录第一个条目的时间
+CODEX_STARTED_AT = 1794132000.0  # 合成 Codex 会话记录的开始时间
 
 
 class FakeTransport:
@@ -399,6 +400,28 @@ def test_existing_session_is_not_backfilled(tmp_path):
 
     assert transport.turn_ids() == ["new-1"]
     assert store.load(str(log.path)).origin == "existing"
+
+
+def test_codex_session_first_seen_mid_turn_imports_that_turn_only(tmp_path):
+    """接入前开始、首次见到时一轮仍在进行的 Codex 会话：这一轮结束后导入，之前已结束的不回填。
+
+    codex exec 先写下第一轮的开始记录，再触发 SessionStart，首次见到时这一轮已经开始。
+    """
+    rollout = RolloutWriter(tmp_path)
+    rollout.turn("t1")
+    rollout.start("t2")
+    rollout.user("进行中的一轮")
+    transport = FakeTransport()
+    sync, _ = _harness(
+        tmp_path, transport, first_run_at=CODEX_STARTED_AT + 60, reader=CodexReader()
+    )
+    sync.register(str(rollout.path))
+    rollout.agent("回答")
+    rollout.complete()
+
+    sync.sync(str(rollout.path))
+
+    assert transport.turn_ids() == ["t2"]
 
 
 def test_recent_turns_come_from_confirmed_turns_before_the_cursor(tmp_path):

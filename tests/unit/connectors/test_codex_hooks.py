@@ -156,6 +156,34 @@ def test_pre_tool_use_inside_a_subagent_uses_the_turn_that_spawned_it(tmp_path):
     )
 
 
+def test_pre_tool_use_in_a_session_first_seen_mid_turn_finds_the_turn(tmp_path):
+    """接入前开始、登记时这一轮已经开始的会话（安装插件后的第一个 codex exec 会话）中，
+    写入仍然补得上当前一轮。"""
+    rollout = RolloutWriter(tmp_path)
+    rollout.start("t1")
+    rollout.user("记住这个约定")
+    store = StateStore(tmp_path / "state")
+    store.first_run_at(1794132000.0 + 60)
+    config = ConnectorConfig(
+        url="http://hivememory.test",
+        principal_id="harness:codex",
+        agent_id="codex",
+        user_id=None,
+        state_dir=tmp_path / "state",
+    )
+    sync = TranscriptSync(
+        reader=reader,
+        store=store,
+        client=ImportClient(config, transport=lambda *args: (200, b"{}")),
+        config=config,
+    )
+    sync.register(str(rollout.path))
+
+    output = pre_tool_use(_write_payload(rollout.path, "t1"), reader=reader, store=store)
+
+    assert output["hookSpecificOutput"]["updatedInput"]["turn"]["external_turn_id"] == "t1"
+
+
 def test_pre_tool_use_without_the_named_turn_gives_no_output(tmp_path):
     """会话记录中找不到输入中的轮次时不输出，工具调用照常进行，由 HiveMemory 拒绝。"""
     rollout = RolloutWriter(tmp_path)
