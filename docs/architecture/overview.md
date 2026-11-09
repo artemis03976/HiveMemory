@@ -259,7 +259,7 @@ POST /api/v1/import/turns
 
 ### 6.1 外部 harness 的记忆访问
 
-对话回流只把外部经历送进记忆网络；外部 harness 主动使用记忆走另一条路径：HiveMemory 在同一个 HTTP 服务上提供 MCP 端点，Claude Code 与 Codex 的插件声明它之后（DeepSeek Harness 插件把四个工具注册为 dsh 原生工具，执行时经它调用），agent 经四个工具检索、读取、写入与更新记忆。
+对话回流只把外部经历送进记忆网络；外部 harness 主动使用记忆走另一条路径：HiveMemory 在同一个 HTTP 服务上提供 MCP 端点，Claude Code 与 Codex 的插件声明它之后（DeepSeek Harness 插件与 pi 扩展把四个工具注册为各自 harness 的原生工具，执行时经它调用），agent 经四个工具检索、读取、写入与更新记忆。
 
 ```text
 POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、user 与 Agent 声明）

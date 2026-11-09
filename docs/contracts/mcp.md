@@ -19,6 +19,7 @@ code_paths:
   - integrations/hivememory/codex.mcp.json
   - integrations/hivememory/hooks/codex.json
   - integrations/hivememory/connector/codex/
+  - integrations/hivememory/node/
   - integrations/deepseek-harness/
 related_contracts:
   - docs/contracts/mtp.md
@@ -34,7 +35,7 @@ last_reviewed: 2026-11-08
 
 # MCP 记忆访问
 
-外部 harness（当前为 Claude Code、DeepSeek Harness 与 Codex）经 HiveMemory 的 MCP 端点检索、读取、写入与更新记忆。它与 [MTP](./mtp.md) 并列：MTP 是 Alice 在生成循环中使用的文本协议，MCP 是外部 harness 使用的工具协议。两者都是**操作适配器**：把协议调用解析为固定类型的操作请求，经 workspace 的单一操作入口进入 actor API，不直接调用能力层，也不自行判定身份或权限。记忆能力属于 actor API，不为哪一种协议独占；写入与更新经两种协议进入的是同一组 actor 操作、同一条生成链路。
+外部 harness（当前为 Claude Code、DeepSeek Harness、Codex 与 pi）经 HiveMemory 的 MCP 端点检索、读取、写入与更新记忆。它与 [MTP](./mtp.md) 并列：MTP 是 Alice 在生成循环中使用的文本协议，MCP 是外部 harness 使用的工具协议。两者都是**操作适配器**：把协议调用解析为固定类型的操作请求，经 workspace 的单一操作入口进入 actor API，不直接调用能力层，也不自行判定身份或权限。记忆能力属于 actor API，不为哪一种协议独占；写入与更新经两种协议进入的是同一组 actor 操作、同一条生成链路。
 
 plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任务进程，也就没有执行线程。每次工具调用因此只认证一次，得到一个**工作 actor**，它只是本次调用内的局部值，actor API 按 Workspace 访问登记逐次授权。写入与更新需要一个派发话题：线程提交向线程表取得进程这一轮的派发话题，请求级提交没有线程，入口给出一个回调，由 Import Bus 在写入时为这一轮确定话题（第 4 节）。RUN 的执行发生在执行单元的环境中，CALL 只属于 Alice，端点不提供这两项。
 
@@ -54,7 +55,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 
 | 请求头 | 规则 |
 |:---|:---|
-| `X-Principal-ID` | 必填，声明调用来源（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`，Codex 为 `harness:codex`）；缺省或空串返回 `request.principal_required`，只含空白返回 `request.identity_empty` |
+| `X-Principal-ID` | 必填，声明调用来源（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`，Codex 为 `harness:codex`，pi 为 `harness:pi`）；缺省或空串返回 `request.principal_required`，只含空白返回 `request.identity_empty` |
 | `Authorization` | `Bearer <凭据>`；缺省或不是 Bearer 方案时凭据为空，同样交给网关，由网关以 `invalid_credential` 拒绝 |
 | `X-User-ID` | 用户声明，缺省回退到默认用户；用户身份不做证明，沿用本地单用户部署的信任假设，由接入登记的 `allowed_user_ids` 收紧 |
 | `X-Workspace-ID` | 只接受 `main_workspace`，其他值返回 `request.workspace_not_found` |
@@ -148,6 +149,12 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 - **轮次信息**：hook 以输入中的 `turn_id` 为当前一轮，在会话记录中读出它与之前最多三轮，按导入请求的同一规则构造 `turn`，输出 `permissionDecision: allow` 与 `updatedInput`（Codex 只在给出 `allow` 时采用改写），模型自己填写的被覆盖。子 Agent 中的调用归到根会话中派生它的那一轮。读不到时不输出，由入口以 `request.turn_required` 拒绝。
 - Codex 的 hook 要在 Codex 中审阅信任后才运行；`tests/unit/connectors/test_codex_reader.py` 核对 Codex 清单、MCP 声明、matcher 与连接器常量和接入登记一致。
 
+**pi 扩展**：接入方式与 dsh 插件相同（owner 决定，2026-11-08）：扩展不把本端点配置为 pi 内建 MCP 的 server，而是自己注册四个同名的 pi 工具，执行时经本端点调用对应的 MCP 工具（[Import Bus](../system/import-bus.md#11-pi-扩展)第 11 节）。pi 的 `tool_call` 虽能改写参数，但扩展没有加载时服务端无法分辨模型自己填写的 `turn`；内建 MCP 默认把工具交给 codemode，内层调用不进入会话记录，回声标记会失效。
+
+- **注册**：会话开始后请求 `initialize` 与 `tools/list`，把四个工具的说明与参数 schema 原样用于 pi 工具，服务说明作为系统提示词的一节 `hivememory`；交给模型的 schema 去掉 `turn`。工具注册为 `exposure: "model-only"`，codemode 与其他工具不能调用。四个工具全部注册或全部不注册；连接失败时工具不出现，之后每次开始运行时重试，直到成功一次。
+- **调用**：请求头为 `X-Principal-ID: harness:pi`、`Authorization: Bearer`（凭据取自 `HIVEMEMORY_PI_TOKEN`）、配置时的 `X-User-ID` 与 `X-Agent-ID`（默认 `pi`）。写入与更新执行时，扩展以这一轮开始运行时生成的轮次标识构造 `turn`，之前几轮与导入时取同样的已结束轮次，生成导入请求体对应字段的是同一个函数；模型给出的 `turn` 被覆盖，不在一轮之中时以工具错误拒绝，不发出请求。
+- **结果与回声标记**：工具结果的正文原样交给模型，`isError` 结果作为 pi 的工具错误；pi 会话记录中的调用名就是工具名，回流时按上表归一化。`tests/unit/connectors/test_pi_extension.py` 核对扩展的工具名、作用对象参数与 `turn` 参数与本 server 一致。
+
 ## 7. 观测
 
 - 现有请求日志记录每个 `POST /mcp`，只记录路径与状态。
@@ -160,6 +167,7 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 - dsh 的 PTC 模式（默认关闭）下，记忆工具在 `run_code` 内部调用，会话记录只有外层调用，回声标记不生效；写入与更新仍按调用方会话的当前一轮确定话题。
 - `turn` 声明在工具 schema 中：hook 未运行（被禁用或超时）时，模型若自行填写，写入会落到按编造内容路由的话题，编造的轮次不会回流，它已确定话题的登记留到进程重启。
 - Codex 的 hook 未信任、被禁用或出错时同样不会覆盖模型填写的 `turn`；每次更新 Codex 插件都要重新信任 hook。Codex 的代码执行模式中间接调用的记忆工具不做回声标记。
+- pi 的记忆工具不对 codemode 开放，由 codemode 编排的任务不能在脚本中访问记忆。
 - 后台运行的子代理在用户发出下一条消息之后才写入时，写入落在那时的当前一轮，而不是启动它的那一轮：hook 输入只给出会话当时的当前一轮。dsh 的子 Agent 同样落在顶层会话那时最近的一轮。
 - 第一次写入要等一次 Gateway 路由，再等生成队列接纳；同一外部会话的上一轮仍在应用时，还要等它完成。
 - 写入经过查重：与已有记忆相似时，内容先保存为一条新记忆，之后由合并任务并入已有记忆，`memory_write` 返回的句柄随之改指到保留的记忆；合并完成之前读取句柄得到新建的那条（[记忆生成](../patchouli/generation.md#41-合并任务)）。改指事件丢失时句柄指向已删除的记忆，读不到正式目标。
@@ -168,5 +176,5 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 
 - 入口包：`src/hivememory/mcp_server/server.py`（服务、工具、错误投影与日志）；接入：`src/hivememory/server/app.py`（路由与 lifespan）；声明解析：`src/hivememory/server/deps.py`；错误投影：`src/hivememory/server/error_handlers.py`。
 - 操作入口：`src/hivememory/workspace/capability/operations.py`；确定话题：`src/hivememory/system/application/import_bus_service.py` 与 `src/hivememory/system/services/import_bus/ingestor.py`；编译：`src/hivememory/engines/memory_compiler/`。
-- 插件声明：`integrations/hivememory/.mcp.json`、`integrations/hivememory/hooks/hooks.json`；轮次信息：`integrations/hivememory/connector/claude_code/hooks.py`；回声标记：`integrations/hivememory/connector/claude_code/reader.py`；Codex 的声明：`integrations/hivememory/codex.mcp.json`、`integrations/hivememory/hooks/codex.json`，轮次信息与回声标记：`integrations/hivememory/connector/codex/`；dsh 插件的工具注册与轮次信息：`integrations/deepseek-harness/lib/tools.js`，回声标记：`integrations/deepseek-harness/lib/turns.js`。
-- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用认证一次、写入与更新以确定话题的回调提交、缺少轮次信息与确定话题失败、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取、拒绝，每次工具调用认证一次、写入时确定话题由系统认证执行，被拒的写入不确定话题，以及写入后读到在途句柄、结算后重定向、回流落在写入派发的话题）；`tests/integration/workspace/test_operation_requests.py`（请求级写入与更新、回调与请求类型不符时的拒绝、更新在基础冷读之后与登记之前确定话题、被拒的请求不确定话题）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（Claude Code 与 Codex 的 `PreToolUse` 轮次信息、回声标记与清单一致性，dsh 插件与本 server 的工具名、参数一致）；`integrations/deepseek-harness/test/`（dsh 插件的工具注册、轮次信息与回声标记，`npm test`）。
+- 插件声明：`integrations/hivememory/.mcp.json`、`integrations/hivememory/hooks/hooks.json`；轮次信息：`integrations/hivememory/connector/claude_code/hooks.py`；回声标记：`integrations/hivememory/connector/claude_code/reader.py`；Codex 的声明：`integrations/hivememory/codex.mcp.json`、`integrations/hivememory/hooks/codex.json`，轮次信息与回声标记：`integrations/hivememory/connector/codex/`；dsh 插件的工具注册与轮次信息：`integrations/deepseek-harness/lib/tools.js`，回声标记：`integrations/deepseek-harness/lib/turns.js`；pi 扩展的工具注册：`integrations/hivememory/node/pi/tools.js`，轮次信息与回声标记：`integrations/hivememory/node/pi/turns.js`、`integrations/hivememory/node/core/memory-tools.js`。
+- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用认证一次、写入与更新以确定话题的回调提交、缺少轮次信息与确定话题失败、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取、拒绝，每次工具调用认证一次、写入时确定话题由系统认证执行，被拒的写入不确定话题，以及写入后读到在途句柄、结算后重定向、回流落在写入派发的话题）；`tests/integration/workspace/test_operation_requests.py`（请求级写入与更新、回调与请求类型不符时的拒绝、更新在基础冷读之后与登记之前确定话题、被拒的请求不确定话题）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（Claude Code 与 Codex 的 `PreToolUse` 轮次信息、回声标记与清单一致性，dsh 插件、pi 扩展与本 server 的工具名、参数一致）；`integrations/deepseek-harness/test/`（dsh 插件的工具注册、轮次信息与回声标记，`npm test`）；`integrations/hivememory/node/test/`（pi 扩展的工具注册、轮次信息与回声标记，`npm test`）。

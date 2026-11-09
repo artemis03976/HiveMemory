@@ -69,3 +69,13 @@ principals:
       - "mcp"
       - "import"
     credential_env: "HIVEMEMORY_CODEX_TOKEN"
+
+  # pi（扩展中的回流与记忆工具共用）：经 import 导入已结束的交互，经 mcp 检索、
+  # 读取、写入与更新记忆，两者都以同一凭据认证；不能声明 system。
+  - principal_id: "harness:pi"
+    kind: "harness"
+    enabled: true
+    adapters:
+      - "mcp"
+      - "import"
+    credential_env: "HIVEMEMORY_PI_TOKEN"

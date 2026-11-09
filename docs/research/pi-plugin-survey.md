@@ -20,14 +20,14 @@ related_docs:
   - docs/research/deepseek-harness-plugin-survey.md
   - docs/research/harness-interface-survey-snapshot.md
   - docs/research/codex-plugin-survey.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-08
 ---
 
 # pi 插件接入调研需求与报告
 
 ## 0. 文档性质
 
-第 1–6 节保留原调研需求，第 7 节是 2026-11-07 对 pi `v1.5.0` 的证据快照，第 8 节保留完成标准。`baseline` 冻结资料核查结果与未知项；Windows 原生实测未执行，接入路径未决定，HiveMemory 尚未因此获得 pi 接入能力。需求中的旧版本线索与第 7 节不一致时，以第 7 节所列固定源码为准。
+第 1–6 节保留原调研需求，第 7 节是 2026-11-07 对 pi `v1.5.0` 的证据快照，第 8 节保留完成标准。`baseline` 冻结资料核查结果与未知项。Windows 原生的机制实测于 2026-11-08 以同一版本补做（模拟模型与模拟服务，不调用真实模型），结果与仍未实测的项见第 7.8 节。报告不代表 HiveMemory 已实现 pi 接入；接入路径之后由 owner 决定（2026-11-08，扩展自带记忆工具，与 dsh 相同），决定不写入本报告。需求中的旧版本线索与第 7 节不一致时，以第 7 节所列固定源码为准。
 
 外部项目变化很快，调研结论只代表完成时的日期。pi 在 1.x 期间发版频繁且 changelog 中仍有不兼容变更，调研时以固定的发行版本与提交为准。
 
@@ -353,6 +353,28 @@ pi `v1.5.0` 同时具备原生工具注册、工具参数改写、会话树读�
 [P-LICENSE]: https://github.com/earendil-works/pi/blob/f9a26365568127461c47a07a37dcb42c140a3ac5/LICENSE
 [P-HONCHO]: https://github.com/plastic-labs/pi-honcho/blob/2644a08ddddc4fc47e71698763bc27e17c47a3fb/README.md
 [P-HONCHO-SRC]: https://github.com/plastic-labs/pi-honcho/blob/2644a08ddddc4fc47e71698763bc27e17c47a3fb/extensions/index.ts
+
+### 7.8 Windows 原生机制实测（2026-11-08）
+
+**环境**：Windows 11 原生，pi `@earendil-works/pi-coding-agent` 1.5.0（npm 包，装在 fnm 管理的 Node v24.21.0 下）。`PI_CODING_AGENT_DIR` 指向会话临时目录，不动 owner 已有的配置；模型为 `models.json` 中的自定义 OpenAI 兼容端点（`127.0.0.1:18090`，按用户消息中的关键字返回固定的工具调用、回复、HTTP 400 或 `length`），MCP 与导入指向本机模拟 server（`127.0.0.1:18091`，只记录请求）。没有调用真实模型或 HiveMemory 后端，没有使用任何账户凭据。工作目录名含空格与中文。探针扩展、模拟服务与日志都在会话临时目录，不进入仓库；交互操作（追加输入、排队消息、中断、fork、clone）经 RPC 模式驱动，`/tree` 由探针扩展的命令调用 `ctx.navigateTree`。
+
+以下均为**实际运行**的结果。
+
+| 项目 | 结果 |
+|:---|:---|
+| 本地包安装（A1、E1） | `pi install <目录>` 把相对或绝对路径写入 `settings.json` 的 `packages`，原地加载；`package.json` 的 `pi.extensions` 与 `pi.skills` 都生效，skill 出现在系统提示词的 skills 一节。扩展用无依赖的 ESM JavaScript 即可加载。 |
+| 工具注册时机（A2） | 在 `session_start` 中后台注册的工具，没赶上 `pi -p` 的第一次模型请求，模型的调用得到 “Tool … not found”。在 `before_agent_start` 中等待注册完成后，同一轮的第一次请求就带着这些工具（事件中的 `systemPromptOptions.selectedTools` 仍是注册前的列表）。 |
+| 工具 schema 与 exposure（A2、D5） | 服务端给出的 JSON Schema（含 `anyOf` 与 `default: null`）直接可用；`exposure: "model-only"` 被接受，`pi.getAllTools()` 报告为 `model-only`，默认会话中 codemode 不在活动工具中。模型多给的参数（例如它自己编的 `turn`）通过校验、进入 `execute` 的参数，扩展需要覆盖它；会话记录中的工具调用保留模型原来给的参数。 |
+| 系统提示词（E2） | `before_agent_start` 中给 `systemPromptOptions.sections` 加一个字符串，系统提示词末尾出现同名的 XML 节（`<hivememory>…</hivememory>`）。 |
+| 事件顺序（B1、B4、B5） | `input`（来源 `interactive` 或 `rpc`）→ `before_agent_start` → 运行 → `agent_end` → `agent_before_settle` → `agent_settled`。会话第一次请求时追加一条系统消息条目，位于这一轮的条目之中。运行中的 steer 与 follow-up 各触发一次 `input`（`streamingBehavior` 为 `steer`、`followUp`），对应的用户消息进入同一段运行，只有一次 `agent_settled`。中断时最后一条助手消息的 `stopReason` 为 `aborted`，跳过 `agent_before_settle`，`agent_settled.aborted` 为真。 |
+| 结束原因（B4） | HTTP 400 的模型错误：`stopReason` 为 `error`，不重试，`agent_settled.aborted` 为假。`finish_reason: length`：`stopReason` 为 `length`，pi 随后追加一条 `context_edit`，然后结束。带 `reasoning_content` 的回复保存为 `thinking` 块。 |
+| `appendEntry` 与回溯（C1） | `agent_settled` 中调用 `pi.appendEntry` 成功，写下的 `custom` 条目挂在这一轮最后一个条目之下；从它沿 `parentId` 回溯，能到 `before_agent_start` 时记下的叶子条目，中间正是这一轮的条目。中断的一轮同样如此。 |
+| 技能展开（C3） | 输入 `/skill:hivememory …` 时，`input` 的 `text` 是原样的命令；`before_agent_start` 的 `prompt` 与会话记录中的用户消息都是展开后的 skill 全文。 |
+| `/tree`（C2） | `ctx.navigateTree` 回到较早的助手条目后触发 `session_tree`，下一轮的 `before_agent_start` 时叶子就是那个条目，新的条目从那里分出。 |
+| fork 与 clone（A5、C2） | 新会话是新文件，会话头带 `parentSession`（来源会话文件的路径），当前路径上的条目连同原标识复制过去，扩展写过的 `custom` 条目也在其中。替换会话时先 `session_shutdown`（`reason: fork`，可以等待），再重新执行扩展的工厂并触发 `session_start`（`reason: fork`）；同一个新会话的 `session_start` 在实测中连续触发两次。 |
+| 非交互退出（G4） | `pi -p` 退出前等待 `session_shutdown` 的处理函数完成（实测等待 1.5 秒的处理函数完整结束后才退出）。 |
+
+未实测：`custom` 条目在交互界面与 `/tree` 中是否显示（RPC 模式没有界面）；进程被强制结束时的会话文件；同一会话在两个进程中同时运行；真实模型与真实 HiveMemory 后端；社区子 Agent 扩展。
 
 ## 8. 完成标准
 

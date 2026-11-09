@@ -145,7 +145,7 @@ dsh 从用户级的 skill 目录 `<DSH_HOME>/skills` 发现 skill（`DSH_HOME` �
 
 ```powershell
 New-Item -ItemType Directory -Force "$env:USERPROFILE\.dsh\skills\hivememory" | Out-Null
-Copy-Item '\\wsl.localhost\<发行版>\home\<用户>\<仓库路径>\integrations\claude-code\skills\hivememory\SKILL.md' "$env:USERPROFILE\.dsh\skills\hivememory\"
+Copy-Item '\\wsl.localhost\<发行版>\home\<用户>\<仓库路径>\integrations\hivememory\skills\hivememory\SKILL.md' "$env:USERPROFILE\.dsh\skills\hivememory\"
 ```
 
 命令行：

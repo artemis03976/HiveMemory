@@ -187,3 +187,22 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  pi-extension:
+    name: pi Extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: integrations/hivememory
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # pi 要求 Node 22.19 以上；扩展只用 Node 标准库，没有依赖需要安装。
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Run tests
+        run: npm test
