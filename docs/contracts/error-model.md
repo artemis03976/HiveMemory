@@ -30,7 +30,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-09
 ---
 
 # 跨边界错误模型
@@ -355,7 +355,7 @@ issues  可选列表，每项仅 loc / type / message
 
 SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP status；CPU failure_reason、事件名、部分输出与交互提交规则保持独立。readiness、静态文件、WebSocket 和正常业务 outcome 不强制使用错误信封。`/runtime-events` 的 disabled 503 仍返回其业务状态 DTO。
 
-前端 `services/apiError.ts` 是响应解析入口，普通服务与 SSE 握手共用它；保留各服务的状态异常类。已知旧 `detail`/`message` 字符串、`detail.message` 字符串和 422 校验列表可读取；未知对象、HTML、空体回落为带 status 的安全默认提示，AbortError 继续传播。完整消费规则见[前端传输](../frontend/state-and-transports.md)。
+前端 `services/apiError.ts` 是响应解析入口，普通服务与 SSE 握手共用它；保留各服务的状态异常类。解析结果 `ApiError` 表示请求已被后端拒绝，前端据此把后端拒绝与网络失败分开呈现。已知旧 `detail`/`message` 字符串、`detail.message` 字符串和 422 校验列表可读取；未知对象、HTML、空体回落为带 status 的安全默认提示，AbortError 继续传播。完整消费规则见[前端传输](../frontend/state-and-transports.md)。
 
 ## 8. 设计矛盾检查
 

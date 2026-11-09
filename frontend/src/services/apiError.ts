@@ -1,10 +1,27 @@
-/** API 错误的唯一解析入口；只接受约定结构，未知正文不进入界面。 */
-export interface ApiError {
-  status: number;
-  message: string;
-  code?: string;
-  reason?: string;
+/**
+ * 后端以错误响应拒绝了请求：请求已经到达后端，`message` 是可以直接展示的安全文案。
+ * 网络失败与流中断不是这个类型，调用方据此区分“后端拒绝”与“连不上后端”。
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly reason?: string;
+
+  constructor(status: number, message: string, code?: string, reason?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.reason = reason;
+  }
 }
+
+/**
+ * 页面由后端提供时，管理凭据随页面以 cookie 下发；后端换了凭据之后，已打开的页面要刷新
+ * 才能拿到新的。后端的文案面向所有调用方，这里换成页面上能做的事。
+ */
+const MANAGEMENT_CREDENTIAL_INVALID = 'request.management_credential_invalid';
+const MANAGEMENT_CREDENTIAL_MESSAGE = '管理凭据缺失或已失效，请刷新页面后重试';
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -31,31 +48,34 @@ function validationMessage(issues: unknown[]): string | undefined {
   return parts.length ? parts.join('；') : undefined;
 }
 
+/** API 错误的唯一解析入口；只接受约定结构，未知正文不进入界面。 */
 export async function readApiError(response: Response, fallback = '请求失败'): Promise<ApiError> {
-  const result: ApiError = { status: response.status, message: `${fallback} (${response.status})` };
+  const unknownBody = new ApiError(response.status, `${fallback} (${response.status})`);
   let body: unknown;
   try {
     body = await response.json();
   } catch (error) {
     // 读取正文时发生取消仍属于取消，不能生成业务错误或触发重试提示。
     if (error instanceof Error && error.name === 'AbortError') throw error;
-    return result;
+    return unknownBody;
   }
-  if (!record(body)) return result;
+  if (!record(body)) return unknownBody;
+  let message: string;
   if (typeof body.detail === 'string' && body.detail.trim()) {
-    result.message = body.detail;
+    message = body.detail;
   } else if (typeof body.message === 'string' && body.message.trim()) {
-    result.message = body.message;
+    message = body.message;
   } else if (record(body.detail) && typeof body.detail.message === 'string' && body.detail.message.trim()) {
-    result.message = body.detail.message;
+    message = body.detail.message;
   } else if (response.status === 422 && Array.isArray(body.detail)) {
-    result.message = validationMessage(body.detail) ?? result.message;
+    message = validationMessage(body.detail) ?? unknownBody.message;
   } else {
-    return result;
+    return unknownBody;
   }
-  if (typeof body.error === 'string') result.code = body.error;
-  if (typeof body.reason === 'string') result.reason = body.reason;
-  return result;
+  const code = typeof body.error === 'string' ? body.error : undefined;
+  const reason = typeof body.reason === 'string' ? body.reason : undefined;
+  if (code === MANAGEMENT_CREDENTIAL_INVALID) message = MANAGEMENT_CREDENTIAL_MESSAGE;
+  return new ApiError(response.status, message, code, reason);
 }
 
 /** 保留各 API 的默认提示，统一禁止原始 HTML、JSON 和对象字符串化。 */

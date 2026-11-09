@@ -36,8 +36,7 @@ related_docs:
   - docs/archive/plans/unified-identity-authorization-entry.md
   - docs/archive/plans/workspace-asset-ownership-split.md
   - docs/todo/memory-visibility-policy-ui.md
-  - docs/todo/frontend-identity-ownership.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 身份与访问体系
@@ -294,7 +293,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 **相关 Todo 与治理工作包**
 
-- 前端身份切换时的持久化、失效与清理：[前端身份状态所有权 Todo](../todo/frontend-identity-ownership.md)，对应[身份治理](../governance/security/identity-and-execution-safety.md) Phase S4；
+- 前端身份切换时的持久化、失效与清理：不单独追踪，出现登录或 Workspace 切换时再计划（owner，2026-11-09；原 Todo 删除前的最后版本见 commit `3cfdec9d`），对应[身份治理](../governance/security/identity-and-execution-safety.md) Phase S4；
 - 显式 Profile 解析失败、权限拒绝与未指定 Profile 的稳定结果，以及失败事件不泄漏不可见正文：身份治理 Phase S1 第 4、5 项；
 - 身份与威胁模型清单（身份治理 Phase S0）：身份输入与授权所有者的盘点已由[现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)完成（2026-11-05）；越权、Profile 过期等最小复现样本不单独立项，随相关条目实施时补上（owner，2026-11-06）。
 

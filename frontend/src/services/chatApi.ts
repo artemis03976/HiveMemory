@@ -6,6 +6,7 @@
  */
 
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
+import { readApiError } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import { FetchSseClient } from '@/transports/sse/fetchSseClient';
 import type { ParsedSseEvent } from '@/transports/sse/parseSse';
@@ -162,10 +163,11 @@ export class ChatSSEClient {
 }
 
 export async function stopProcess(processId: string): Promise<void> {
+  let response: Response;
   try {
-    // 取消不是 Agent action：只携带 process_id 与基础身份选择；
-    // 后端通过进程表复用创建时冻结的原始 scope 执行取消。
-    await fetch(apiUrl('/api/v1/chat/stop'), {
+    // 取消不是 Agent action：只携带 process_id 与基础身份选择；后端以请求认证得到的
+    // 身份对进程所在的 Workspace 做 root 授权后取消。
+    response = await fetch(apiUrl('/api/v1/chat/stop'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -174,6 +176,9 @@ export async function stopProcess(processId: string): Promise<void> {
       body: JSON.stringify({ process_id: processId }),
     });
   } catch {
-    // fire-and-forget: network errors should not block the local stop flow
+    // 网络失败不阻塞本地的停止流程：流随后结束或中断时界面照常收尾。
+    return;
   }
+  // 后端拒绝停止时交给调用方恢复运行状态，用户可以再次停止。
+  if (!response.ok) throw await readApiError(response, '停止失败');
 }

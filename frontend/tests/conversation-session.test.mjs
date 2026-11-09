@@ -141,6 +141,43 @@ test('停止请求晚于 done 返回错误时，不能覆盖已确认的终态',
   assert.deepEqual(useChatStore.getState().connection, { status: 'connected', error: null });
 });
 
+test('停止被后端拒绝时恢复运行状态并给出原因', async () => {
+  reset({ currentSessionId: 's1' });
+  let output;
+  const encoder = new TextEncoder();
+  const processStarted = new Promise(resolve => {
+    const unsubscribe = useChatStore.subscribe(state => {
+      if (state.currentSessionId === 's1' && state.runStatus === 'streaming') {
+        unsubscribe(); resolve();
+      }
+    });
+  });
+  globalThis.fetch = async url => {
+    if (url === '/api/v1/sessions') return new Response('[]');
+    if (url === '/api/v1/chat/stop') {
+      return new Response(JSON.stringify({ error: 'request.management_credential_invalid', detail: '管理接口需要管理凭据：缺少凭据或凭据不正确' }), { status: 401 });
+    }
+    return new Response(new ReadableStream({ start(controller) {
+      output = controller;
+      controller.enqueue(encoder.encode('event: process_id\ndata: {"process_id":"p6","session_id":"s1"}\n\nevent: token\ndata: {"content":"答案"}\n\n'));
+    } }), { headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  const run = useChatStore.getState().sendMessage('问题');
+  await processStarted;
+  const stopRejected = new Promise(resolve => {
+    const unsubscribe = useChatStore.subscribe(state => {
+      if (state.runStatus === 'streaming' && state.connection.error) { unsubscribe(); resolve(); }
+    });
+  });
+  useChatStore.getState().stopStreaming();
+  await stopRejected;
+  assert.equal(useChatStore.getState().connection.error, '管理凭据缺失或已失效，请刷新页面后重试');
+  output.enqueue(encoder.encode('event: done\ndata: {"status":"completed","final_text":"答案","topic_id":"t6"}\n\n'));
+  output.close();
+  await run;
+  assert.equal(useChatStore.getState().runStatus, 'completed');
+});
+
 test('finalizing 之后断连按服务端历史恢复本轮，不提示未保存也不回填输入', async () => {
   reset({ currentSessionId: 's1', draft: '' });
   const saved = { ...turn, interaction_id: 'p4', payload: { ...turn.payload, user_message: '问题',
@@ -308,6 +345,22 @@ test('交互提交失败的流式错误提示会话已保存、记忆未提交�
       `event: error\ndata: ${JSON.stringify({ message: '请求未能完成，请检查权限、资源和会话状态', code })}\n\n`);
     await useChatStore.getState().sendMessage('问题');
     assert.equal(useChatStore.getState().connection.error, expected);
+  }
+});
+
+test('开流之前被后端拒绝时显示后端给出的原因，连不上后端才提示系统错误', async () => {
+  for (const [respond, expected] of [
+    [() => new Response(JSON.stringify({ error: 'workspace.admission_denied', detail: '当前身份未获准访问该 Workspace', reason: 'actor_not_admitted' }), { status: 403 }),
+      '当前身份未获准访问该 Workspace'],
+    [() => new Response(JSON.stringify({ error: 'workspace.session.busy', detail: '会话正在处理，请稍后重试' }), { status: 409 }),
+      '会话正在处理，请稍后重试'],
+    [() => { throw new TypeError('Failed to fetch'); }, '系统错误，请检查后端服务器'],
+  ]) {
+    reset();
+    globalThis.fetch = async url => url === '/api/v1/sessions' ? new Response('[]') : respond();
+    await useChatStore.getState().sendMessage('问题');
+    assert.equal(useChatStore.getState().runStatus, 'failed');
+    assert.equal(useChatStore.getState().messages[1].content, expected);
   }
 });
 

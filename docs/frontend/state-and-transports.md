@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 前端状态、持久化与传输
@@ -64,18 +64,25 @@ Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store �
 |:---|:---|:---|:---|
 | 统一身份上下文 | HTTP 请求头 | `x-user-id` / `x-workspace-id`（`services/identity.ts`） | 所有身份相关请求统一携带；后端只从请求头读取身份选择 |
 | Chat | fetch-based SSE | `POST /api/v1/chat` | `done` / `error`；无断线续传 |
-| Stop | HTTP | `POST /api/v1/chat/stop` | best-effort 请求，等待流终态确认 |
+| Stop | HTTP | `POST /api/v1/chat/stop` | best-effort 请求，等待流终态确认；后端拒绝时恢复运行状态 |
 | Sessions / Topics / Memories / Agents / Config / Registries / Tasks | HTTP JSON | 相对 `/api/v1/...` | 请求级成功失败；页面按能力 refetch 或乐观更新 |
 | RuntimeEvent | EventSource SSE | `/api/v1/runtime-events/stream` | 新连接以 `/runtime-events/status` 返回的 `buffer_size` 作为 `replay_last`，取回后端缓冲内的全部事件；支持 `last_event_id`/gap 的后端语义：`Last-Event-ID` 请求头优先于 URL 中的回放点，浏览器自动重连沿用首次连接的 URL 时按最新收到的事件续传；浏览器只保留当前运行期 |
 | Logs | WebSocket | `/api/v1/ws/logs` | ping/pong、有限重连，无历史恢复 |
 
 Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送请求体。RuntimeEvent 是 GET 流，使用 EventSource。日志需要双向 ping/pong 和持续推送，使用 WebSocket。
 
-身份选择传输约定：Session、Memory、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；后端不接受 Topic 等管理路由的 `?user_id=` query；Chat/stop 请求体不携带身份字段。管理请求（Session/Memory/Agent/Topic）默认依赖统一请求头，不需要额外参数。
+身份选择传输约定：Session、Memory、Memory task、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；后端不接受 Topic 等管理路由的 `?user_id=` query；Chat/stop 请求体不携带身份字段。管理请求（Session/Memory/Memory task/Agent/Topic）默认依赖统一请求头，不需要额外参数。
 
 ### 3.1 HTTP 错误解析
 
-`services/apiError.ts` 的 `readApiError()` / `apiErrorMessage()` 供 HTTP services 与 SSE 握手共用。后端 `error/detail/reason/issues` 以安全 detail 展示、code/reason 分支；兼容旧 detail 字符串、message 字符串、detail.message 与 422 校验列表。旧校验列表只读取字段位置和受控类别，不展示 input/ctx/validator 原文。未知对象、HTML 和空体使用带 HTTP status 的默认提示，正文读取的 AbortError 继续抛出。Session 等服务保留原有状态异常，RuntimeEvent disabled 503 仍按业务 DTO 处理。后端信封与迁移说明见[错误模型](../contracts/error-model.md#7-http-api-与客户端呈现)。
+`services/apiError.ts` 的 `readApiError()` / `apiErrorMessage()` 供 HTTP services 与 SSE 握手共用。后端 `error/detail/reason/issues` 以安全 detail 展示、code/reason 分支；兼容旧 detail 字符串、message 字符串、detail.message 与 422 校验列表。旧校验列表只读取字段位置和受控类别，不展示 input/ctx/validator 原文。未知对象、HTML 和空体使用带 HTTP status 的默认提示，正文读取的 AbortError 继续抛出。Session 等服务保留原有状态异常。后端信封与迁移说明见[错误模型](../contracts/error-model.md#7-http-api-与客户端呈现)。
+
+`readApiError()` 返回的 `ApiError` 是一种 `Error`，带 HTTP status、code 与 reason，表示请求已经到达后端、被后端拒绝；网络失败与流中断不是它。界面据此区分“后端拒绝”与“连不上后端”：
+
+- Chat 在开流之前被拒绝（准入、会话占用、管理凭据等）时，回复气泡显示后端给出的原因；只有连不上后端或流中断才显示“系统错误，请检查后端服务器”；
+- Stop 被拒绝时恢复为 streaming，可以再次停止；
+- Agent 列表读取被拒绝时，Agent 管理页显示后端给出的原因；
+- RuntimeEvent 的状态接口被拒绝时报连接错误并显示原因，不当作未启用。浏览器在事件流收到非 200 响应后不再重连，也不交出状态码，未启用的 503 与凭据失效的 401 看起来一样，前端此时再请求一次状态接口来区分：被拒绝显示原因，未启用显示未启用，状态接口说已启用则按连接失败处理、由用户重试。
 
 ## 4. Origin 与代理
 
@@ -86,7 +93,7 @@ Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送�
 - Vite 代理每次转发 HTTP 与 WebSocket 请求时，从 `../configs/management.token` 读出凭据并附上 `Authorization` 请求头；文件尚未生成时不附加，后端以 401 拒绝；
 - 后端提供页面时，页面响应下发 `HttpOnly` 的 `hivememory_management` cookie，同源请求、SSE 与 WebSocket 自动携带它。
 
-凭据缺失或不一致的 401 经第 3.1 节的错误解析显示后端的说明文字，前端没有专门的界面。
+凭据缺失或不一致的 401 由第 3.1 节的错误解析换成“管理凭据缺失或已失效，请刷新页面后重试”：后端的说明文字面向所有调用方，而页面由后端提供时，后端换了凭据之后刷新页面即可取得新的 cookie。日志 WebSocket 的握手被拒时浏览器拿不到原因，与后端未启动一样按断线有限重连。
 
 HTTP、SSE（chat 与 RuntimeEvent）与日志 WebSocket 的 URL 都由 `transports/backendUrl.ts` 生成，三者始终连接同一个后端：构建或开发服务器设置 `VITE_BACKEND_ORIGIN` 时直连这个 origin；不设置时（默认）HTTP 与 SSE 保持相对路径，WebSocket 取页面 origin，由同源部署的后端或 Vite 代理承接。因此：
 
@@ -110,7 +117,7 @@ mock 数据只在 debug 模式下启用。debug 模式只在 Vite 构建或开�
 | 读取 | 默认：读取失败时 | debug 模式：读取失败时 |
 |:---|:---|:---|
 | Memory 列表（`hooks/useMemories.ts`） | 清空列表并显示错误 | 换用 `MOCK_MEMORIES`，不显示错误 |
-| Agent 列表（`hooks/useAgentManagement.ts`） | 列表为空，页面提示“Agent 列表读取失败，请检查后端服务后刷新” | 换用 `MOCK_AGENT_CONFIGS` |
+| Agent 列表（`hooks/useAgentManagement.ts`） | 列表为空，页面显示后端给出的原因；连不上后端时提示“Agent 列表读取失败，请检查后端服务后刷新” | 换用 `MOCK_AGENT_CONFIGS` |
 | 主配置（`hooks/useSettings.ts`） | 配置保持未加载，页面显示“配置加载失败”；“恢复默认”失败以错误 toast 提示 | 加载 `MOCK_CONFIG` 并保存 error；“恢复默认”失败时草稿换成 `MOCK_CONFIG` |
 | Memory task（`services/memoryTaskApi.ts`） | 错误原样抛出 | 列表、按 ID 读取与取消换用 mock task |
 
