@@ -190,11 +190,14 @@ def test_pre_tool_use_entry_writes_ascii_json(tmp_path, monkeypatch, capsys):
 
 
 def test_resumed_session_path_with_extended_prefix_is_the_same_transcript(setup):
-    r"""续会话时 Codex 给出带 ``\?\`` 前缀的路径；它与会话开始时的路径是同一份会话记录，不重复登记。"""
-    hook, store, rollout, spawned = setup
-    rollout.turn("t1")
-    hook("SessionStart", source="startup")
+    r"""续会话时 Codex 给出带 ``\\?\`` 前缀的路径；它与会话开始时的路径是同一份会话记录，不重复登记。
 
-    hook("SessionStart", source="resume", transcript_path="\\\\?\\" + str(rollout.path))
+    路径是 Codex 在 Windows 上给出的形状；规整只处理字符串，测试在任何平台上都成立。
+    """
+    hook, store, _, _ = setup
+    path = "C:\\Users\\me\\.codex\\sessions\\2026\\11\\08\\rollout-2026-11-08T10-00-00-t.jsonl"
+    hook("SessionStart", source="startup", transcript_path=path)
 
-    assert store.registered_transcripts() == [str(rollout.path)]
+    hook("SessionStart", source="resume", transcript_path="\\\\?\\" + path)
+
+    assert store.registered_transcripts() == [path]
