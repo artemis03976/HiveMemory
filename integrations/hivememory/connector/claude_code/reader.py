@@ -30,35 +30,36 @@
   取最后一条助手条目的模型（Claude Code 为合成消息标注的 ``<synthetic>`` 除外）。
 - 最后一条助手条目的 ``message.stop_reason`` 不是 ``tool_use`` 时，该轮已经
   正常收尾；末尾一轮据此判断内容是否已经写完。
-- 本插件自身 MCP server 的四个工具（检索、读取、写入与更新 HiveMemory 记忆）
-  在这里归一化为 HiveMemory 能力调用：只写动词与作用对象，不上传调用名。
-  检索为 ``SEARCH``，查询留在参数中；读取为 ``READ``，参数 ``aliases`` 移出
-  参数、作为作用对象；写入为 ``WRITE``，没有作用对象；更新为 ``UPDATE``，
-  参数 ``alias`` 移出参数、作为唯一的作用对象。检索与读取取回的是已有记忆，
-  写入与更新的内容已经由显式写入保存，HiveMemory 生成时都不会把它们再提取
-  一遍。写入与更新的参数 ``turn`` 是 ``PreToolUse`` hook 补上的轮次信息，
-  不上传。调用名按 Claude Code 的规则由插件名与 server 名拼出
+- 本插件自身 MCP server 的四个记忆工具按 ``connector.core.memory_tools`` 的规则
+  归一化为 HiveMemory 能力调用（回声标记），其他工具写工具名与完整参数。
+  调用名按 Claude Code 的规则由插件名与 server 名拼出
   （``mcp__plugin_<插件名>_<server 名>__<工具名>``，``A-Z``、``a-z``、
   ``0-9``、``_``、``-`` 以外的字符替换为 ``_``）。规则变化时识别会静默失效，
   表现为重复记忆；``hooks.json`` 中 ``PreToolUse`` 的 matcher 写的也是这些
   调用名，同样失效，写入与更新因此以缺少轮次信息被拒绝，模型在工具结果中
-  看到错误。工具参数改名时，识别表、matcher 与 HiveMemory 的 MCP server 同时
-  修改。其他工具写工具名与完整参数。
+  看到错误。
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from connector.core.transcript import TranscriptTurn
+from connector.core.config import Harness
+from connector.core.memory_tools import MEMORY_TOOLS, tool_call_fields
+from connector.core.transcript import TranscriptTurn, read_entries
 
-SOURCE = "claude-code"
+HARNESS = Harness(
+    source="claude-code",
+    principal_id="harness:claude-code",
+    default_agent_id="claude_code",
+    token_env="HIVEMEMORY_CLAUDE_CODE_TOKEN",
+    state_dir_name="claude-code-connector",
+)
 
 _INTERRUPT_MARKER = re.compile(r"^\[Request interrupted by user[^\]]*\]$")
 _SYNTHETIC_MODEL = "<synthetic>"
@@ -67,10 +68,6 @@ _SYNTHETIC_MODEL = "<synthetic>"
 PLUGIN_NAME = "hivememory-connector"
 MCP_SERVER_NAME = "hivememory"
 
-# 写入与更新工具中由 PreToolUse hook 填写的轮次信息参数，与 HiveMemory MCP
-# server 的参数名一致。
-TURN_PARAM = "turn"
-
 
 def plugin_tool_name(tool: str) -> str:
     """Claude Code 为插件 MCP 工具生成的调用名。"""
@@ -78,33 +75,8 @@ def plugin_tool_name(tool: str) -> str:
     return f"mcp__{scope}__{tool}"
 
 
-@dataclass(frozen=True)
-class _MemoryTool:
-    """本插件自身的一个 MCP 工具对应的 HiveMemory 能力：动词与作用对象所在的参数。
-
-    ``single_target`` 表示作用对象参数是单个 alias，否则是 alias 列表。
-    """
-
-    verb: str
-    target_param: str | None = None
-    single_target: bool = False
-
-    def targets(self, value: Any) -> list[str] | None:
-        """参数中的作用对象；形状不对时为 ``None``，MCP server 已以工具错误拒绝这次调用。"""
-        if self.single_target:
-            return [value] if isinstance(value, str) and value else None
-        return value if _is_alias_list(value) else None
-
-
-# 本插件自身 MCP 工具的调用名到 HiveMemory 能力。
-_MEMORY_TOOLS = {
-    plugin_tool_name("memory_search"): _MemoryTool("SEARCH"),
-    plugin_tool_name("memory_read"): _MemoryTool("READ", target_param="aliases"),
-    plugin_tool_name("memory_write"): _MemoryTool("WRITE"),
-    plugin_tool_name("memory_update"): _MemoryTool(
-        "UPDATE", target_param="alias", single_target=True
-    ),
-}
+# Claude Code 中本插件记忆工具的调用名到工具名。
+_PLUGIN_TOOLS = {plugin_tool_name(tool): tool for tool in MEMORY_TOOLS}
 
 
 @dataclass
@@ -149,12 +121,12 @@ class _TurnBuilder:
 class ClaudeCodeReader:
     """读取 Claude Code 的会话记录。"""
 
-    source = SOURCE
+    source = HARNESS.source
 
     def read(self, path: str, offset: int) -> list[TranscriptTurn]:
         turns: list[TranscriptTurn] = []
         current: _TurnBuilder | None = None
-        for line_start, line_end, entry in _entries(path, offset):
+        for line_start, line_end, entry in read_entries(path, offset):
             if _is_human_prompt(entry):
                 if current is not None:
                     turns.append(current.build(closed_by_next_turn=True))
@@ -175,7 +147,7 @@ class ClaudeCodeReader:
 
     def started_at(self, path: str) -> float | None:
         # 逐行读取，取到第一个带时间的条目即停止，不读取整份会话记录。
-        for _, _, entry in _entries(path, 0):
+        for _, _, entry in read_entries(path, 0):
             timestamp = entry.get("timestamp")
             if isinstance(timestamp, str):
                 parsed = _parse_timestamp(timestamp)
@@ -205,7 +177,7 @@ class ClaudeCodeReader:
         因此只解析可能是用户条目的行。
         """
         turn_id: str | None = None
-        for _, _, entry in _entries(path, offset, prefilter=b'"user"'):
+        for _, _, entry in read_entries(path, offset, prefilter=b'"user"'):
             if _is_human_prompt(entry):
                 turn_id = str(entry["uuid"])
         return turn_id
@@ -214,35 +186,6 @@ class ClaudeCodeReader:
 # ---------------------------------------------------------------------------
 # 条目解析
 # ---------------------------------------------------------------------------
-
-
-def _entries(
-    path: str, offset: int, *, prefilter: bytes | None = None
-) -> Iterator[tuple[int, int, dict[str, Any]]]:
-    """逐行产出 (行首位置, 行尾之后位置, 条目)；只读完整行，跳过无法解析的行。
-
-    ``prefilter`` 给出时，不含该字节串的行不解析，只推进位置。
-    """
-    try:
-        stream = open(path, "rb")
-    except FileNotFoundError:
-        return
-    with stream:
-        stream.seek(offset)
-        position = offset
-        for raw_line in stream:
-            line_start = position
-            position += len(raw_line)
-            if not raw_line.endswith(b"\n"):
-                break
-            if prefilter is not None and prefilter not in raw_line:
-                continue
-            try:
-                entry = json.loads(raw_line.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError):
-                continue
-            if isinstance(entry, dict):
-                yield line_start, position, entry
 
 
 def _content_blocks(entry: dict[str, Any]) -> list[Any]:
@@ -339,31 +282,11 @@ def _add_assistant_block(
         tool_input = block.get("input")
         tool_args = dict(tool_input) if isinstance(tool_input, dict) else {"input": tool_input}
         tool_name = str(block.get("name") or "")
-        memory_tool = _MEMORY_TOOLS.get(tool_name)
-        if memory_tool is not None:
-            # 轮次信息是连接器自己补上的，不属于这次调用的内容。
-            tool_args.pop(TURN_PARAM, None)
-        targets = None
-        if memory_tool is not None and memory_tool.target_param:
-            targets = memory_tool.targets(tool_args.get(memory_tool.target_param))
-            if targets is not None:
-                del tool_args[memory_tool.target_param]
-            else:
-                # 模型传错了作用对象，MCP server 已以工具错误拒绝这次调用。按普通
-                # 工具写出：服务端要求读取与更新带作用对象，否则会拒绝整轮。
-                memory_tool = None
-        if memory_tool is None:
-            turn.add_event(
-                "tool_call", "", action_id=action_id, tool_name=tool_name, tool_args=tool_args
-            )
-            return
         turn.add_event(
             "tool_call",
             "",
             action_id=action_id,
-            verb=memory_tool.verb,
-            targets=targets,
-            tool_args=tool_args or None,
+            **tool_call_fields(tool_name, _PLUGIN_TOOLS.get(tool_name), tool_args),
         )
         return
     if block_type == "text":
@@ -380,10 +303,6 @@ def _add_assistant_block(
         return
     turn.seen_blocks.add(key)
     turn.add_event(kind, text)
-
-
-def _is_alias_list(value: Any) -> bool:
-    return isinstance(value, list) and bool(value) and all(isinstance(v, str) for v in value)
 
 
 def _add_tool_result(turn: _TurnBuilder, block: dict[str, Any]) -> None:

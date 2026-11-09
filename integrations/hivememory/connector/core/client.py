@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from connector.core.config import PRINCIPAL_ID, ConnectorConfig
+from connector.core.config import ConnectorConfig
 
 IMPORT_PATH = "/api/v1/import/turns"
 
@@ -69,7 +69,10 @@ class ImportClient:
         self._transport = transport
 
     def submit(self, body: dict[str, Any]) -> SubmitResult:
-        headers = {"Content-Type": "application/json", "X-Principal-ID": PRINCIPAL_ID}
+        headers = {
+            "Content-Type": "application/json",
+            "X-Principal-ID": self._config.principal_id,
+        }
         if self._config.token:
             headers["Authorization"] = f"Bearer {self._config.token}"
         if self._config.user_id:

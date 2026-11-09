@@ -239,10 +239,17 @@ class TranscriptSync:
             return False
 
     def _outcome(self, path: str, state: TranscriptState, turn: TranscriptTurn) -> Outcome | None:
-        """一轮的结局；仍在进行时返回 ``None``。"""
+        """一轮的结局；仍在进行时返回 ``None``。
+
+        已保存的结局（hook 写下的结束记录，或上次提交前保存的）最先，重发因此
+        始终发送同一结局；其次是会话记录写明的结局；最后才从下一轮、中断标记、
+        会话结束或长时间静止推断。
+        """
         recorded = state.end_records.get(turn.turn_id)
         if recorded is not None:
             return recorded
+        if turn.outcome is not None:
+            return turn.outcome
         if turn.closed_by_next_turn or turn.interrupted:
             return "cancelled"
         if state.session_ended or self._is_stale(path):

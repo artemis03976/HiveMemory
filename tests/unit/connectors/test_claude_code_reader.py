@@ -15,12 +15,12 @@ import json
 from pathlib import Path
 
 from connector.claude_code.reader import (
+    HARNESS,
     MCP_SERVER_NAME,
     PLUGIN_NAME,
     ClaudeCodeReader,
     plugin_tool_name,
 )
-from connector.core.config import PRINCIPAL_ID
 
 from tests.unit.connectors.transcripts import (
     TranscriptWriter,
@@ -211,9 +211,9 @@ def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
 
 
 def test_connector_constants_match_plugin_declarations():
-    """标记依赖插件名与 server 名，导入依赖 principal，补轮次信息依赖 hooks 的 matcher：
-    插件清单、.mcp.json 或 hooks.json 改名时这里失败。"""
-    plugin_root = Path(__file__).resolve().parents[3] / "integrations" / "claude-code"
+    """标记依赖插件名与 server 名，导入依赖 principal，补轮次信息依赖 hooks 的 matcher，
+    连接器按 hook 命令中的 harness 参数取配置：插件清单、.mcp.json 或 hooks.json 改动时这里失败。"""
+    plugin_root = Path(__file__).resolve().parents[3] / "integrations" / "hivememory"
     manifest = json.loads(
         (plugin_root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
     )
@@ -222,11 +222,18 @@ def test_connector_constants_match_plugin_declarations():
 
     assert manifest["name"] == PLUGIN_NAME
     assert list(servers) == [MCP_SERVER_NAME]
-    assert servers[MCP_SERVER_NAME]["headers"]["X-Principal-ID"] == PRINCIPAL_ID
+    assert servers[MCP_SERVER_NAME]["headers"]["X-Principal-ID"] == HARNESS.principal_id
     [pre_tool_use] = hooks["PreToolUse"]
     assert pre_tool_use["matcher"] == "|".join(
         plugin_tool_name(tool) for tool in ("memory_write", "memory_update")
     )
+    commands = [
+        handler["command"]
+        for groups in hooks.values()
+        for group in groups
+        for handler in group["hooks"]
+    ]
+    assert all(f" {HARNESS.source} hook " in command for command in commands)
 
 
 def test_next_prompt_closes_the_previous_turn_at_its_line(tmp_path):

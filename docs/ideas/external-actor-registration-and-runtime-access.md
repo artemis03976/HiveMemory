@@ -435,7 +435,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
   - 生成视图会渲染外部工具的结果（[生成材料的渲染](../../src/hivememory/engines/perception/material.py)），提取模型可能把已有记忆再提取一遍，形成重复记忆，并在之后的检索中自我强化。
   - Alice 经 MTP READ、SEARCH 读回的记忆不渲染进生成，正是为了避免这一点；但外部 MCP 调用在连接器看来只是普通工具调用。
   - 候选做法：连接器按 MCP server 名识别 HiveMemory 自己的工具调用，并在导入事件上标明来源；生成视图对这类动作只保留一行摘要（工具名与查询），不渲染结果，与 MTP READ、SEARCH 同样处理。标注用哪个字段在计划中确定。
-  - 选项 B 没有这条回路：经 `UserPromptSubmit` hook 注入的上下文以 `attachment` 条目写入 Claude Code 会话记录，而连接器只读取 `user` 与 `assistant` 条目（[会话记录读取器](../../integrations/claude-code/connector/claude_code/reader.py)），不会再次导入。助手据此作出的回答照常进入生成。
+  - 选项 B 没有这条回路：经 `UserPromptSubmit` hook 注入的上下文以 `attachment` 条目写入 Claude Code 会话记录，而连接器只读取 `user` 与 `assistant` 条目（[会话记录读取器](../../integrations/hivememory/connector/claude_code/reader.py)），不会再次导入。助手据此作出的回答照常进入生成。
 - **优先级与时效**：取回的记忆描述的是生成当时的状态，常含“某分支待推送”“某项进行中”这类一两天内就过时的内容。
   - 2026-10-29 核对：对话回流生成的 5 条记忆中，2 条标为 WORK_IN_PROGRESS，所述工作在记忆生成之前已经合并。
   - harness 侧还有自己的指令与记忆：Claude Code 的项目指令文件（CLAUDE.md、AGENTS.md），以及按项目保存的记忆文件。记忆文件的索引在每次会话自动加载，记录的是与用户协作的偏好与纠正。
@@ -457,9 +457,9 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
   - 该计划的非目标写明：不经任务进程的写入（plugin 模式、外部 wire）派发话题来自进程，只覆盖进程内的执行线程。
 - Import Bus 的流式接收推迟（[已归档的 Import Bus Idea](../archive/ideas/import-bus.md)前提 5，owner，2026-10-20）：流式接入需要经 hook 先取得用户消息送入 Gateway 路由，harness 响应很快时，模型的首条消息可能在路由完成之前到达。当时的分析是，Import Bus 不返回记忆上下文之后，在用户消息到达时提前路由没有收益、只剩时序成本；这一分析没有考虑轮次进行中的写入。
 - [外部会话 Idea](./external-session-and-topic-projection.md#44-向主动意图交接资料)第 4.4 节的候选设计：主动意图需要纳入某次交互时，先确认该交互已经应用并取得其实际所在的话题；两条提交不合并事务，也不建立等待未来交互的屏障。第 4.2 节：adapter 不把外部会话标识伪装成 topic_id。
-- plugin 模式没有进程与线程。MCP 请求头是插件配置中的静态值（[插件 MCP 配置](../../integrations/claude-code/.mcp.json)），只有 principal、用户、Agent 的声明与接入凭据，不携带外部会话或轮次标识。
-- 正在进行的一轮的身份在轮次结束之前就已确定：连接器以本轮用户消息在会话记录中的 `uuid` 作为外部轮次标识（[会话记录读取器](../../integrations/claude-code/connector/claude_code/reader.py)），Import Bus 由认证结果、来源、外部会话与外部轮次推导这一轮的 `interaction_id`（[Import Bus 模型](../../src/hivememory/system/services/import_bus/models.py)），并按外部会话串行编排。
-- Claude Code 的 `PreToolUse` hook 可以按名称匹配插件提供的 MCP 工具，输入中带有会话标识与会话记录路径，并可以经 `updatedInput` 改写工具参数；不给权限决定时，改写后的参数照常经过权限评估（[Claude Code hooks](https://code.claude.com/docs/en/hooks)，2026-10-31 核对）。连接器目前只注册了 `Stop`、`StopFailure`、`SessionStart` 与 `SessionEnd`（[插件 hooks](../../integrations/claude-code/hooks/hooks.json)）。
+- plugin 模式没有进程与线程。MCP 请求头是插件配置中的静态值（[插件 MCP 配置](../../integrations/hivememory/.mcp.json)），只有 principal、用户、Agent 的声明与接入凭据，不携带外部会话或轮次标识。
+- 正在进行的一轮的身份在轮次结束之前就已确定：连接器以本轮用户消息在会话记录中的 `uuid` 作为外部轮次标识（[会话记录读取器](../../integrations/hivememory/connector/claude_code/reader.py)），Import Bus 由认证结果、来源、外部会话与外部轮次推导这一轮的 `interaction_id`（[Import Bus 模型](../../src/hivememory/system/services/import_bus/models.py)），并按外部会话串行编排。
+- Claude Code 的 `PreToolUse` hook 可以按名称匹配插件提供的 MCP 工具，输入中带有会话标识与会话记录路径，并可以经 `updatedInput` 改写工具参数；不给权限决定时，改写后的参数照常经过权限评估（[Claude Code hooks](https://code.claude.com/docs/en/hooks)，2026-10-31 核对）。连接器目前只注册了 `Stop`、`StopFailure`、`SessionStart` 与 `SessionEnd`（[插件 hooks](../../integrations/hivememory/hooks/hooks.json)）。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|

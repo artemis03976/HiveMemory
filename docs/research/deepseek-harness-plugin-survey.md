@@ -260,7 +260,7 @@ Claude Code 连接器用到的 hook 是 `Stop`、`StopFailure`、`SessionStart`�
 
 不论选择哪一条，外置 bridge 只有在获得可信且隔离的 Agent/Session/turn 映射时才能补 turn；MCP 协议和静态 headers 不自动携带“当前 dsh 轮次”。原生插件若使用 SDK Client，只依赖公开 transport/callTool，不读取通用 MCP 插件的私有连接状态。[公开 MCP 工具适配入口][mcp-tools]提供模型工具与自有 callback 的桥接能力，但注册、上下文补全和连接生命周期仍是插件工作。
 
-**现有连接器的实际复用边界**：需求第 1.1 节“每个 harness 只需要读取器”是语义层概括。代码的 `core/` 仍在 [`integrations/claude-code/connector/`](../../integrations/claude-code/connector/) 内；[`core/config.py`](../../integrations/claude-code/connector/core/config.py) 与 [`core/client.py`](../../integrations/claude-code/connector/core/client.py) 固定 Claude principal/default agent，[`__main__.py`](../../integrations/claude-code/connector/__main__.py) 固定 reader/hook；[`core/transcript.py`](../../integrations/claude-code/connector/core/transcript.py) 假设按行追加文本与字节游标。需先适配最少的来源、入口与存储边界，不能在接入计划中视为现成独立共享包。
+**现有连接器的实际复用边界**：需求第 1.1 节“每个 harness 只需要读取器”是语义层概括。代码的 `core/` 仍在 [`integrations/claude-code/connector/`](../../integrations/hivememory/connector/) 内；[`core/config.py`](../../integrations/hivememory/connector/core/config.py) 与 [`core/client.py`](../../integrations/hivememory/connector/core/client.py) 固定 Claude principal/default agent，[`__main__.py`](../../integrations/hivememory/connector/__main__.py) 固定 reader/hook；[`core/transcript.py`](../../integrations/hivememory/connector/core/transcript.py) 假设按行追加文本与字节游标。需先适配最少的来源、入口与存储边界，不能在接入计划中视为现成独立共享包。
 
 ### 7.5 引导 skill 的承载方式
 
@@ -295,13 +295,13 @@ Claude Code 连接器用到的 hook 是 `Stop`、`StopFailure`、`SessionStart`�
 - 按原始逻辑事件的 closed turn 回流；用 seq 和 callId 关联调用及结果，避免 assistant/message 中的 tool-call block 与独立 tool/call 重复登记。读取 request/model 信息，保留实际正文与 reasoning；不使用会截断的 headless NDJSON 或压缩后的可见 messages 作为完整原轨迹。
 - 必须识别合成 user/message、压缩 replacement、goal continuation 和 fork inherited prefix。dsh 一 turn 可有多条真实用户/steering，HiveMemory 只有单个 user_message；后续方案需定义保持来源次序且写入/回流一致的投影，或对该形态明确拒绝，不能静默只取最后一条。子会话须定义可信且可恢复的归属映射；独立导入子轮或关联父轮均须保证写入/回流一致，不得用调用时偶然的父会话当前轮替代确定归属。
 - outcome 映射需覆盖 completed、aborted、blocked、error、max-tokens、interrupted、forked；只有 completed 可直接映射完成。其他 reason 先按原因与输出判断 cancelled/failed 或排除继承的合成收尾，不将 max-tokens/压缩事件一律当成功。此处要求显式映射，不预先替 owner 决定边界取舍。
-- HiveMemory 导入事件从 sequence 1 起严格递增；工具调用和结果合为一个事件，以 action_id 对齐。仅本插件四工具归一化为 SEARCH/READ/WRITE/UPDATE，并按现有模型将 READ aliases/UPDATE alias 放入 targets、去除自动补入的 turn；普通同名工具不误标。原始工具结果仍保留，防回声不是删除轨迹。参见 [`ImportedTurn 模型`](../../src/hivememory/system/services/import_bus/models.py)与 [`Claude reader 现有归一化`](../../integrations/claude-code/connector/claude_code/reader.py)。
+- HiveMemory 导入事件从 sequence 1 起严格递增；工具调用和结果合为一个事件，以 action_id 对齐。仅本插件四工具归一化为 SEARCH/READ/WRITE/UPDATE，并按现有模型将 READ aliases/UPDATE alias 放入 targets、去除自动补入的 turn；普通同名工具不误标。原始工具结果仍保留，防回声不是删除轨迹。参见 [`ImportedTurn 模型`](../../src/hivememory/system/services/import_bus/models.py)与 [`Claude reader 现有归一化`](../../integrations/hivememory/connector/claude_code/reader.py)。
 
 **确认与恢复**：
 
 - `session/event` 仅触发处理，不能代替耐久来源；需补扫已持久化的 closed turns、确认后推进水位，并处理 turn/end 与 flush 之间的窗口。自建 outbox 或直接补扫是路径选择，不在本调研中新增设施。
 - 复用 accepted/duplicate/skipped 后确认与网络/服务繁忙重发语义，区分拒绝轮次与身份配置错误；新来源首次旧会话不回填、未结束轮次、损坏尾部、日志 generation 和游标重定位都要明确策略。不能把 Claude 的“静止 30 分钟按取消”自动视为 dsh 的轮次保证。
-- 服务端去重记录有进程内保留边界，重启/超窗口后不能承诺 exactly once。插件卸载需要停止自建提交任务、关闭 MCP client；正常卸载不是强崩溃下绝不丢数据的证据。现有实现入口：[`core/sync.py`](../../integrations/claude-code/connector/core/sync.py)、[`core/client.py`](../../integrations/claude-code/connector/core/client.py)。
+- 服务端去重记录有进程内保留边界，重启/超窗口后不能承诺 exactly once。插件卸载需要停止自建提交任务、关闭 MCP client；正常卸载不是强崩溃下绝不丢数据的证据。现有实现入口：[`core/sync.py`](../../integrations/hivememory/connector/core/sync.py)、[`core/client.py`](../../integrations/hivememory/connector/core/client.py)。
 
 ### 7.7 已执行的最小探针与未完成验证
 

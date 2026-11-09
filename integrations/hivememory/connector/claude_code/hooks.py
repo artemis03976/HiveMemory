@@ -22,8 +22,9 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from connector.claude_code.reader import TURN_PARAM, ClaudeCodeReader
+from connector.claude_code.reader import ClaudeCodeReader
 from connector.core.log import ConnectorLog
+from connector.core.memory_tools import TURN_PARAM
 from connector.core.state import RECENT_TURNS, Outcome, StateStore
 from connector.core.sync import TranscriptSync, turn_info
 

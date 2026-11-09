@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "hivememory": {
+      "type": "http",
+      "url": "http://127.0.0.1:8769/mcp",
+      "bearer_token_env_var": "HIVEMEMORY_CODEX_TOKEN",
+      "http_headers": {
+        "X-Principal-ID": "harness:codex",
+        "X-Agent-ID": "codex"
+      },
+      "env_http_headers": {
+        "X-User-ID": "HIVEMEMORY_USER_ID"
+      },
+      "default_tools_approval_mode": "approve"
+    }
+  }
+}

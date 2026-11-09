@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "hivememory-connector",
-      "source": "./claude-code",
+      "source": "./hivememory",
       "description": "把 Claude Code 中已经结束的对话轮次导入 HiveMemory，并让 Claude Code 经 MCP 工具检索、读取、写入与更新 HiveMemory 的记忆，附带引导 agent 使用记忆工具的 skill。"
     }
   ]
