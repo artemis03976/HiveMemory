@@ -378,7 +378,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 | 位置（`integrations/hivememory/` 下） | 负责 |
 |:---|:---|
 | `package.json` | bundle 清单：`main` 指向 `node/dsh/index.js`，`engines.dsh` 声明支持的版本，`dsh.bundle.patch` 指向配置层；同一份清单的 `pi` 字段供 pi 使用（第 11.1 节） |
-| `node/dsh/cordis.patch.yml` | 插入插件行 `hivememory` 的配置层 |
+| `node/dsh/cordis.patch.yml` | 配置层：插入插件行 `hivememory`，以及只扫描插件包中 `skills/` 的 skill 提供方 `hivememory-skills`，使用手册 skill 随插件提供；提供方注册在宿主的全局层，不改动用户与 agent preset 自己的 skill 配置，路径从 profile 目录解析插件包得到 |
 | `node/dsh/index.js` | 装配，监听 Agent 创建与会话事件，连接 HiveMemory 并注册记忆工具 |
 | `node/dsh/turns.js` | 会话事件到导入轮次与在途轮次的投影、结局映射 |
 | `node/dsh/sync.js` | 同步循环与按会话保存的水位 |
@@ -584,6 +584,7 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 - Codex 的 fork、回退与上下文压缩对会话记录与游标的影响未经实测：fork 出的会话记录若带有父会话的轮次，会以新会话重复导入；回退不撤回已经导入的轮次。代码执行模式中间接调用的记忆工具不做回声标记。
 
 - dsh 插件依赖 dsh 开发者预览版的插件服务与会话事件，跨版本可能不兼容：`engines.dsh` 限定在 0.2.x，桌面端升级会同时升级 dsh。dsh 的 PTC 模式（默认关闭）下记忆工具在 `run_code` 内部调用，会话记录只有外层调用，回声标记不生效。
+- dsh 中同名 skill 由离 Agent 更近的来源胜出：桌面端的各模式自己扫描用户与项目的 skill 目录，那里的同名 `hivememory` 会遮蔽插件提供的使用手册 skill，并且不随插件更新。
 - dsh 一轮中运行时追加的用户消息并入用户消息，与助手事件的相对位置不保留。
 - dsh 子 Agent 的过程（读了哪些文件、工具输出了什么）不进入任何材料：子 Agent 没有写入、最后的输出也没有提到的发现会丢失；子 Agent 只经 `send_message` 交回完整结果、最后只说“已完成”时，材料中只有这句话。一轮带多个子 Agent 时结算通知让材料明显变大（一次 5 个子 Agent 的调研多出约 10 万字符），会更早触发 Page Folding，被折叠的轮次只以接力摘要进入结算时的生成。
 - dsh 插件每次同步与每次写入都读取整个会话记录，开销随会话长度增长；崩溃时进行中的一轮只在会话恢复后回流，不再恢复的会话不回流这一轮；多个 dsh 进程共用状态目录时没有跨进程互斥，同一轮可能提交两次，由服务端按交互标识去重。
@@ -618,5 +619,5 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 - 装配与关闭：`tests/unit/system/application/test_api_services.py`、`tests/unit/system/test_hivememory_system.py`、`tests/unit/system/test_lifecycle.py`；配置：`tests/unit/system/test_config_agent_runtime.py`；
 - 真实队列与感知的协作、交互的发起者是参与者、系统自身的 principal 未登记与目标不是参与者驻留的 Workspace 时的拒绝：`tests/integration/system/test_import_bus_submission.py`；经 MCP 写入后回流落在写入派发的话题：`tests/integration/system/test_mcp_memory_access.py`；离线 E2E：`tests/e2e/system/test_import_turns.py`；
 - 连接器（含唤醒开启的一轮与它的用户消息、子 Agent 交回的事件、上一轮提交之后的续作单独提交、回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal 与凭据请求头、按 harness 取凭据、会话记录写明的结局）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`；Codex（轮次切分、事件映射、回声标记与结局、根轮的取得、`PreToolUse` 的输出与子 Agent 归属、扩展长度前缀、清单与登记一致）：`tests/unit/connectors/test_codex_reader.py`、`tests/unit/connectors/test_codex_hooks.py`；
-- dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、水位与补发）：`integrations/hivememory/node/test/dsh-*.test.js`；事件种类是导入接受的，principal 与 Agent 在发布的登记中，包清单的入口与 bundle 配置存在：`tests/unit/connectors/test_deepseek_harness_plugin.py`；
+- dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、水位与补发）：`integrations/hivememory/node/test/dsh-*.test.js`；事件种类是导入接受的，principal 与 Agent 在发布的登记中，包清单的入口与 bundle 配置存在、补丁指向的使用手册 skill 目录存在：`tests/unit/connectors/test_deepseek_harness_plugin.py`；
 - pi 扩展（一轮的条目只取结束标记回溯的一段、fork 复制的标记不导入、原始输入、事件映射、回声标记与结局、写入时的轮次信息与之后的导入一致、只交给模型的工具、待提交与补发、关闭时有上限的等待，以及事件处理的整体流程）：`integrations/hivememory/node/test/`，与 dsh 插件的测试和公共部分的测试（提交分类、按 harness 取凭据）一起以 `npm test` 运行（CI 的 `node-connectors` 任务）；共用的记忆工具与 MCP server 的工具名、参数一致，principal 与 Agent 在发布的登记中，包清单指向的扩展与 skill 存在：`tests/unit/connectors/test_pi_extension.py`。

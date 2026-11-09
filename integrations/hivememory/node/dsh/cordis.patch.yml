@@ -4,3 +4,13 @@
 - insert:
     - id: hivememory
       name: hivememory-connector
+    # 使用手册 skill 随插件提供：单独的 skill 提供方只扫描插件包中的 skills/，注册在宿主
+    # 的全局层，不改动用户与各 agent preset 自己的 skill 配置。baseUrl 是 profile 目录，
+    # 从那里解析插件包得到它的实际位置。
+    - id: hivememory-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: hivememory
+        includeDefaultRoots: false
+        customSkillDirs:
+          - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('hivememory-connector/package.json')), 'skills')

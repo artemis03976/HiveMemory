@@ -4,8 +4,8 @@
 规则，它与 MCP server 的一致由 pi 扩展的同类测试守护。这里保护 dsh 自己的契约：写出的
 事件种类是导入接受的种类；插件声明的 principal 在随仓库发布的接入登记中、开放 mcp 与
 import 并要求凭据，默认 Agent 在 Workspace 访问登记中持有四项记忆操作，来源标识符合
-导入的格式；包清单的入口与 bundle 配置存在。插件的轮次投影、回流与工具行为由插件
-自己的测试守护（``node --test``）。
+导入的格式；包清单的入口与 bundle 配置存在，补丁指向的使用手册 skill 目录存在。插件的
+轮次投影、回流与工具行为由插件自己的测试守护（``node --test``）。
 """
 
 from __future__ import annotations
@@ -69,11 +69,17 @@ def test_plugin_identity_is_registered_for_mcp_and_import():
 
 
 def test_package_points_at_the_dsh_entry_and_bundle_patch():
-    """包清单中的路径失效时这里失败：dsh 安装后加载不到插件，或插件行不进入配置。"""
+    """包清单或补丁中的路径失效时这里失败：dsh 安装后加载不到插件、插件行不进入配置，
+    或补丁按包名解析出的 skill 目录不存在，使用手册 skill 不出现在目录中。"""
     manifest = json.loads((PACKAGE_ROOT / "package.json").read_text("utf-8"))
+    patch = (DSH_ROOT / "cordis.patch.yml").read_text("utf-8")
 
     assert manifest["name"] == "hivememory-connector"
     assert (PACKAGE_ROOT / manifest["main"]).is_file()
     assert (PACKAGE_ROOT / manifest["dsh"]["bundle"]["patch"]).is_file()
     assert manifest["engines"]["dsh"]
-    assert "name: hivememory-connector" in (DSH_ROOT / "cordis.patch.yml").read_text("utf-8")
+    assert f"name: {manifest['name']}" in patch
+    skill_root = re.search(r"resolve\('([^']+)/package\.json'\)\), '([^']+)'\)", patch)
+    assert skill_root is not None
+    assert skill_root.group(1) == manifest["name"]
+    assert (PACKAGE_ROOT / skill_root.group(2) / "hivememory" / "SKILL.md").is_file()
