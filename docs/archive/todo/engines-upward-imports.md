@@ -2,6 +2,7 @@
 title: engines 对上层的既有导入
 status: archived
 archived_at: 2026-11-09
+implemented_by: PR #207
 superseded_by: docs/architecture/overview.md
 owner: project
 scope: engines-known-upward-imports-in-package-layering
@@ -56,4 +57,4 @@ last_reviewed: 2026-11-09
 - 2026-09-26：包分层实施时登记为已知例外，原记录于第五代架构 Idea 的前身（《Workspace 网络与任务进程架构》Idea）第 10 节；
 - 2026-10-07：`engines/memory_compiler` 对 `agent_runtime.aliases` 的 2 处导入随引用解析迁入 workspace 删除；
 - 2026-10-13：随该 Idea 重写转为本 Todo，未绑定版本或 Issue；
-- 2026-11-09：存储层与 Gateway 命令包下移，例外清空，归档。
+- 2026-11-09：存储层与 Gateway 命令包下移，例外清空，归档（PR #207）。

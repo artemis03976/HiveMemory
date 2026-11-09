@@ -10,7 +10,7 @@ last_reviewed: 2026-11-09
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。每条登记一行：归档日期、所在的 PR 与替代它的当前文档；处置过程见各事项自身。
 
-- [engines 对上层的既有导入](./engines-upward-imports.md)：2026-11-09；[系统架构概览](../../architecture/overview.md)、[MemoryLibrary](../../patchouli/memory-library.md)
+- [engines 对上层的既有导入](./engines-upward-imports.md)：2026-11-09，PR #207；[系统架构概览](../../architecture/overview.md)、[MemoryLibrary](../../patchouli/memory-library.md)
 - [RUN 目标的可执行性检查](./run-target-executability-check.md)：2026-11-07，PR #189；[能力层](../../workspace/capability.md#7-引用读取的副作用)、[MTP 契约](../../contracts/mtp.md)
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)：2026-11-07，PR #189；[状态与传输](../../frontend/state-and-transports.md#6-mock-降级边界)、[管理页面](../../frontend/management-views.md)
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)：2026-11-06，随 [WorkspaceAsset 的归属拆分](../plans/workspace-asset-ownership-split.md)完成，PR #185；[WorkspaceAsset](../../workspace/assets.md#3-身份与归属)
