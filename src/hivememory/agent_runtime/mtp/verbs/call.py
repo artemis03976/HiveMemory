@@ -62,7 +62,7 @@ async def handle_call(
             # 降级为逗号分隔
             context_refs = [ref.strip() for ref in context_refs_str.split(",") if ref.strip()]
 
-    logger.info(
+    logger.debug(
         "MTP CALL: target=%s, task_length=%d, context_refs=%s",
         target_alias,
         len(task),

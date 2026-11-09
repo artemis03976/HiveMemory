@@ -97,7 +97,7 @@ class CallCoordinator:
         record = session.register_call(caller_frame, action_id)
         record.begin_resolution()
 
-        logger.info(
+        logger.debug(
             "CALL suspend: target=%s, task_length=%d",
             call_request.target_alias,
             len(call_request.task),

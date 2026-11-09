@@ -82,7 +82,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         threshold = (
             vitality_threshold if vitality_threshold is not None else self.config.low_watermark
         )
-        logger.info("Scanning for memories with vitality <= %s...", threshold)
+        logger.debug("Scanning for memories with vitality <= %s...", threshold)
 
         candidates = [
             (
@@ -101,7 +101,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         ]
         candidates.sort(key=lambda item: item[1])
 
-        logger.info("Found %s candidates for archival", len(candidates))
+        logger.debug("Found %s candidates for archival", len(candidates))
         return [memory_key for memory_key, _ in candidates]
 
     async def collect(
@@ -122,7 +122,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         Returns:
             int: 归档的记忆数量
         """
-        logger.info("Starting garbage collection...")
+        logger.debug("Starting garbage collection...")
         memories = list(memories)
         candidate_ids = self.scan_candidates(
             memories,
@@ -130,7 +130,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         )
 
         if not candidate_ids:
-            logger.info("No candidates found for archival")
+            logger.debug("No candidates found for archival")
             self._update_stats(len(memories), 0)
             return 0
 
@@ -149,9 +149,11 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
                 await self.memory_library.archive(memory_key)
                 archived_count += 1
-                logger.info("Successfully archived memory_id=%s", memory_key.memory_id)
+                logger.debug("Successfully archived memory_id=%s", memory_key.memory_id)
             except Exception as exc:
-                logger.error("Failed to archive memory_id=%s: %s", memory_key.memory_id, exc)
+                logger.error(
+                    "Failed to archive memory_id=%s: %s", memory_key.memory_id, exc, exc_info=True
+                )
                 skipped_count += 1
 
         self._update_stats(len(memories), archived_count, skipped_count)
@@ -179,7 +181,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
             "total_skipped": 0,
             "runs_count": 0,
         }
-        logger.info("Statistics reset")
+        logger.debug("Statistics reset")
 
     def _update_stats(
         self,

@@ -183,7 +183,7 @@ class ImportBusIngestor:
                 # 稍后重试时它已应用。
                 raise ImportBusUnavailableError(reason="apply_pending")
             self._placements[interaction_id] = determined
-            logger.info(
+            logger.debug(
                 "Import Bus 为在途轮次确定话题: source=%s, interaction_id=%s, topic_id=%s, "
                 "new_topic=%s",
                 turn.source,
@@ -319,7 +319,7 @@ class ImportBusIngestor:
             )
             raise ImportBusUnavailableError(reason="apply_pending")
         if result.previously_accepted:
-            logger.info(
+            logger.debug(
                 "Import Bus 忽略已应用的轮次: source=%s, interaction_id=%s, state=%s",
                 turn.source,
                 interaction_id,
@@ -334,7 +334,7 @@ class ImportBusIngestor:
             return ImportTurnResult(status="duplicate", interaction_id=interaction_id)
 
         is_new_topic = placement.is_new if placement is not None else result.new_topic
-        logger.info(
+        logger.debug(
             "Import Bus 确认轮次: source=%s, interaction_id=%s, new_topic=%s",
             turn.source,
             interaction_id,

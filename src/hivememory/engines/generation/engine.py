@@ -171,7 +171,7 @@ class MemoryGenerationEngine:
         查重命中本话题主动写入结算到的记忆时丢弃草稿：被动提取会从同一份材料
         里重新推导出 agent 已经写入的内容，并入后会以较新的被动草稿为骨架改写它。
         """
-        logger.info("[Mode A] 开始处理...")
+        logger.debug("[Mode A] 开始处理...")
 
         # Step 1: 渲染 transcript
         transcript = self._render_transcript(request)
@@ -224,7 +224,7 @@ class MemoryGenerationEngine:
         相似命中本话题其他主动写入结算到的记忆时照常新建、不提名合并：同一话题里
         agent 分开写的记忆是有意分开的。
         """
-        logger.info("[Mode B] WRITE 主动响应: content_length=%d", len(focus.content))
+        logger.debug("[Mode B] WRITE 主动响应: content_length=%d", len(focus.content))
 
         # 格式化背景对话；空上下文时由 _render_transcript() 统一返回占位文本
         transcript = self._render_transcript(request)
@@ -303,7 +303,7 @@ class MemoryGenerationEngine:
                 }
             )
 
-        logger.info(
+        logger.debug(
             "[Mode C] UPDATE 修订: alias=%s, instruction_length=%d",
             uf.base_alias,
             len(uf.instruction),
@@ -448,7 +448,7 @@ class MemoryGenerationEngine:
             [*memory.meta.provenance.contributing_agent_ids, *provenance.contributing_agent_ids]
         )
 
-        logger.info(
+        logger.debug(
             "[Mode C] UPDATE 内容已修订（待提交边界分配版本与内容时间）: memory_id=%s",
             memory.id,
         )

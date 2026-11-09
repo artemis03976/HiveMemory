@@ -24,10 +24,9 @@ logging:
   event_file_path: null
   console_output: true
   websocket_enabled: true
+  # 广播全部模块：日志只记启动关闭、配置与少数状态变化，以及失败的原因，运行的经过看事件
   websocket_namespaces:
-    - "hivememory.patchouli.*"
-    - "hivememory.engines.*"
-    - "hivememory.infrastructure.system_bus"
+    - "hivememory.*"
   websocket_level: "INFO"
   websocket_buffer_size: 100
   websocket_max_rate: 200

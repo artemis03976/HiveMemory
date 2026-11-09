@@ -92,7 +92,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             compressed_size_bytes=file_path.stat().st_size if file_path.exists() else None,
         )
         self._save_index()
-        logger.info("持久化记忆到冷存储: memory_id=%s", memory.id)
+        logger.debug("持久化记忆到冷存储: memory_id=%s", memory.id)
 
     async def load(self, key: WorkspaceMemoryKey) -> MemoryAtom:
         """从文件加载 MemoryAtom，不负责写回中期存储。"""
@@ -127,7 +127,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             return
         self._save_index()
         Path(record.storage_path).unlink(missing_ok=True)
-        logger.info("从冷存储删除记忆: memory_id=%s", key.memory_id)
+        logger.debug("从冷存储删除记忆: memory_id=%s", key.memory_id)
 
     async def is_archived(self, key: WorkspaceMemoryKey) -> bool:
         if self._index_key(key) in self._index:
@@ -193,7 +193,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
                 data = json.load(f)
             return {k: ArchiveRecord(**v) for k, v in data.items()}
         except Exception as e:
-            logger.error("加载归档索引失败: %s", e)
+            logger.error("加载归档索引失败: %s", e, exc_info=True)
             return {}
 
     def _save_index(self) -> None:

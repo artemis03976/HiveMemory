@@ -68,7 +68,7 @@ async def websocket_logs_endpoint(
                 break
 
     except WebSocketDisconnect:
-        logger.info("Client %s disconnected normally", client_id)
+        logger.debug("Client %s disconnected normally", client_id)
     except Exception as e:
         logger.error("Error in WebSocket connection %s: %s", client_id, e, exc_info=True)
     finally:

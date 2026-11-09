@@ -297,7 +297,7 @@ class KoakumaRuntime:
             if info.severity == MTPErrorSeverity.SYSTEM_FAULT:
                 logger.error("MTP execution failed: %s", info.code, exc_info=True)
             else:
-                logger.info("MTP request rejected: %s", info.code)
+                logger.debug("MTP request rejected: %s", info.code)
             return MTPResponse(status=MTPResponseStatus.ERROR, content="", error=info)
 
 
