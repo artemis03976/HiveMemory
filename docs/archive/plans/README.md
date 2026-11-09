@@ -19,7 +19,7 @@ last_reviewed: 2026-11-08
 
 ## 版本之外
 
-- [pi 插件接入](./pi-plugin-integration.md)：2026-11-08，分支 feat/pi-plugin；[Import Bus](../../system/import-bus.md#11-pi-扩展)、[接入 pi](../../help/pi-plugin.md)
+- [pi 插件接入](./pi-plugin-integration.md)：2026-11-08，PR #201；[Import Bus](../../system/import-bus.md#11-pi-扩展)、[接入 pi](../../help/pi-plugin.md)
 - [Codex 插件接入](./codex-plugin-integration.md)：2026-11-08，PR #199；[Import Bus](../../system/import-bus.md#10-codex-插件)、[接入 Codex](../../help/codex-plugin.md)
 - [全局运行页](./run-view.md)：2026-11-07，PR #195；[全局运行页](../../frontend/run-view.md)
 - [Runtime Event 体系完善](./runtime-event-system.md)：2026-11-07，PR #193；[运行时事件与可观测性](../../components/observability.md#11-一次运行)、[事件契约](../../contracts/routes-and-events.md#4-runtimeevent-观测契约)

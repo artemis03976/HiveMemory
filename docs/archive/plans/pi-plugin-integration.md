@@ -2,7 +2,7 @@
 title: pi 插件接入
 status: archived
 archived_at: 2026-11-08
-implemented_by: 分支 feat/pi-plugin
+implemented_by: PR #201（feat/pi-plugin）
 superseded_by: docs/system/import-bus.md
 owner: project
 target: v1.0 范围的 plugin 模式接入（不绑定具体版本号，owner 2026-11-04）
