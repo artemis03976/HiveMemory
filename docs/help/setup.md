@@ -19,7 +19,8 @@ related_contracts:
 related_docs:
   - docs/help/claude-code-plugin.md
   - docs/help/deepseek-harness-plugin.md
-last_reviewed: 2026-11-07
+  - docs/help/codex-plugin.md
+last_reviewed: 2026-11-08
 ---
 
 # 安装与启动 HiveMemory
@@ -248,7 +249,8 @@ npm run build
 
 服务运行起来之后，可以把外部 harness 以插件接入 HiveMemory：对话回流把每一轮已经结束的对话导入 HiveMemory，记忆工具让 harness 中的 agent 检索、读取、写入与更新记忆。每个 harness 有自己的插件、接入身份与凭据，安装、配置、确认与排查各有一份手册：
 
-- [接入 Claude Code](./claude-code-plugin.md)：插件 `hivememory-connector`（`integrations/claude-code/`），接入身份 `harness:claude-code`；
+- [接入 Claude Code](./claude-code-plugin.md)：插件 `hivememory-connector`（`integrations/hivememory/`），接入身份 `harness:claude-code`；
+- [接入 Codex](./codex-plugin.md)：同一个插件目录中的 Codex 插件，接入身份 `harness:codex`，只支持 Codex 与 HiveMemory 都在 Windows 上原生运行；
 - [接入 DeepSeek Harness](./deepseek-harness-plugin.md)：插件 `hivememory-connector`（`integrations/deepseek-harness/`），接入身份 `harness:dsh`，包括 Windows 桌面端连接 WSL 中的 HiveMemory。
 
 长期接入时，本地开发路径建议用脚本的 `serve` 模式运行后端（第 4.5 节）。

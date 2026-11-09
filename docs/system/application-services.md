@@ -100,4 +100,4 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 - `tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）
 - `tests/integration/workspace/test_published_registration_chain.py`（随仓库发布的登记文件驱动的管理路由、chat 与取消链路）
 
-任务进程与能力层的测试入口见[任务进程](../workspace/task-process.md#16-代码与测试入口)与[能力层](../workspace/capability.md#10-代码与测试入口)，Import Bus 的测试入口见 [Import Bus](./import-bus.md#12-代码与测试入口)。
+任务进程与能力层的测试入口见[任务进程](../workspace/task-process.md#16-代码与测试入口)与[能力层](../workspace/capability.md#10-代码与测试入口)，Import Bus 的测试入口见 [Import Bus](./import-bus.md#13-代码与测试入口)。

@@ -5,7 +5,7 @@ owner: project
 scope: claude-code-plugin-installation-configuration-verification-and-troubleshooting
 code_paths:
   - integrations/.claude-plugin/marketplace.json
-  - integrations/claude-code/
+  - integrations/hivememory/
   - configs/system_principals.yaml
   - configs/workspace_actors.yaml
 related_contracts:
@@ -139,5 +139,5 @@ export HIVEMEMORY_CLAUDE_CODE_TOKEN=<第 2 节生成的凭据>
 
 ## 10. 更新与卸载
 
-- **更新**：仓库中的插件更新后，在 `/plugin` 中更新该插件，或执行 `claude plugin marketplace update hivememory-local` 与 `claude plugin update hivememory-connector@hivememory-local`，再重启 Claude Code。插件与 HiveMemory 需要一起升级：新插件导入的轮次可能带写入与更新的标记，旧版 HiveMemory 不认识它们，会整轮拒绝。
+- **更新**：仓库中的插件更新后，在 `/plugin` 中更新该插件，或执行 `claude plugin marketplace update hivememory-local` 与 `claude plugin update hivememory-connector@hivememory-local`，再重启 Claude Code。插件目录从 `integrations/claude-code/` 改名为 `integrations/hivememory/` 之后（与 Codex 合用一个插件目录），先执行这两条命令更新一次即可：插件名与 marketplace 名不变，插件数据目录与其中的游标保留。插件与 HiveMemory 需要一起升级：新插件导入的轮次可能带写入与更新的标记，旧版 HiveMemory 不认识它们，会整轮拒绝。
 - **卸载**：执行 `claude plugin uninstall hivememory-connector@hivememory-local`，再重启 Claude Code。

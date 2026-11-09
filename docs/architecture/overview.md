@@ -24,7 +24,7 @@ related_docs:
   - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-08
 ---
 
 # HiveMemory 当前系统架构
@@ -230,7 +230,7 @@ TaskProcessService（workspace.process）
 
 ## 6. Import Bus：让外部经历进入记忆，而不是伪造一次对话
 
-Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 chat 入口。它解决的是“如何把其他 harness 已经发生的经历带入 HiveMemory”，而不是要求系统重新扮演一次对话参与者。外部 harness 在一轮交互结束后提交这一轮的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局，以及只供话题路由参考的最近几轮）；当前的接入方是仓库中的 Claude Code 连接器插件（`integrations/claude-code/`）。
+Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 chat 入口。它解决的是“如何把其他 harness 已经发生的经历带入 HiveMemory”，而不是要求系统重新扮演一次对话参与者。外部 harness 在一轮交互结束后提交这一轮的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局，以及只供话题路由参考的最近几轮）；当前的接入方是仓库中 Claude Code 与 Codex 合用的连接器插件（`integrations/hivememory/`）与 DeepSeek Harness 插件（`integrations/deepseek-harness/`）。
 
 ```text
 POST /api/v1/import/turns
@@ -259,7 +259,7 @@ POST /api/v1/import/turns
 
 ### 6.1 外部 harness 的记忆访问
 
-对话回流只把外部经历送进记忆网络；外部 harness 主动使用记忆走另一条路径：HiveMemory 在同一个 HTTP 服务上提供 MCP 端点，Claude Code 插件声明它之后，agent 经四个工具检索、读取、写入与更新记忆。
+对话回流只把外部经历送进记忆网络；外部 harness 主动使用记忆走另一条路径：HiveMemory 在同一个 HTTP 服务上提供 MCP 端点，Claude Code 与 Codex 的插件声明它之后（DeepSeek Harness 插件把四个工具注册为 dsh 原生工具，执行时经它调用），agent 经四个工具检索、读取、写入与更新记忆。
 
 ```text
 POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、user 与 Agent 声明）
@@ -327,7 +327,7 @@ Gateway -> Patchouli -> Alice -> Scheduler
 - 组合与生命周期：`src/hivememory/system/assembler.py`、`src/hivememory/system/system.py`；
 - 包分层：`tests/unit/architecture/test_package_layers.py`；
 - 主动链路：`src/hivememory/workspace/process/`；
-- Import Bus：`src/hivememory/server/routers/import_bus.py`、`src/hivememory/system/application/import_bus_service.py`、`src/hivememory/system/services/import_bus/`，连接器插件 `integrations/claude-code/`；
+- Import Bus：`src/hivememory/server/routers/import_bus.py`、`src/hivememory/system/application/import_bus_service.py`、`src/hivememory/system/services/import_bus/`，连接器插件 `integrations/hivememory/`；
 - 子系统宿主：`src/hivememory/{gateway,patchouli,alice}/system.py`；
 - 主要测试：`tests/unit/system/`、`tests/unit/gateway/`、`tests/e2e/pipeline/`。
 

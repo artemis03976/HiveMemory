@@ -16,7 +16,7 @@ related_docs:
   - docs/research/deepseek-harness-plugin-survey.md
   - docs/research/harness-interface-survey-snapshot.md
   - docs/research/pi-plugin-survey.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-08
 snapshot_at: 2026-11-07
 source_version: rust-v0.167.0
 source_commit: acbbe32e165dcb0bf450b454ad1b3547b690db8f
@@ -27,7 +27,7 @@ upstream_commit: 086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a
 
 ## 0. 文档性质
 
-第 1–6 节保留原调研需求；第 7 节是 2026-11-07 的资料调研快照，固定到 `rust-v0.167.0`。已完成能力清单、hook 对应、路径比较、引导与共存分析；Windows 原生最小实测未执行，原因与待验证项见第 7.7 节。报告不代表接入路径已决定或 HiveMemory 已实现 Codex 接入。需求中的线索（第 2 节）与第 7 节不一致时，以第 7 节所列固定源码为准。
+第 1–6 节保留原调研需求；第 7 节是 2026-11-07 的资料调研快照，固定到 `rust-v0.167.0`。已完成能力清单、hook 对应、路径比较、引导与共存分析；第 7.7 节列出的 Windows 原生最小实测于 2026-11-08 以同一版本的 CLI 补做（模拟模型与模拟 MCP，不调用真实模型），结果与仍未实测的项见第 7.9 节。报告不代表 HiveMemory 已实现 Codex 接入；接入路径之后由 owner 决定（2026-11-08，沿用 Claude Code 的形态），决定不写入本报告。需求中的线索（第 2 节）与第 7 节不一致时，以第 7 节所列固定源码为准。
 
 外部项目变化很快，调研结论只代表完成时的日期。Codex 发版频繁，调研时以固定的发行版本与提交为准。
 
@@ -59,7 +59,7 @@ plugin 模式的接入包括两件事：harness 的每一轮对话回流到 Hive
 - **回声标记**：本插件四个记忆工具的调用回流时归一化为 `SEARCH`、`READ`、`WRITE`、`UPDATE` 能力调用，避免已有记忆被再提取一遍。这要求读取器能从会话记录中认出这些调用，识别依据是调用名（同上）。
 - **子 Agent**：子 Agent 是父 Agent 临时委托的执行线程，它的过程不进入记忆生成，要保留的内容由它自己写入；父会话的一轮保留它交回的最终输出（`subagent_message` 事件）；子 Agent 中的写入以顶层会话的一轮确定话题（owner，2026-11-02；[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。
 - **接入登记**：每个 harness 有自己的 principal（`harness:claude-code`、`harness:dsh`）与凭据环境变量，登记在 [`system_principals.yaml`](../../configs/system_principals.yaml)；具体 Agent 与它的四项记忆操作白名单登记在 [`workspace_actors.yaml`](../../configs/workspace_actors.yaml)。两份配置在启动时装载（[配置](../system/configuration.md)）。
-- **引导 skill**：使用手册 skill 只维护一份（[`SKILL.md`](../../integrations/claude-code/skills/hivememory/SKILL.md)），内容不区分 harness；Claude Code 随插件加载，dsh 由用户复制到 dsh 的 skill 目录（[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#43-使用手册-skill)第 4.3 节）。
+- **引导 skill**：使用手册 skill 只维护一份（[`SKILL.md`](../../integrations/hivememory/skills/hivememory/SKILL.md)），内容不区分 harness；Claude Code 随插件加载，dsh 由用户复制到 dsh 的 skill 目录（[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#43-使用手册-skill)第 4.3 节）。
 
 Claude Code 连接器用到的 hook 是 `Stop`、`StopFailure`、`SessionStart`、`SessionEnd` 与 `PreToolUse`（[Import Bus](../system/import-bus.md#82-hooks)第 8.2 节），第 5 节要求逐项给出 Codex 中的对应物。
 
@@ -216,7 +216,7 @@ Codex `rust-v0.167.0` 已有默认开启的 plugins 与 hooks，**MCP 工具经�
 | B2 | 支持 | MCP handler 支持把 updatedInput 序列化回调用参数；需返回 PreToolUse 的 hookSpecificOutput，且 permissionDecision=allow。工具名简单且无碰撞时 matcher 可用 `^mcp__hivememory__(memory_write\|memory_update)$`。改写后才进行需要的审批，审批处理读取改写后的 payload；allow 不自动豁免所有审批。多个改写结果按完成顺序取最后一份，deny 优先，不是顺序叠加。[C-MCP-HANDLER]、[C-PRE]、[C-REGISTRY] | 源码核对；Windows matcher/审批 UI 未实测 |
 | B3 | 部分支持 | PreToolUse 有 session_id、turn_id、transcript_path、cwd、model、tool_name、tool_input、tool_use_id、permission_mode 与可选 agent 字段。Stop/Interrupt 也有 turn_id；SessionStart/SessionEnd 不提供同样的轮次字段。transcript_path 可为空，且 payload 不直接给整轮用户消息，必须读取相应历史、排除指令注入并处理追加输入，不能把 turn_id 当文本索引。[C-HOOK-SCHEMA]、[C-HOOK-RUNTIME] | 源码核对 |
 | B4 | 部分支持 | 同步 handler 在对应处理点被等待；显式 deny/exit 2 可阻断支持阻断的事件，错误、无效 JSON、超时不等于阻断。command 默认多数事件 600 秒；SessionEnd/Interrupt 默认 1 秒、上限 3 秒。async command 不等结果、不参与改写/决策，每会话最多 8 个在途，结束时取消；SessionEnd 强制同步。可自行启动进程，但 Windows 脱离、句柄与退出后的持续运行未验证，async 不是持久补发服务。[C-HOOK-DOC]、[C-DISCOVERY]、[C-COMMAND]、[C-PRE] | 文档声明、源码核对；脱离进程未知 |
-| B5 | 部分支持 | 子线程 hook 给 agent_id/type；PreToolUse 的 session_id、turn_id 与 transcript_path 指向子线程自身。SubagentStop 的 session_id/turn_id 仍来自子线程，而 transcript_path 指父、agent_transcript_path 指子；须按事件 schema 区分，不能从同名字段猜根会话。嵌套父链与父轮绑定仍需适配器解析，不能用父会话“最近一轮”。[C-HOOK-SCHEMA]、[C-HOOK-RUNTIME] | 源码核对 |
+| B5 | 部分支持 | 子线程 hook 给 agent_id/type；PreToolUse 的 turn_id 与 transcript_path 指向子线程自身，session_id 实测为根会话（2026-11-08 更正，见 7.9）。SubagentStop 的 session_id/turn_id 仍来自子线程，而 transcript_path 指父、agent_transcript_path 指子；须按事件 schema 区分，不能从同名字段猜根会话。嵌套父链与父轮绑定仍需适配器解析，不能用父会话“最近一轮”。[C-HOOK-SCHEMA]、[C-HOOK-RUNTIME] | 源码核对 |
 
 #### C. 会话记录
 
@@ -300,7 +300,7 @@ Codex `rust-v0.167.0` 已有默认开启的 plugins 与 hooks，**MCP 工具经�
 | Codex 插件 + HTTP MCP + PreToolUse + Python 读取器 | 复用手册、Python 的 HTTP 提交/错误分类与确认后前进原则；新增 Codex 插件清单、hook 输出适配、rollout 投影与身份/终态处理。并非只换一个 reader。 | hook 读取实际当前轮、覆盖完整 turn，工具与导入共用 ID；直接调用按 server/tool 归一化。子调用沿派生绑定回到根轮，只导入父级最终交回；间接调用仍有回声限制。 | Codex + Windows Python；hook shell/引号、信任未完成、并行改写冲突、缺失败 hook、文件换代和锁均需验证。 |
 | 插件自有工具：本地 MCP 包装服务 + 适配器上下文 | Codex 插件不是 dsh 的 JS registerTool 工厂；可由插件声明本地包装 MCP server，再由它调用 HiveMemory。新增包装工具/schema、可信上下文交接和客户端；回流仍需读取器/生命周期接线。 | 包装工具可不向模型暴露 turn，并在执行时注入，但 server 自身只收到工具参数，不能凭 stdio 进程或 HTTP 连接猜当前 thread/turn。需可信关联通道，尤其共享 server、并行调用和子 Agent；只包装四个工具不能自动解决此问题。直接工具按包装名称映射能力，嵌套回声同样存在。 | 包装服务可用 Python 或 Node，取决于实现；不额外承诺任选组合都兼容。增加运行时状态、并发与进程收尾；若仍由可跳过的 hook 提供关联，不能宣称已消除 hook 缺失风险。 |
 
-**真实复用边界**（HiveMemory 基线 `acbbe32e165dcb0bf450b454ad1b3547b690db8f`）：Python [`TranscriptReader`](../../integrations/claude-code/connector/core/transcript.py) 与 [`sync.py`](../../integrations/claude-code/connector/core/sync.py) 的 turn 区间、字节水位及 closed_by_next_turn/looks_complete 反映 Claude 的文件模型；Codex 的历史前缀引用、同 thread 换文件、失败终态与追加输入需要审查这些假设。HTTP 客户端与“确认后推进、首次接入不回填旧历史”的策略可复用；不能把现有 30 分钟静止启发式直接当作 Codex 结局证明。已有 [`hooks.py`](../../integrations/claude-code/connector/claude_code/hooks.py) 的 JSON 输出与 matcher 也需要专门适配。
+**真实复用边界**（HiveMemory 基线 `acbbe32e165dcb0bf450b454ad1b3547b690db8f`）：Python [`TranscriptReader`](../../integrations/hivememory/connector/core/transcript.py) 与 [`sync.py`](../../integrations/hivememory/connector/core/sync.py) 的 turn 区间、字节水位及 closed_by_next_turn/looks_complete 反映 Claude 的文件模型；Codex 的历史前缀引用、同 thread 换文件、失败终态与追加输入需要审查这些假设。HTTP 客户端与“确认后推进、首次接入不回填旧历史”的策略可复用；不能把现有 30 分钟静止启发式直接当作 Codex 结局证明。已有 [`hooks.py`](../../integrations/hivememory/connector/claude_code/hooks.py) 的 JSON 输出与 matcher 也需要专门适配。
 
 **可信 turn 的限制**：覆盖模型提供的 turn 是必要条件，但 MCP 当前 schema 并不证明字段一定来自适配器。若 hook 未加载/未信任/失败，原调用仍可能继续：缺 turn 会被现有服务端拒绝，模型伪造的非空 turn 则不能仅靠该机制鉴别。运行中的 hook 可在无法解析上下文时显式 deny；“确保 hook 必定运行”需要安装/运行约束或另一可信绑定方案。这是 [现有 MCP 契约](../contracts/mcp.md#6-连接器调用名轮次信息与回声标记) 的适配器信任边界，不是本次擅自新增认证协议的理由。[C-PRE]、[C-HOOK-DOC]
 
@@ -312,7 +312,7 @@ Codex `rust-v0.167.0` 已有默认开启的 plugins 与 hooks，**MCP 工具经�
 
 ### 7.5 引导 skill 的承载
 
-现有 [`hivememory/SKILL.md`](../../integrations/claude-code/skills/hivememory/SKILL.md) 可作为插件 skill 分发，保持一份正文；目录发现和按需读取符合当前 frontmatter。安装时还需核对插件限定名在目标 CLI/桌面中的显示，不能把 Claude 的命令写法搬入说明。[C-SKILL-DOC]、[C-PLUGIN-DOC]
+现有 [`hivememory/SKILL.md`](../../integrations/hivememory/skills/hivememory/SKILL.md) 可作为插件 skill 分发，保持一份正文；目录发现和按需读取符合当前 frontmatter。安装时还需核对插件限定名在目标 CLI/桌面中的显示，不能把 Claude 的命令写法搬入说明。[C-SKILL-DOC]、[C-PLUGIN-DOC]
 
 MCP instructions 适合简短说明工具用途，skill 承载完整操作规则；需要每轮可重建的短引导可由适当 hook 附加。AGENTS.md 属于用户/项目说明，不应由插件自动改写；任何提示文本都不能生成可信 turn 或代替 hook 接线。压缩后允许重新读取 skill，不要求其正文永久保留。[C-AGENTS-DOC]、[C-HOOK-DOC]
 
@@ -386,6 +386,40 @@ MCP instructions 适合简短说明工具用途，skill 承载完整操作规则
 [C-EXEC]: https://github.com/openai/codex/blob/086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a/codex-rs/exec/src/lib.rs
 [C-CLI-README]: https://github.com/openai/codex/blob/086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a/README.md
 [C-LICENSE]: https://github.com/openai/codex/blob/086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a/LICENSE
+
+### 7.9 Windows 原生机制实测（2026-11-08）
+
+**环境**：Windows 11 原生，Codex CLI `codex-cli 0.167.0`（npm 包，装在 fnm 管理的 Node v24.21.0 下），Python 3.12.10。使用独立的临时 `CODEX_HOME`，不动 owner 已有的配置；模型提供方指向本机模拟的 Responses API（`127.0.0.1:18080`，按提示词中的关键字返回固定的工具调用或回复），MCP 指向本机模拟 server（`127.0.0.1:18081`，只记录请求）。没有调用真实模型或 HiveMemory 后端，没有使用任何账户凭据。探针、模拟服务与日志都在会话临时目录，不进入仓库。
+
+**探针插件**按"一个目录同时作为 Claude Code 与 Codex 插件"的布局准备：根目录同时放 `.codex-plugin/plugin.json` 与 `.claude-plugin/plugin.json`；Codex 清单显式指定 `hooks/codex.json`、`codex.mcp.json` 与 `skills/`；另放 Claude Code 默认读取的 `.mcp.json` 与 `hooks/hooks.json` 作为诱饵，检查 Codex 是否误读。marketplace 只有 `.claude-plugin/marketplace.json`。
+
+以下均为**实际运行**的结果；源码定位见第 7.8 节的固定提交。
+
+| 项目 | 结果 |
+|:---|:---|
+| marketplace 与安装（A1） | `codex plugin marketplace add <目录>` 读取 `.claude-plugin/marketplace.json`；`codex plugin add <插件>@<marketplace>` 把插件目录整份复制到 `CODEX_HOME\plugins\cache\<marketplace>\<插件>\<版本>`，版本取自 Codex 清单。改动插件文件后要重新执行 `add` 才进入缓存。 |
+| 两份清单并存（A1/A3） | Codex 按根目录 `plugin.json` → `.codex-plugin/plugin.json` → `.claude-plugin/plugin.json` 的顺序取第一份（源码），实测用的是 `.codex-plugin`。清单写明 `mcpServers` 与 `hooks` 的路径后，不再读取默认的 `.mcp.json` 与 `hooks/hooks.json`：诱饵 MCP 没有收到任何请求，hook 列表里只有 `hooks/codex.json` 的 12 个 hook。 |
+| hook 信任（A3） | 安装后的 hook 处于未信任状态，不运行。经 app-server 的 `hooks/list` 取得 hook 的当前 hash，再以 `config/batchWrite` 写入 `hooks.state`（TUI 的 hook 审阅走同一接口），之后才运行；键形如 `<插件ID>:hooks/codex.json:<事件>:0:0`，同时记录声明 hash 与插件内容 hash。重新安装改动过的插件后，hook 变为"已修改"，需要再次信任。另有命令行开关 `--dangerously-bypass-hook-trust` 跳过信任（源码），实测未使用。 |
+| hook 命令与环境（G2/G3） | 命令 `python "${PLUGIN_ROOT}/probe_hook.py" …` 正常运行：Codex 在交给 shell 之前把命令文本中的 `${PLUGIN_ROOT}` 替换为插件缓存目录，`python` 解析到用户安装的 Python 3.12。环境中有 `PLUGIN_ROOT`、`PLUGIN_DATA`（`CODEX_HOME\plugins\data\<插件>-<marketplace>`）与 `CLAUDE_PLUGIN_ROOT`、`CLAUDE_PLUGIN_DATA` 两个别名，用户环境变量照常传入。hook 以管道读写标准输入输出，Python 的标准输出按 cp1252 编码：探针用 `ensure_ascii=False` 输出中文时抛出编码错误，hook 记为失败；改为 ASCII 转义的 JSON 后正常。`SessionEnd` 与 `Interrupt` 的超时被截到 3 秒并给出警告。 |
+| HTTP MCP（A2/D4） | 插件 MCP 文件为 `{"mcpServers": {...}}`，`type: "http"`。`bearer_token_env_var` 从环境变量取得凭据并作为 `Authorization: Bearer` 发送；`http_headers` 原样发送；`env_http_headers` 在变量未设置时不发送该请求头。`Host` 为 `127.0.0.1:<端口>`，`Accept` 为 `text/event-stream, application/json`；按 `initialize`、`notifications/initialized`、`tools/list`、`tools/call` 的顺序调用，JSON 响应、无会话 ID 均可正常完成。`url` 中的环境变量是否展开未实测。 |
+| 工具名与 matcher（D1） | 模型请求中的工具为 namespace `mcp__hivememory` 下的 `memory_*`；hook 中的 `tool_name` 为 `mcp__hivememory__memory_write`；matcher `^mcp__hivememory__(memory_write\|memory_update)$` 只对写入与更新触发，检索调用前不触发 `PreToolUse`。 |
+| 审批（D2） | 不设审批模式时，MCP 写入工具需要审批：在审批策略为 `never` 的无头运行中直接失败（"MCP tool call requires approval, but approval policy is never"），并触发 `PermissionRequest` hook。在插件 MCP 文件中设 `default_tools_approval_mode: "approve"` 后不再审批，调用正常完成。 |
+| 参数改写（B2/B3） | `PreToolUse` 返回 `permissionDecision: "allow"` 与 `updatedInput` 后，MCP server 收到的参数是改写后的：模型自己填的 `turn` 被 hook 补上的值覆盖，中文完整。会话记录中 `response_item` 的 `function_call` 保留模型原始参数，`item_completed` 的 `McpToolCall` 是改写后的参数。每次 `tools/call` 的 `_meta.x-codex-turn-metadata` 还带有 `session_id`、`thread_id`、`turn_id`、`thread_source`（`user` / `subagent`）等字段，`_meta.plugin_id` 为插件 ID；这些由 Codex 填写，不经过模型。 |
+| hook 输入（B3） | 各事件带 `session_id`、`transcript_path`、`cwd`、`model`、`permission_mode`；`UserPromptSubmit`、`PreToolUse`、`Stop` 另带 `turn_id`，`UserPromptSubmit` 带用户原文 `prompt`，`Stop` 带 `last_assistant_message` 与 `stop_hook_active`，`SessionStart` 带来源（`startup` / `resume`）。 |
+| 会话记录与结局（C1/C2/C3） | 会话记录为 `CODEX_HOME\sessions\<年>\<月>\<日>\rollout-<时间>-<线程ID>.jsonl`。一轮以 `event_msg` 的 `task_started`（带 `turn_id`、`root_turn_id` 与 `turn_attribution`）开始，以 `task_complete` 结束；中间的用户消息、助手正文、MCP 调用与子 Agent 调用各有结构化的 `item_completed`（`UserMessage`、`AgentMessage`、`McpToolCall` 含 `server`、`tool`、参数、状态与结果、`CollabAgentToolCall`），同时另有 `response_item` 形式的模型输入输出。同一次响应中的两个工具调用都完整记下了结果。模型流失败时 `task_complete` 带 `error`（消息与类别），不触发 `Stop`，`codex exec` 以退出码 1 结束。 |
+| 续会话（C4、G5） | `codex exec resume <线程ID>` 沿用同一线程 ID，在同一个会话记录文件末尾追加新的一轮（新的 `turn_id`）；`SessionStart` 的来源为 `resume`，结束时触发 `SessionEnd`。无头运行时，标准输入不是终端且没有关闭，`codex exec` 会一直等待输入，需要显式关闭标准输入。 |
+| 子 Agent（B5/C5） | 经 `spawn_agent` 派生的子 Agent 有自己的线程 ID 与会话记录文件。子 Agent 内的 `UserPromptSubmit`、`PreToolUse`、`PostToolUse` 中，`session_id` 是根会话，`turn_id` 与 `transcript_path` 是子 Agent 自己的，另带 `agent_id`；`SubagentStop` 的 `transcript_path` 指父会话、`agent_transcript_path` 指子会话。子 Agent 会话记录的 `session_meta` 带 `parent_thread_id`，它的 `task_started` 的 `root_turn_id` 与 `parent_turn_id` 指向父会话中派生它的那一轮。父会话中 `wait` 的 `CollabAgentToolCall` 记下子 Agent 最终交回的消息。 |
+
+**仍未实测**：用户中断（`Interrupt` 与 `TurnAborted` 的先后，需要交互界面或 app-server 的中断请求）、fork 与回退（`codex exec` 没有入口）、上下文压缩、桌面版与 IDE 扩展中的插件和 hook、真实模型与真实 HiveMemory 后端的端到端调用、代码执行模式中的间接调用。
+
+**对接入的影响**（适配分析，不是 owner 决定）：
+
+- 一个目录同时作为两个 harness 的插件在机制上可行，前提是 Codex 清单写明自己的 hook 与 MCP 文件；Codex 侧的 hook 命令不能沿用现有 Claude Code hook 的 bash 写法（`$(command -v …)`），要单独一份。
+- 插件更新后要重新安装并重新信任 hook，这是 Codex 的使用成本，需要写进接入手册；未信任时写入缺少 `turn`，会被服务端以 `request.turn_required` 拒绝。
+- 不设审批模式时，交互使用中每次写入都要用户确认、无头运行时写入失败；是否由插件把四个记忆工具设为免审批，要在接入计划中定下。
+- 连接器写给 hook 的输出须是 ASCII 转义的 JSON（或按 UTF-8 字节写出），读入时按字节解码。
+- 写入时的用户消息可以取自 `UserPromptSubmit` 的 `prompt`，也可以从会话记录读取；子 Agent 中的写入可由 hook 读取自身会话记录的 `root_turn_id` 归到根轮，外部会话标识取 hook 输入中的 `session_id`（根会话）。
+- 一轮的结局应以 `task_complete` 是否带 `error` 判定，不依赖 `Stop`；续会话在同一文件追加，按文件读取的游标仍然适用；fork 与回退对游标的影响仍待验证。
 
 ## 8. 完成标准
 

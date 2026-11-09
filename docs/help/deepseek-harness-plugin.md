@@ -5,7 +5,7 @@ owner: project
 scope: deepseek-harness-plugin-installation-configuration-verification-and-troubleshooting
 code_paths:
   - integrations/deepseek-harness/
-  - integrations/claude-code/skills/hivememory/
+  - integrations/hivememory/skills/hivememory/
   - configs/system_principals.yaml
   - configs/workspace_actors.yaml
 related_contracts:
@@ -24,7 +24,7 @@ last_reviewed: 2026-11-08
 - **记忆工具**：插件启动时从 HiveMemory 取得工具列表与服务说明，在 dsh 中注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具，服务说明作为系统提示词的一节交给 Agent。何时检索与写入由 Agent 自己决定。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件在调用时以 Agent 所在会话的当前一轮自动补上，Agent 看不到也不能填写这个参数。
 - **对话回流**：dsh 中每一轮对话结束后，插件把这一轮（用户消息、回复、思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。网络提交在后台进行，HiveMemory 未运行时 dsh 照常工作，未导入的轮次之后按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
 
-HiveMemory 的使用手册 skill 随 Claude Code 插件维护（`integrations/claude-code/skills/hivememory/SKILL.md`），内容不区分 harness。dsh 插件不会自动加载它，复制到 dsh 的 skill 目录即可使用（第 4.3 节）。
+HiveMemory 的使用手册 skill 随 Claude Code 与 Codex 共用的插件维护（`integrations/hivememory/skills/hivememory/SKILL.md`），内容不区分 harness。dsh 插件不会自动加载它，复制到 dsh 的 skill 目录即可使用（第 4.3 节）。
 
 两部分都以 dsh 自己的接入身份 `harness:dsh` 认证，以 Agent `dsh` 访问，需要在 HiveMemory 与 dsh 两侧配置同一份接入凭据（第 2 节）。插件只用 Node 标准库，不需要安装依赖，也不需要安装 HiveMemory 包。
 
@@ -152,7 +152,7 @@ Copy-Item '\\wsl.localhost\<发行版>\home\<用户>\<仓库路径>\integrations
 
 ```bash
 mkdir -p ~/.dsh/skills/hivememory
-cp <HiveMemory 仓库路径>/integrations/claude-code/skills/hivememory/SKILL.md ~/.dsh/skills/hivememory/
+cp <HiveMemory 仓库路径>/integrations/hivememory/skills/hivememory/SKILL.md ~/.dsh/skills/hivememory/
 ```
 
 之后 skill `hivememory` 出现在会话的 skill 列表中：任务与它的描述相符时，Agent 用 `skill` 工具加载正文；也可以在消息中输入 `/hivememory` 直接加载。

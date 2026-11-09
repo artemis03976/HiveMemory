@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-08
 ---
 
 # Archived Plans
@@ -19,6 +19,7 @@ last_reviewed: 2026-11-07
 
 ## 版本之外
 
+- [Codex 插件接入](./codex-plugin-integration.md)：2026-11-08，PR #199；[Import Bus](../../system/import-bus.md#10-codex-插件)、[接入 Codex](../../help/codex-plugin.md)
 - [全局运行页](./run-view.md)：2026-11-07，PR #195；[全局运行页](../../frontend/run-view.md)
 - [Runtime Event 体系完善](./runtime-event-system.md)：2026-11-07，PR #193；[运行时事件与可观测性](../../components/observability.md#11-一次运行)、[事件契约](../../contracts/routes-and-events.md#4-runtimeevent-观测契约)
 - [交互提交收束与话题按需创建](./interaction-submission-and-topic-on-demand.md)：2026-11-06，PR #186；[任务进程](../../workspace/task-process.md)、[能力层](../../workspace/capability.md)、[Import Bus](../../system/import-bus.md)

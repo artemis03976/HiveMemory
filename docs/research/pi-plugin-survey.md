@@ -58,7 +58,7 @@ plugin 模式的接入包括两件事：harness 的每一轮对话回流到 Hive
 - **回声标记**：本插件四个记忆工具的调用回流时归一化为 `SEARCH`、`READ`、`WRITE`、`UPDATE` 能力调用，避免已有记忆被再提取一遍。这要求读取器能从会话记录中认出这些调用，识别依据是调用名（同上）。
 - **子 Agent**：子 Agent 是父 Agent 临时委托的执行线程，它的过程不进入记忆生成，要保留的内容由它自己写入；父会话的一轮保留它交回的最终输出（`subagent_message` 事件）；子 Agent 中的写入以顶层会话的一轮确定话题（owner，2026-11-02；[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。
 - **接入登记**：每个 harness 有自己的 principal（`harness:claude-code`、`harness:dsh`）与凭据环境变量，登记在 [`system_principals.yaml`](../../configs/system_principals.yaml)；具体 Agent 与它的四项记忆操作白名单登记在 [`workspace_actors.yaml`](../../configs/workspace_actors.yaml)。两份配置在启动时装载（[配置](../system/configuration.md)）。
-- **引导 skill**：使用手册 skill 只维护一份（[`SKILL.md`](../../integrations/claude-code/skills/hivememory/SKILL.md)），内容不区分 harness；Claude Code 随插件加载，dsh 由用户复制到 dsh 的 skill 目录（[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#43-使用手册-skill)第 4.3 节）。
+- **引导 skill**：使用手册 skill 只维护一份（[`SKILL.md`](../../integrations/hivememory/skills/hivememory/SKILL.md)），内容不区分 harness；Claude Code 随插件加载，dsh 由用户复制到 dsh 的 skill 目录（[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#43-使用手册-skill)第 4.3 节）。
 
 Claude Code 连接器用到的 hook 是 `Stop`、`StopFailure`、`SessionStart`、`SessionEnd` 与 `PreToolUse`（[Import Bus](../system/import-bus.md#82-hooks)第 8.2 节），第 5 节要求逐项给出 pi 中的对应物。
 
@@ -288,7 +288,7 @@ pi `v1.5.0` 同时具备原生工具注册、工具参数改写、会话树读�
 - [`client.js`](../../integrations/deepseek-harness/lib/client.js) 的请求、超时和 confirmed/retryable/misconfigured/server_error/rejected 分类不依赖 dsh 会话 API；但 principal 从 dsh config 导入，clientInfo 也写着 dsh，不能不改就直接引用。
 - [`sync.js`](../../integrations/deepseek-harness/lib/sync.js) 直接导入插件中 dsh 专用投影 [`turns.js`](../../integrations/deepseek-harness/lib/turns.js) 的 sessionTurns/importBody，依赖 flush/read/isLive、递增 number 与 endedTurn；属于需要改写的同步编排，而非已有通用库。
 - [`state.js`](../../integrations/deepseek-harness/lib/state.js) 的原子写和首次接入时刻逻辑可借鉴，但 lastTurn/endedTurn 是数值水位，且只保证同进程同步读改写。pi 的树分支与多进程不能沿用该保证。
-- Python 的 [`TranscriptReader`](../../integrations/claude-code/connector/core/transcript.py) 和 [`sync.py`](../../integrations/claude-code/connector/core/sync.py) 假设文件线性追加、以用户消息切轮；pi 的 fork/迁移/分支与 settled 缺失让“只新增 reader”不足。此处只指出影响，不提前抽取跨 harness 新抽象。
+- Python 的 [`TranscriptReader`](../../integrations/hivememory/connector/core/transcript.py) 和 [`sync.py`](../../integrations/hivememory/connector/core/sync.py) 假设文件线性追加、以用户消息切轮；pi 的 fork/迁移/分支与 settled 缺失让“只新增 reader”不足。此处只指出影响，不提前抽取跨 harness 新抽象。
 
 **一轮身份的候选约束**：session UUID 与用户 entry ID 是可用锚点；turnIndex 是模型循环计数，不能作持久外部轮号。若一轮包含运行中追加输入，则起始身份必须在第一次写入之前确定并在整轮保持不变。回到同一用户节点重新执行会产生不同回答，因此还需要持久的执行实例边界；可由扩展在输入被接受时记录适配器轮次标识，结束时记录实际结束的叶节点与 outcome。该标识同时用于工具 turn 和 Import Bus。纯文件路径缺少这些信息，不能把“下一个用户条目出现”当作所有分支都已结束。
 
@@ -302,7 +302,7 @@ pi `v1.5.0` 同时具备原生工具注册、工具参数改写、会话树读�
 
 ### 7.5 引导与共存
 
-现有 [`hivememory/SKILL.md`](../../integrations/claude-code/skills/hivememory/SKILL.md) 的 frontmatter 可直接使用；由 pi 包的 `pi.skills` 分发，或复制到用户/项目 skill 目录。只维护同一份正文，名称仍为 `hivememory`。skill 是按需加载，不能取代固定事件接线，也不能承担可信 turn 的生成。[P-SKILL]、[P-PKG]
+现有 [`hivememory/SKILL.md`](../../integrations/hivememory/skills/hivememory/SKILL.md) 的 frontmatter 可直接使用；由 pi 包的 `pi.skills` 分发，或复制到用户/项目 skill 目录。只维护同一份正文，名称仍为 `hivememory`。skill 是按需加载，不能取代固定事件接线，也不能承担可信 turn 的生成。[P-SKILL]、[P-PKG]
 
 需要常驻的简短工具说明可以通过原生工具 promptGuidelines 或 before_agent_start 的系统段承载；MCP instructions 不会自动完整常驻。压缩后重新提供短说明、按需重新读 skill，比假设已加载正文永久保留更符合接口行为。[P-EXT]、[P-MCP]、[P-COMPACT]
 

@@ -10,12 +10,12 @@ code_paths:
   - frontend/vite.config.ts
   - src/hivememory/config/
   - frontend/src/
-  - integrations/claude-code/
+  - integrations/hivememory/
   - integrations/deepseek-harness/
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-08
 ---
 
 # HiveMemory 故障排查
@@ -154,7 +154,7 @@ debug 模式的页面没有 mock 标识。验证后端能力时不要设置 `VIT
 
 ## 10. 外部 harness 插件：工具不出现、导入停止或被拒
 
-各插件的现象与处理见对应手册的排查一节：[接入 Claude Code](./claude-code-plugin.md#9-排查)、[接入 DeepSeek Harness](./deepseek-harness-plugin.md#8-排查)。
+各插件的现象与处理见对应手册的排查一节：[接入 Claude Code](./claude-code-plugin.md#9-排查)、[接入 DeepSeek Harness](./deepseek-harness-plugin.md#8-排查)、[接入 Codex](./codex-plugin.md#9-排查)。
 
 管理接口返回 403 `system_actor_not_allowed` 与插件无关：自定义的 `system_principals.yaml` 没有为 server 的登记设置 `allow_system_actor: true`。
 
