@@ -13,7 +13,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/execution-environment.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-08
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -81,7 +81,7 @@ controller 模式下所有任务进程共用 Gateway 分析 → 预检索 → Ac
 
 owner（2026-10-01）决定这一阶段先不考虑被动请求，避免现在做好的接口被后续设计推翻；入口的形状以后可能需要调整。被动请求只存在于 controller 模式，触发器的认证见[身份与访问体系 Idea](./identity-and-access-model.md#p-5-被动请求的认证) P-5（2026-11-05 由第五代架构 Idea 移入）。
 
-plugin 模式有性质相近的情形（2026-10-30 发现，owner 决定之后再详细设计）：Claude Code 的后台任务（后台命令、Monitor 等）完成或产生事件时，以 `turnOrigin` 为 `task_notification` 的用户条目唤醒 Agent 续作，续作不由用户即时发出。后台命令的完成通知带 `<tool-use-id>`，回指发起它的调用；Monitor 的事件通知不带，且一次调用产生多条。连接器把续作接在上一轮之后，而上一轮在 Agent 停下等待时已经提交，按代码推断续作不会被导入（未实测）。本机会话记录的 17 条通知中有 7 条之后有续作，共 113 个工具调用、65 段正文。
+plugin 模式有性质相近的情形：Claude Code 的后台任务（后台命令、Monitor 等）完成、后台子 Agent 交回或宿主注入消息时唤醒 Agent 续作，续作不由用户即时发出。连接器曾把续作接在已经提交的上一轮之后，续作因此不会被导入；2026-11-08 已改为唤醒开启新的一轮、用户消息为空的一轮续接上一轮的话题，见[已归档的计划](../archive/plans/claude-code-wake-turns.md)与 [Import Bus](../system/import-bus.md#83-轮次的切分与映射)第 8.3 节。
 
 ## 3. 开放问题
 
