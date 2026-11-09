@@ -26,7 +26,7 @@ last_reviewed: 2026-11-08
 - **记忆工具**：插件启动时从 HiveMemory 取得工具列表与服务说明，在 dsh 中注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具，服务说明作为系统提示词的一节交给 Agent。何时检索与写入由 Agent 自己决定。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件在调用时以 Agent 所在会话的当前一轮自动补上，Agent 看不到也不能填写这个参数。
 - **对话回流**：dsh 中每一轮对话结束后，插件把这一轮（用户消息、回复、思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。网络提交在后台进行，HiveMemory 未运行时 dsh 照常工作，未导入的轮次之后按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
 
-HiveMemory 的使用手册 skill 在同一个插件目录中维护（`integrations/hivememory/skills/hivememory/SKILL.md`），内容不区分 harness。dsh 插件不会自动加载它，复制到 dsh 的 skill 目录即可使用（第 4.3 节）。
+HiveMemory 的使用手册 skill 在同一个插件目录中维护（`integrations/hivememory/skills/hivememory/SKILL.md`），内容不区分 harness，安装插件后随插件提供给 dsh（第 4.3 节）。
 
 两部分都以 dsh 自己的接入身份 `harness:dsh` 认证，以 Agent `dsh` 访问，需要在 HiveMemory 与 dsh 两侧配置同一份接入凭据（第 2 节）。插件只用 Node 标准库，不需要安装依赖，也不需要安装 HiveMemory 包。
 
@@ -51,7 +51,6 @@ HiveMemory 的使用手册 skill 在同一个插件目录中维护（`integratio
 | 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 与 dsh 一侧写同值的 `HIVEMEMORY_DSH_TOKEN`（第 2 节） |
 | 配置插件 | dsh | 设置 `HIVEMEMORY_URL` 与 `HIVEMEMORY_DSH_TOKEN`（第 3 节） |
 | 安装插件 | dsh | 桌面端完全退出后用它自带的命令安装（第 4.1 节），命令行用 `dsh plugin add`（第 4.2 节） |
-| 安装使用手册 skill（可选） | dsh | 把 skill 复制到 dsh 的 skill 目录（第 4.3 节） |
 | 核对访问登记 | HiveMemory | 默认登记已包含 Agent `dsh`，自定义过登记时补齐（第 5 节） |
 | 重启并确认 | 两侧 | 重启 HiveMemory、重新打开 dsh，确认工具与导入（第 6 节） |
 
@@ -141,23 +140,9 @@ dsh --profile <profile> --dump-config   # 输出中出现 "# == hivememory-conne
 
 ### 4.3 使用手册 skill
 
-dsh 从用户级的 skill 目录 `<DSH_HOME>/skills` 发现 skill（`DSH_HOME` 默认是 `~/.dsh`，Windows 上是 `%USERPROFILE%\.dsh`），每个 skill 是其中的一个目录 `<名字>/SKILL.md`，只扫描一层。dsh 也扫描几个 harness 通用的 `~/.agents/skills`，放在那里同样可以。目录有变化时 dsh 自动刷新 skill 列表，不需要重新打开。
+skill `hivememory` 随插件提供，不需要另外复制：插件的配置层另外插入一个 skill 提供方，只扫描插件目录下的 `skills/`，不改动用户与各模式自己的 skill 配置。在加载 skill 的模式中（例如桌面端的标准模式；最小模式不加载任何 skill），它出现在会话的 skill 列表里：任务与它的描述相符时，Agent 用 `skill` 工具加载正文；也可以在消息中输入 `/hivememory` 直接加载。链接安装时 skill 随仓库更新。
 
-在普通终端中复制（dsh 会话的沙箱不允许 agent 写入 `.dsh` 目录）。Windows 桌面端在 PowerShell 中：
-
-```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.dsh\skills\hivememory" | Out-Null
-Copy-Item '\\wsl.localhost\<发行版>\home\<用户>\<仓库路径>\integrations\hivememory\skills\hivememory\SKILL.md' "$env:USERPROFILE\.dsh\skills\hivememory\"
-```
-
-命令行：
-
-```bash
-mkdir -p ~/.dsh/skills/hivememory
-cp <HiveMemory 仓库路径>/integrations/hivememory/skills/hivememory/SKILL.md ~/.dsh/skills/hivememory/
-```
-
-之后 skill `hivememory` 出现在会话的 skill 列表中：任务与它的描述相符时，Agent 用 `skill` 工具加载正文；也可以在消息中输入 `/hivememory` 直接加载。
+此前把 skill 手动复制到 `<DSH_HOME>/skills/hivememory`（Windows 上是 `%USERPROFILE%\.dsh\skills\hivememory`）或 `~/.agents/skills/hivememory` 的，安装新版插件后删除这份副本：同名 skill 由离 Agent 更近的来源胜出，桌面端的各模式自己扫描这两个目录，会一直使用旧副本。
 
 ## 5. 访问登记
 
@@ -174,6 +159,7 @@ cp <HiveMemory 仓库路径>/integrations/hivememory/skills/hivememory/SKILL.md 
 1. **工具已注册**：dsh 启动后，日志中出现 `connected url=... tools=memory_search,memory_read,memory_write,memory_update`。
 2. **记忆访问**：新建一个会话，让 Agent 用 `memory_search` 检索一个已知的话题，结果是带存档日期的记忆列表；让它用 `memory_write` 记下一件事，结果是一个以 `draft_` 开头的句柄 alias，表示写入已被接纳、正式记忆仍在后台生成，可以用 `memory_read` 读取它，生成完成后读取会转到正式记忆。
 3. **对话回流**：这一轮结束后，日志中出现 `registered session=<会话> origin=new` 与 `confirmed session=<会话> turn=1 status=accepted`。
+4. **使用手册 skill**：在消息框中输入 `/hive`，Skills 列表中出现 `hivememory`。
 
 ## 7. 使用中的行为
 
@@ -203,5 +189,5 @@ cp <HiveMemory 仓库路径>/integrations/hivememory/skills/hivememory/SKILL.md 
 
 ## 9. 更新与卸载
 
-- **更新**：链接安装（第 4.1 节的 `\\wsl.localhost` 路径或第 4.2 节的仓库路径）的插件随仓库更新，重新打开 dsh 即生效；复制安装的需要重新复制，使用手册 skill（第 4.3 节）同样要重新复制。插件与 HiveMemory 需要一起更新，并且先重启 HiveMemory、再重新打开 dsh：新版本插件可能发出旧版 HiveMemory 不认识的内容（例如子 Agent 交回的消息），旧服务端以 422 拒绝这样的一轮，插件会把它写入拒绝记录并跳过。dsh 升级到支持范围之外的版本时，插件不再加载。插件目录从 `integrations/deepseek-harness/` 并入 `integrations/hivememory/` 之后（与 pi 扩展共用 Node 公共部分），已安装的插件要按第 4 节从新目录重新安装一次：插件名不变，安装命令把原来的链接改到新目录，状态目录与其中的水位保留，已经确认的轮次不会重复导入；重新安装之前，dsh 重启后加载不到插件。
-- **卸载**：桌面端从托盘退出后执行 `& $dsh plugin --profile desktop remove hivememory-connector`，命令行执行 `dsh plugin --profile <profile> remove hivememory-connector`，再重新打开 dsh。使用手册 skill 删除 skill 目录中的 `hivememory` 目录即可。
+- **更新**：链接安装（第 4.1、4.2 节）的插件与使用手册 skill 随仓库更新，重新打开 dsh 即生效；复制安装的需要重新复制。插件与 HiveMemory 需要一起更新，并且先重启 HiveMemory、再重新打开 dsh：新版本插件可能发出旧版 HiveMemory 不认识的内容（例如子 Agent 交回的消息），旧服务端以 422 拒绝这样的一轮，插件会把它写入拒绝记录并跳过。dsh 升级到支持范围之外的版本时，插件不再加载。插件目录从 `integrations/deepseek-harness/` 并入 `integrations/hivememory/` 之后（与 pi 扩展共用 Node 公共部分），已安装的插件要按第 4 节从新目录重新安装一次：插件名不变，安装命令把原来的链接改到新目录，状态目录与其中的水位保留，已经确认的轮次不会重复导入；重新安装之前，dsh 重启后加载不到插件。
+- **卸载**：桌面端从托盘退出后执行 `& $dsh plugin --profile desktop remove hivememory-connector`，命令行执行 `dsh plugin --profile <profile> remove hivememory-connector`，再重新打开 dsh。使用手册 skill 随插件一起移除。

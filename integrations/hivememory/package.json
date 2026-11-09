@@ -1,6 +1,6 @@
 {
   "name": "hivememory-connector",
-  "description": "把 pi 与 DeepSeek Harness 中已经结束的对话轮次导入 HiveMemory，并让其中的 Agent 经扩展注册的工具检索、读取、写入与更新 HiveMemory 的记忆；pi 另外附带引导 agent 使用记忆工具的 skill。",
+  "description": "把 pi 与 DeepSeek Harness 中已经结束的对话轮次导入 HiveMemory，并让其中的 Agent 经扩展注册的工具检索、读取、写入与更新 HiveMemory 的记忆，附带引导 agent 使用记忆工具的 skill。",
   "private": true,
   "type": "module",
   "main": "node/dsh/index.js",
