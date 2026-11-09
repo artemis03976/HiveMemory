@@ -20,13 +20,13 @@ from hivememory.components.work_queue import (
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
+from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
     topic_ordering_key,
 )
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from tests.helpers.sessions import make_interaction_payload

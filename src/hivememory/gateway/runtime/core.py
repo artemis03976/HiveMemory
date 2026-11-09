@@ -8,6 +8,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import SystemGatewayConfig
+from hivememory.engines.gateway.commands import create_builtin_command_registry
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.query_understanding import QueryUnderstandingEngine
 from hivememory.engines.gateway.topic_router import TopicRouterEngine
@@ -16,7 +17,6 @@ from hivememory.gateway.analysis import (
     LLMUserQueryAnalysisResolver,
     UserQueryAnalysisResolver,
 )
-from hivememory.gateway.commands import create_builtin_command_registry
 from hivememory.gateway.context import (
     GatewayContextProvider,
     GlobalBusGatewayContextProvider,

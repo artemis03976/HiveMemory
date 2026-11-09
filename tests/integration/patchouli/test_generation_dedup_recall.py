@@ -35,8 +35,8 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
 )
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-from hivememory.patchouli.memory_library import MidTermMemoryStore
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library import MidTermMemoryStore
+from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
 from tests.helpers.memory import make_memory_metadata
 
 _CONFIG = load_app_config()

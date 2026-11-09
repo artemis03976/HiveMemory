@@ -19,20 +19,20 @@ from hivememory.core.models import (
 )
 from hivememory.engines.artifacts import ArtifactEngine
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-from hivememory.patchouli.application.memory_management_service import MemoryManagementService
-from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.memory_management import MemoryEdit
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
-from hivememory.patchouli.memory_library import (
+from hivememory.memory_library import (
     ArtifactStore,
     LongTermMemoryStore,
     MemoryLibrary,
     MidTermMemoryStore,
     ShortTermMemoryStore,
 )
-from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
-from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
+from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.patchouli.application.memory_management_service import MemoryManagementService
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_management import MemoryEdit
+from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from tests.helpers.memory import make_memory_metadata

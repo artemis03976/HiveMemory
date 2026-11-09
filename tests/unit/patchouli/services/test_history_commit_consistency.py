@@ -36,15 +36,15 @@ from hivememory.engines.generation.models import (
     GenerationOutcome,
     GenerationRequest,
 )
+from hivememory.memory_library.adapters.artifact import (
+    FilesystemArtifactStorageAdapter,
+)
+from hivememory.memory_library.models import StorageHealthComponent
+from hivememory.memory_library.stores import ArtifactStore
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
-from hivememory.patchouli.memory_library.adapters.artifact import (
-    FilesystemArtifactStorageAdapter,
-)
-from hivememory.patchouli.memory_library.models import StorageHealthComponent
-from hivememory.patchouli.memory_library.stores import ArtifactStore
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 

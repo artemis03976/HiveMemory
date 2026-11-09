@@ -214,7 +214,7 @@ Patchouli 向全局调度器注册三个维护任务：
 | 内部装配与 local routes | `src/hivememory/patchouli/runtime/core.py`、`route_bindings.py` |
 | 公开管理、交互提交与话题准备用例 | `src/hivememory/patchouli/application/` |
 | 内部业务服务 | `src/hivememory/patchouli/services/`、`control/` |
-| 存储协调 | `src/hivememory/patchouli/memory_library/` |
+| 存储协调 | `src/hivememory/memory_library/` |
 | 推理模型服务与驻留 | `src/hivememory/infrastructure/model_service.py`、`inference_worker.py`、`embedding/`、`rerank/` |
 | 领域算法 | `src/hivememory/engines/{perception,generation,retrieval,lifecycle,artifacts,memory_compiler}/` |
 

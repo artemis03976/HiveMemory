@@ -5,7 +5,7 @@ from typing import Any
 
 from hivememory.core.models import freeze_mapping
 from hivememory.core.protocol.gateway import CommandParseResult, CommandParseStatus
-from hivememory.gateway.commands.models import CommandDefinition
+from hivememory.engines.gateway.commands.models import CommandDefinition
 
 
 class CommandParseError(ValueError):

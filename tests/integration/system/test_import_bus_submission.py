@@ -24,10 +24,10 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.application import InteractionSubmissionService
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet

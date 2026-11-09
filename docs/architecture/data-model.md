@@ -8,7 +8,7 @@ code_paths:
   - src/hivememory/core/protocol/
   - src/hivememory/workspace/assets/
   - src/hivememory/gateway/workflow/
-  - src/hivememory/patchouli/memory_library/
+  - src/hivememory/memory_library/
   - src/hivememory/workspace/intents/
   - src/hivememory/system/services/import_bus/models.py
 related_contracts:
@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-09
 ---
 
 # 数据模型与可变性边界
@@ -250,7 +250,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 主要验证入口：
 
 - `tests/unit/gateway/test_contracts.py`；
-- `tests/unit/patchouli/memory_library/test_memory_library.py`；
+- `tests/unit/memory_library/test_memory_library.py`；
 - `tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_memory_reader.py`；
 - `src/hivememory/core/models/immutable.py`、`interaction.py`、`topic.py`、`memory.py`、`pending.py`；
 - `src/hivememory/core/protocol/models.py`；

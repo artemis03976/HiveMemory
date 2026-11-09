@@ -15,7 +15,7 @@ from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.memory_library.library import MemoryLibrary
+    from hivememory.memory_library.library import MemoryLibrary
 
 logger = logging.getLogger(__name__)
 

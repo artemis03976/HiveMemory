@@ -11,8 +11,8 @@ from __future__ import annotations
 import threading
 
 from hivememory.core.models import TopicData, WorkspaceIdentity, WorkspaceTopicKey
-from hivememory.patchouli.memory_library.models import StorageHealthComponent
-from hivememory.patchouli.memory_library.ports import ShortTermStoragePort
+from hivememory.memory_library.models import StorageHealthComponent
+from hivememory.memory_library.ports import ShortTermStoragePort
 
 
 class InMemoryShortTermStorage(ShortTermStoragePort):

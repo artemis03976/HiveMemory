@@ -27,6 +27,18 @@ from hivememory.engines.generation.models import (
     GenerationOutcome,
 )
 from hivememory.engines.perception.models import TopicMaterializeTask
+from hivememory.memory_library.adapters.artifact import (
+    FilesystemArtifactStorageAdapter,
+)
+from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.library import MemoryLibrary
+from hivememory.memory_library.ports import MidTermStoragePort
+from hivememory.memory_library.stores import (
+    ArtifactStore,
+    LongTermMemoryStore,
+    MidTermMemoryStore,
+    ShortTermMemoryStore,
+)
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.controller import (
@@ -39,18 +51,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTaskStatus,
-)
-from hivememory.patchouli.memory_library.adapters.artifact import (
-    FilesystemArtifactStorageAdapter,
-)
-from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
-from hivememory.patchouli.memory_library.library import MemoryLibrary
-from hivememory.patchouli.memory_library.ports import MidTermStoragePort
-from hivememory.patchouli.memory_library.stores import (
-    ArtifactStore,
-    LongTermMemoryStore,
-    MidTermMemoryStore,
-    ShortTermMemoryStore,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar

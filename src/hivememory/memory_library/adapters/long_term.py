@@ -26,8 +26,8 @@ from hivememory.core.models import (
 )
 from hivememory.engines.lifecycle.models import ArchiveRecord
 from hivememory.engines.retrieval.memory_codec import decode_memory_payload
-from hivememory.patchouli.memory_library.models import StorageHealthComponent
-from hivememory.patchouli.memory_library.ports import LongTermStoragePort
+from hivememory.memory_library.models import StorageHealthComponent
+from hivememory.memory_library.ports import LongTermStoragePort
 from hivememory.utils.time import utc_now
 
 logger = logging.getLogger(__name__)

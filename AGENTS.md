@@ -50,12 +50,12 @@
 | --- | --- | --- |
 | L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、Route 泛型原语、事件常量、错误类型、访问值类型与端口协议；配置段模型 |
 | L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾 |
-| L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
+| L2 | `engines` / `infrastructure` / `prompts` / `memory_library` | 算法、外部技术适配器与记忆存储层 |
 | L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 子系统；彼此只能导入对方公开的 `contracts` 子包 |
 | L4 | `system` | 组合根、门面与系统级能力；除入口外不被任何包导入 |
 | L5 | `server` / `mcp_server` | 入口（传输层 adapter）；`mcp_server` 是外部 harness 经 MCP 访问记忆的操作适配器 |
 
-根配置与加载（`config.app`）只供 `system` 与 `server` 使用；下层以端口协议声明对上层能力的需要（如 `core.access.PrincipalAuthenticator`、`agent_runtime.ModelResolver`），由组合根实现并注入。engines 对上层的少量既有导入登记为已知例外，不得新增。
+根配置与加载（`config.app`）只供 `system` 与 `server` 使用；下层以端口协议声明对上层能力的需要（如 `core.access.PrincipalAuthenticator`、`agent_runtime.ModelResolver`），由组合根实现并注入。记忆存储层 `memory_library` 只供 Patchouli 与 engines 使用，Memory 与 Artifact 的所有权仍属于 Patchouli。
 
 | 边界 | 负责 | 不负责 |
 | --- | --- | --- |

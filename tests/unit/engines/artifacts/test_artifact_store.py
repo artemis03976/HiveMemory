@@ -28,10 +28,10 @@ from hivememory.engines.artifacts.document import (
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.artifacts.interaction import InteractionArtifactBuilder
 from hivememory.engines.artifacts.memory import MemoryArtifactBuilder
-from hivememory.patchouli.memory_library.adapters.artifact import (
+from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
-from hivememory.patchouli.memory_library.stores import ArtifactStore
+from hivememory.memory_library.stores import ArtifactStore
 from tests.helpers.memory import make_memory_identity_scope
 from tests.helpers.workspace import make_identity_scope
 

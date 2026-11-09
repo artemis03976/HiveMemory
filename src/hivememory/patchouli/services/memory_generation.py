@@ -62,7 +62,7 @@ from hivememory.utils.time import require_utc, utc_now
 if TYPE_CHECKING:
     from hivememory.engines.artifacts.engine import ArtifactEngine
     from hivememory.engines.generation.engine import MemoryGenerationEngine
-    from hivememory.patchouli.memory_library.library import MemoryLibrary
+    from hivememory.memory_library.library import MemoryLibrary
 
 logger = logging.getLogger(__name__)
 

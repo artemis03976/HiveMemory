@@ -6,7 +6,7 @@ scope: vitality-reinforcement-gardening-and-archive
 code_paths:
   - src/hivememory/engines/lifecycle/
   - src/hivememory/patchouli/services/lifecycle.py
-  - src/hivememory/patchouli/memory_library/library.py
+  - src/hivememory/memory_library/library.py
 related_contracts:
   - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md

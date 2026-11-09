@@ -4,7 +4,7 @@ status: current
 owner: gateway
 scope: system-command-registry-and-parsing
 code_paths:
-  - src/hivememory/gateway/commands/
+  - src/hivememory/engines/gateway/commands/
   - src/hivememory/engines/gateway/interceptors.py
   - src/hivememory/gateway/workflow/state.py
   - src/hivememory/core/protocol/gateway.py
@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/application-services.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-09
 ---
 
 # Gateway 全局命令
@@ -138,7 +138,7 @@ Registry 在 Gateway Runtime 装配时创建并注册内置命令；`gateway.com
 
 ## 11. 验证入口
 
-- `tests/unit/gateway/commands/test_registry.py`、`tests/unit/gateway/commands/test_parser.py`
+- `tests/unit/engines/gateway/commands/test_registry.py`、`tests/unit/engines/gateway/commands/test_parser.py`
 - `tests/unit/core/protocol/test_gateway.py`
 - `tests/unit/engines/gateway/test_interceptors.py`
 - `tests/unit/gateway/test_contracts.py`

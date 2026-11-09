@@ -7,7 +7,7 @@ code_paths:
   - src/hivememory/system/services/import_bus/
   - src/hivememory/patchouli/control/
   - src/hivememory/patchouli/services/
-  - src/hivememory/patchouli/memory_library/
+  - src/hivememory/memory_library/
   - src/hivememory/workspace/intents/
   - src/hivememory/components/
 related_docs:

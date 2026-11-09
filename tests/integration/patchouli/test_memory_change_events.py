@@ -11,9 +11,9 @@ from hivememory.components.bus import GlobalSystemBus
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models import IndexLayer, MemoryAtom, PayloadLayer, WorkspaceMemoryKey
 from hivememory.core.models.memory_change import MemoryChangeEvent
+from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
-from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from tests.helpers.memory import make_memory_metadata

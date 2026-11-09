@@ -10,7 +10,7 @@ from hivememory.core.models.artifact import (
     InteractionFoldSnapshot,
     InteractionTurnSnapshot,
 )
-from hivememory.patchouli.memory_library import ArtifactStore
+from hivememory.memory_library import ArtifactStore
 from hivememory.utils.time import utc_now
 
 

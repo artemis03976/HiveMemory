@@ -26,13 +26,13 @@ from hivememory.engines.lifecycle.garbage_collector import PeriodicGarbageCollec
 from hivememory.engines.lifecycle.models import EventType, MemoryEvent
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
-from hivememory.patchouli.memory_library import (
+from hivememory.memory_library import (
     LongTermMemoryStore,
     MemoryLibrary,
     MidTermMemoryStore,
     ShortTermMemoryStore,
 )
-from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

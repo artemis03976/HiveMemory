@@ -4,14 +4,14 @@ status: current
 owner: patchouli
 scope: storage-ownership-and-tier-transitions
 code_paths:
-  - src/hivememory/patchouli/memory_library/
+  - src/hivememory/memory_library/
   - src/hivememory/infrastructure/storage/
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-09
 ---
 
 # MemoryLibrary 与存储层
@@ -19,6 +19,8 @@ last_reviewed: 2026-11-06
 MemoryLibrary 是 Patchouli 对记忆存储所有权的工程表达。它不是一个对所有后端都透明的万能 Repository，也不负责决定何时生成记忆；它把短期话题、中期可检索记忆、长期冷存储和 artifact 旁路放在同一个组合边界内，并确保跨层状态转移只有一个编排者。
 
 早期实现让感知层直接创建短期 store，让 archiver 同时知道向量库与文件系统，让 generation 又直接决定落库。这样的组件各自都能完成局部任务，却没有任何一个位置能够回答“这条记忆此刻究竟在哪一层”。MemoryLibrary 的首要价值不是减少代码，而是建立存储事实的单一所有者。
+
+代码位于 L2 的 `hivememory.memory_library`，与 engines 同层（2026-11-09 从 Patchouli 包内下移）：存储层只依赖 core、engines 的模型与编解码和 infrastructure，engines 的查重检索、生命周期与 Artifact 构建又直接使用存储类型，放在 Patchouli 包内时这些用法都成了向上导入。所有权不随代码位置改变：只有 Patchouli runtime 构造并持有它，分层测试只允许 Patchouli 与 engines 导入它，其他子系统经 Patchouli 的公开 route 访问记忆与 Artifact。
 
 ## 1. 四种存储角色
 
@@ -66,7 +68,7 @@ alias 在同一 Workspace 的中期库内唯一。`upsert` 是全部完整写入
 
 中期变更是 workspace 派生读取视图的失效入口。Runtime 向 Store 注入 `MemoryChangePublisher`；`upsert`、`patch_payload`、`delete` 与 `delete_by_key` 每次提交尝试都在 `finally` 中内联等待发布 `patchouli.events.memory.changed`，经 PatchouliBridge 转为同名全局事件。只改 `meta.lifecycle` 动态状态的 `patch_payload` 不发布：动态统计字段（访问计数、活力、置信度等）独立成 `MemoryLifecycleState` 聚合，它们的更新不使读取视图失效，缓存中的原子可能带有较旧的统计值；涉及 `meta.access_policy` 的 patch 照常发布。`MemoryChangeEvent` 只携带 `belong_to`、`memory_id` 与 `operation=upsert|patch|delete`，不携带原子正文、访问 scope 或成功标志。存储失败、secondary 部分提交和删除未命中同样失效，因为异常不能证明后端未发生变更；原始存储异常继续向调用方传播。
 
-workspace 订阅者先清除原子与旧 alias 索引，再清除来源于该 UUID 的 Profile 派生项，最后推进 Workspace 失效代次；不做回填或外部调用。发布与订阅错误不把存储结果改写为失败，但也没有未送达重试或 replay。它是当前进程内的保守失效协作，不是持久化成功通知、任务完成确认或跨介质事务。失败、内联等待与 bridge 生命周期由[Store 单元测试](../../tests/unit/patchouli/memory_library/test_memory_change_events.py)和[事件集成测试](../../tests/integration/patchouli/test_memory_change_events.py)验证；读取代次与授权边界见[Workspace](../workspace/README.md)。
+workspace 订阅者先清除原子与旧 alias 索引，再清除来源于该 UUID 的 Profile 派生项，最后推进 Workspace 失效代次；不做回填或外部调用。发布与订阅错误不把存储结果改写为失败，但也没有未送达重试或 replay。它是当前进程内的保守失效协作，不是持久化成功通知、任务完成确认或跨介质事务。失败、内联等待与 bridge 生命周期由[Store 单元测试](../../tests/unit/memory_library/test_memory_change_events.py)和[事件集成测试](../../tests/integration/patchouli/test_memory_change_events.py)验证；读取代次与授权边界见[Workspace](../workspace/README.md)。
 
 ### 1.3 长期：冷藏库
 

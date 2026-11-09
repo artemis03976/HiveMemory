@@ -10,7 +10,7 @@ from hivememory.core.models.artifact import (
     DocumentLocator,
     DocumentSourceType,
 )
-from hivememory.patchouli.memory_library import ArtifactStore
+from hivememory.memory_library import ArtifactStore
 
 _DOC_FIELDS = set(DocumentArtifact.model_fields)
 

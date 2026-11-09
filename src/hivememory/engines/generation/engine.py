@@ -53,7 +53,7 @@ from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarg
 from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
+    from hivememory.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
 

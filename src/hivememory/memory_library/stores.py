@@ -25,12 +25,12 @@ from hivememory.core.models import (
 from hivememory.core.models.artifact import ArtifactRef
 from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.engines.lifecycle.models import ArchiveRecord
-from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
-from hivememory.patchouli.memory_library.models import (
+from hivememory.memory_library.adapters.short_term import InMemoryShortTermStorage
+from hivememory.memory_library.models import (
     ArtifactIntegrityResult,
     StorageHealthComponent,
 )
-from hivememory.patchouli.memory_library.ports import (
+from hivememory.memory_library.ports import (
     ArtifactStoragePort,
     LongTermStoragePort,
     MemoryChangePublisherPort,
