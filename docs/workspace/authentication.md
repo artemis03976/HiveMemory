@@ -89,13 +89,15 @@ last_reviewed: 2026-11-08
 | principals | Claude Code 的 principal `harness:claude-code` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CLAUDE_CODE_TOKEN`；不能声明 `system` |
 | principals | DeepSeek Harness 的 principal `harness:dsh` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_DSH_TOKEN`；不能声明 `system` |
 | principals | Codex 的 principal `harness:codex` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CODEX_TOKEN`；不能声明 `system` |
+| principals | pi 的 principal `harness:pi` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_PI_TOKEN`；不能声明 `system` |
 | workspace_actors | 用户 `default` 在 `main_workspace` 的用户级记录（所有具体 Agent） | 六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call` |
 | workspace_actors | 用户 `default` 的 `system` | 只登记准入，不配置 operation |
 | workspace_actors | 用户 `default` 的 `claude_code`（Claude Code 导入与 MCP 访问声明的 Agent） | 精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` |
 | workspace_actors | 用户 `default` 的 `dsh`（DeepSeek Harness 插件导入与记忆工具声明的 Agent） | 精确记录，`allowed_operations` 同 `claude_code` |
 | workspace_actors | 用户 `default` 的 `codex`（Codex 插件的连接器与 MCP 工具声明的 Agent） | 精确记录，`allowed_operations` 同 `claude_code` |
+| workspace_actors | 用户 `default` 的 `pi`（pi 扩展导入与记忆工具声明的 Agent） | 精确记录，`allowed_operations` 同 `claude_code` |
 
-`system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。管理路由、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，因此任何要对话、导入或经 MCP 写入的 Workspace 都需要它；用户级记录不覆盖 `system`。`claude_code` 与 `dsh` 的精确记录获准检索、读取、写入与更新：导入与写入时的确定话题由系统执行、不读取白名单（[身份与授权](./identity-and-authorization.md#4-操作授权)），MCP 的每次工具调用按这份白名单逐次授权；精确记录优先于用户级记录，这两个 Agent 因此不继承用户级的 `memory.run` 与 `agent.call`。
+`system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。管理路由、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，因此任何要对话、导入或经 MCP 写入的 Workspace 都需要它；用户级记录不覆盖 `system`。`claude_code`、`dsh`、`codex` 与 `pi` 的精确记录获准检索、读取、写入与更新：导入与写入时的确定话题由系统执行、不读取白名单（[身份与授权](./identity-and-authorization.md#4-操作授权)），MCP 的每次工具调用按这份白名单逐次授权；精确记录优先于用户级记录，这些 Agent 因此不继承用户级的 `memory.run` 与 `agent.call`。
 
 ## 3. 工作 actor
 

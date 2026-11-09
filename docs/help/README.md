@@ -27,6 +27,7 @@ last_reviewed: 2026-11-08
 - [接入 Claude Code](./claude-code-plugin.md)：Claude Code 插件的安装、凭据、配置、确认、排查与更新；
 - [接入 DeepSeek Harness](./deepseek-harness-plugin.md)：dsh 插件的安装（Windows 桌面端与命令行）、凭据、配置、确认、排查与更新；
 - [接入 Codex](./codex-plugin.md)：Codex 插件（与 Claude Code 合用插件目录）在 Windows 上的安装、hook 信任、凭据、配置、确认、排查与更新；
+- [接入 pi](./pi-plugin.md)：pi 扩展（同一插件目录中的 pi 包）在 Windows 上的安装、凭据、配置、确认、排查与更新；
 - [配置指南](./configuration.md)：配置来源、Provider 凭证、Model Registry、环境变量和生效边界；
 - [故障排查](./troubleshooting.md)：Qdrant、模型预热、LLM、前端连接、mock 数据、日志与 Settings 常见问题。
 
