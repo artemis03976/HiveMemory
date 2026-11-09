@@ -22,11 +22,11 @@ from hivememory.core.models import (
     WorkspaceIdentity,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
-from hivememory.patchouli.memory_library.models import (
+from hivememory.memory_library.models import (
     ArtifactIntegrityResult,
     StorageHealthComponent,
 )
-from hivememory.patchouli.memory_library.ports import ArtifactStoragePort
+from hivememory.memory_library.ports import ArtifactStoragePort
 
 logger = logging.getLogger(__name__)
 

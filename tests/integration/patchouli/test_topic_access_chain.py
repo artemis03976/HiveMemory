@@ -18,14 +18,14 @@ from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import system_actor_for_workspace
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
+from hivememory.memory_library.library import MemoryLibrary
+from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
 )
-from hivememory.patchouli.memory_library.library import MemoryLibrary
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar

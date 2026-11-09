@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from hivememory.core.models import TopicData
-from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
+from hivememory.memory_library.adapters.short_term import InMemoryShortTermStorage
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 

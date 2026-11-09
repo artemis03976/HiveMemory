@@ -8,10 +8,10 @@ import pytest
 
 from hivememory.core.errors import InvalidMemoryFieldError
 from hivememory.core.models import MemoryType
-from hivememory.patchouli.memory_library.adapters.artifact import (
+from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
-from hivememory.patchouli.memory_library.stores import ArtifactStore
+from hivememory.memory_library.stores import ArtifactStore
 from tests.helpers.memory import make_memory_identity_scope
 from tests.unit.patchouli.services.test_history_commit_consistency import (
     _artifact_engine,

@@ -28,10 +28,10 @@ from hivememory.core.models import (
 from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery
+from hivememory.memory_library.library import MemoryLibrary
 from hivememory.patchouli.contracts.errors import ProfileResolutionError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_management import MemoryListPage
-from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.utils.time import utc_now
 

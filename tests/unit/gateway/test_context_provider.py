@@ -27,10 +27,10 @@ from hivememory.core.protocol.gateway import (
     IntentType,
     RetrievalPlan,
 )
+from hivememory.engines.gateway.commands import create_builtin_command_registry
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.gateway.analysis import UserQueryAnalysisResult
-from hivememory.gateway.commands import create_builtin_command_registry
 from hivememory.gateway.context import GlobalBusGatewayContextProvider
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.workflow.topology import build_gateway_workflow

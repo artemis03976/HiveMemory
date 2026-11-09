@@ -19,7 +19,7 @@ from hivememory.utils.uuid import normalize_uuid
 
 if TYPE_CHECKING:
     from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
-    from hivememory.patchouli.memory_library.library import MemoryLibrary
+    from hivememory.memory_library.library import MemoryLibrary
 
 logger = logging.getLogger(__name__)
 

@@ -23,14 +23,14 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceMemoryKey,
 )
-from hivememory.patchouli.memory_library import (
+from hivememory.memory_library import (
     ArtifactStore,
     LongTermMemoryStore,
     MemoryLibrary,
     MidTermMemoryStore,
     ShortTermMemoryStore,
 )
-from hivememory.patchouli.memory_library.models import StorageHealthComponent
+from hivememory.memory_library.models import StorageHealthComponent
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

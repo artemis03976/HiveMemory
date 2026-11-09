@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from hivememory.core.models import IdentityScope, merge_interaction_into_topic
-from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
+from hivememory.memory_library.stores import ShortTermMemoryStore
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 

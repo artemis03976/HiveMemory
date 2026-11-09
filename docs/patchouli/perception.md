@@ -8,7 +8,7 @@ code_paths:
   - src/hivememory/infrastructure/llm/base.py
   - src/hivememory/patchouli/services/perception.py
   - src/hivememory/patchouli/services/topic_working_set.py
-  - src/hivememory/patchouli/memory_library/stores.py
+  - src/hivememory/memory_library/stores.py
   - src/hivememory/patchouli/control/interaction_submission.py
   - src/hivememory/patchouli/application/interaction_submission_service.py
   - src/hivememory/patchouli/application/topic_management_service.py

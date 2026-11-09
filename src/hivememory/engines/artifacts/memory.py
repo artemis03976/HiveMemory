@@ -21,7 +21,7 @@ from hivememory.core.models.artifact import (
 )
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.engines.generation.models import GenerationContext
-from hivememory.patchouli.memory_library import ArtifactStore
+from hivememory.memory_library import ArtifactStore
 from hivememory.utils.time import require_utc, utc_now
 
 

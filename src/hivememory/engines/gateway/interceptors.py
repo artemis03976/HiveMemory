@@ -12,9 +12,9 @@ import re
 
 from hivememory.config.gateway import RuleInterceptorConfig
 from hivememory.core.protocol.gateway import CommandParseResult, CommandParseStatus
+from hivememory.engines.gateway.commands import CommandRegistry
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
-from hivememory.gateway.commands import CommandRegistry
 
 logger = logging.getLogger(__name__)
 

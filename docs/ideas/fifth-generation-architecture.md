@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/pending-intent-migration.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 第五代架构：Workspace 网络
@@ -310,7 +310,7 @@ flowchart TB
 
 - core 承载依赖中立的模型、契约原语、错误与端口协议，收录标准见第 5 节 C；
 - 组件只接收并导入自己的配置段，不持有根配置；
-- 已知例外只登记、不新增（[engines 对上层的既有导入](../todo/engines-upward-imports.md)）。
+- 分层规则没有例外：engines 原有的 10 处向上导入于 2026-11-09 随存储层与 Gateway 命令包下移清空（[归档 Todo](../archive/todo/engines-upward-imports.md)）。
 
 **检验问题**：新模块属于哪一层？新增的导入是否需要改成端口？放进 core 的内容是否只是“因为要共用”？
 
@@ -368,7 +368,7 @@ core 不应成为“因为要共用就往里塞”的地方（owner，2026-09-26
 - **C-2 子包划分**：按内容性质（模型 / 契约与协议 / 端口 / 错误） / 按所属领域（memory、workspace、interaction、mtp 等） / 其他。两种划分都会改动大量导入路径；
 - **C-3 只被少数包使用的内容**（如 `access.py`、`ports/`）：留在 core / 移到提供方子系统的 `contracts` 子包 / 其他。
 
-C 与 [engines 对上层的既有导入](../todo/engines-upward-imports.md)相互约束：下移被导入的模型会把更多内容放进低层。
+[engines 对上层的既有导入](../archive/todo/engines-upward-imports.md)以下移整个存储层与 Gateway 命令包解决，没有把被导入的模型放进 core，C 不再受它约束。
 
 ### 读取视图的负缓存
 

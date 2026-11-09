@@ -28,17 +28,17 @@ from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.reranker import NoopReranker
 from hivememory.engines.retrieval.retriever import DenseRetriever
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-from hivememory.patchouli.application.memory_management_service import MemoryManagementService
-from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
-from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
-from hivememory.patchouli.memory_library.library import MemoryLibrary
-from hivememory.patchouli.memory_library.stores import (
+from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.library import MemoryLibrary
+from hivememory.memory_library.stores import (
     LongTermMemoryStore,
     MidTermMemoryStore,
     ShortTermMemoryStore,
 )
+from hivememory.patchouli.application.memory_management_service import MemoryManagementService
+from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from tests.helpers.memory import make_memory_metadata

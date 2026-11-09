@@ -12,7 +12,7 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceMemoryKey,
 )
-from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from tests.helpers.memory import make_memory_metadata
 
 

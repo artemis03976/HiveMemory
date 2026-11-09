@@ -20,10 +20,10 @@ from hivememory.core.models.artifact import (
 )
 from hivememory.engines.artifacts.memory import MemoryArtifactBuilder, MemoryCreationBundle
 from hivememory.engines.generation.models import GenerationContext
-from hivememory.patchouli.memory_library.adapters.artifact import (
+from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
-from hivememory.patchouli.memory_library.stores import ArtifactStore
+from hivememory.memory_library.stores import ArtifactStore
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

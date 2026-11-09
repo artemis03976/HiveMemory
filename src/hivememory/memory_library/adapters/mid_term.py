@@ -21,8 +21,8 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
-from hivememory.patchouli.memory_library.models import StorageHealthComponent
-from hivememory.patchouli.memory_library.ports import MidTermStoragePort
+from hivememory.memory_library.models import StorageHealthComponent
+from hivememory.memory_library.ports import MidTermStoragePort
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.storage import QdrantMemoryStore

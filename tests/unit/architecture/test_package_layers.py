@@ -5,14 +5,16 @@
 - L0 ``core`` / ``config`` / ``utils`` / ``i18n`` / ``_version``：模型、契约常量、错误类型、
   端口协议与配置段模型；
 - L1 ``components``：进程内运行时机制（总线、调度器、work queue、运行时事件等）；
-- L2 ``engines`` / ``infrastructure`` / ``prompts``：算法与外部技术适配器；
+- L2 ``engines`` / ``infrastructure`` / ``prompts`` / ``memory_library``：算法、外部技术适配器
+  与记忆存储层；
 - L3 ``workspace`` / ``patchouli`` / ``gateway`` / ``alice`` + ``agent_runtime``：各子系统；
 - L4 ``system``：组合根、门面与系统级能力；
 - L5 ``server``：入口（传输层 adapter）。
 
 规则：只能导入同层或更低层；L3 子系统之间只能导入对方公开的 ``contracts``
 子包（``alice`` 与 ``agent_runtime`` 视为同一子系统）；根包只导入 ``_version``；
-根配置与加载模块 ``hivememory.config.app`` 只供组合根（system）与入口（server）使用。
+根配置与加载模块 ``hivememory.config.app`` 只供组合根（system）与入口（server）使用；
+记忆存储层 ``memory_library`` 只供 Patchouli 与 engines 使用。
 静态扫描包含函数内与 ``TYPE_CHECKING`` 导入；动态 ``importlib`` 不在范围内。
 """
 
@@ -36,6 +38,7 @@ LAYERS: dict[str, int] = {
     "engines": 2,
     "infrastructure": 2,
     "prompts": 2,
+    "memory_library": 2,
     "workspace": 3,
     "patchouli": 3,
     "gateway": 3,
@@ -52,21 +55,9 @@ SUBSYSTEM_GROUP = {"agent_runtime": "alice"}
 ROOT_CONFIG_MODULE = "hivememory.config.app"
 ROOT_CONFIG_CONSUMERS = {"system", "server"}
 
-# 已知的向上依赖（engines 直接使用 Patchouli 存储层等），
-# 属于分层重构之前就存在的耦合，另行处理。
-# 断言为精确相等：新增违规或修复后未同步本清单都会失败。
-KNOWN_UPWARD_IMPORTS = {
-    ("engines/artifacts/document.py", "hivememory.patchouli.memory_library"),
-    ("engines/artifacts/engine.py", "hivememory.patchouli.memory_library.stores"),
-    ("engines/artifacts/interaction.py", "hivememory.patchouli.memory_library"),
-    ("engines/artifacts/memory.py", "hivememory.patchouli.memory_library"),
-    ("engines/gateway/interceptors.py", "hivememory.gateway.commands"),
-    ("engines/generation/engine.py", "hivememory.patchouli.memory_library.stores"),
-    ("engines/lifecycle/engine.py", "hivememory.patchouli.memory_library.stores"),
-    ("engines/lifecycle/garbage_collector.py", "hivememory.patchouli.memory_library.library"),
-    ("engines/lifecycle/reinforcement.py", "hivememory.patchouli.memory_library.stores"),
-    ("engines/retrieval/retriever.py", "hivememory.patchouli.memory_library.stores"),
-}
+# 记忆存储层位于 L2，engines 的算法可以直接使用存储；Memory 与 Artifact 的权威所有者
+# 仍是 Patchouli，其他子系统经 Patchouli 的公开 route 访问，不得持有存储。
+MEMORY_LIBRARY_CONSUMERS = {"patchouli", "engines"}
 
 
 def _source_files() -> list[Path]:
@@ -123,14 +114,25 @@ def test_every_top_level_package_is_assigned_a_layer():
     assert packages - LAYERS.keys() == set()
 
 
-def test_no_package_imports_a_higher_layer_beyond_known_debt():
-    """任何包都不得导入更高层；向上依赖只允许已登记的存量耦合。"""
-    upward = {
-        (relative, module)
+def test_no_package_imports_a_higher_layer():
+    """任何包都不得导入更高层。"""
+    upward = [
+        f"{relative}: {module}"
         for relative, source, target, module in _cross_package_imports()
         if source != "__init__" and LAYERS[target] > LAYERS[source]
-    }
-    assert upward == KNOWN_UPWARD_IMPORTS
+    ]
+    assert upward == []
+
+
+def test_memory_library_is_only_used_by_patchouli_and_engines():
+    """存储层在 L2，任何上层包在分层上都能导入它；只有 Patchouli 与 engines 可以使用，
+    其他子系统直接持有存储会绕过 Patchouli 对 Memory 与 Artifact 的所有权。"""
+    violations = [
+        f"{relative}: {module}"
+        for relative, source, target, module in _cross_package_imports()
+        if target == "memory_library" and source not in MEMORY_LIBRARY_CONSUMERS
+    ]
+    assert violations == []
 
 
 def test_subsystems_only_import_each_others_contracts():

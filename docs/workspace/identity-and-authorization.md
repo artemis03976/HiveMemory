@@ -12,7 +12,7 @@ code_paths:
   - src/hivememory/server/deps.py
   - src/hivememory/system/application/import_bus_service.py
   - src/hivememory/mcp_server/
-  - src/hivememory/patchouli/memory_library/stores.py
+  - src/hivememory/memory_library/stores.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
@@ -221,5 +221,5 @@ Interaction codec 为 v7，generation codec 的 `schema_version` 为字符串 `"
 
 - 模型：[`identity.py`](../../src/hivememory/core/models/identity.py)、[`workspace.py`](../../src/hivememory/core/models/workspace.py)、[`core/access.py`](../../src/hivememory/core/access.py)（操作目录、工作 actor、调用来源身份与端口）；
 - 授权：[`workspace/authorization.py`](../../src/hivememory/workspace/authorization.py)；任务进程的 Gateway、Profile、附件与取消的授权：[`workspace/process/`](../../src/hivememory/workspace/process/)；交互提交与确定话题的 root 授权：[`workspace/capability/root/`](../../src/hivememory/workspace/capability/root/)；导入与确定话题的系统认证：[`import_bus_service.py`](../../src/hivememory/system/application/import_bus_service.py)；声明解析与请求的工作 actor：[`server/deps.py`](../../src/hivememory/server/deps.py)；
-- 资源边界：[`topic.py`](../../src/hivememory/core/models/topic.py)、[`memory.py`](../../src/hivememory/core/models/memory.py)、[`artifact.py`](../../src/hivememory/core/models/artifact.py)、[`ShortTermMemoryStore`](../../src/hivememory/patchouli/memory_library/stores.py)、[`PerceptionFamiliar`](../../src/hivememory/patchouli/services/perception.py)；
+- 资源边界：[`topic.py`](../../src/hivememory/core/models/topic.py)、[`memory.py`](../../src/hivememory/core/models/memory.py)、[`artifact.py`](../../src/hivememory/core/models/artifact.py)、[`ShortTermMemoryStore`](../../src/hivememory/memory_library/stores.py)、[`PerceptionFamiliar`](../../src/hivememory/patchouli/services/perception.py)；
 - 测试：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/architecture/test_access_boundaries.py`](../../tests/unit/architecture/test_access_boundaries.py)、[`test_identity_resolution.py`](../../tests/unit/server/routers/test_identity_resolution.py)、[`test_import_bus.py`](../../tests/unit/server/routers/test_import_bus.py)（导入的声明、准入与 `system` 拒绝）、[`test_import_bus_submission.py`](../../tests/integration/system/test_import_bus_submission.py)（交互的发起者是参与者，目标不是参与者驻留的 Workspace 时被拒）、[`test_chat_run_control_contract.py`](../../tests/unit/workspace/process/test_chat_run_control_contract.py)（注册的两次认证与取消的 root 授权）、[`test_gateway_chat_flow.py`](../../tests/unit/workspace/process/test_gateway_chat_flow.py)（系统阶段以 root scope 执行、预检索经操作入口按执行者授权）、[`test_mcp_memory_access.py`](../../tests/integration/system/test_mcp_memory_access.py)（被拒的写入不确定话题）、[`tests/unit/core/models/test_workspace.py`](../../tests/unit/core/models/test_workspace.py)、[`test_application_access_boundary.py`](../../tests/integration/workspace/test_application_access_boundary.py)、[`test_workspace_access_propagation.py`](../../tests/integration/system/test_workspace_access_propagation.py)、[`test_memory_workspace_isolation.py`](../../tests/integration/patchouli/test_memory_workspace_isolation.py)、[`test_topic_access_chain.py`](../../tests/integration/patchouli/test_topic_access_chain.py)。

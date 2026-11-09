@@ -7,11 +7,11 @@ from qdrant_client.models import Distance, VectorParams
 
 from hivememory.core.models import IdentityScope, IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
+from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.library import MemoryLibrary
+from hivememory.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts import PatchouliLocalRoutes
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
-from hivememory.patchouli.memory_library.library import MemoryLibrary
-from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from tests.helpers.memory import make_memory_metadata

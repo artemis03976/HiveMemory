@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from hivememory.gateway.commands.models import CommandCategory, CommandDefinition
-from hivememory.gateway.commands.registry import CommandRegistry
+from hivememory.engines.gateway.commands.models import CommandCategory, CommandDefinition
+from hivememory.engines.gateway.commands.registry import CommandRegistry
 
 
 def register_builtin_commands(

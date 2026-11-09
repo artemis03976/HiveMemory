@@ -22,7 +22,7 @@ from hivememory.core.models import (
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, BaseArtifact
 from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.engines.lifecycle.models import ArchiveRecord
-from hivememory.patchouli.memory_library.models import (
+from hivememory.memory_library.models import (
     ArtifactIntegrityResult,
     StorageHealthComponent,
 )

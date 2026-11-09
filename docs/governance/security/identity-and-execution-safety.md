@@ -12,7 +12,7 @@ code_paths:
   - src/hivememory/workspace/intents/
   - src/hivememory/workspace/capability/
   - src/hivememory/workspace/cache/
-  - src/hivememory/patchouli/memory_library/
+  - src/hivememory/memory_library/
   - src/hivememory/server/
   - frontend/
 related_docs:

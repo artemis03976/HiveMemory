@@ -21,11 +21,11 @@ from hivememory.core.models import (
     WorkspaceIdentity,
     WorkspaceMemoryKey,
 )
-from hivememory.patchouli.memory_library.models import (
+from hivememory.memory_library.models import (
     StorageHealthComponent,
     StorageHealthReport,
 )
-from hivememory.patchouli.memory_library.stores import (
+from hivememory.memory_library.stores import (
     ArtifactStore,
     LongTermMemoryStore,
     MidTermMemoryStore,

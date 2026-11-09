@@ -3,8 +3,8 @@
 import pytest
 
 from hivememory.core.protocol.gateway import CommandParseStatus
-from hivememory.gateway.commands.models import CommandCategory, CommandDefinition
-from hivememory.gateway.commands.parser import (
+from hivememory.engines.gateway.commands.models import CommandCategory, CommandDefinition
+from hivememory.engines.gateway.commands.parser import (
     CommandParseError,
     build_parse_result,
     parse_command_args,

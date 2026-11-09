@@ -24,7 +24,7 @@ related_docs:
   - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # HiveMemory 当前系统架构
@@ -74,7 +74,7 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 |:---|:---|:---|
 | L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、Route 泛型原语、事件常量、错误类型、访问值类型与端口协议；配置段模型 |
 | L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾 |
-| L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
+| L2 | `engines` / `infrastructure` / `prompts` / `memory_library` | 算法、外部技术适配器与记忆存储层；`memory_library` 只供 Patchouli 与 engines 使用 |
 | L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 各子系统与 workspace 设施；彼此只导入对方公开的 `contracts` 子包 |
 | L4 | `system` | 组合根、门面与系统级能力；除入口外不被任何包导入 |
 | L5 | `server` / `mcp_server` | 入口（传输层 adapter）：`server` 是 HTTP 应用与路由，`mcp_server` 是外部 harness 经 MCP 访问记忆的操作适配器，由 `server` 接入 `/mcp` |

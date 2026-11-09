@@ -60,8 +60,8 @@ if TYPE_CHECKING:
     from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
     from hivememory.infrastructure.model_service import SingletonModelService
     from hivememory.infrastructure.rerank import FastEmbedRerankerService
+    from hivememory.memory_library import MemoryLibrary
     from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
-    from hivememory.patchouli.memory_library import MemoryLibrary
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
     from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
@@ -356,7 +356,7 @@ class PatchouliRuntime:
 
     def _build_memory_library(self) -> MemoryLibrary:
         """构建 MemoryLibrary（三层存储协调层）"""
-        from hivememory.patchouli.memory_library import (
+        from hivememory.memory_library import (
             FileBasedStorageAdapter,
             LongTermMemoryStore,
             MemoryLibrary,
@@ -382,10 +382,10 @@ class PatchouliRuntime:
         artifact_config = self._patchouli_config.artifacts
         artifact_store = None
         if artifact_config.enabled:
-            from hivememory.patchouli.memory_library.adapters.artifact import (
+            from hivememory.memory_library.adapters.artifact import (
                 FilesystemArtifactStorageAdapter,
             )
-            from hivememory.patchouli.memory_library.stores import ArtifactStore
+            from hivememory.memory_library.stores import ArtifactStore
 
             artifact_store = ArtifactStore(
                 FilesystemArtifactStorageAdapter(

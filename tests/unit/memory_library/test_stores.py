@@ -23,9 +23,9 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceMemoryKey,
 )
+from hivememory.memory_library.ports import MidTermStoragePort
+from hivememory.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.contracts import MemoryListPage
-from hivememory.patchouli.memory_library.ports import MidTermStoragePort
-from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.utils.time import utc_now
 from tests.helpers.memory import make_memory_metadata

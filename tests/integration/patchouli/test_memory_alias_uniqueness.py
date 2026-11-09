@@ -38,13 +38,13 @@ from hivememory.core.models import (
 )
 from hivememory.engines.artifacts import ArtifactEngine
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-from hivememory.patchouli.memory_library.adapters.artifact import (
+from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
-from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
-from hivememory.patchouli.memory_library.library import MemoryLibrary
-from hivememory.patchouli.memory_library.stores import (
+from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.library import MemoryLibrary
+from hivememory.memory_library.stores import (
     ArtifactStore,
     LongTermMemoryStore,
     MidTermMemoryStore,

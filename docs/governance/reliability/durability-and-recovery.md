@@ -13,7 +13,7 @@ code_paths:
   - src/hivememory/alice/orchestration/
   - src/hivememory/workspace/intents/
   - src/hivememory/workspace/cache/
-  - src/hivememory/patchouli/memory_library/
+  - src/hivememory/memory_library/
 related_docs:
   - docs/components/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md

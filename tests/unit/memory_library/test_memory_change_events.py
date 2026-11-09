@@ -15,7 +15,7 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.memory_change import MemoryChangeEvent
-from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
+from hivememory.memory_library.stores import MidTermMemoryStore
 from tests.helpers.memory import make_memory_metadata
 
 

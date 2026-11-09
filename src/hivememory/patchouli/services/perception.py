@@ -48,7 +48,7 @@ from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 
 if TYPE_CHECKING:
     from hivememory.config.patchouli import MemoryPerceptionConfig
-    from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
+    from hivememory.memory_library.stores import ShortTermMemoryStore
 
 logger = logging.getLogger(__name__)
 

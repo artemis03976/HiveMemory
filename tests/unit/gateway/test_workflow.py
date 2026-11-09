@@ -26,11 +26,11 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
+from hivememory.engines.gateway.commands import create_builtin_command_registry
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.engines.gateway.topic_router import TopicRouterError
 from hivememory.gateway.analysis import UserQueryAnalysisResult
-from hivememory.gateway.commands import create_builtin_command_registry
 from hivememory.gateway.context import CandidateTopics
 from hivememory.gateway.workflow import (
     GatewayExecutionState,

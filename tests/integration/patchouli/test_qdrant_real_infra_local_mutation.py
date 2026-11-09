@@ -29,8 +29,8 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
 )
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
-from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
+from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.stores import MidTermMemoryStore
 from tests.helpers.memory import make_memory_metadata
 
 QDRANT_URL = os.environ.get("HIVEMEMORY_TEST_QDRANT_URL", "http://127.0.0.1:6333")

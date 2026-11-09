@@ -36,7 +36,7 @@ from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
+    from hivememory.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
 

@@ -34,6 +34,14 @@ from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.models import GenerationRequest
+from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
+from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.library import MemoryLibrary
+from hivememory.memory_library.stores import (
+    ArtifactStore,
+    MidTermMemoryStore,
+    ShortTermMemoryStore,
+)
 from hivememory.patchouli.application.agent_profile_management_service import (
     AgentProfileManagementService,
 )
@@ -46,14 +54,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
-)
-from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
-from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
-from hivememory.patchouli.memory_library.library import MemoryLibrary
-from hivememory.patchouli.memory_library.stores import (
-    ArtifactStore,
-    MidTermMemoryStore,
-    ShortTermMemoryStore,
 )
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus

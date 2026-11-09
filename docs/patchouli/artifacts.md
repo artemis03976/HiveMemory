@@ -6,7 +6,7 @@ scope: immutable-evidence-and-memory-versioning
 code_paths:
   - src/hivememory/core/models/artifact.py
   - src/hivememory/engines/artifacts/
-  - src/hivememory/patchouli/memory_library/adapters/artifact.py
+  - src/hivememory/memory_library/adapters/artifact.py
   - src/hivememory/patchouli/services/memory_generation.py
   - src/hivememory/engines/perception/material.py
 related_contracts:

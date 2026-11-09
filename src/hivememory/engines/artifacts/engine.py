@@ -20,7 +20,7 @@ from hivememory.engines.artifacts.memory import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.patchouli.memory_library.stores import ArtifactStore
+    from hivememory.memory_library.stores import ArtifactStore
 
 
 class ArtifactEngine:

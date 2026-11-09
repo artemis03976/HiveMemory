@@ -4,8 +4,8 @@ import builtins
 from dataclasses import dataclass
 
 from hivememory.core.protocol.gateway import CommandParseResult, CommandParseStatus
-from hivememory.gateway.commands.models import CommandDefinition
-from hivememory.gateway.commands.parser import (
+from hivememory.engines.gateway.commands.models import CommandDefinition
+from hivememory.engines.gateway.commands.parser import (
     CommandParseError,
     build_parse_result,
     tokenize_command,
