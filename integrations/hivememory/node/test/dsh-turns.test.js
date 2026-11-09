@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { importBody, sessionTurns, turnInfo } from '../lib/turns.js'
-import { SessionLog } from './session-log.js'
+import { importBody, sessionTurns, turnInfo } from '../dsh/turns.js'
+import { SessionLog } from './dsh-session-log.js'
 
 function body(log, index = 0) {
   return importBody(log.id, sessionTurns(log.snapshot()), index, 'dsh')

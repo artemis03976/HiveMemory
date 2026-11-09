@@ -19,6 +19,7 @@ last_reviewed: 2026-11-08
 
 ## 版本之外
 
+- [dsh 插件并入统一插件目录](./dsh-unified-plugin-dir.md)：2026-11-08，分支 refactor/dsh-unified-plugin-dir；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
 - [pi 插件接入](./pi-plugin-integration.md)：2026-11-08，PR #201；[Import Bus](../../system/import-bus.md#11-pi-扩展)、[接入 pi](../../help/pi-plugin.md)
 - [Codex 插件接入](./codex-plugin-integration.md)：2026-11-08，PR #199；[Import Bus](../../system/import-bus.md#10-codex-插件)、[接入 Codex](../../help/codex-plugin.md)
 - [全局运行页](./run-view.md)：2026-11-07，PR #195；[全局运行页](../../frontend/run-view.md)

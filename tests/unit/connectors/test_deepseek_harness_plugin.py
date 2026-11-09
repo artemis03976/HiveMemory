@@ -1,16 +1,16 @@
 """DeepSeek Harness 插件与 HiveMemory 一侧声明的一致性（插件代码是 JavaScript，按文本读取常量）。
 
-保护的契约：插件认识的记忆工具就是 MCP server 的四个工具，作用对象参数与轮次
-信息参数是这些工具的参数，归一化得到的动词是导入接受的动词，写出的事件种类
-是导入接受的种类；插件声明的
-principal 在随仓库发布的接入登记中、开放 mcp 与 import 并要求凭据，默认 Agent
-在 Workspace 访问登记中持有四项记忆操作，来源标识符合导入的格式。插件的轮次
-投影、回流与工具行为由插件自己的测试守护（``node --test``）。
+插件与 pi 扩展同在 ``integrations/hivememory/``，共用 ``node/core`` 中的记忆工具回声
+规则，它与 MCP server 的一致由 pi 扩展的同类测试守护。这里保护 dsh 自己的契约：写出的
+事件种类是导入接受的种类；插件声明的 principal 在随仓库发布的接入登记中、开放 mcp 与
+import 并要求凭据，默认 Agent 在 Workspace 访问登记中持有四项记忆操作，来源标识符合
+导入的格式；包清单的入口与 bundle 配置存在。插件的轮次投影、回流与工具行为由插件
+自己的测试守护（``node --test``）。
 """
 
 from __future__ import annotations
 
-import asyncio
+import json
 import re
 from pathlib import Path
 from typing import get_args
@@ -18,62 +18,28 @@ from typing import get_args
 import yaml
 
 from hivememory.config.access import SystemPrincipalsFile, WorkspaceActorsFile
-from hivememory.mcp_server.server import create_mcp_server
-from hivememory.system.services.import_bus.models import (
-    ImportedEventKind,
-    ImportedVerb,
-    InFlightTurn,
-)
+from hivememory.system.services.import_bus.models import ImportedEventKind, InFlightTurn
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PLUGIN_LIB = REPO_ROOT / "integrations" / "deepseek-harness" / "lib"
+PACKAGE_ROOT = REPO_ROOT / "integrations" / "hivememory"
+DSH_ROOT = PACKAGE_ROOT / "node" / "dsh"
 
 MEMORY_OPERATIONS = {"memory.read", "memory.search", "memory.write", "memory.update"}
 
 
+def _source(name: str) -> str:
+    return (DSH_ROOT / name).read_text(encoding="utf-8")
+
+
 def _string_constant(source: str, name: str) -> str:
-    match = re.search(rf"const {name} = '([^']+)'", source)
+    match = re.search(rf"\b{name}(?: =|:) '([^']+)'", source)
     assert match is not None, f"constant {name} not found"
     return match.group(1)
 
 
-def _memory_tools() -> dict[str, dict[str, str]]:
-    """``MEMORY_TOOLS`` 的每一项：``name: { verb: 'X', targetParam: 'y', ... }``。"""
-    source = (PLUGIN_LIB / "turns.js").read_text(encoding="utf-8")
-    block = re.search(r"export const MEMORY_TOOLS = \{(.*?)\n\}", source, re.S)
-    assert block is not None
-    return {
-        name: dict(re.findall(r"(\w+): '([^']+)'", fields))
-        | dict(re.findall(r"(\w+): (true)", fields))
-        for name, fields in re.findall(r"(\w+): \{([^}]*)\}", block.group(1))
-    }
-
-
-def _server_tool_parameters() -> dict[str, set[str]]:
-    tools = asyncio.run(create_mcp_server(lambda: None).list_tools())
-    return {tool.name: set(tool.input_schema["properties"]) for tool in tools}
-
-
-def test_plugin_memory_tools_match_the_mcp_server():
-    """MCP server 的工具或参数改名时这里失败：回声标记与轮次信息会静默失效。"""
-    plugin_tools = _memory_tools()
-    turn_param = _string_constant(
-        (PLUGIN_LIB / "turns.js").read_text(encoding="utf-8"), "TURN_PARAM"
-    )
-    server_tools = _server_tool_parameters()
-
-    assert set(plugin_tools) == set(server_tools)
-    for name, fields in plugin_tools.items():
-        assert fields["verb"] in get_args(ImportedVerb), name
-        if "targetParam" in fields:
-            assert fields["targetParam"] in server_tools[name], name
-        assert (turn_param in server_tools[name]) == ("needsTurn" in fields), name
-
-
 def test_plugin_event_kinds_are_accepted_by_import():
     """导入的事件种类改名或删除时这里失败：插件写出的轮次会被整轮以 422 拒绝并跳过。"""
-    source = (PLUGIN_LIB / "turns.js").read_text(encoding="utf-8")
-    kinds = set(re.findall(r"addEvent\('(\w+)'", source))
+    kinds = set(re.findall(r"addEvent\('(\w+)'", _source("turns.js")))
 
     assert kinds == {"assistant_message", "thought", "subagent_message", "tool_call"}
     assert kinds <= set(get_args(ImportedEventKind))
@@ -81,10 +47,11 @@ def test_plugin_event_kinds_are_accepted_by_import():
 
 def test_plugin_identity_is_registered_for_mcp_and_import():
     """插件的 principal 与默认 Agent 在随仓库发布的登记中，来源标识可以导入。"""
-    config = (PLUGIN_LIB / "config.js").read_text(encoding="utf-8")
-    principal_id = _string_constant(config, "PRINCIPAL_ID")
-    agent_id = _string_constant(config, "DEFAULT_AGENT_ID")
-    source = _string_constant(config, "SOURCE")
+    index = _source("index.js")
+    principal_id = _string_constant(index, "principalId")
+    agent_id = _string_constant(index, "defaultAgentId")
+    token_env = _string_constant(index, "tokenEnv")
+    source = _string_constant(_source("turns.js"), "SOURCE")
     principals = SystemPrincipalsFile.model_validate(
         yaml.safe_load((REPO_ROOT / "configs" / "system_principals.yaml").read_text("utf-8"))
     )
@@ -96,6 +63,17 @@ def test_plugin_identity_is_registered_for_mcp_and_import():
     [actor] = [entry for entry in actors.workspace_actors if entry.agent_id == agent_id]
     assert principal.enabled and not principal.allow_system_actor
     assert set(principal.adapters) == {"mcp", "import"}
-    assert principal.credential_env
+    assert principal.credential_env == token_env
     assert actor.enabled and set(actor.allowed_operations) == MEMORY_OPERATIONS
     InFlightTurn(source=source, external_conversation_id="s", external_turn_id="1", user_message="")
+
+
+def test_package_points_at_the_dsh_entry_and_bundle_patch():
+    """包清单中的路径失效时这里失败：dsh 安装后加载不到插件，或插件行不进入配置。"""
+    manifest = json.loads((PACKAGE_ROOT / "package.json").read_text("utf-8"))
+
+    assert manifest["name"] == "hivememory-connector"
+    assert (PACKAGE_ROOT / manifest["main"]).is_file()
+    assert (PACKAGE_ROOT / manifest["dsh"]["bundle"]["patch"]).is_file()
+    assert manifest["engines"]["dsh"]
+    assert "name: hivememory-connector" in (DSH_ROOT / "cordis.patch.yml").read_text("utf-8")

@@ -13,20 +13,29 @@
  * dsh 的包，经 `ctx` 取得 dsh 的服务。
  */
 
-import { HiveMemoryClient } from './lib/client.js'
-import { configFromEnv } from './lib/config.js'
-import { ConnectorLog } from './lib/log.js'
-import { StateStore } from './lib/state.js'
-import { SessionSync } from './lib/sync.js'
-import { currentTurnInfo, memoryToolDefinitions } from './lib/tools.js'
-import { isSubagentSession } from './lib/turns.js'
+import { HiveMemoryClient } from '../core/client.js'
+import { configFromEnv } from '../core/config.js'
+import { ConnectorLog } from '../core/log.js'
+import { StateStore } from '../core/state.js'
+import { SessionSync } from './sync.js'
+import { currentTurnInfo, memoryToolDefinitions } from './tools.js'
+import { isSubagentSession, SOURCE } from './turns.js'
+
+export const HARNESS = {
+  principalId: 'harness:dsh',
+  source: SOURCE,
+  defaultAgentId: 'dsh',
+  tokenEnv: 'HIVEMEMORY_DSH_TOKEN',
+  stateDirName: 'dsh-connector',
+  clientName: 'hivememory-dsh-connector',
+}
 
 export const name = 'hivememory-connector'
 
 export const inject = ['tools', 'sessions', 'sessionQuery', 'systemPrompt']
 
 export function apply(ctx) {
-  const config = configFromEnv()
+  const config = configFromEnv(HARNESS)
   const log = new ConnectorLog(config.stateDir)
   const client = new HiveMemoryClient(config)
   const abort = new AbortController()

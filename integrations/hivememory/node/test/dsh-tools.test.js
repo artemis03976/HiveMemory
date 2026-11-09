@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { currentTurnInfo, memoryToolDefinitions } from '../lib/tools.js'
-import { importBody, sessionTurns } from '../lib/turns.js'
-import { SessionLog } from './session-log.js'
+import { currentTurnInfo, memoryToolDefinitions } from '../dsh/tools.js'
+import { importBody, sessionTurns } from '../dsh/turns.js'
+import { SessionLog } from './dsh-session-log.js'
 
 const TURN_SCHEMA = { anyOf: [{ $ref: '#/$defs/InFlightTurn' }, { type: 'null' }], default: null }
 

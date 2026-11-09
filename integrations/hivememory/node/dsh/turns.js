@@ -29,42 +29,20 @@
  * - `tool/call` → 工具调用（调用标识、工具名与模型给出的参数）；`tool/result`
  *   按 `toolCallId` 补全到同一轮的调用上，作为它的结局（`isError` 为真时状态为
  *   `error`，否则为 `success`），找不到调用的结果跳过。
- * - 本插件的四个记忆工具在这里归一化为 HiveMemory 能力调用，只写动词与作用
- *   对象，不上传工具名：检索为 `SEARCH`，查询留在参数中；读取为 `READ`，参数
- *   `aliases` 移出参数、作为作用对象；写入为 `WRITE`，没有作用对象；更新为
- *   `UPDATE`，参数 `alias` 移出参数、作为唯一的作用对象。检索与读取取回的是
- *   已有记忆，写入与更新的内容已经由显式写入保存，HiveMemory 生成时都不会把
- *   它们再提取一遍。插件注册的工具名就是 HiveMemory MCP 工具的名字，dsh 工具
- *   注册表中同名的工具只能有一个；工具参数改名时，识别表与 HiveMemory 的
- *   MCP server 同时修改。其他工具写工具名与完整参数。
+ * - 本插件的四个记忆工具按公共的回声规则（`core/memory-tools.js`）归一化为
+ *   HiveMemory 能力调用，其他工具写工具名与完整参数。插件注册的工具名就是
+ *   HiveMemory MCP 工具的名字，dsh 工具注册表中同名的工具只能有一个，工具名
+ *   因此就是识别依据。
  * - 不认识的事件类型与内容块一律跳过，不报错。
  */
 
-import { SOURCE } from './config.js'
+import { RECENT_TURNS, toolCallFields, truncate } from '../core/memory-tools.js'
 
-// 最近若干轮供 Gateway 理解上文；数量与服务端截取的最近轮数一致。
-export const RECENT_TURNS = 3
-
-// 最近轮次只供 Gateway 理解上文，每段正文截断到这个长度（按字符计），避免
-// 一轮过大的内容拖着后续轮次一起超过服务端的请求体上限。
-const RECENT_TEXT_LIMIT = 2000
-
-// 写入与更新工具中由插件填写的轮次信息参数，与 HiveMemory MCP server 的参数名一致。
-export const TURN_PARAM = 'turn'
+// 导入轮次与写入时轮次信息中的来源标识。
+export const SOURCE = 'dsh'
 
 // 子 Agent 结算后 dsh 发给父 Agent 的通知的来源，通知带子 Agent 最后的输出。
 const SUBAGENT_SETTLED_SOURCE = 'subagent-settled'
-
-/**
- * 本插件的记忆工具对应的 HiveMemory 能力：动词与作用对象所在的参数。
- * `single` 表示作用对象参数是单个 alias，否则是 alias 列表。
- */
-export const MEMORY_TOOLS = {
-  memory_search: { verb: 'SEARCH' },
-  memory_read: { verb: 'READ', targetParam: 'aliases', single: false },
-  memory_write: { verb: 'WRITE', needsTurn: true },
-  memory_update: { verb: 'UPDATE', targetParam: 'alias', single: true, needsTurn: true },
-}
 
 /**
  * dsh 轮次结束原因到 HiveMemory 结局。完成之外的原因都表示这一轮的材料不完整：
@@ -188,31 +166,7 @@ class TurnBuilder {
   }
 
   addToolCall(call) {
-    const args = parseArguments(call.arguments)
-    const memoryTool = MEMORY_TOOLS[call.name]
-    if (memoryTool === undefined) {
-      this.addEvent('tool_call', '', { action_id: call.callId, tool_name: call.name, tool_args: args })
-      return
-    }
-    // 轮次信息由插件在调用 HiveMemory 时补上，不属于这次调用的内容。
-    delete args[TURN_PARAM]
-    let targets
-    if (memoryTool.targetParam !== undefined) {
-      targets = memoryTargets(memoryTool, args[memoryTool.targetParam])
-      if (targets === null) {
-        // 模型传错了作用对象，HiveMemory 已以工具错误拒绝这次调用。按普通工具写出：
-        // 服务端要求读取与更新带作用对象，否则会拒绝整轮。
-        this.addEvent('tool_call', '', { action_id: call.callId, tool_name: call.name, tool_args: args })
-        return
-      }
-      delete args[memoryTool.targetParam]
-    }
-    this.addEvent('tool_call', '', {
-      action_id: call.callId,
-      verb: memoryTool.verb,
-      targets,
-      tool_args: Object.keys(args).length > 0 ? args : undefined,
-    })
+    this.addEvent('tool_call', '', toolCallFields(call.callId, call.name, call.arguments))
   }
 
   addToolResult(message) {
@@ -259,32 +213,4 @@ function contentText(content) {
     else if (block.type === 'file') parts.push('[file]')
   }
   return parts.filter(Boolean).join('\n')
-}
-
-/** 模型给出的参数是 JSON 字符串；不是对象时整体放在 `input` 下。 */
-function parseArguments(raw) {
-  let value
-  try {
-    value = JSON.parse(raw)
-  } catch {
-    return { input: raw }
-  }
-  return isPlainObject(value) ? value : { input: value }
-}
-
-/** 参数中的作用对象；形状不对时为 `null`。 */
-function memoryTargets(memoryTool, value) {
-  if (memoryTool.single) return typeof value === 'string' && value ? [value] : null
-  const valid = Array.isArray(value) && value.length > 0 && value.every(item => typeof item === 'string')
-  return valid ? value : null
-}
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/** 按字符截断，不切开代理对。 */
-function truncate(text) {
-  const characters = Array.from(text)
-  return characters.length <= RECENT_TEXT_LIMIT ? text : characters.slice(0, RECENT_TEXT_LIMIT).join('')
 }

@@ -12,7 +12,8 @@
  * 落在顶层会话最近的一轮，与这一轮回流时在同一个话题。
  */
 
-import { isSubagentSession, MEMORY_TOOLS, sessionTurns, TURN_PARAM, turnInfo } from './turns.js'
+import { MEMORY_TOOLS, TURN_PARAM } from '../core/memory-tools.js'
+import { isSubagentSession, sessionTurns, turnInfo } from './turns.js'
 
 /**
  * 服务端工具列表中本插件认识的工具，转为 dsh 工具定义。

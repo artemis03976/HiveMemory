@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { StateStore } from '../lib/state.js'
-import { SessionSync } from '../lib/sync.js'
-import { SessionLog } from './session-log.js'
+import { StateStore } from '../core/state.js'
+import { SessionSync } from '../dsh/sync.js'
+import { SessionLog } from './dsh-session-log.js'
 
 const FIRST_RUN = 1_000
 
