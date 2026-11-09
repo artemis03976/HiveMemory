@@ -31,6 +31,27 @@ export class StateStore {
     atomicWrite(this.sessionPath(state.sessionId), state)
   }
 
+  /** 读改写一个已保存会话的状态并写回；没有保存时抛出错误。 */
+  update(sessionId, change) {
+    const state = this.load(sessionId)
+    if (state === null) throw new Error(`session is not registered: ${sessionId}`)
+    change(state)
+    this.save(state)
+    return state
+  }
+
+  /** 连接器首次运行的时间（Unix 毫秒）：第一次调用时记下，之后读回同一个值。 */
+  firstRunAt(now = Date.now()) {
+    const marker = join(this.dir, 'connector.json')
+    try {
+      return JSON.parse(readFileSync(marker, 'utf8')).first_run_at
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+    }
+    atomicWrite(marker, { first_run_at: now })
+    return now
+  }
+
   /** 移除一个会话的状态。 */
   forget(sessionId) {
     rmSync(this.sessionPath(sessionId), { force: true })

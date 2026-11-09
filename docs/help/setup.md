@@ -253,6 +253,6 @@ npm run build
 - [接入 Claude Code](./claude-code-plugin.md)：插件 `hivememory-connector`（`integrations/hivememory/`），接入身份 `harness:claude-code`；
 - [接入 Codex](./codex-plugin.md)：同一个插件目录中的 Codex 插件，接入身份 `harness:codex`，只支持 Codex 与 HiveMemory 都在 Windows 上原生运行；
 - [接入 pi](./pi-plugin.md)：同一个插件目录作为 pi 包安装的扩展，接入身份 `harness:pi`，只支持 pi 与 HiveMemory 都在 Windows 上原生运行；
-- [接入 DeepSeek Harness](./deepseek-harness-plugin.md)：插件 `hivememory-connector`（`integrations/deepseek-harness/`），接入身份 `harness:dsh`，包括 Windows 桌面端连接 WSL 中的 HiveMemory。
+- [接入 DeepSeek Harness](./deepseek-harness-plugin.md)：同一个插件目录作为 dsh bundle 安装，接入身份 `harness:dsh`，包括 Windows 桌面端连接 WSL 中的 HiveMemory。
 
 长期接入时，本地开发路径建议用脚本的 `serve` 模式运行后端（第 4.5 节）。

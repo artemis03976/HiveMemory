@@ -230,7 +230,7 @@ TaskProcessService（workspace.process）
 
 ## 6. Import Bus：让外部经历进入记忆，而不是伪造一次对话
 
-Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 chat 入口。它解决的是“如何把其他 harness 已经发生的经历带入 HiveMemory”，而不是要求系统重新扮演一次对话参与者。外部 harness 在一轮交互结束后提交这一轮的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局，以及只供话题路由参考的最近几轮）；当前的接入方是仓库中 Claude Code 与 Codex 合用的连接器插件（`integrations/hivememory/`）与 DeepSeek Harness 插件（`integrations/deepseek-harness/`）。
+Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 chat 入口。它解决的是“如何把其他 harness 已经发生的经历带入 HiveMemory”，而不是要求系统重新扮演一次对话参与者。外部 harness 在一轮交互结束后提交这一轮的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局，以及只供话题路由参考的最近几轮）；当前的接入方是仓库中 Claude Code 与 Codex 合用的连接器插件（`integrations/hivememory/`），DeepSeek Harness 插件与 pi 扩展也在这个目录中（`node/dsh/`、`node/pi/`）。
 
 ```text
 POST /api/v1/import/turns

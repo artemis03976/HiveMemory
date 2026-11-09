@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import { HiveMemoryClient } from '../core/client.js'
 import { configFromEnv } from '../core/config.js'
+import { HARNESS as DSH } from '../dsh/index.js'
 import { HARNESS } from '../pi/index.js'
 
 const CONFIG = {
@@ -39,6 +40,19 @@ test('pi reads its own credential variable, agent and state directory', () => {
   assert.equal(config.url, 'http://127.0.0.1:9000')
   assert.match(config.stateDir, /pi-connector$/)
   assert.equal(configFromEnv(HARNESS, { HIVEMEMORY_CODEX_TOKEN: 'codex-secret' }).token, null)
+})
+
+test('dsh reads its own credential variable, not another harness in the same environment', () => {
+  const config = configFromEnv(DSH, {
+    HIVEMEMORY_CLAUDE_CODE_TOKEN: 'claude-code-token',
+    HIVEMEMORY_PI_TOKEN: 'pi-token',
+    HIVEMEMORY_DSH_TOKEN: 'dsh-token',
+  })
+
+  assert.equal(config.token, 'dsh-token')
+  assert.equal(config.principalId, 'harness:dsh')
+  assert.equal(config.agentId, 'dsh')
+  assert.match(config.stateDir, /dsh-connector$/)
 })
 
 test('submit sends the principal, credential and user with the turn', async () => {

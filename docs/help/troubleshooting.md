@@ -11,7 +11,7 @@ code_paths:
   - src/hivememory/config/
   - frontend/src/
   - integrations/hivememory/
-  - integrations/deepseek-harness/
+  - integrations/hivememory/node/dsh/
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/mcp.md

@@ -18,7 +18,6 @@ code_paths:
   - src/hivememory/patchouli/control/interaction_submission.py
   - integrations/hivememory/
   - integrations/.claude-plugin/marketplace.json
-  - integrations/deepseek-harness/
   - configs/workspace_actors.yaml
   - configs/system_principals.yaml
 related_contracts:
@@ -50,7 +49,7 @@ last_reviewed: 2026-11-08
 
 # Import Bus
 
-Import Bus 是外部 harness 对话回流 HiveMemory 的入口。harness 中的一轮交互结束后，连接器把这一轮的完整记录（用户消息、助手正文、思考、工具调用与结果）一次交给 Import Bus；Import Bus 用与任务进程相同的封口函数组装交互记录，经 root API 的提交交互一次完成查重、Gateway 话题路由、提交与等待应用，并在感知应用完成后才确认。第一个接入的 harness 是 Claude Code，连接器以插件形式位于 `integrations/hivememory/`（第 8 节）；第二个是 DeepSeek Harness（dsh），插件位于 `integrations/deepseek-harness/`（第 9 节）；Codex 与 Claude Code 合用这个插件目录（第 10 节），pi 的扩展也在其中（第 11 节）。
+Import Bus 是外部 harness 对话回流 HiveMemory 的入口。harness 中的一轮交互结束后，连接器把这一轮的完整记录（用户消息、助手正文、思考、工具调用与结果）一次交给 Import Bus；Import Bus 用与任务进程相同的封口函数组装交互记录，经 root API 的提交交互一次完成查重、Gateway 话题路由、提交与等待应用，并在感知应用完成后才确认。第一个接入的 harness 是 Claude Code，连接器以插件形式位于 `integrations/hivememory/`（第 8 节）；第二个是 DeepSeek Harness（dsh），插件也在这个目录中（第 9 节）；Codex 与 Claude Code 合用这个插件目录（第 10 节），pi 的扩展同样在其中（第 11 节）。
 
 外部 harness 经 MCP 写入与更新记忆时，写入发生在一轮进行之中，需要这一轮最终所在的话题。Import Bus 为此在写入时为这一轮确定话题并登记，这一轮结束回流时沿用已确定的话题（第 4.7 节）。
 
@@ -76,8 +75,9 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | 封口函数 `seal_interaction` | `core/protocol/sealing.py` | 两条链路共用：组装 `InteractionPayload` | 解析事件（只在感知层进行） |
 | Patchouli | 公开路由 `patchouli.public.interaction.submit` / `.status` / `.wait`、`patchouli.public.topic.prepare` | 提交队列、提交并等待应用、进度、应用、新话题的建立 | 导入的身份与重试策略 |
 | Python 连接器（Claude Code 与 Codex） | `integrations/hivememory/` | 读取会话记录、切分轮次、游标与重发；两个 harness 合用一个插件目录与公共骨架 | 服务端的查重与授权 |
-| DeepSeek Harness 插件 | `integrations/deepseek-harness/` | 读取 dsh 会话的逻辑记录、切分轮次、水位与重发；注册记忆工具 | 服务端的查重与授权 |
-| pi 扩展 | `integrations/hivememory/package.json`、`integrations/hivememory/node/` | 注册记忆工具、为每一轮写结束标记、按待提交的轮次回流与重发 | 服务端的查重与授权 |
+| DeepSeek Harness 插件 | `integrations/hivememory/node/dsh/` | 读取 dsh 会话的逻辑记录、切分轮次、水位与重发；注册记忆工具 | 服务端的查重与授权 |
+| pi 扩展 | `integrations/hivememory/node/pi/` | 注册记忆工具、为每一轮写结束标记、按待提交的轮次回流与重发 | 服务端的查重与授权 |
+| Node 公共部分 | `integrations/hivememory/node/core/`、`package.json` | dsh 插件与 pi 扩展共用的配置、MCP 调用与导入提交及结果分类、状态、日志与回声规则；包清单同时是 dsh bundle 与 pi 包 | harness 各自的轮次投影与触发 |
 
 编排器的状态只有串行门、在途计数与已确定话题的登记，都只在进程内。它只经 root API 调用 Gateway 与 Patchouli 的公开路由，不持有全局总线、任何子系统的 Runtime 或 Patchouli 的提交队列；组合根只注入 root API 的 `RootInteractionService` 与 `RootTopicService`（与任务进程共用同一实例，Gateway 请求时限注入在它们上面）、最近轮数（沿用 Gateway 配置）、等待应用的时限与观测 publisher。应用服务另由组合根注入认证网关与系统自身的 principal 及其 adapter，与任务进程的注册入口相同，不注入操作授权者。
 
@@ -362,25 +362,26 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 ## 9. DeepSeek Harness 插件
 
-插件是一个 dsh 原生插件（bundle `hivememory-connector`），只用 Node 标准库，不导入 HiveMemory 包，经 dsh 的插件上下文取得工具、会话、会话查询与系统提示词服务；支持的 dsh 版本由 `engines.dsh` 声明（`>=0.2.1-rc.5 <0.3.0-0`）。它同时提供对话回流与记忆工具，记忆工具见 [MCP 记忆访问](../contracts/mcp.md#6-连接器调用名轮次信息与回声标记)第 6 节。安装与配置的操作步骤见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)。
+插件是一个 dsh 原生插件（bundle `hivememory-connector`），代码在 `integrations/hivememory/node/dsh/`，只用 Node 标准库，不导入 HiveMemory 包，经 dsh 的插件上下文取得工具、会话、会话查询与系统提示词服务；支持的 dsh 版本由 `engines.dsh` 声明（`>=0.2.1-rc.5 <0.3.0-0`）。它同时提供对话回流与记忆工具，记忆工具见 [MCP 记忆访问](../contracts/mcp.md#6-连接器调用名轮次信息与回声标记)第 6 节。安装与配置的操作步骤见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)。
 
 它不沿用 Claude Code 连接器的做法，原因在 dsh 一侧：
 
 - dsh 的工具前置事件不能改写调用参数，无法像 `PreToolUse` 那样为通用 MCP 工具调用补上轮次信息，记忆工具因此由插件自己注册，回流与工具放在同一个插件中；
 - dsh 的会话文件以 Zstandard 压缩，格式随版本迁移，插件不读文件，经会话查询服务读取会话的逻辑事件流，存活的会话读实时记录。
 
-确认后前进、提交结果的分类与重发去重与 Claude Code 连接器相同（第 8.5 节），以 JavaScript 另外实现，不共用 Python 骨架（owner 决定，2026-11-01）。
+确认后前进、提交结果的分类与重发去重与 Claude Code 连接器相同（第 8.5 节），以 JavaScript 另外实现，不共用 Python 骨架（owner 决定，2026-11-01）；与 pi 扩展共用 `node/core/` 中的 JavaScript 公共部分（owner 决定，2026-11-08）。
 
 ### 9.1 组成
 
-| 位置 | 负责 |
+| 位置（`integrations/hivememory/` 下） | 负责 |
 |:---|:---|
-| `package.json`、`cordis.patch.yml` | bundle 清单与插入插件行 `hivememory` 的配置层 |
-| `index.js` | 装配，监听 Agent 创建与会话事件，连接 HiveMemory 并注册记忆工具 |
-| `lib/turns.js` | 会话事件到导入轮次与在途轮次的投影、回声标记、结局映射 |
-| `lib/sync.js`、`lib/state.js` | 同步循环与按会话保存的水位 |
-| `lib/client.js` | MCP 工具调用与导入提交，提交结果的分类 |
-| `lib/tools.js`、`lib/config.js`、`lib/log.js` | 记忆工具定义、环境变量配置、日志 |
+| `package.json` | bundle 清单：`main` 指向 `node/dsh/index.js`，`engines.dsh` 声明支持的版本，`dsh.bundle.patch` 指向配置层；同一份清单的 `pi` 字段供 pi 使用（第 11.1 节） |
+| `node/dsh/cordis.patch.yml` | 插入插件行 `hivememory` 的配置层 |
+| `node/dsh/index.js` | 装配，监听 Agent 创建与会话事件，连接 HiveMemory 并注册记忆工具 |
+| `node/dsh/turns.js` | 会话事件到导入轮次与在途轮次的投影、结局映射 |
+| `node/dsh/sync.js` | 同步循环与按会话保存的水位 |
+| `node/dsh/tools.js` | 记忆工具定义 |
+| `node/core/` | 与 pi 扩展共用：按 harness 取值的配置、MCP 调用与导入提交及结果分类、状态、日志、记忆工具的回声规则与最近轮次的截断 |
 
 ### 9.2 触发与读取
 
@@ -410,7 +411,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 ### 9.5 配置与状态目录
 
-插件从环境变量读取配置：地址、用户与 Agent 的变量与 Claude Code 连接器同名，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`；凭据变量是 `HIVEMEMORY_DSH_TOKEN`，与服务端核对这份凭据的变量同名（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-配置插件)第 3 节，服务端一侧见[配置](./configuration.md)）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`。
+插件从环境变量读取配置：地址、用户与 Agent 的变量与 Claude Code 连接器同名，地址默认为 `http://127.0.0.1:8769`，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`；凭据变量是 `HIVEMEMORY_DSH_TOKEN`，与服务端核对这份凭据的变量同名（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-配置插件)第 3 节，服务端一侧见[配置](./configuration.md)）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`。
 
 状态目录中保存 `sessions/`（各会话的状态）、`connector.json`（首次运行时间）、`rejections.jsonl`（拒绝记录：会话标识、轮号、状态码、错误码与原因）与 `connector.log`（超过 1 MiB 时轮转一份），只保存标识、轮号与状态，不保存会话正文。dsh 的插件代码在一个线程中运行，状态以同步文件操作读改写、替换写入，同一进程内不需要文件锁。
 
@@ -482,7 +483,7 @@ hook 写下的结束记录先于会话记录写明的结局（第 8.4 节）；`
 
 ## 11. pi 扩展
 
-pi 扩展与 Claude Code、Codex 合用插件目录 `integrations/hivememory/`，代码是只用 Node 标准库的 JavaScript（`node/`），不共用 Python 连接器。接入方式与 dsh 插件相同：扩展自己注册四个记忆工具，在工具执行时补上轮次信息，回流由扩展按事件完成（owner 决定，2026-11-08）。pi 也能在 `tool_call` 中改写工具参数，但扩展没有加载、或被后加载的扩展覆盖时，服务端无法分辨模型自己填写的轮次信息；pi 的内建 MCP 默认把工具交给 codemode，经 codemode 的内层调用不进入会话记录，回声标记会失效。确认后才算完成、提交结果的分类与重发去重与第 8.5 节相同。事件与会话记录的结构依据 pi 1.5.0，在 Windows 原生核对；安装与配置的操作步骤见[接入 pi](../help/pi-plugin.md)。
+pi 扩展与 Claude Code、Codex 合用插件目录 `integrations/hivememory/`，代码是只用 Node 标准库的 JavaScript（`node/pi/`），不共用 Python 连接器，与 dsh 插件共用 `node/core/`。接入方式与 dsh 插件相同：扩展自己注册四个记忆工具，在工具执行时补上轮次信息，回流由扩展按事件完成（owner 决定，2026-11-08）。pi 也能在 `tool_call` 中改写工具参数，但扩展没有加载、或被后加载的扩展覆盖时，服务端无法分辨模型自己填写的轮次信息；pi 的内建 MCP 默认把工具交给 codemode，经 codemode 的内层调用不进入会话记录，回声标记会失效。确认后才算完成、提交结果的分类与重发去重与第 8.5 节相同。事件与会话记录的结构依据 pi 1.5.0，在 Windows 原生核对；安装与配置的操作步骤见[接入 pi](../help/pi-plugin.md)。
 
 ### 11.1 组成
 
@@ -493,7 +494,7 @@ pi 扩展与 Claude Code、Codex 合用插件目录 `integrations/hivememory/`�
 | `node/pi/turns.js` | 结束标记、一轮的条目到导入轮次与写入时轮次信息的投影、结局 |
 | `node/pi/sync.js` | 待提交的轮次、同步循环与会话文件的读取 |
 | `node/pi/tools.js` | 记忆工具定义 |
-| `node/core/` | 与 harness 无关的部分：按 harness 取值的配置、MCP 调用与导入提交及结果分类、状态、日志、记忆工具的回声规则与最近轮次的截断 |
+| `node/core/` | 与 dsh 插件共用（第 9.1 节） |
 
 pi 以本地路径安装这个目录（`pi install <目录>`），原地加载、不复制，仓库更新后重新加载 pi 即生效。
 
@@ -603,7 +604,7 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 - 封口：[`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；
 - Patchouli 公开路由与提交队列：[`patchouli/contracts/public_routes.py`](../../src/hivememory/patchouli/contracts/public_routes.py)、[`patchouli/contracts/interaction_submission.py`](../../src/hivememory/patchouli/contracts/interaction_submission.py)、[`patchouli/application/interaction_submission_service.py`](../../src/hivememory/patchouli/application/interaction_submission_service.py)、[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)；
 - 配置：[`config/import_bus.py`](../../src/hivememory/config/import_bus.py)；访问登记：[`configs/workspace_actors.yaml`](../../configs/workspace_actors.yaml)；
-- 连接器（Claude Code 与 Codex）：[`integrations/hivememory/`](../../integrations/hivememory/)、[`integrations/.claude-plugin/marketplace.json`](../../integrations/.claude-plugin/marketplace.json)；dsh 插件：[`integrations/deepseek-harness/`](../../integrations/deepseek-harness/)；pi 扩展：[`integrations/hivememory/package.json`](../../integrations/hivememory/package.json)、[`integrations/hivememory/node/`](../../integrations/hivememory/node/)。
+- 连接器（Claude Code 与 Codex）：[`integrations/hivememory/`](../../integrations/hivememory/)、[`integrations/.claude-plugin/marketplace.json`](../../integrations/.claude-plugin/marketplace.json)；dsh 插件与 pi 扩展：[`integrations/hivememory/package.json`](../../integrations/hivememory/package.json)、[`integrations/hivememory/node/`](../../integrations/hivememory/node/)（`dsh/`、`pi/` 与共用的 `core/`）。
 
 测试：
 
@@ -614,5 +615,5 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 - 装配与关闭：`tests/unit/system/application/test_api_services.py`、`tests/unit/system/test_hivememory_system.py`、`tests/unit/system/test_lifecycle.py`；配置：`tests/unit/system/test_config_agent_runtime.py`；
 - 真实队列与感知的协作、交互的发起者是参与者、系统自身的 principal 未登记与目标不是参与者驻留的 Workspace 时的拒绝：`tests/integration/system/test_import_bus_submission.py`；经 MCP 写入后回流落在写入派发的话题：`tests/integration/system/test_mcp_memory_access.py`；离线 E2E：`tests/e2e/system/test_import_turns.py`；
 - 连接器（含回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal 与凭据请求头、按 harness 取凭据、会话记录写明的结局）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`；Codex（轮次切分、事件映射、回声标记与结局、根轮的取得、`PreToolUse` 的输出与子 Agent 归属、扩展长度前缀、清单与登记一致）：`tests/unit/connectors/test_codex_reader.py`、`tests/unit/connectors/test_codex_hooks.py`；
-- dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、提交分类、水位与补发）：`integrations/deepseek-harness/test/`，以 `npm test` 运行（CI 的 `dsh-plugin` 任务）；插件的工具名、参数与 MCP server 一致，principal 与 Agent 在发布的登记中：`tests/unit/connectors/test_deepseek_harness_plugin.py`；
-- pi 扩展（一轮的条目只取结束标记回溯的一段、fork 复制的标记不导入、原始输入、事件映射、回声标记与结局、写入时的轮次信息与之后的导入一致、只交给模型的工具、待提交与补发、关闭时有上限的等待，以及事件处理的整体流程）：`integrations/hivememory/node/test/`，以 `npm test` 运行（CI 的 `pi-extension` 任务）；扩展的工具名、参数与 MCP server 一致，principal 与 Agent 在发布的登记中，包清单指向的扩展与 skill 存在：`tests/unit/connectors/test_pi_extension.py`。
+- dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、水位与补发）：`integrations/hivememory/node/test/dsh-*.test.js`；事件种类是导入接受的，principal 与 Agent 在发布的登记中，包清单的入口与 bundle 配置存在：`tests/unit/connectors/test_deepseek_harness_plugin.py`；
+- pi 扩展（一轮的条目只取结束标记回溯的一段、fork 复制的标记不导入、原始输入、事件映射、回声标记与结局、写入时的轮次信息与之后的导入一致、只交给模型的工具、待提交与补发、关闭时有上限的等待，以及事件处理的整体流程）：`integrations/hivememory/node/test/`，与 dsh 插件的测试和公共部分的测试（提交分类、按 harness 取凭据）一起以 `npm test` 运行（CI 的 `node-connectors` 任务）；共用的记忆工具与 MCP server 的工具名、参数一致，principal 与 Agent 在发布的登记中，包清单指向的扩展与 skill 存在：`tests/unit/connectors/test_pi_extension.py`。

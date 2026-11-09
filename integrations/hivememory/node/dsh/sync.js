@@ -52,12 +52,21 @@ export class SessionSync {
     this.running = new Map()
   }
 
-  /** 首次见到会话时登记：插件首次运行之前创建的会话不回填，水位留到第一次读取时确定。 */
+  /**
+   * 首次见到会话时登记；已登记时不改动。
+   *
+   * 会话的状态为：来源（`new` 或 `existing`）；水位 `lastTurn`，轮号不大于它的
+   * 轮次都已得到确认、被不可重试地拒绝，或在登记时就已存在而不回填；实际看到
+   * 结束的最大轮号 `endedTurn`，大于水位时说明还有已结束的轮次没有得到确认；
+   * 各轮连续得到服务器内部错误的次数 `failures`。插件首次运行之后创建的会话
+   * 从头提交；更早创建的不回填，水位留空，到第一次读取时再确定。
+   */
   register(sessionId, { createdAt }) {
+    if (this.store.load(sessionId) !== null) return
     const origin = createdAt >= this.firstRunAt ? 'new' : 'existing'
-    if (this.store.register(sessionId, { origin, lastTurn: origin === 'new' ? 0 : null })) {
-      this.log.write(`registered session=${sessionId} origin=${origin}`)
-    }
+    const lastTurn = origin === 'new' ? 0 : null
+    this.store.save({ sessionId, origin, lastTurn, endedTurn: lastTurn ?? 0, failures: {} })
+    this.log.write(`registered session=${sessionId} origin=${origin}`)
   }
 
   /** 记下 dsh 中实际结束的一轮；会话必须已经登记。 */

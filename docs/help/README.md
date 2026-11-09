@@ -11,7 +11,7 @@ code_paths:
   - configs/
   - src/hivememory/server/
   - integrations/hivememory/
-  - integrations/deepseek-harness/
+  - integrations/hivememory/node/dsh/
 related_contracts:
   - docs/contracts/routes-and-events.md
 last_reviewed: 2026-11-08
