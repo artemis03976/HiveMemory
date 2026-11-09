@@ -180,7 +180,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         if completion.finish_reason == "length":
             raise ModelProviderError("话题提取的输出达到 max_tokens 上限被截断")
         if not completion.text:
-            logger.error("LLM 返回空响应")
+            logger.warning("LLM 返回空响应")
             return []
         try:
             result = parse_llm_json(completion.text, as_model=ExtractionResult)
@@ -221,7 +221,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         ]
         raw_output = (await self._complete(messages)).text
         if not raw_output:
-            logger.error("LLM 返回空响应 (Mode B)")
+            logger.warning("LLM 返回空响应 (Mode B)")
             return None
         try:
             draft = parse_llm_json(raw_output, as_model=ExtractedMemoryDraft)
@@ -230,7 +230,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             return None
         draft.has_value = True
         draft.confidence_score = 1.0
-        logger.info("成功提取主动写入的记忆草稿")
+        logger.debug("成功提取主动写入的记忆草稿")
         return draft
 
     async def revise(
@@ -275,13 +275,13 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 ),
             },
         ]
-        logger.info("Mode C (修订): 使用 UPDATE 专用提示词")
+        logger.debug("Mode C (修订): 使用 UPDATE 专用提示词")
 
         # Step 2: 调用 LLM（只对提供商失败重试）
         raw_output = (await self._complete(messages)).text
 
         if not raw_output:
-            logger.error("LLM 返回空响应 (Mode C)")
+            logger.warning("LLM 返回空响应 (Mode C)")
             return None
 
         # Step 3: 解析 JSON → RevisionResult；只把模型文本无法解析或不符合结构视为没有产出
@@ -291,7 +291,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             logger.warning("Mode C JSON 解析失败")
             return None
 
-        logger.info("成功修订记忆")
+        logger.debug("成功修订记忆")
         return result
 
     async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> MergeResult | None:

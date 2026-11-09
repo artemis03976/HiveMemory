@@ -145,7 +145,7 @@ class LiteLLMService(BaseLLMService):
             finish_reason=choice.finish_reason or None,
             usage=_usage(response),
         )
-        logger.info(
+        logger.debug(
             "LLM 调用成功 (model=%s, tokens=%s, finish_reason=%s)",
             params.model,
             completion.usage.total_tokens if completion.usage else None,

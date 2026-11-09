@@ -156,8 +156,8 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 
 ## 7. 观测
 
-- 现有请求日志记录每个 `POST /mcp`，只记录路径与状态。
-- MCP 入口为每次工具调用记录一行：工具名、声明的 principal 与 Agent、结果条数或未解析数（写入与更新为意图标识，失败时为错误码）、耗时；不记录查询、记忆正文、轮次信息与凭据。服务端错误以 error 级别连同异常栈记录，其余失败为 info。确定话题由 Import Bus 记录一行（见 [Import Bus](../system/import-bus.md) 第 6.2 节）。
+- 请求日志在 debug 级别记录每个 `POST /mcp`，只记录路径与状态。
+- MCP 入口为每次工具调用记录一行：工具名、声明的 principal 与 Agent、结果条数或未解析数（写入与更新为意图标识，失败时为错误码）、耗时；不记录查询、记忆正文、轮次信息与凭据。成功的调用为 debug，经过由下面的 `actor.operation` 记录；服务端错误以 error 级别连同异常栈记录，其余失败为 warning，认证在操作之前被拒绝时这一行是唯一的记录。确定话题由 Import Bus 在 debug 级别记录一行（见 [Import Bus](../system/import-bus.md) 第 6.2 节）。
 - 每次工具调用在自己的 `mcp-` trace 中进行（`span_name` 为工具名，`task_type` 为 `foreground`），结束时复原。检索、读取、写入与更新经操作入口各发一个 `actor.operation`（[事件契约](./routes-and-events.md#4-runtimeevent-观测契约)第 4 节），请求级提交不带 `process_id`；写入与更新为这一轮确定话题引起的 Gateway 被动路由与新建话题的事件继承同一个 trace，与这次工具调用归为一次运行。工具调用本身不另发事件。
 
 ## 8. 已知限制

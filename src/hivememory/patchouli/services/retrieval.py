@@ -252,7 +252,7 @@ class RetrievalFamiliar:
             top_k=top_k,
         )
 
-        logger.info(
+        logger.debug(
             "检索完成: query_length=%d, filters=%s, 使魔取回了 %s 条记忆, latency=%.1fms",
             len(query.semantic_query),
             query.filters,

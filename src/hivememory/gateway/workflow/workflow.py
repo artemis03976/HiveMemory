@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from time import perf_counter
 from typing import Any
 
@@ -26,6 +27,8 @@ from hivememory.gateway.workflow.steps import (
     GatewayWorkflowStep,
     RecoverableGatewayError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class GatewayWorkflow:
@@ -242,6 +245,13 @@ class GatewayWorkflow:
                 "request_deadline_exceeded"
                 if isinstance(exc, TimeoutError) and deadline_limited
                 else "step_timeout" if isinstance(exc, TimeoutError) else "dependency_unavailable"
+            )
+            # 降级的原因码在终态事件的步骤汇总里；底层异常只在这里记录。
+            logger.warning(
+                "Gateway 步骤降级: step_id=%s, reason=%s, cause=%r",
+                step.step_id,
+                fallback_reason,
+                exc.__cause__ or exc,
             )
         else:
             updates = step.project(output)

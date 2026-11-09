@@ -55,7 +55,7 @@ class WebSocketConnectionManager:
         async with self._lock:
             await websocket.accept()
             self._connections[client_id] = websocket
-            logger.info("Client %s connected (total: %s)", client_id, len(self._connections))
+            logger.debug("Client %s connected (total: %s)", client_id, len(self._connections))
 
     async def disconnect(self, client_id: str) -> None:
         """
@@ -67,7 +67,7 @@ class WebSocketConnectionManager:
         async with self._lock:
             if client_id in self._connections:
                 del self._connections[client_id]
-                logger.info(
+                logger.debug(
                     "Client %s disconnected (remaining: %s)", client_id, len(self._connections)
                 )
 
@@ -99,7 +99,7 @@ class WebSocketConnectionManager:
             # 清理死连接
             for client_id in dead_clients:
                 del self._connections[client_id]
-                logger.info("Removed dead client %s", client_id)
+                logger.debug("Removed dead client %s", client_id)
 
     async def send_buffered_logs(self, client_id: str) -> None:
         """
@@ -124,7 +124,7 @@ class WebSocketConnectionManager:
                     break
 
             if sent_count > 0:
-                logger.info("Sent %s buffered logs to client %s", sent_count, client_id)
+                logger.debug("Sent %s buffered logs to client %s", sent_count, client_id)
 
     async def disconnect_all(self) -> None:
         """断开所有客户端连接（shutdown 时调用）"""

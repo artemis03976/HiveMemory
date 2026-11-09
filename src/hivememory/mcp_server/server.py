@@ -401,7 +401,7 @@ def _failed(
         headers,
         started,
         f"error={payload.error}",
-        level=logging.ERROR if status >= 500 else logging.INFO,
+        level=logging.ERROR if status >= 500 else logging.WARNING,
         exc_info=error if status >= 500 else None,
     )
     return CallToolResult(
@@ -416,13 +416,15 @@ def _log_call(
     started: float,
     outcome: str,
     *,
-    level: int = logging.INFO,
+    level: int = logging.DEBUG,
     exc_info: Exception | None = None,
 ) -> None:
     """每次工具调用一行：工具、声明的 principal 与 Agent、结果与耗时。
 
-    不记录查询、记忆正文与凭据；principal 与 Agent 是请求中的声明，按 ``%r``
-    记录，使请求方提供的文本保持在一行。
+    成功的调用在 debug 级别记录，经过由操作入口的 ``actor.operation`` 事件记录；失败在
+    warning 或 error 级别记录，认证在操作之前被拒绝时这一行是唯一的记录。不记录查询、
+    记忆正文与凭据；principal 与 Agent 是请求中的声明，按 ``%r`` 记录，使请求方提供的
+    文本保持在一行。
     """
     logger.log(
         level,

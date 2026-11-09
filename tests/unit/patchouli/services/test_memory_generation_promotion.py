@@ -319,6 +319,7 @@ async def test_generation_gating_skips_promotion_for_touch() -> None:
         interaction_input=SimpleNamespace(asset_bindings=(binding,)),
         request=SimpleNamespace(context=GenerationContext()),
         source=MemoryGenerationSource.SETTLE,
+        topic_id="topic-1",
         # promotion 之后的结果收缩路径需要的占位坐标（TOUCH 无 pending）。
         intent_id=None,
         pending_alias=None,

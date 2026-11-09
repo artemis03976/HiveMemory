@@ -214,7 +214,7 @@ class ActorMemoryService:
             raise IntentDispatchUnknownError(details=details) from error
         if status is MemoryGenerationAdmissionStatus.REJECTED:
             # 拒绝原因由生成侧接纳处记录，这里只关联到登记句柄。
-            logger.info(
+            logger.debug(
                 "Intent dispatch rejected by generation admission: "
                 "intent_id=%s, pending_alias=%s, detail=%s",
                 pending.intent_id,

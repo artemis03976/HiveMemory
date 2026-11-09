@@ -108,7 +108,7 @@ class PerceptionFamiliar:
         if self._engine is None:  # 感知关闭：无任何存储副作用
             return target_topic_id
 
-        logger.info(
+        logger.debug(
             "PerceptionFamiliar 应用交互载荷: interaction_id=%s target_topic_id=%s",
             interaction_id,
             target_topic_id,
@@ -355,7 +355,7 @@ class PerceptionFamiliar:
         for belong_to, topic_id in self._working_set.list_idle_candidates(
             self._idle_timeout_seconds
         ):
-            logger.info("检测到空闲话题: topic_id=%s", topic_id)
+            logger.debug("检测到空闲话题: topic_id=%s", topic_id)
             try:
                 completed, _ = await self._settle_topic(
                     belong_to,

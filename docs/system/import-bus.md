@@ -268,7 +268,7 @@ ActorAuthenticationGateway.close      新的导入请求以 503 拒绝
 
 事件发布失败不改变导入结果，事件也不能替代 HTTP 响应决定业务成功（[路由与事件](../contracts/routes-and-events.md)）。
 
-写入时确定话题本身不发出 `import.turn.*`，只记录一行日志：来源、`interaction_id`、确定的话题与是否新建，不记录正文。它在 MCP 工具调用的 trace 中执行，引起的 Gateway 路由与新建话题的事件归入那一次工具调用（[MCP 记忆访问](../contracts/mcp.md#7-观测)）。
+写入时确定话题本身不发出 `import.turn.*`，只在 debug 级别记录一行日志：来源、`interaction_id`、确定的话题与是否新建，不记录正文；写入落在哪个话题由这次写入的 `memory.task.*` 给出（`topic_id` 与 `pending_alias`）。它在 MCP 工具调用的 trace 中执行，引起的 Gateway 路由与新建话题的事件归入那一次工具调用（[MCP 记忆访问](../contracts/mcp.md#7-观测)）。
 
 ## 7. 配置
 

@@ -131,7 +131,7 @@ async def log_requests(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     elapsed_ms = (time.time() - start) * 1000
-    logger.info(
+    logger.debug(
         "%s %s → %s (%.0fms)", request.method, request.url.path, response.status_code, elapsed_ms
     )
     return response

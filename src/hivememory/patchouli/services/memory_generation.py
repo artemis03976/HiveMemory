@@ -301,7 +301,7 @@ class MemoryGenerationFamiliar:
         )
         if not changed_fields:
             # 实际内容相同的重复更新不创建新版本。
-            logger.info("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
+            logger.debug("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
             return atom
         # 提交边界分配内容时间/版本/衰减基准/置信度（UPDATE 时置信度重置为 1.0）。
         atom.meta.version += 1
@@ -385,7 +385,12 @@ class MemoryGenerationFamiliar:
         )
 
         memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
-        logger.info("提取出 %d 条记忆", len(memories))
+        logger.info(
+            "提取出 %d 条记忆: topic_id=%s, intent_id=%s",
+            len(memories),
+            spec.topic_id,
+            spec.intent_id,
+        )
 
         # Step 2/3：按 outcome 依次完成提交字段分配、artifact 挂载与持久化。
         for outcome in outcomes:
@@ -623,7 +628,7 @@ class MemoryGenerationFamiliar:
                 },
             )
             if patched is None:
-                logger.warning("TOUCH 目标记忆已不存在，跳过访问统计: %s", atom.id)
+                logger.warning("TOUCH 目标记忆已不存在，跳过访问统计: memory_id=%s", atom.id)
                 return
             return
 

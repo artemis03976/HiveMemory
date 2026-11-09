@@ -185,7 +185,7 @@ class DynamicReinforcementEngine:
         )
         if self.config.enable_event_history:
             self._add_to_history(result)
-        logger.info(
+        logger.debug(
             "Reinforcement event committed: memory_id=%s event=%s vitality=%.1f->%.1f confidence=%.2f->%.2f",
             memory.id,
             event.event_type.value,
@@ -258,7 +258,7 @@ class DynamicReinforcementEngine:
     def clear_history(self) -> None:
         """清空事件历史 (用于测试或维护)"""
         self._event_history.clear()
-        logger.info("Event history cleared")
+        logger.debug("Event history cleared")
 
     def get_stats(self) -> dict[str, Any]:
         """

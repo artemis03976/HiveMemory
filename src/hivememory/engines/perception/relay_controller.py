@@ -232,11 +232,11 @@ class LLMRelayController(BaseRelayController):
                 completion = await self.summary_llm.complete(messages, self._llm_params)
         except (TimeoutError, ModelProviderError) as error:
             # TimeoutError 来自上面的时限：超过 summary_timeout_seconds 未返回。
-            logger.error("LLM 摘要生成失败，回退到简单摘要: %r", error)
+            logger.warning("LLM 摘要生成失败，回退到简单摘要: %r", error)
             return await SimpleRelayController().generate_summary(blocks, previous_summary)
 
         summary = completion.text
-        logger.info("LLM 摘要生成成功，长度: %s 字符", len(summary))
+        logger.debug("LLM 摘要生成成功，长度: %s 字符", len(summary))
         return summary
 
 

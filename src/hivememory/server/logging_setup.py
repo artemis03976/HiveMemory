@@ -24,7 +24,8 @@ def configure_logging(config: LoggingConfig) -> None:
     兜底 handler 继续向 stderr 打印警告。
 
     uvicorn 的服务日志（启动、关闭与 ASGI 异常）与 ``warnings`` 的警告也交给根 logger，
-    和应用日志同一格式、同一去处；每个请求已由请求日志中间件记录，uvicorn 的访问日志关闭。
+    和应用日志同一格式、同一去处；每个请求已由请求日志中间件在 debug 级别记录，uvicorn 的
+    访问日志关闭。MCP SDK 的 logger 只输出警告及以上。
 
     运行时事件的记录按 ``event_file_path`` 单独设置，见 :func:`_configure_event_record`。
     """
@@ -59,6 +60,8 @@ def configure_logging(config: LoggingConfig) -> None:
     uvicorn_logger.propagate = True
     logging.getLogger("uvicorn.access").disabled = True
     logging.captureWarnings(True)
+    # MCP SDK 以无状态方式处理每个请求，每次都在 INFO 级别记录会话结束；只保留它的警告与错误。
+    logging.getLogger("mcp").setLevel(logging.WARNING)
 
     if config.websocket_enabled:
         level = min(level, logging.getLevelNamesMapping()[config.websocket_level])
