@@ -7,11 +7,22 @@
   （请求记录、标题、文件快照等），只读取前两类；``isSidechain``（子代理）、
   ``isMeta``（命令说明等元条目）与 ``isCompactSummary``（压缩摘要）的条目跳过，
   ``system`` 条目（压缩边界、API 错误等）跳过。
-- 一轮从一条由人发出的用户消息开始：``user`` 条目，``turnOrigin`` 为
-  ``human``，内容不是工具结果。没有该字段的文本用户条目是 Claude Code 注入的
-  内容（技能说明、中断标记等），其他取值是后台任务通知等，都不开启新轮。
-  轮次标识取这条消息的 ``uuid``，外部会话标识取它的 ``sessionId``（缺失时取
-  会话记录文件名，Claude Code 以会话标识命名会话记录）。
+- 一轮从一条开启模型运行的用户条目开始，``turnOrigin`` 标明是谁开启的：
+  ``human`` 是由人发出的消息（内容不是工具结果，也不是中断标记）；
+  ``task_notification``（后台命令完成、Monitor 事件）、``peer``（后台子 Agent
+  交回报告或其他会话发来的消息，条目标为 ``isMeta``）与 ``sdk``（宿主注入的
+  消息：派生会话的第一条交接说明，以及之后的宿主事件）是 agent 空闲时把它
+  唤醒的消息，唤醒之后的工作同样是一轮。agent 正在工作时插入的同类消息不带
+  ``turnOrigin``（只有 ``origin``），并入进行中的一轮；没有该字段的其他文本
+  用户条目是 Claude Code 注入的内容（技能说明、中断标记等），都不开启新轮。
+  轮次标识取开启它的条目的 ``uuid``，外部会话标识取它的 ``sessionId``（缺失时
+  取会话记录文件名，Claude Code 以会话标识命名会话记录）。
+- 用户消息：由人发出的消息取正文；派生会话的第一条交接说明（``sdk`` 条目，
+  没有 ``parentUuid``）去掉 ``<system-reminder>`` 之后作为用户消息，它就是这个
+  会话要做的事；其他唤醒没有用户消息。子 Agent 交回的报告（``peer``，不论
+  是否开启新轮）在出现位置写为子 Agent 消息事件，正文取 ``origin`` 中的报告
+  原文；它不并入用户消息，因为话题路由读取用户消息全文，而报告可能很长。
+  后台通知与宿主事件只是状态提示，不读取。
 - Claude Code 在用户中断时写入 ``[Request interrupted by user...]`` 文本的用户
   条目，读到即视为该轮已被中断。
 - 助手条目的内容块：``text`` → 助手消息，``thinking`` → 思考（没有正文的跳过），
@@ -62,6 +73,10 @@ HARNESS = Harness(
 )
 
 _INTERRUPT_MARKER = re.compile(r"^\[Request interrupted by user[^\]]*\]$")
+_SYSTEM_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+
+# 在 agent 空闲时开启一次模型运行、但不是由人发出的用户条目的 ``turnOrigin``。
+_WAKE_ORIGINS = frozenset({"task_notification", "peer", "sdk"})
 _SYNTHETIC_MODEL = "<synthetic>"
 
 # 与 .claude-plugin/plugin.json 的 name 和 .mcp.json 的 server 名保持一致。
@@ -127,15 +142,16 @@ class ClaudeCodeReader:
         turns: list[TranscriptTurn] = []
         current: _TurnBuilder | None = None
         for line_start, line_end, entry in read_entries(path, offset):
-            if _is_human_prompt(entry):
+            if _opens_turn(entry):
                 if current is not None:
                     turns.append(current.build(closed_by_next_turn=True))
                 current = _TurnBuilder(
                     turn_id=str(entry["uuid"]),
                     conversation_id=str(entry.get("sessionId") or Path(path).stem),
                     start_offset=line_start,
-                    user_message=_prompt_text(entry),
+                    user_message=_opening_message(entry),
                 )
+                _add_peer_message(current, entry)
             elif current is not None:
                 _apply_entry(current, entry)
             # 第一轮之前的条目属于游标之前、已经提交的轮次。
@@ -166,7 +182,7 @@ class ClaudeCodeReader:
             entry = json.loads(line.decode("utf-8"))
         except (UnicodeDecodeError, ValueError):
             return None
-        if isinstance(entry, dict) and _is_human_prompt(entry):
+        if isinstance(entry, dict) and _opens_turn(entry):
             return str(entry["uuid"])
         return None
 
@@ -175,14 +191,14 @@ class ClaudeCodeReader:
         return complete_size(path)
 
     def last_turn_id(self, path: str, offset: int) -> str | None:
-        """``offset`` 之后最后一条由人发出的消息所开启的轮次；hook 据此写结束记录。
+        """``offset`` 之后最后开启的一轮；hook 据此写结束记录。
 
         hook 同步运行，HiveMemory 长时间不可用时游标之后可能积压大量条目，
         因此只解析可能是用户条目的行。
         """
         turn_id: str | None = None
         for _, _, entry in read_entries(path, offset, prefilter=b'"user"'):
-            if _is_human_prompt(entry):
+            if _opens_turn(entry):
                 turn_id = str(entry["uuid"])
         return turn_id
 
@@ -206,15 +222,17 @@ def _skipped(entry: dict[str, Any]) -> bool:
     return bool(entry.get("isSidechain") or entry.get("isMeta") or entry.get("isCompactSummary"))
 
 
-def _is_human_prompt(entry: dict[str, Any]) -> bool:
-    if entry.get("type") != "user" or _skipped(entry) or not entry.get("uuid"):
+def _opens_turn(entry: dict[str, Any]) -> bool:
+    """开启一轮的用户条目：由人发出的消息，或在 agent 空闲时唤醒它的消息。"""
+    if entry.get("type") != "user" or entry.get("isSidechain") or not entry.get("uuid"):
         return False
-    if entry.get("turnOrigin") != "human":
-        return False
-    blocks = [block for block in _content_blocks(entry) if isinstance(block, dict)]
+    blocks = _blocks(entry)
     if any(block.get("type") == "tool_result" for block in blocks):
         return False
-    if _interrupt_marker(blocks):
+    origin = entry.get("turnOrigin")
+    if origin in _WAKE_ORIGINS:
+        return True
+    if origin != "human" or _skipped(entry) or _interrupt_marker(blocks):
         return False
     return any(
         (block.get("type") == "text" and str(block.get("text", "")).strip())
@@ -230,6 +248,30 @@ def _interrupt_marker(blocks: list[dict[str, Any]]) -> bool:
     )
 
 
+def _blocks(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    return [block for block in _content_blocks(entry) if isinstance(block, dict)]
+
+
+def _opening_message(entry: dict[str, Any]) -> str:
+    """开启一轮的条目给出的用户消息；唤醒没有用户消息，派生会话的交接说明除外。"""
+    origin = entry.get("turnOrigin")
+    if origin == "human":
+        return _prompt_text(entry)
+    if origin == "sdk" and entry.get("parentUuid") is None:
+        return _SYSTEM_REMINDER.sub("", _prompt_text(entry)).strip()
+    return ""
+
+
+def _add_peer_message(turn: _TurnBuilder, entry: dict[str, Any]) -> None:
+    """子 Agent 交回的报告或其他会话发来的消息，写为子 Agent 消息事件。"""
+    origin = entry.get("origin")
+    if not isinstance(origin, dict) or origin.get("kind") != "peer":
+        return
+    report = origin.get("handbackReportText") or origin.get("body") or _prompt_text(entry)
+    if isinstance(report, str) and report.strip():
+        turn.add_event("subagent_message", report)
+
+
 def _prompt_text(entry: dict[str, Any]) -> str:
     parts = []
     for block in _content_blocks(entry):
@@ -243,6 +285,8 @@ def _prompt_text(entry: dict[str, Any]) -> str:
 
 
 def _apply_entry(turn: _TurnBuilder, entry: dict[str, Any]) -> None:
+    if entry.get("type") == "user" and not entry.get("isSidechain"):
+        _add_peer_message(turn, entry)
     if _skipped(entry):
         return
     blocks = [block for block in _content_blocks(entry) if isinstance(block, dict)]

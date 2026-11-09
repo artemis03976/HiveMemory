@@ -424,6 +424,31 @@ def test_codex_session_first_seen_mid_turn_imports_that_turn_only(tmp_path):
     assert transport.turn_ids() == ["t2"]
 
 
+def test_work_woken_after_the_turn_was_submitted_is_imported_as_its_own_turn(tmp_path):
+    """上一轮在结束时已经提交、游标越过它之后，被后台通知唤醒的续作作为新的一轮提交。"""
+    log = _log(tmp_path)
+    log.turn("p1", question="跑一下全量测试", answer="测试在后台运行")
+    transport = FakeTransport()
+    sync, store = _harness(tmp_path, transport)
+    path = str(log.path)
+    sync.register(path)
+    store.record_end(path, "p1", "completed")
+    sync.sync(path)
+    log.prompt(
+        "notice", "<task-notification>完成</task-notification>", turnOrigin="task_notification"
+    )
+    log.assistant(text("全部通过"), message_id="m-notice")
+    store.record_end(path, "notice", "completed")
+
+    sync.sync(path)
+
+    assert transport.turn_ids() == ["p1", "notice"]
+    woken = transport.bodies[1]
+    assert woken["user_message"] == ""
+    assert woken["outcome"] == "completed"
+    assert woken["recent_turns"][-1]["external_turn_id"] == "p1"
+
+
 def test_recent_turns_come_from_confirmed_turns_before_the_cursor(tmp_path):
     """最近轮次取游标之前已确认的至多三轮，跨同步保持。"""
     log = _log(tmp_path)

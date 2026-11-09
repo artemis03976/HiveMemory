@@ -19,6 +19,7 @@ last_reviewed: 2026-11-08
 
 ## 版本之外
 
+- [Claude Code 唤醒后的续作导入](./claude-code-wake-turns.md)：2026-11-08，分支 fix/claude-code-wake-turns；[Import Bus](../../system/import-bus.md#83-轮次的切分与映射)、[Gateway 分析](../../gateway/analysis.md#3-topic-router只做选择)
 - [dsh 插件并入统一插件目录](./dsh-unified-plugin-dir.md)：2026-11-08，PR #202；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
 - [pi 插件接入](./pi-plugin-integration.md)：2026-11-08，PR #201；[Import Bus](../../system/import-bus.md#11-pi-扩展)、[接入 pi](../../help/pi-plugin.md)
 - [Codex 插件接入](./codex-plugin-integration.md)：2026-11-08，PR #199；[Import Bus](../../system/import-bus.md#10-codex-插件)、[接入 Codex](../../help/codex-plugin.md)

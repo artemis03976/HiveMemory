@@ -1,6 +1,8 @@
 """Claude Code 会话记录读取器的单元测试（合成会话记录，不读取真实对话）。
 
-保护的契约：一轮从 ``turnOrigin`` 为 human 的消息开始；助手文本、思考、工具
+保护的契约：一轮从 ``turnOrigin`` 为 human 的消息，或在 agent 空闲时唤醒它的
+后台通知、子 Agent 交回与宿主消息开始，唤醒没有用户消息（派生会话的交接说明
+除外），子 Agent 交回的报告写为子 Agent 消息事件；助手文本、思考、工具
 调用与工具结果映射为导入事件；本插件自身的 MCP 记忆工具归一化为 SEARCH、READ、
 WRITE、UPDATE 能力调用，不带调用名与 hook 补上的轮次信息；插件清单、hooks 的
 matcher 与连接器常量一致；
@@ -281,16 +283,105 @@ def test_interrupt_marker_ends_turn_without_opening_another(tmp_path):
     assert turn.closed_by_next_turn is False
 
 
-def test_only_human_origin_prompts_open_turns(tmp_path):
-    """只有 ``turnOrigin`` 为 human 的消息开启新轮：后台任务通知与注入的内容都不开启也不关闭。"""
+def test_wakes_open_turns_but_injected_content_does_not(tmp_path):
+    """后台通知、子 Agent 交回与宿主消息开启新轮，轮次标识取它的 uuid；注入的内容不开启。"""
     log = TranscriptWriter(tmp_path / "s.jsonl")
-    log.prompt("p1", "问题")
-    log.prompt("notice", "后台任务完成通知", turnOrigin="task_notification")
+    log.turn("p1")
     log.user_text("技能说明正文", sourceToolUseID="toolu-skill", turnCompanion=True)
+    log.prompt(
+        "notice", "<task-notification>完成</task-notification>", turnOrigin="task_notification"
+    )
+    log.assistant(text("测试通过了"), message_id="m-notice")
+    log.prompt(
+        "handback",
+        "Another Claude session sent a message: ...",
+        turnOrigin="peer",
+        isMeta=True,
+        origin={"kind": "peer", "handbackReportText": "调研报告正文", "body": "包装后的正文"},
+    )
+    log.assistant(text("收到报告"), message_id="m-handback")
+    log.prompt(
+        "event", "<ci-monitor-event>检查失败</ci-monitor-event>", turnOrigin="sdk", parentUuid="x"
+    )
+    log.assistant(text("去修 CI"), message_id="m-event")
+
+    first, notice, handback, event = reader.read(str(log.path), 0)
+
+    assert [first.turn_id, notice.turn_id, handback.turn_id, event.turn_id] == [
+        "p1",
+        "notice",
+        "handback",
+        "event",
+    ]
+    assert first.closed_by_next_turn is True
+    assert [notice.user_message, handback.user_message, event.user_message] == ["", "", ""]
+    assert notice.events == [{"kind": "assistant_message", "sequence": 1, "content": "测试通过了"}]
+    assert handback.events[0] == {
+        "kind": "subagent_message",
+        "sequence": 1,
+        "content": "调研报告正文",
+    }
+    assert event.events == [{"kind": "assistant_message", "sequence": 1, "content": "去修 CI"}]
+
+
+def test_spawned_session_brief_is_the_first_user_message(tmp_path):
+    """派生会话的第一条交接说明（没有 parentUuid）作为用户消息，去掉 system-reminder。"""
+    log = TranscriptWriter(tmp_path / "s.jsonl")
+    log.raw(type="queue-operation", operation="enqueue")
+    log.prompt(
+        "brief",
+        "<system-reminder>\nLinked sessions now: ai (idle).\n</system-reminder>\n\n修好登录页的报错",
+        turnOrigin="sdk",
+    )
+    log.assistant(text("已修复"), message_id="m1")
 
     [turn] = reader.read(str(log.path), 0)
 
-    assert (turn.turn_id, turn.closed_by_next_turn) == ("p1", False)
+    assert (turn.turn_id, turn.user_message) == ("brief", "修好登录页的报错")
+
+
+def test_messages_arriving_mid_run_join_the_running_turn(tmp_path):
+    """agent 工作时插入的消息不带 turnOrigin：并入进行中的一轮，子 Agent 的报告写为事件。"""
+    log = TranscriptWriter(tmp_path / "s.jsonl")
+    log.prompt("p1", "并行调研三个仓库")
+    log.assistant(tool_use("toolu-1", "Bash", {"command": "sleep 1"}), message_id="m1")
+    log.user_text(
+        "<task-notification>子任务完成</task-notification>",
+        origin={"kind": "task-notification"},
+    )
+    log.user_text(
+        "Another Claude session sent a message: ...",
+        isMeta=True,
+        origin={"kind": "peer", "body": "第一个仓库的结论"},
+    )
+    log.tool_result("toolu-1", "")
+    log.assistant(text("汇总"), message_id="m2")
+
+    [turn] = reader.read(str(log.path), 0)
+
+    assert turn.turn_id == "p1"
+    assert [(event["kind"], event["content"]) for event in turn.events] == [
+        ("tool_call", ""),
+        ("subagent_message", "第一个仓库的结论"),
+        ("assistant_message", "汇总"),
+    ]
+
+
+def test_work_after_a_wake_beyond_the_cursor_forms_its_own_turn(tmp_path):
+    """上一轮提交、游标越过它之后被唤醒的续作，从游标读取时自成一轮。"""
+    log = TranscriptWriter(tmp_path / "s.jsonl")
+    log.turn("p1")
+    cursor = log.path.stat().st_size
+    log.prompt(
+        "notice", "<task-notification>完成</task-notification>", turnOrigin="task_notification"
+    )
+    log.assistant(text("继续处理结果"), message_id="m-notice")
+
+    [turn] = reader.read(str(log.path), cursor)
+
+    assert (turn.turn_id, turn.start_offset) == ("notice", cursor)
+    assert reader.turn_id_at(str(log.path), cursor) == "notice"
+    assert reader.last_turn_id(str(log.path), cursor) == "notice"
 
 
 def test_prompt_without_session_id_falls_back_to_transcript_name(tmp_path):
@@ -355,7 +446,7 @@ def test_reading_from_cursor_ignores_entries_of_earlier_turn(tmp_path):
 
 
 def test_last_turn_id_and_start_time(tmp_path):
-    """hook 以最后一条由人发出的消息定位刚结束的一轮；开始时间取第一个条目。"""
+    """hook 以最后开启的一轮定位刚结束的一轮；开始时间取第一个条目。"""
     log = TranscriptWriter(tmp_path / "s.jsonl")
     log.turn("p1")
     log.turn("p2")

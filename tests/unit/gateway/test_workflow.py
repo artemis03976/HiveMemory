@@ -324,6 +324,32 @@ async def test_topic_routing_failure_continues_previous_topic_while_it_is_a_cand
     assert result.decision.new_topic_title is None
 
 
+@pytest.mark.parametrize(
+    ("previous_topic_id", "expected_target"),
+    [("topic-1", "topic-1"), ("topic-evicted", "NEW_TOPIC"), (None, "NEW_TOPIC")],
+    ids=["previous-still-a-candidate", "previous-no-longer-a-candidate", "previous-unknown"],
+)
+@pytest.mark.asyncio
+async def test_empty_message_continues_previous_topic_without_asking_the_router(
+    previous_topic_id: str | None, expected_target: str
+) -> None:
+    """用户消息为空的一轮不交给模型：续接上一轮仍在候选中的话题，否则新建无标题话题。"""
+    router = _Router()
+    workflow = _make_workflow(provider=_Provider(), router=router, resolver=_Resolver())
+
+    result = await workflow.run(
+        "  ",
+        identity_scope=make_identity_scope(user_id="u1"),
+        ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
+        session_turns=(GatewaySessionTurn(user_message="跑测试", topic_id=previous_topic_id),),
+    )
+
+    assert result.kind == "decision"
+    assert result.decision.target_topic_id == expected_target
+    assert result.decision.new_topic_title is None
+    router.route.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_step_fallback_only_covers_invoke_failures() -> None:
     workflow = _make_workflow()

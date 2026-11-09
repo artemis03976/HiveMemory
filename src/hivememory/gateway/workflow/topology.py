@@ -104,6 +104,11 @@ def build_gateway_workflow(
     async def invoke_topic_router(
         selected: TopicRoutingInput,
     ) -> TopicRoutingResult:
+        if not selected.raw_message.strip():
+            # 用户消息为空的一轮（外部 harness 中被后台通知、子 Agent 交回等唤醒的
+            # 续作）没有可供模型判断的内容，交给模型时它多半会新建话题；这样的续作
+            # 几乎总在处理上一轮发起的工作，因此直接续接上一轮的话题。
+            return _previous_topic_or_new(selected)
         if topic_router is None:
             raise RecoverableGatewayError("Topic Router 未装配")
         try:
@@ -238,17 +243,22 @@ def _select_topic_routing_input(snapshot: GatewayStateSnapshot) -> TopicRoutingI
 def _continue_previous_topic(
     selected: TopicRoutingInput, _error: BaseException
 ) -> dict[str, object | None]:
-    """话题路由失败时续接上一轮所在的话题，没有可续接的话题才新建。
+    """话题路由失败时续接上一轮所在的话题，没有可续接的话题才新建。"""
+    return _project_topic_routing(_previous_topic_or_new(selected))
+
+
+def _previous_topic_or_new(selected: TopicRoutingInput) -> TopicRoutingResult:
+    """续接上一轮所在的话题，没有可续接的话题时新建，标题与摘要都为空。
 
     同一会话的相邻轮次大多仍在同一话题上；只有上一轮的话题仍在本次的
     候选话题中才续接，已被驱逐或结算的话题不会被续接。会话的第一轮、
-    上一轮所在的话题未知或候选话题读取失败时，按新话题兜底。
+    上一轮所在的话题未知或候选话题读取失败时新建。
     """
     previous = selected.session_turns[-1].topic_id if selected.session_turns else None
     candidate_ids = {snapshot.topic_id for snapshot in selected.topic_snapshots}
     if previous is not None and previous in candidate_ids:
-        return {"topic_id": previous, "new_topic_title": None, "new_topic_summary": None}
-    return {"topic_id": "NEW_TOPIC", "new_topic_title": None, "new_topic_summary": None}
+        return TopicRoutingResult(topic_id=previous)
+    return TopicRoutingResult()
 
 
 def _project_topic_routing(output: TopicRoutingResult) -> dict[str, object | None]:

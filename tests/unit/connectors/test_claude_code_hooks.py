@@ -80,6 +80,20 @@ def test_stop_events_record_the_last_turn_and_wake_its_sync(setup, event, outcom
     assert spawned == [["sync", "--transcript", str(log.path)]]
 
 
+def test_stop_after_a_wake_records_the_woken_turn(setup):
+    """后台通知唤醒 agent 续作，续作结束时的通知记的是唤醒开启的那一轮。"""
+    hook, store, log, _spawned = setup
+    log.turn("p1")
+    log.prompt(
+        "notice", "<task-notification>完成</task-notification>", turnOrigin="task_notification"
+    )
+    log.assistant(text("继续处理"), message_id="m-notice")
+
+    hook("Stop")
+
+    assert store.load(str(log.path)).end_records == {"notice": "completed"}
+
+
 def test_stop_without_an_unsubmitted_turn_is_ignored_and_logged(setup):
     """末尾一轮已按超时或会话结束提交、游标已越过它时，结束通知被忽略并写入日志。"""
     _hook, store, log, spawned = setup
@@ -248,6 +262,34 @@ def test_pre_tool_use_adds_the_turn_info_that_the_later_import_carries(tmp_path)
     assert (imported["external_turn_id"], len(bodies)) == ("p4", 5)
     assert [turn["external_turn_id"] for turn in imported["recent_turns"]] == ["p1", "p2", "p3"]
     assert updated["turn"] == {field: imported[field] for field in _TURN_INFO_FIELDS}
+
+
+def test_pre_tool_use_in_work_after_a_wake_targets_the_woken_turn(tmp_path):
+    """续作中的写入补上的是唤醒开启的那一轮，用户消息为空，上一轮作为最近上文。"""
+    store = StateStore(tmp_path / "state")
+    log = TranscriptWriter(tmp_path / "session.jsonl")
+    log.turn("p1", question="跑一下测试", answer="在后台运行")
+    log.prompt(
+        "notice", "<task-notification>完成</task-notification>", turnOrigin="task_notification"
+    )
+    tool_input = {"content": "测试全部通过"}
+    log.assistant(
+        tool_use("toolu-1", plugin_tool_name("memory_write"), tool_input), message_id="m-notice"
+    )
+
+    output = pre_tool_use(
+        {
+            "transcript_path": str(log.path),
+            "tool_name": plugin_tool_name("memory_write"),
+            "tool_input": tool_input,
+        },
+        reader=ClaudeCodeReader(),
+        store=store,
+    )
+
+    turn = output["hookSpecificOutput"]["updatedInput"]["turn"]
+    assert (turn["external_turn_id"], turn["user_message"]) == ("notice", "")
+    assert turn["recent_turns"][-1]["external_turn_id"] == "p1"
 
 
 @pytest.mark.parametrize(
