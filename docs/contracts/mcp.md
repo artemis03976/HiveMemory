@@ -29,7 +29,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # MCP 记忆访问
@@ -80,7 +80,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 - **轮次信息 `turn`**：写入与更新带一个可选参数 `turn`，类型即 Import Bus 的在途轮次模型（`source`、`external_conversation_id`、`external_turn_id`、`user_message`、`recent_turns`，校验规则与导入请求的同名字段相同）。它由连接器的 `PreToolUse` hook 在调用前填写（第 6 节），参数说明写明不要由模型自行填写。SDK 的工具参数模型会丢弃输入 schema 之外的键，因此它声明在 schema 中，而不是作为隐藏参数。操作请求只携带操作参数，不携带 `turn` 或话题。
 - **编译**：检索结果与 Alice 的 MTP SEARCH 使用同一检索上下文信封与配置的检索策略，但关闭信封的头尾（编译选项 `include_header_footer=False`）：头尾是提示词中预检索上下文的引导，不适用于工具结果。读取以 `READ_RESULT` 目标逐项编译，哪些解析结果可以交付与 MTP READ 共用 `engines.memory_compiler.readable_source`；`memory_read` 用于取得检索结果中摘要之外的全文，`READ_RESULT` 交付正式原子的全文。编译文本中指引下一步操作的句子只写能力，不写任何协议的指令或工具名（[记忆编译](../patchouli/memory-compiler.md)）。
 - **在途句柄**：写入与更新返回的 pending alias 经 `memory_read` 回读时，交付登记中的状态；生成链结算后，读取重定向到正式记忆（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。
-- **说明文字**：工具说明与 MCP 服务说明（instructions）写明何时检索（回答涉及项目历史、此前的决定或用户偏好的问题之前）、结果是带日期的历史证据（引用前先核实）、仓库中的代码与文档以及 harness 自己的指令与记忆文件优先于检索结果、检索得到的 alias 可以用 `memory_read` 读取全文；何时写入（用户要求记住的内容、新做出的决定、偏好与经验，对话本身会自动归档，不需要复述写入）与更新（已有记忆过时或有误，以检索得到的正式 alias 为对象，不能是 `draft_`、`rev_` 句柄）；以及写入与更新返回的是句柄。
+- **说明文字**：工具说明与 MCP 服务说明（instructions）写明何时检索（回答涉及项目历史、此前的决定或用户偏好的问题之前）、结果是带日期的历史证据（引用前先核实）、仓库中的代码与文档以及 harness 自己的指令与记忆文件优先于检索结果、检索得到的 alias 可以用 `memory_read` 读取全文；何时写入（用户要求记住的事、做出的决定及理由、验证过的结论、偏好与经验，在成立时写入，一次写一件事，只写结果、不把对话或工作的过程复述成记忆）与更新（已有记忆过时或有误，以检索得到的正式 alias 为对象，不能是 `draft_`、`rev_` 句柄）；以及写入与更新返回的是句柄。写入的判据不区分以聊天为主还是长时间执行任务：同一个会话两种情形都可能出现，服务对所有调用方给出同一份说明。主动写入与被动提取写出相似的内容由生成处理（[生成](../patchouli/generation.md#42-本话题的主动写入)第 4.2 节），说明文字因此不以对话会归档作为少写的理由，也不要求 agent 为避免重复而少写。
 - **标注**：检索与读取标注为只读（MCP 的 `readOnlyHint`），检索会记录命中、读取会记录引用，但都不改变记忆内容；写入不是只读、也不破坏已有内容（`destructiveHint=false`）；更新改写一条已有记忆的当前版本，标注为破坏性。
 
 ## 4. 确定话题、操作入口与授权
