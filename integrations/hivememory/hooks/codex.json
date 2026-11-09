@@ -1,0 +1,61 @@
+{
+  "description": "会话开始、轮次结束、中断与会话结束时登记会话记录并唤醒后台同步，网络提交在脱离 Codex 的进程中完成；写入与更新记忆前为工具参数补上当前一轮的信息。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__hivememory__(memory_write|memory_update)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook PreToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook SessionStart",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook Stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook Interrupt",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook SessionEnd",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

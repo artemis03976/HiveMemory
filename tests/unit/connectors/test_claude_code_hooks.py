@@ -30,6 +30,7 @@ from tests.unit.connectors.transcripts import TranscriptWriter, text, tool_use
 def setup(tmp_path):
     config = ConnectorConfig(
         url="http://hivememory.test",
+        principal_id="harness:claude-code",
         agent_id="claude_code",
         user_id=None,
         state_dir=tmp_path / "state",
@@ -90,6 +91,7 @@ def test_stop_without_an_unsubmitted_turn_is_ignored_and_logged(setup):
 
     config = ConnectorConfig(
         url="http://hivememory.test",
+        principal_id="harness:claude-code",
         agent_id="claude_code",
         user_id=None,
         state_dir=store.state_dir,
@@ -155,7 +157,7 @@ def test_hook_entry_exits_zero_and_stays_silent_on_bad_input(tmp_path, monkeypat
     monkeypatch.setenv("HIVEMEMORY_CONNECTOR_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setattr("sys.stdin", _hook_stdin("not json"))
 
-    assert main(["hook", event]) == 0
+    assert main(["claude-code", "hook", event]) == 0
     captured = capsys.readouterr()
     assert (captured.out, captured.err) == ("", "")
     assert "connector failed" in (tmp_path / "state" / "connector.log").read_text(encoding="utf-8")
@@ -172,9 +174,9 @@ def test_hook_entry_registers_transcript_from_stdin(tmp_path, monkeypatch):
         "connector.__main__._spawn_detached", lambda command, config: spawned.append(command)
     )
 
-    assert main(["hook", "Stop"]) == 0
+    assert main(["claude-code", "hook", "Stop"]) == 0
     assert StateStore(tmp_path / "state").registered_transcripts() == [str(log.path)]
-    assert spawned == [["sync", "--transcript", str(log.path)]]
+    assert spawned == [["claude-code", "sync", "--transcript", str(log.path)]]
 
 
 _TURN_INFO_FIELDS = (
@@ -194,6 +196,7 @@ def test_pre_tool_use_adds_the_turn_info_that_the_later_import_carries(tmp_path)
     """
     config = ConnectorConfig(
         url="http://hivememory.test",
+        principal_id="harness:claude-code",
         agent_id="claude_code",
         user_id=None,
         state_dir=tmp_path / "state",
@@ -293,7 +296,7 @@ def test_pre_tool_use_entry_writes_only_the_output_without_registering(
         "connector.__main__._spawn_detached", lambda command, config: spawned.append(command)
     )
 
-    assert main(["hook", "PreToolUse"]) == 0
+    assert main(["claude-code", "hook", "PreToolUse"]) == 0
     updated = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["updatedInput"]
     assert {key: updated[key] for key in tool_input} == tool_input
     assert updated["turn"]["external_turn_id"] == "p1"

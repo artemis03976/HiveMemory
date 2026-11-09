@@ -5,7 +5,7 @@
 4xx 与连续三次服务器内部错误写入拒绝记录并前进；结局先于提交写入、重发
 沿用原结局；首次见到的旧会话不回填；游标失效时从最后一个已确认的轮次之后
 继续，找不到该轮时停止处理并写入拒绝记录；并发读改写不损坏状态；凭据只取
-Claude Code 自己的环境变量。
+本 harness 自己的环境变量；会话记录写明结局的轮次按该结局直接提交。
 """
 
 from __future__ import annotations
@@ -17,7 +17,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from connector.claude_code.reader import HARNESS as CLAUDE_CODE
 from connector.claude_code.reader import ClaudeCodeReader
+from connector.codex.reader import HARNESS as CODEX
+from connector.codex.reader import CodexReader
 from connector.core.client import ImportClient
 from connector.core.config import ConnectorConfig
 from connector.core.state import StateStore
@@ -29,6 +32,7 @@ from connector.core.sync import (
 )
 from connector.core.transcript import complete_size
 
+from tests.unit.connectors.codex_rollouts import RolloutWriter
 from tests.unit.connectors.transcripts import TranscriptWriter, text, tool_use
 
 STARTED_AT = 1792569600.0  # 合成会话记录第一个条目的时间
@@ -67,6 +71,7 @@ def _harness(
 ) -> tuple[TranscriptSync, StateStore]:
     config = ConnectorConfig(
         url="http://hivememory.test",
+        principal_id="harness:claude-code",
         agent_id="claude_code",
         user_id=user_id,
         state_dir=tmp_path / "state",
@@ -508,17 +513,41 @@ def test_request_carries_identity_claims_and_import_fields(tmp_path):
     }
 
 
-def test_config_reads_only_claude_code_token():
-    """凭据只取 Claude Code 自己的变量；同一环境里还有通用变量或别的 harness 的凭据时不取它们。"""
+@pytest.mark.parametrize(
+    ("harness", "token"), [(CLAUDE_CODE, "claude-code-token"), (CODEX, "codex-token")]
+)
+def test_config_reads_only_the_harness_own_token(harness, token):
+    """凭据只取本 harness 自己的变量；同一环境里还有通用变量或别的 harness 的凭据时不取它们。"""
     config = ConnectorConfig.from_env(
+        harness,
         {
             "HIVEMEMORY_TOKEN": "shared-token",
             "HIVEMEMORY_DSH_TOKEN": "dsh-token",
             "HIVEMEMORY_CLAUDE_CODE_TOKEN": "claude-code-token",
-        }
+            "HIVEMEMORY_CODEX_TOKEN": "codex-token",
+        },
     )
 
-    assert config.token == "claude-code-token"
+    assert config.token == token
+
+
+def test_turn_outcome_stated_by_the_transcript_is_submitted(tmp_path):
+    """会话记录写明结局的轮次按该结局提交：失败的一轮没有 hook 记录，也不等下一轮。"""
+    rollout = RolloutWriter(tmp_path)
+    rollout.turn("t1")
+    rollout.start("t2")
+    rollout.user("跑一下")
+    rollout.complete(error="stream disconnected")
+    transport = FakeTransport()
+    sync, _ = _harness(tmp_path, transport, reader=CodexReader())
+    sync.register(str(rollout.path))
+
+    sync.sync(str(rollout.path))
+
+    assert [(body["external_turn_id"], body["outcome"]) for body in transport.bodies] == [
+        ("t1", "completed"),
+        ("t2", "failed"),
+    ]
 
 
 def test_concurrent_updates_keep_state_consistent(tmp_path):
@@ -585,4 +614,39 @@ def test_request_body_satisfies_the_import_bus_contract(tmp_path):
         ("tool_call", None, "SEARCH", [], "success"),
         ("tool_call", None, "READ", ["fact_a"], "success"),
         ("assistant_message", None, None, [], None),
+    ]
+
+
+def test_codex_request_body_satisfies_the_import_bus_contract(tmp_path):
+    """Codex 会话记录构造的请求体（思考、命令、记忆工具调用、子 Agent 消息）通过服务端请求模型的校验。"""
+    from hivememory.server.models.import_bus import ImportTurnRequest
+
+    rollout = RolloutWriter(tmp_path)
+    rollout.turn("t0")
+    rollout.start("t1")
+    rollout.user("修一下测试")
+    rollout.reasoning("先跑测试")
+    rollout.command("call-1", ["pytest", "-q"], "1 failed", status="failed")
+    rollout.mcp("call-2", "memory_search", {"query": "测试约定"}, result="检索结果")
+    rollout.mcp("call-3", "memory_read", {"aliases": ["fact_a"]}, result="记忆正文")
+    rollout.mcp("call-4", "memory_update", {"alias": "fact_a", "instruction": "改", "turn": {}})
+    rollout.wait("call-5", "child-thread", "子 Agent 的结论")
+    rollout.agent("已修复")
+    rollout.complete()
+    transport = FakeTransport()
+    sync, _ = _harness(tmp_path, transport, reader=CodexReader())
+    sync.register(str(rollout.path))
+
+    sync.sync(str(rollout.path))
+
+    requests = [ImportTurnRequest.model_validate(body) for body in transport.bodies]
+    assert [request.external_turn_id for request in requests] == ["t0", "t1"]
+    assert [(event.kind, event.verb, event.tool_name) for event in requests[1].events] == [
+        ("thought", None, None),
+        ("tool_call", None, "exec_command"),
+        ("tool_call", "SEARCH", None),
+        ("tool_call", "READ", None),
+        ("tool_call", "UPDATE", None),
+        ("subagent_message", None, None),
+        ("assistant_message", None, None),
     ]
