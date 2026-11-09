@@ -1,4 +1,5 @@
 import { apiErrorMessage } from '@/services/apiError';
+import { identityHeaders } from '@/services/identity';
 import type { MemoryGenerationTask, MemoryTaskListResponse } from '@/types/memoryTask';
 import { MOCK_MEMORY_TASKS } from '@/constants/memoryTasks';
 import { isDebugMode } from '@/utils/debugMode';
@@ -14,7 +15,7 @@ function getMockMemoryTask(taskId: string): MemoryGenerationTask | null {
 
 export async function fetchMemoryTasks(): Promise<MemoryTaskListResponse> {
   try {
-    const response = await fetch(apiUrl('/api/v1/memory-tasks'));
+    const response = await fetch(apiUrl('/api/v1/memory-tasks'), { headers: identityHeaders() });
 
     if (!response.ok) {
       throw new Error(await apiErrorMessage(response, 'Failed to fetch memory tasks'));
@@ -32,7 +33,9 @@ export async function fetchMemoryTasks(): Promise<MemoryTaskListResponse> {
 
 export async function fetchMemoryTask(taskId: string): Promise<MemoryGenerationTask> {
   try {
-    const response = await fetch(apiUrl(`/api/v1/memory-tasks/${encodeURIComponent(taskId)}`));
+    const response = await fetch(apiUrl(`/api/v1/memory-tasks/${encodeURIComponent(taskId)}`), {
+      headers: identityHeaders(),
+    });
 
     if (!response.ok) {
       throw new Error(await apiErrorMessage(response, 'Failed to fetch memory task'));
@@ -53,6 +56,7 @@ export async function cancelMemoryTask(taskId: string): Promise<MemoryGeneration
   try {
     const response = await fetch(apiUrl(`/api/v1/memory-tasks/${encodeURIComponent(taskId)}/cancel`), {
       method: 'POST',
+      headers: identityHeaders(),
     });
 
     if (!response.ok) {

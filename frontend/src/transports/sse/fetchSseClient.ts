@@ -1,4 +1,4 @@
-import { apiErrorMessage } from '@/services/apiError';
+import { readApiError } from '@/services/apiError';
 import { SseStreamParser, type ParsedSseEvent } from './parseSse';
 
 export interface FetchSseClientOptions {
@@ -20,7 +20,7 @@ export class FetchSseClient {
       });
 
       if (!response.ok) {
-        throw new Error(await apiErrorMessage(response, '连接失败'));
+        throw await readApiError(response, '连接失败');
       }
 
       if (!response.body) {

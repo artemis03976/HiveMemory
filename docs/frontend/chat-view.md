@@ -19,7 +19,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # Chat 视图
@@ -51,7 +51,7 @@ OmniInput 在发送前组装：
 
 `@` 菜单和 Agent 胶囊只改变本轮使用的 Agent，输入中的 `@name` 会在选中后被移除，不作为文本 mention 发送。可选列表来自 Profile 列表接口；内置的 `omni_doll` 由后端代码提供、没有源记忆原子，不在接口结果中，前端把它固定放在列表首位，后端已有同名图纸时以后端为准（`hooks/useAgents.ts`）。Agent 管理页只展示后端真实存在的图纸。持久化的 Agent ID 若不再存在，前端回退到 `omni_doll`。
 
-请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 `process_id` 事件后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；stop 请求体只携带 `process_id`，身份选择仍来自统一请求头。后端把请求认证为 (user, `system`) 的工作 actor，对进程的 Workspace 执行 root 授权；授权拒绝与进程不存在都按 not found 处理。本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态。
+请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 `process_id` 事件后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；stop 请求体只携带 `process_id`，身份选择仍来自统一请求头。后端把请求认证为 (user, `system`) 的工作 actor，对进程的 Workspace 执行 root 授权；授权拒绝与进程不存在都按 not found 处理。本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态；停止被后端拒绝时恢复为 streaming，可以再次停止。
 
 ## 3. SSE 事件投影
 
@@ -125,6 +125,7 @@ Workspace Vision 有引用记忆与 Memory Runtime 两个标签；后端日志�
 
 - 只有后端事件可以把 MTP、子 Agent、task 或 run 标记为成功；
 - `done` 之前断流按失败或取消处理，不能把已有 token 当作完整终态；已收到 `finalizing` 时后端继续提交，提交结束后才写入会话；前端改为重新读取会话历史并提示“本轮已保存”，不回填输入，提交尚未结束时读到的历史可能还没有这一轮；
+- 开流之前被后端拒绝时，回复显示后端给出的原因，不显示为系统错误；只有连不上后端或流中断才是系统错误（[状态与传输](./state-and-transports.md#31-http-错误解析)）；
 - 新一轮开始时清除旧引用，回复 Topic 标注来自 done 或服务端历史；
 - 取消是请求—确认过程，UI 必须区分 cancelling 与 cancelled；
 - 机器动作保留在有序结构块中，不能通过正则从最终自然语言“猜”出执行历史；
@@ -135,4 +136,4 @@ Workspace Vision 有引用记忆与 Memory Runtime 两个标签；后端日志�
 主要入口为 `frontend/src/services/sessionApi.ts`、`frontend/src/services/chatApi.ts`、`stores/chat/`、`components/chat/`、`stores/workspace/` 和 `stores/topic/`；后端契约与路由测试位于 `tests/unit/server/routers/test_chat.py`、`test_topics.py`、`test_runtime_events.py`、`test_logs.py`。
 附件上传与选择的入口为 `services/attachmentApi.ts`、`stores/attachment/`、`components/chat/AttachmentQueue.tsx` 和 `hooks/useAttachmentUpload.ts`；链路事实见[Chat 附件链路](../system/attachments.md)。
 
-会话行为测试位于 `frontend/tests/conversation-session.test.mjs`（`npm run test:session`），覆盖历史重建、服务端恢复、404、加载失败、发送绑定、无输出回填、晚到停止响应，以及 finalizing 前后断连、压缩后刷新检查点、晚到读取隔离、失败原因提示与摘要纯文本展示；确定性 HTTP 链路见 `tests/e2e/system/test_chat_session.py`。会话没有跨后端重启持久化，也没有 SSE 断线续传；多窗口日志选举在浏览器挂起/崩溃情形下的可靠性仍未全面验证。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。
+会话行为测试位于 `frontend/tests/conversation-session.test.mjs`（`npm run test:session`），覆盖历史重建、服务端恢复、404、加载失败、发送绑定、无输出回填、晚到停止响应、开流前与停止时的后端拒绝，以及 finalizing 前后断连、压缩后刷新检查点、晚到读取隔离、失败原因提示与摘要纯文本展示；确定性 HTTP 链路见 `tests/e2e/system/test_chat_session.py`。会话没有跨后端重启持久化，也没有 SSE 断线续传；多窗口日志选举在浏览器挂起/崩溃情形下的可靠性仍未全面验证。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。

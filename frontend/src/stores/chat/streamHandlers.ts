@@ -8,6 +8,7 @@ import {
   applySubAgentStart,
   applySubAgentToken,
 } from '@/stores/chat/messageReducers';
+import { ApiError } from '@/services/apiError';
 import { chatErrorMessage } from '@/stores/chat/failureMessage';
 import type {
   ChatDoneEvent,
@@ -99,8 +100,13 @@ export function createChatSSECallbacks(deps: CreateChatSSECallbacksDeps): SSECal
     },
 
     onConnectionError: (error) => {
-      const errorMessage = '系统错误，请检查后端服务器';
-      deps.finalizeError(errorMessage, error.message);
+      // 后端在开流之前拒绝（准入、会话占用、管理凭据等）时，它给出的文案就是原因；
+      // 只有连不上后端或流中断才是系统错误。
+      if (error instanceof ApiError) {
+        deps.finalizeError(error.message);
+        return;
+      }
+      deps.finalizeError('系统错误，请检查后端服务器', error.message);
     },
 
     onProcessId: (data: ProcessIdEvent) => {

@@ -201,7 +201,6 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [总线路由类型化与 mypy 门禁（归档）](./archive/plans/v0.7.0-typed-bus-routes.md) | Completed / Archived（2026-10-12）：三阶段实现、验收与审查完成，`mypy src` 清零；属于 v0.7.0 内容 | 提供方 contracts 声明类型化 route；运行时参数检查保留，CI 按 `uv.lock` 检查源码和类型回归样例 |
 | [Alice 健康探针](./todo/alice-health-probes.md) | v0.7.0 收尾时搁置（2026-10-19），未绑定版本 | 反映执行器实际就绪/故障；不令资源 readiness 依赖 Alice 在线 |
 | [日志与运行时事件](./governance/observability/logs-and-events.md)（原 RuntimeEvent 生产端迁移 Todo，2026-11-03 转入治理主题 W6） | 版本之外的工作（owner，2026-11-03），随时可以开始 | 保持事件只做观测，不以事件投递成功控制业务状态 |
-| [前端身份所有权](./todo/frontend-identity-ownership.md) | 前端可靠性优先项 | 不把固定 main_workspace 选择冒充认证或 Workspace 管理 |
 | [Mock fallback 披露（归档）](./archive/todo/frontend-mock-fallback-disclosure.md) | Completed / Archived（2026-11-07）：owner 决定 mock 数据只在 debug 模式下启用 | 默认读取失败如实显示，不以 mock 数据冒充真实结果 |
 | [Memory 管理页列表与检索（归档）](./archive/todo/frontend-memory-library-listing.md) | Completed / Archived（2026-11-02）：列表跟随游标取全，语义检索请求后端 | 列表取全并显示真实总量；语义检索复用真实后端能力，保留失败和空结果 |
 | [Memory visibility policy UI](./todo/memory-visibility-policy-ui.md) | 后端契约稳定后进入资源体验 | UI 编辑策略不能替代后端授权 |

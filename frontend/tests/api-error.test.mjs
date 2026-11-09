@@ -14,6 +14,9 @@ before(async () => {
 afterEach(() => { globalThis.fetch = originalFetch; });
 after(async () => { await vite?.close(); });
 
+/** 只比较界面可见的约定字段，缺省字段不出现。 */
+const fields = ({ status, message, code, reason }) => ({ status, message, ...(code && { code }), ...(reason && { reason }) });
+
 for (const [name, body, message] of [
   ['字符串 detail', { detail: '附件已失效' }, '附件已失效'],
   ['旧 message', { message: '会话不存在' }, '会话不存在'],
@@ -25,19 +28,24 @@ for (const [name, body, message] of [
   ['自定义校验类别', { detail: [{ loc: ['body', 'key'], type: 'secret-validator', msg: 'secret' }] }, 'body.key: 字段取值不合法'],
 ]) {
   test(`兼容${name}，仅展示约定字段`, async () => {
-    assert.deepEqual(await readApiError(new Response(JSON.stringify(body), { status: 422 }), '操作失败'),
+    assert.deepEqual(fields(await readApiError(new Response(JSON.stringify(body), { status: 422 }), '操作失败')),
       { status: 422, message });
   });
 }
 
 test('新结构保留机器码与受控 reason', async () => {
   const response = new Response(JSON.stringify({ error: 'workspace.operation_denied', detail: '当前身份无权执行该操作', reason: 'root_required' }), { status: 403 });
-  assert.deepEqual(await readApiError(response), { status: 403, message: '当前身份无权执行该操作', code: 'workspace.operation_denied', reason: 'root_required' });
+  assert.deepEqual(fields(await readApiError(response)), { status: 403, message: '当前身份无权执行该操作', code: 'workspace.operation_denied', reason: 'root_required' });
+});
+
+test('管理凭据被拒时提示刷新页面，而不是转述面向所有调用方的后端文案', async () => {
+  const response = new Response(JSON.stringify({ error: 'request.management_credential_invalid', detail: '管理接口需要管理凭据：缺少凭据或凭据不正确' }), { status: 401 });
+  assert.deepEqual(fields(await readApiError(response)), { status: 401, message: '管理凭据缺失或已失效，请刷新页面后重试', code: 'request.management_credential_invalid' });
 });
 
 for (const body of ['<html>secret traceback</html>', 'secret traceback']) {
   test('非 JSON 正文回退到固定提示与状态码', async () => {
-    assert.deepEqual(await readApiError(new Response(body, { status: 500 }), '操作失败'),
+    assert.deepEqual(fields(await readApiError(new Response(body, { status: 500 }), '操作失败')),
       { status: 500, message: '操作失败 (500)' });
   });
 }

@@ -288,7 +288,7 @@ last_reviewed: 2026-11-05
 | `normalize_user_id`、`resolve_default_identity_scope`、`build_internal_identity_scope`、`ISOLATION_WORKSPACE_ID` | `core/constants.py`、`core/models/workspace.py` | 无生产使用方 | — |
 | `meta.access_policy` 的补丁路径 | `adapters/mid_term.py` | 无生产使用方 | — |
 | `ShortTermMemoryStore.list_all`、`LongTermMemoryStore.query`、`MEMORY_REVIVE` 路由（已绑定，没有请求方）、`RetrievalFamiliar.is_archived`（以裸 `memory_id` 调用需要复合键的端口） | Patchouli | 无生产使用方 | — |
-| 前端 `setIdentitySelection` | `identity.ts` | 无生产使用方 | [前端身份 Todo](../../todo/frontend-identity-ownership.md) |
+| 前端 `setIdentitySelection` | `identity.ts` | 无生产使用方 | 前端身份 Todo（2026-11-09 删除，最后版本见 commit `3cfdec9d`） |
 | `AGENT_PROFILE_LIST` 的契约说明写“当前发起者可见”，实现跳过可见性 | `patchouli/contracts/public_routes.py` | 不一致 | — |
 | 前端停止注释写“复用创建时冻结的原始 scope”，后端只比对 Workspace | `frontend/src/services/chatApi.ts` | 不一致 | — |
 | `resolve_default_identity_scope` 的 docstring 含计划代号 “P2.5” | `core/models/workspace.py` | 不一致（注释规则） | — |

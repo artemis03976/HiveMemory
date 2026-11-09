@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Bot, Code2, CheckCircle, Palette, type LucideIcon } from 'lucide-react';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
+import { ApiError, readApiError } from '@/services/apiError';
+import { identityHeaders } from '@/services/identity';
 import { apiUrl } from '@/transports/backendUrl';
 
 export interface AgentProfile {
@@ -61,18 +63,22 @@ export function useAgents() {
   const [agents, setAgents] = useState<AgentProfile[]>([BUILTIN_AGENT]);
   const [rawAgents, setRawAgents] = useState<BackendAgent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(apiUrl('/api/v1/agents'))
-      .then(r => r.json())
+    fetch(apiUrl('/api/v1/agents'), { headers: identityHeaders() })
+      .then(async (r) => {
+        if (!r.ok) throw await readApiError(r, 'Agent 列表读取失败');
+        return r.json();
+      })
       .then((data: BackendAgent[]) => {
         setRawAgents(data);
         setAgents(toChatAgents(data));
       })
       .catch((err) => {
         console.error('[AgentDebug][useAgents] failed to fetch /api/v1/agents', err);
-        setFetchError(true);
+        // 后端拒绝时它给出的文案就是原因；连不上后端时只能提示检查后端。
+        setFetchError(err instanceof ApiError ? err.message : 'Agent 列表读取失败，请检查后端服务后刷新');
       })
       .finally(() => setLoading(false));
   }, []);

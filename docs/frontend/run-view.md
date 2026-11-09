@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/components/observability.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 全局运行页
@@ -75,7 +75,7 @@ last_reviewed: 2026-11-07
 - **连接时机**：运行页挂载时建立日志 WebSocket 与事件流；Chat 页的 Workspace Vision 挂载时也建立事件流。离开运行页不断开，Memory Runtime 仍需要事件流。多窗口沿用主窗口持有连接、经 BroadcastChannel 同步的机制（[状态与传输](./state-and-transports.md#5-多窗口日志同步)）。
 - **有限历史**：前端连接前请求 `/runtime-events/status`，以返回的 `buffer_size` 作为 `/runtime-events/stream` 的 `replay_last`，所以打开或刷新页面时取回后端缓冲内的全部事件。前端上限 `maxBufferSize` 为 1000，与后端缓冲一致，超出时丢掉最旧的事件。历史只到后端缓冲为止，事件记录文件不提供查询接口。
 - **断档**：续传时后端找不到回放点会先发 `event.stream.gap`，列表上方提示"事件流曾中断，{时间} 之前的部分事件已经不在缓冲中"；运行的状态照常显示，不因断档改写。
-- **未启用**：`runtime_events.enabled` 为 false 时，"运行"标签显示"运行时事件未启用"与配置项名称，日志标签照常可用。事件流连接失败时显示提示与重试按钮。
+- **未启用**：`runtime_events.enabled` 为 false 时，"运行"标签显示"运行时事件未启用"与配置项名称，日志标签照常可用。事件流连接失败时显示提示与重试按钮；后端拒绝连接时（例如管理凭据失效），提示显示后端给出的原因，不显示为未启用（[状态与传输](./state-and-transports.md#31-http-错误解析)）。
 
 ## 7. 验证入口
 

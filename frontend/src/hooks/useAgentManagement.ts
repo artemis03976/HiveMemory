@@ -138,7 +138,7 @@ export function useAgentManagement() {
     searchQuery,
     setSearchQuery,
     loading: backendLoading,
-    loadFailed: fetchError && !isDebugMode(),
+    loadError: isDebugMode() ? null : fetchError,
     createAgent: handleCreateAgent,
     saveAgent: handleSaveAgent,
     deleteAgent: handleDeleteAgent,

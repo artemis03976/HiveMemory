@@ -179,7 +179,7 @@ function RunsTab({ onOpenLogs }: { onOpenLogs: (traceId: string) => void }) {
       {connection.status === 'error' && (
         <div className="flex items-center gap-2 border-b border-magic-fire/20 bg-magic-fire/10 px-6 py-2 text-[12px] text-magic-fire">
           <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-          事件流连接失败
+          {connection.error ?? '事件流连接失败'}
           <button type="button" onClick={connectRuntimeEvents} className="ml-2 rounded px-2 py-0.5 underline hover:bg-magic-fire/10">
             重试
           </button>

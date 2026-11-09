@@ -22,10 +22,9 @@ related_docs:
   - docs/alice/README.md
   - docs/alice/mtp-runtime.md
   - docs/alice/orchestration.md
-  - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/archive/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 身份隔离与执行安全治理
@@ -168,6 +167,8 @@ Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集�
 2. 所有请求从同一 identity context 派生，切换/登出清理或隔离 chat、topic、memory cache 和 streams；
 3. 与后端认证、session、workspace 和错误契约对齐；
 4. UI 明确展示“当前身份/权限”与“后端拒绝”，不把默认 user id 当成登录状态。
+
+后端拒绝的呈现已完成（2026-11-09）：后端拒绝以后端给出的原因呈现，与连不上后端分开，身份相关请求都从同一入口携带身份选择（[状态与传输](../../frontend/state-and-transports.md#31-http-错误解析)）；前端不展示当前身份，也不把默认 user id 当成登录状态。切换或登出时的清理与当前身份的展示不单独追踪，出现登录或 Workspace 切换时再计划（owner，2026-11-09）。
 
 ## 5. 治理成熟度目标
 
