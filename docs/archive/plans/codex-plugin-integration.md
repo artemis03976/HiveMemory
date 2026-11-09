@@ -237,4 +237,6 @@ Windows 原生验收（使用 owner 的 Codex CLI、本机 HiveMemory 后端与 
 - `pytest tests/unit/connectors tests/unit/architecture tests/integration/workspace/test_published_registration_chain.py`：143 passed；`ruff check .`、`black --check .`、`git diff --check` 通过；dsh 插件 `node --test`：42 passed。新的回归测试在修复前的代码上确认会失败（凭据变量、扩展长度前缀）。
 - 端到端（隔离的 `CODEX_HOME`、`codex-cli 0.167.0`、本机模拟的模型与 MCP/导入服务，不调用真实模型与后端）：从仓库的 marketplace 安装插件，Codex 用 `.codex-plugin` 清单、不读 Claude Code 的默认文件；经 app-server 信任 hook 后，写入的 `turn` 由连接器从会话记录补上并覆盖模型填写的值；每一轮只导入一次：正常结束的为 `completed`（带 `WRITE`/`SEARCH` 回声标记），失败的一轮在会话结束时以 `failed` 导入，子 Agent 中的写入归到父会话中派生它的那一轮、父会话的一轮带子 Agent 交回的消息、子 Agent 会话不导入，续会话的新一轮带上一轮作为最近上文。
 
-**待验收**（需要 owner 的 Codex 账户与本机 HiveMemory，执行前征得同意）：真实模型写入得到 `draft_` 句柄、这一轮回流落在写入时确定的话题、新会话检索召回；用户中断、fork 与回退；桌面应用中的插件与 hook；Claude Code 在目录改名并更新插件后的回归。
+**真实验收**（2026-11-08 归档后补记，owner 的 Codex 账户与本机 HiveMemory，`codex exec`）：写入得到 `draft_` 句柄、这一轮回流落在写入时确定的话题、生成为正式记忆、续会话读取与新会话检索召回均通过，Claude Code 在目录改名并更新插件后检索与回流正常。验收中发现安装插件后的第一个 `codex exec` 会话写入以 `request.turn_required` 被拒、这一轮也不导入：连接器首次运行时间记在第一个 hook 触发的时刻，而第一轮的开始记录先于 `SessionStart` 写入，会话按接入之前已有的会话登记、游标越过了这一轮。修复见 PR #200：首次见到的会话的游标位置改由读取器决定，Codex 放在仍在进行的一轮的开头。
+
+**原待验收项**（需要 owner 的 Codex 账户与本机 HiveMemory，执行前征得同意）：真实模型写入得到 `draft_` 句柄、这一轮回流落在写入时确定的话题、新会话检索召回；用户中断、fork 与回退；桌面应用中的插件与 hook；Claude Code 在目录改名并更新插件后的回归。

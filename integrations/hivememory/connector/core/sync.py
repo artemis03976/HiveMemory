@@ -15,7 +15,8 @@
    4xx 写入拒绝记录后前进；同一轮连续三次服务器内部错误也按不可重试处理，
    避免一轮阻塞整份会话。
 4. **首次见到的会话记录**：在连接器首次运行之后开始的从头读取；更早开始的
-   （接入之前已有、后来被恢复的会话）游标放在当前末尾，不回填。
+   （接入之前已有、后来被恢复的会话）不回填已经结束的轮次，游标位置由读取器
+   决定（一般在当前末尾）。
 5. **游标失效**（会话记录被重写或缩短，游标不在行首或最后确认的一轮不再从
    记录的位置开始）：从头扫描，在最后一个已确认的轮次之后继续；找不到该轮
    时停止处理这份会话记录并写入拒绝记录，不重发整个会话。
@@ -130,7 +131,7 @@ class TranscriptSync:
         started = self._reader.started_at(path)
         first_run = self._store.first_run_at(self._clock())
         origin: TranscriptOrigin = "new" if started is None or started >= first_run else "existing"
-        offset = 0 if origin == "new" else complete_size(path)
+        offset = 0 if origin == "new" else self._reader.existing_offset(path)
         if self._store.register(path, origin=origin, offset=offset):
             self._log.write(f"registered transcript={path} origin={origin} offset={offset}")
 
@@ -339,7 +340,7 @@ class TranscriptSync:
         """游标失效后从头扫描，在最后一个已确认的轮次之后继续。"""
         turns = self._reader.read(path, 0)
         if state.last_turn_id is None:
-            offset = 0 if state.origin == "new" else complete_size(path)
+            offset = 0 if state.origin == "new" else self._reader.existing_offset(path)
             with self._store.update(path) as current:
                 current.offset = offset
                 current.context_offsets = []

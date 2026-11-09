@@ -51,7 +51,7 @@ from typing import Any
 
 from connector.core.config import Harness
 from connector.core.memory_tools import MEMORY_TOOLS, tool_call_fields
-from connector.core.transcript import TranscriptTurn, read_entries
+from connector.core.transcript import TranscriptTurn, complete_size, read_entries
 
 HARNESS = Harness(
     source="claude-code",
@@ -169,6 +169,10 @@ class ClaudeCodeReader:
         if isinstance(entry, dict) and _is_human_prompt(entry):
             return str(entry["uuid"])
         return None
+
+    def existing_offset(self, path: str) -> int:
+        # SessionStart 在第一条由人发出的消息之前触发，首次见到时没有进行中的轮次。
+        return complete_size(path)
 
     def last_turn_id(self, path: str, offset: int) -> str | None:
         """``offset`` 之后最后一条由人发出的消息所开启的轮次；hook 据此写结束记录。

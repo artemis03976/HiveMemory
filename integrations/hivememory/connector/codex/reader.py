@@ -44,7 +44,7 @@ from typing import Any
 from connector.core.config import Harness
 from connector.core.memory_tools import MEMORY_TOOLS, tool_call_fields
 from connector.core.state import Outcome
-from connector.core.transcript import TranscriptTurn, read_entries
+from connector.core.transcript import TranscriptTurn, complete_size, read_entries
 
 HARNESS = Harness(
     source="codex",
@@ -160,6 +160,18 @@ class CodexReader:
         ):
             return payload["turn_id"]
         return None
+
+    def existing_offset(self, path: str) -> int:
+        """接入之前已经开始的会话首次见到时游标的位置：最后一轮仍在进行时放在它的开头。
+
+        Codex 先写下一轮的开始记录，再触发 ``SessionStart``（``codex exec`` 的第一轮
+        如此），首次见到会话时这一轮往往已经开始。游标放在它的开头，这一轮结束后
+        照常导入，``PreToolUse`` 也读得到它；之前已经结束的轮次不回填。
+        """
+        turns = self.read(path, 0)
+        if turns and turns[-1].outcome is None:
+            return turns[-1].start_offset
+        return complete_size(path)
 
     def thread_id(self, path: str) -> str | None:
         """会话记录所属线程的 ID；文件不存在或第一行不是会话元数据时为 ``None``。"""

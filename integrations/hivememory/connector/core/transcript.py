@@ -65,6 +65,10 @@ class TranscriptReader(Protocol):
         """``offset`` 处那一行开启的轮次标识；该行不开启轮次时为 ``None``。"""
         ...
 
+    def existing_offset(self, path: str) -> int:
+        """接入之前已经开始的会话记录首次见到时游标的位置：此前已经结束的轮次不回填。"""
+        ...
+
 
 def read_entries(
     path: str, offset: int, *, prefilter: bytes | None = None
