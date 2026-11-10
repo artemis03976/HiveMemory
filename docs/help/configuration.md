@@ -8,8 +8,8 @@ code_paths:
   - configs/models.yaml
   - configs/.env.example
   - configs/providers.secrets.example.yaml
-  - configs/system_principals.yaml
-  - configs/workspace_actors.yaml
+  - configs/system_principals.example.yaml
+  - configs/workspace_actors.example.yaml
   - src/hivememory/config/access.py
   - src/hivememory/config/
   - src/hivememory/system/provider_registry.py
@@ -20,7 +20,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-09
 ---
 
 # HiveMemory 配置指南
@@ -37,8 +37,9 @@ HiveMemory 把配置分为三类：主配置描述系统如何装配，Model Reg
 | `configs/models.yaml` | 模型 ID、展示名、LiteLLM model、Provider 引用和默认采样参数 | 可以提交；不要写密钥 |
 | 根 `.env` 或 `configs/.env` | 环境覆盖与 Provider 密钥 | 不提交 |
 | `configs/providers.secrets.yaml` | 由 UI/API 管理的 Provider 凭证 | 不提交，已 gitignore |
-| `configs/system_principals.yaml` | 访问登记：允许接入的调用来源（server 自身作为 `hivememory:http-server` 登记） | 可以提交；不含凭据 |
-| `configs/workspace_actors.yaml` | 访问登记：哪个用户/Agent 可以进入哪个 Workspace、能执行哪些操作 | 可以提交；不含凭据 |
+| `configs/system_principals.yaml` | 访问登记：允许接入的调用来源（server 自身作为 `hivememory:http-server` 登记）；本机的个人配置，首次启动时从 `system_principals.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布 |
+| `configs/workspace_actors.yaml` | 访问登记：哪个用户/Agent 可以进入哪个 Workspace、能执行哪些操作；本机的个人配置，首次启动时从 `workspace_actors.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布 |
+| `configs/principals.secrets.yaml` | 设置页为外部 harness 生成的接入凭据 | 不提交，已 gitignore |
 | `HIVEMEMORY_CONFIG_PATH` | 改用指定 YAML 主配置 | 由部署环境决定 |
 
 `.env` 与 `configs/.env` 都会被配置加载器读取。为减少同一键在两个文件中重复，个人开发建议只维护根 `.env`；Docker Compose 也明确把根 `.env` 作为可选 `env_file`。容器同时挂载 `configs/`，因此其中的配置和 secret 文件可以持久化。
@@ -130,14 +131,15 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 
 ### 5.1 访问登记
 
-与 Workspace 相关的 HTTP 请求（Chat、停止、对话导入、MCP 记忆访问、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关。前端使用的路由由 server 以 `system.server_principal_id` 登记的 principal 接入；对话导入与 MCP 由外部 harness 以自己登记的 principal 与接入凭据接入（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`，凭据配置分别见[接入 Claude Code](./claude-code-plugin.md#2-配置接入凭据)与[接入 DeepSeek Harness](./deepseek-harness-plugin.md#2-配置接入凭据)）。随后按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。Chat 的话题准备、Profile、附件与交互提交，以及对话导入，都由 HiveMemory 自己以登记的 `hivememory:system` 执行，不受 Agent 的操作许可限制。随仓库发布的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（读取、检索、运行、写入、更新与调用其他 Agent），并单独登记保留的 `system`（管理操作，以及上面这些由 HiveMemory 执行的步骤），为 Claude Code 与 DeepSeek Harness 分别登记获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的 `claude_code` 与 `dsh`（四个记忆工具的检索、读取、写入与更新；对话导入只要求准入，见[接入 Claude Code](./claude-code-plugin.md#5-访问登记)与[接入 DeepSeek Harness](./deepseek-harness-plugin.md#5-访问登记)）。
+与 Workspace 相关的 HTTP 请求（Chat、停止、对话导入、MCP 记忆访问、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关。前端使用的路由由 server 以 `system.server_principal_id` 登记的 principal 接入；对话导入与 MCP 由外部 harness 以自己登记的 principal 与接入凭据接入（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`，凭据配置分别见[接入 Claude Code](./claude-code-plugin.md#2-配置接入凭据)与[接入 DeepSeek Harness](./deepseek-harness-plugin.md#2-配置接入凭据)）。随后按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。Chat 的话题准备、Profile、附件与交互提交，以及对话导入，都由 HiveMemory 自己以登记的 `hivememory:system` 执行，不受 Agent 的操作许可限制。从模板生成的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（读取、检索、运行、写入、更新与调用其他 Agent），并单独登记保留的 `system`（管理操作，以及上面这些由 HiveMemory 执行的步骤），为 Claude Code 与 DeepSeek Harness 分别登记获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的 `claude_code` 与 `dsh`（四个记忆工具的检索、读取、写入与更新；对话导入只要求准入，见[接入 Claude Code](./claude-code-plugin.md#5-访问登记)与[接入 DeepSeek Harness](./deepseek-harness-plugin.md#5-访问登记)）。
 
 - 使用其他用户（请求头 `x-user-id`）时，需要在 `workspace_actors.yaml` 中为该用户登记对应记录，并单独登记该用户的 `system`（不写 `agent_id` 的用户级记录不包含它），否则请求返回 403（`reason=actor_not_admitted`）；
-- 两个登记文件可分别用 `HIVEMEMORY_PRINCIPALS_PATH`、`HIVEMEMORY_WORKSPACE_ACTORS_PATH` 指向其他位置；修改后需要重启服务；
-- 登记文件缺失时按空登记处理，所有 Workspace 请求都会被拒绝；
+- 两份登记都可以在设置页的“接入与权限”中修改：登记外部 harness 并生成凭据、启停、轮换凭据，以及编辑各 Agent 的操作权限；修改立即生效，并写回本机的生效登记（不保留注释）。生效登记是本机的个人配置，不受版本控制：首次启动时从随仓库发布的 `*.example.yaml` 模板生成，此后升级不会改动它们；两个文件也可以分别用 `HIVEMEMORY_PRINCIPALS_PATH`、`HIVEMEMORY_WORKSPACE_ACTORS_PATH` 指向其他位置，指定的文件必须已经存在。直接修改文件后需要重启服务；运行中手工改过文件时，页面上的修改会被拒绝，重启后再改；
+- 默认位置的登记文件被删掉时，下次启动从模板重新生成；路径变量指定的文件缺失时启动失败；
 - `configs/system_principals.yaml` 中每个调用来源能否以 `system` 进入管理接口由 `allow_system_actor` 决定，默认不能；自定义过该文件时，server 的登记需要显式设为 `true`，否则管理接口返回 403（`reason=system_actor_not_allowed`）；
-- 随仓库发布的 `system_principals.yaml` 包含 HiveMemory 自己的来源 `hivememory:system`。自定义过该文件的部署升级后要补上这一条（`kind: local-process`、`adapters: [local]`、`allow_system_actor: true`，不写 `credential_env`），否则 Chat、对话导入与外部工具的记忆写入、更新都返回 403（`reason=unknown_principal`）；这个原因与外部工具自己的 principal 未登记相同，排查时两条登记都要核对；
-- 外部 harness 的接入凭据只在登记中写环境变量名（`credential_env`），值写在 `.env` 或环境变量中，修改后重启服务；
+- 登记模板包含 HiveMemory 自己的来源 `hivememory:system`。更早生成或自定义过的生效登记缺少它时要补上这一条（`kind: local-process`、`adapters: [local]`、`allow_system_actor: true`，不写 `credential_env`），否则 Chat、对话导入与外部工具的记忆写入、更新都返回 403（`reason=unknown_principal`）；这个原因与外部工具自己的 principal 未登记相同，排查时两条登记都要核对；
+- 外部 harness 的接入凭据可以在设置页生成与轮换，保存在登记文件同目录的 `principals.secrets.yaml`（不受版本控制），立即生效；也可以沿用登记中 `credential_env` 指向的环境变量，写在 `.env` 或环境变量中，它有值时优先于生成的凭据，修改后重启服务；
+- 从模板生成的登记中，每个 harness 的登记限定了它能声明的 Agent（`allowed_agent_ids`），改用其他 Agent 时先在设置页把它加入，否则请求返回 403（`reason=agent_not_allowed_for_principal`）；
 - 前端使用的接口在经过认证网关之前，另要求后端首次启动时生成的管理凭据 `configs/management.token`；它不需要配置，前端自动带上，终端调用的写法见[安装与启动](./setup.md#43-启动后端)；
 - 请求头中的用户身份不做证明，管理凭据也只防误用，两者都只适用于本地单用户部署。
 
@@ -164,7 +166,7 @@ Claude Code、DeepSeek Harness 等外部工具的对话经 `POST /api/v1/import/
 
 ## 6. 当前 Settings 页面限制
 
-Provider 与 Model Registry 使用独立、已对齐的 API。其余主配置表单仍采用旧的扁平前端类型，而后端已经使用 `shared/patchouli/alice/gateway/...` 嵌套结构；部分分类可能显示错误、读取空字段或提交不完整结构。当前不要把 Settings 中所有可见开关都视为可靠控制面。
+Provider、Model Registry 与接入与权限使用独立、已对齐的 API。其余主配置表单仍采用旧的扁平前端类型，而后端已经使用 `shared/patchouli/alice/gateway/...` 嵌套结构；部分分类可能显示错误、读取空字段或提交不完整结构。当前不要把 Settings 中所有可见开关都视为可靠控制面。
 
 需要修改主配置时，优先直接编辑 `configs/config.yaml` 或通过经过核验的 API 客户端提交完整当前结构，并在修改前保留版本控制 diff。前端类型完成迁移后，本限制才能移除。
 

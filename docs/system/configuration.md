@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # System 配置与注册表
@@ -77,22 +77,22 @@ last_reviewed: 2026-11-08
 
 ### 1.1 访问登记文件
 
-两类访问登记各用一个 YAML 文件，对应各自的配置所有者，由 `config/access.py` 的 `load_access_registration()` 在组合根装配时装载，不经过 `HiveMemoryConfig`：
+两类访问登记各用一个 YAML 文件，对应各自的配置所有者，由 `config/access.py` 的 `load_access_registration()` 在组合根装配时装载，不经过 `HiveMemoryConfig`。生效文件是本机的个人配置，不受版本控制，仓库只发布同目录的 `*.example.yaml` 模板：
 
 | 文件 | 顶层键 | 配置所有者 | 路径覆盖 |
 |:---|:---|:---|:---|
-| `configs/system_principals.yaml` | `principals`：调用来源的接入登记 | System | `HIVEMEMORY_PRINCIPALS_PATH` |
-| `configs/workspace_actors.yaml` | `workspace_actors`：Workspace Actor 的准入与行为白名单 | workspace | `HIVEMEMORY_WORKSPACE_ACTORS_PATH` |
+| `configs/system_principals.yaml`（模板 `system_principals.example.yaml`） | `principals`：调用来源的接入登记 | System | `HIVEMEMORY_PRINCIPALS_PATH` |
+| `configs/workspace_actors.yaml`（模板 `workspace_actors.example.yaml`） | `workspace_actors`：Workspace Actor 的准入与行为白名单 | workspace | `HIVEMEMORY_WORKSPACE_ACTORS_PATH` |
 
-- 两个文件都拒绝未知字段；默认路径的文件缺失时按空登记装载并告警，网关随后拒绝一切认证（fail closed）；显式指定的路径缺失或内容非法时装载失败。
-- 登记在运行实例内不可变，修改经重启生效。
+- 两个文件都拒绝未知字段；默认路径的生效文件缺失时从模板复制一份再装载，已有的生效文件不被模板覆盖，升级也不会改动它们；路径变量指定的文件不从模板生成，缺失或内容非法时装载失败。
+- 两份登记都可以在运行时经设置页的“接入与权限”或管理接口编辑，立即生效并写回生效的登记文件，写回时不保留注释，模板保持原样。运行中手工改过文件之后，运行时编辑被拒绝，重启装载之后再编辑（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节）。
 - `system.server_principal_id`（默认 `hivememory:http-server`）是 server 的前端路由（管理、chat 与取消）经统一认证网关认证时使用的 principal，必须与 `system_principals.yaml` 中的登记一致；导入与 MCP 入口不使用它，以请求声明的 principal 认证。
 - 系统自身的 principal `hivememory:system`（`local` adapter、`allow_system_actor: true`、不带凭据）不经配置项指定：它的标识是代码中的常量，任务进程的注册入口与 Import Bus 服务以它认证 (user, `system`)，取得执行系统阶段、导入与确定话题的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。登记文件缺少这一条时，chat 注册、对话导入与 MCP 写入、更新都以 403 `unknown_principal` 拒绝。
-- `system_principals.yaml` 的每条登记另有 `allow_system_actor`（能否声明保留的 `system`，默认 `false`）与 `credential_env`（接入凭据所在的环境变量名）。列出外部 adapter（`mcp`、`import`）的登记必须声明 `credential_env`，列出进程内 adapter（`http`、`local`）的登记不能声明，否则装载失败。凭据本身不写入登记文件：组合根装配时按与其他配置相同的来源读取，进程环境变量优先，其次是 `.env` / `configs/.env`，去掉首尾空白；环境变量为空时启动告警，该来源的认证一律以 `invalid_credential` 拒绝，HiveMemory 照常启动。随仓库发布的登记中，Claude Code 的 `harness:claude-code` 使用 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，DeepSeek Harness 的 `harness:dsh` 使用 `HIVEMEMORY_DSH_TOKEN`，Codex 的 `harness:codex` 使用 `HIVEMEMORY_CODEX_TOKEN`，pi 的 `harness:pi` 使用 `HIVEMEMORY_PI_TOKEN`，harness 一侧的插件读取同名变量，两侧配置为同一份凭据（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。
+- `system_principals.yaml` 的每条登记另有 `allow_system_actor`（能否声明保留的 `system`，默认 `false`）、`allowed_agent_ids`（能声明哪些 Agent，默认不限定）与 `credential_env`（接入凭据所在的环境变量名）。一条登记要么只列外部 adapter（`mcp`、`import`），要么只列进程内 adapter（`http`、`local`），后者不能声明 `credential_env`，否则装载失败。外部来源的凭据来自 `credential_env` 指向的环境变量，或在设置页登记与轮换时生成、保存在登记文件同目录 `principals.secrets.yaml`（不受版本控制）的生成凭据；环境变量按与其他配置相同的来源在启动时读取（进程环境变量优先，其次是 `.env` / `configs/.env`，去掉首尾空白），有值时优先于生成凭据。两者都没有时启动告警，该来源的认证一律以 `invalid_credential` 拒绝，HiveMemory 照常启动。登记模板中，Claude Code 的 `harness:claude-code` 使用 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，DeepSeek Harness 的 `harness:dsh` 使用 `HIVEMEMORY_DSH_TOKEN`，Codex 的 `harness:codex` 使用 `HIVEMEMORY_CODEX_TOKEN`，pi 的 `harness:pi` 使用 `HIVEMEMORY_PI_TOKEN`，各自只能声明同名的 Agent（`claude_code`、`dsh`、`codex`、`pi`）；harness 一侧的插件读取同名变量，两侧配置为同一份凭据（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。
 
 `allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的系统阶段（Gateway、Profile 解析、附件租借、确定话题、交互提交）由系统执行、不检查执行 Agent 的白名单；预检索是执行 Agent 的检索操作，只在它持有 `memory.search` 时进行。白名单为空的 Agent 因此也能完成对话，只是没有预检索，也不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样由系统执行，不检查参与 Agent 的白名单；随仓库发布的登记为 Claude Code 使用的 `claude_code` 与 DeepSeek Harness 使用的 `dsh` 各登记了 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的精确记录，供四个记忆工具逐次授权；导入与确定话题本身不读取白名单，写入与更新则先经白名单授权、通过后才确定话题；精确记录优先于用户级记录，这两个 Agent 因此不继承 `memory.run` 与 `agent.call`（[Import Bus](./import-bus.md#41-认证与授权)、[MCP 记忆访问](../contracts/mcp.md)）。
 
-访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 的 `agent_config` 不再承载权限，`sys_*` 系统工具不设权限。修改白名单需改本文件并重启，运行时编辑属于尚未排期的配置热更新。
+访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 的 `agent_config` 不再承载权限，`sys_*` 系统工具不设权限。白名单可以在设置页的“接入与权限”中编辑，也可以修改本文件后重启。
 
 保留的 `system` 记录只登记准入，不得配置 `allowed_operations`：root 授权只要求 actor 是 `system`，不读取白名单。管理入口、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，用户级记录不覆盖它，因此用于对话、导入或 MCP 写入的 Workspace 都要为该用户单独登记 `system`，否则以 403 `actor_not_admitted` 拒绝。默认接入登记另有本地来源 `hivememory:profile-injector`（kind `local-process`，adapter `local`，`allow_system_actor: true`），供 `scripts/inject_profiles.py` 经认证网关以 `system` 认证后调用 root API 注入 Profile；脚本可用 `--principal-id` 指定其他已登记的本地来源。
 
@@ -106,7 +106,11 @@ last_reviewed: 2026-11-08
 
 升级注意（接入登记的 `system` 声明范围与外部入口）：`allow_system_actor` 默认 `false`。自定义过 `system_principals.yaml` 的部署需要为 server 的登记显式设为 `true`，否则管理路由以 403 `system_actor_not_allowed` 拒绝；Profile 注入脚本使用的本地来源同理。导入改为以 Claude Code 自己的 principal 与凭据认证：服务端与插件需要一起更新，并在两侧配置同一份凭据；只更新服务端时，旧连接器的导入以 400 `request.principal_required` 拒绝，连接器保留游标，配置完成后补发，不丢失轮次。导入交互标识由 principal 参与推导，迁移后同一外部轮次得到新的标识，只有“已应用但确认在升级时丢失”的轮次会被再导入一次。
 
-登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节。
+升级注意（principal 的 Agent 限定）：模板中的四个 harness 登记带 `allowed_agent_ids`，各自只能声明同名的 Agent。从模板新生成的登记中，以 `HIVEMEMORY_AGENT_ID` 让 harness 声明其他 Agent 的请求以 403 `agent_not_allowed_for_principal` 拒绝，需要在设置页或登记文件中把那个 Agent 加入该来源可声明的 Agent。升级前已有的生效登记不变，没有这个字段即不限定，需要限定时自己补上。
+
+升级注意（访问登记改为模板加本地文件）：`configs/system_principals.yaml` 与 `configs/workspace_actors.yaml` 移出版本控制，仓库改为发布同目录的 `*.example.yaml` 模板。在原 checkout 中升级时两个文件留在原处，成为本机的生效登记，内容不变。其他 checkout 拉取这次改动时，git 会删除这两个文件；本地改过时拉取被拒，先把它们复制到别处再拉取，拉取后放回原处即可，没有改过的，下次启动从模板重新生成。以后模板新增的登记不会进入已有的生效登记，升级说明会写明需要补上的内容。
+
+登记的字段语义、用户级记录规则、随仓库发布的模板与认证授权模型见 [认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节。
 
 ### 1.2 Alice 会话预算与压缩
 

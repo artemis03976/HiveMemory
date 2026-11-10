@@ -20,7 +20,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/capability.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-09
 ---
 
 # 执行线程
@@ -77,7 +77,7 @@ PREPARE 开始时，执行器把刚解析的图纸交给 `ProcessThreads.derive_
 
 **观测标签**：执行线程的标签取线程自己的身份，由线程表在派生时放进线程描述：主线程就是注册时创建的标签，CALL 子线程为 `ExecutionLabels(被调用方, 注册时的 workspace_id)`。Alice 的根帧与子帧各取所属线程描述中的标签，不据此组装身份，也不从图纸推导。标签只服务历史角色匹配、展示回退与观测，不能授权或选择资源目标。
 
-**操作快照**：线程表派生每个线程时，以该线程的工作 actor 经只读查询 `allowed_operations` 读取它在访问登记中的 actor 操作集合（准入已失效时拒绝，空白名单得到空集合），写入线程描述的 `allowed_operations`。主线程的快照因此在 PREPARE 开始时读取：读取时准入已失效，主线程派生失败，进程在 PREPARE 以失败收口，先于预检索与任何话题副作用。快照只描述执行者能做什么，供 CPU 生成提示词与执行策略（Alice 翻译为 MTP 动词，见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节）；它不是身份，也不是授权依据，每个操作请求仍由 actor API 即时授权。登记在运行实例内不可变，快照与即时检查因此一致。
+**操作快照**：线程表派生每个线程时，以该线程的工作 actor 经只读查询 `allowed_operations` 读取它在访问登记中的 actor 操作集合（准入已失效时拒绝，空白名单得到空集合），写入线程描述的 `allowed_operations`。主线程的快照因此在 PREPARE 开始时读取：读取时准入已失效，主线程派生失败，进程在 PREPARE 以失败收口，先于预检索与任何话题副作用。快照只描述执行者能做什么，供 CPU 生成提示词与执行策略（Alice 翻译为 MTP 动词，见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节）；它不是身份，也不是授权依据，每个操作请求仍由 actor API 即时授权。访问记录可以在运行时编辑，快照不随之更新：收回的操作仍出现在本轮的提示词与动词集合中，调用时由即时授权拒绝；新授予的操作从下一个线程开始出现（[认证与访问登记](./authentication.md#8-已知限制)第 8 节）。
 
 ## 6. CALL 派生与子线程
 

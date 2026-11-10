@@ -279,7 +279,7 @@ Electron renderer 使用公开资源 API，main process 只持有必要的原生
 | 跨用户认证及权限治理 | Unscheduled 的完整范围；外部 connector 先落实所需身份映射，不能把 scope 字段当作认证 | [Identity Governance](./governance/security/identity-and-execution-safety.md)；设计方向见[身份与访问体系 Idea](./ideas/identity-and-access-model.md) |
 | 通用长期 workflow / DAG | Unscheduled；Research 先验证最小真实流程，再决定是否提炼通用机制 | [VISION](./VISION.md)；独立 Plan 待建立 |
 | Conversation Branching | Unscheduled；依赖来源、生命周期和真实编辑需求 | [Raw Evidence Idea](./ideas/PatchouliPageFoldingRawEvidenceDesign.md#8-与编辑回退和分支的关系)第 8 节；[Issue #6](https://github.com/artemis03976/HiveMemory/issues/6)（对话气泡编辑与回档） |
-| 配置热更新 | Unscheduled；包括接入登记的运行时登记、Workspace 访问登记中 Agent 操作白名单的运行时编辑（含前端开关，2026-10-10 决定并入）与其他配置文件的持久化与热更新，未来单独建立 Plan | [身份与访问体系 Idea](./ideas/identity-and-access-model.md#3-principal-登记的来源与生效时点e-1) E-1；正式 Plan 待建立 |
+| 配置热更新 | 接入登记与操作白名单的运行时编辑已完成（2026-11-09，含前端开关、接入凭据的生成与轮换、principal 的 Agent 限定）；其他配置文件（主配置）的持久化与热更新仍为 Unscheduled | [访问登记的运行时管理（归档）](./archive/plans/runtime-access-registration.md)；[认证与访问登记](./workspace/authentication.md#2-两类访问登记) |
 | 其他历史存储转换 | Unscheduled；若发现仍有未迁移存量，先列证据再建迁移 Plan | 已完成的 [V1 迁移历史](./archive/plans/v0.6.2-v1-memory-legacy-migration.md)不重新列为待办 |
 
 ### 5.6 controller 模式的外部 harness 接入

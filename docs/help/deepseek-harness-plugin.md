@@ -8,15 +8,15 @@ code_paths:
   - integrations/hivememory/node/dsh/
   - integrations/hivememory/node/core/
   - integrations/hivememory/skills/hivememory/
-  - configs/system_principals.yaml
-  - configs/workspace_actors.yaml
+  - configs/system_principals.example.yaml
+  - configs/workspace_actors.example.yaml
 related_contracts:
   - docs/contracts/mcp.md
 related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # 接入 DeepSeek Harness
@@ -55,6 +55,8 @@ HiveMemory 的使用手册 skill 在同一个插件目录中维护（`integratio
 | 重启并确认 | 两侧 | 重启 HiveMemory、重新打开 dsh，确认工具与导入（第 6 节） |
 
 ## 2. 配置接入凭据
+
+凭据可以在 HiveMemory 设置页的“接入与权限”中为 `harness:dsh` 生成或轮换：HiveMemory 一侧立即生效，不需要重启后端，把页面显示的凭据写进 dsh 一侧的 `HIVEMEMORY_DSH_TOKEN` 即可。HiveMemory 一侧的同名环境变量有值时优先于生成的凭据，页面上不能轮换。也可以按下面的方式自己生成一份，写入两侧的环境变量。
 
 先生成一份随机凭据，例如：
 
@@ -146,11 +148,11 @@ skill `hivememory` 随插件提供，不需要另外复制：插件的配置层�
 
 ## 5. 访问登记
 
-导入与记忆工具都经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。随仓库发布的登记已经为默认用户 `default` 登记了 `dsh`，获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，分别对应四个工具；导入只要求准入，不需要任何 actor 操作；这个 Agent 不继承默认用户的 `memory.run` 与 `agent.call`。`configs/system_principals.yaml` 中的 `harness:dsh` 开放 `mcp` 与 `import` 两个入口，不能声明保留的 `system`。
+导入与记忆工具都经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。从模板生成的登记已经为默认用户 `default` 登记了 `dsh`，获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，分别对应四个工具；导入只要求准入，不需要任何 actor 操作；这个 Agent 不继承默认用户的 `memory.run` 与 `agent.call`。`configs/system_principals.yaml` 中的 `harness:dsh` 开放 `mcp` 与 `import` 两个入口，不能声明保留的 `system`。
 
 - `HIVEMEMORY_USER_ID` 设为 `default` 以外的用户时，需要为该用户登记记录，否则导入与工具调用返回 403，插件停止提交并保留进度；
-- 更换 `HIVEMEMORY_AGENT_ID` 时，默认的用户级记录会覆盖新的 Agent；如果希望它的权限与 `dsh` 相同，按那条记录的写法为它增加精确记录；
-- 修改登记后重启 HiveMemory。登记规则见[配置指南](./configuration.md#51-访问登记)。
+- 更换 `HIVEMEMORY_AGENT_ID` 时，先在设置页的“接入与权限”中把新的 Agent 加入 `harness:dsh` 可声明的 Agent，否则请求以 403（`reason=agent_not_allowed_for_principal`）被拒；新的 Agent 由默认的用户级记录覆盖，如果希望它的权限与 `dsh` 相同，在同一页为它增加记录；
+- 在设置页修改登记立即生效；直接修改登记文件后重启 HiveMemory。登记规则见[配置指南](./configuration.md#51-访问登记)。
 
 ## 6. 确认
 

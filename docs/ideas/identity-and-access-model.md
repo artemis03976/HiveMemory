@@ -64,7 +64,7 @@ last_reviewed: 2026-11-09
 
 | 环节 | 已有（当前事实） | 缺口与去向 |
 |:---|:---|:---|
-| Principal 登记 | 两份配置文件在启动时装载（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节） | 运行时登记、修改与撤销：第 3 节 |
+| Principal 登记 | 两份配置文件在启动时装载，运行中可以经管理接口编辑并写回；外部来源的凭据可以生成与轮换，principal 可以限定可声明的 Agent（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节） | 已实施，见第 3 节 |
 | 调用方证明 | 统一认证网关；外部 principal 以共享密钥证明；任务进程注册、Import Bus 与 MCP 入口经网关；HTTP 管理面以管理凭据防误用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节） | HTTP 管理入口的防刻意随桌面客户端；controller 模式下请求与进程的归属校验：第 4 节 |
 | 工作 actor 与操作授权 | 工作 actor 只含 principal、actor 与驻留 Workspace；actor 执行期间按白名单授权，系统级操作（root API、任务进程的系统阶段与取消、导入与确定话题）以 `system` 授权（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)第 4 节） | 工作 actor 是否带 adapter、本次运行的操作上限、进程控制中取消以外的授权主体：第 5 节 |
 | 资源可见性 | 只有 MemoryAtom 带资源 policy，且只表达读取；其余资源只按归属授权 | 修改与执行授权、写入意图的可见性：第 6 节 |
@@ -73,25 +73,15 @@ last_reviewed: 2026-11-09
 
 ## 3. Principal 登记的来源与生效时点（E-1）
 
-2026-11-05 由[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 移入。
+2026-11-05 由[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 移入。**已实施**（2026-11-09）：两类登记在启动时装载，运行中可以经管理接口编辑并写回生效的登记文件；外部来源的凭据由 HiveMemory 生成与轮换，principal 可以限定可声明的 Agent。当前事实见[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节，实施过程见[归档计划](../archive/plans/runtime-access-registration.md)。
 
-**背景**：System 接入登记（`configs/system_principals.yaml`）与 Workspace Actor 访问登记（`configs/workspace_actors.yaml`）只在启动时装载，运行中不可变；除配置文件外，没有登记、修改或撤销接入的入口（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节）。
+决定记录：
 
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 维持启动时从配置装载 | 新增或撤销外部 Actor 需要修改配置并重启 |
-| B | 提供运行时登记入口（例如经管理员直接通道） | 需要定义登记、修改、撤销的授权与生效时点，以及已签发 context 的处理 |
-| C | 登记数据来自外部身份系统 | 需要定义与外部系统的信任关系与同步方式 |
-| D | 其他 | —— |
+- **owner 决定**（2026-09-27）：接入登记维持启动时从配置装载，运行时登记与其他配置文件的热更新一并由未来单独的计划实现。harness 登记的执行侧面同样从配置装载（owner，2026-09-30）；登记使用单独的配置文件（owner，2026-10-01），2026-10-02 起 `principals` 与 `workspace_actors` 各用一个文件。
+- **并入**（2026-10-10）：Workspace 访问登记中 Agent 操作白名单的运行时编辑（含前端开关）并入同一份计划，需要处理线程描述中的操作快照与即时检查之间的差异；实施时定为快照不随之更新、收回的操作在调用时由即时授权拒绝。
+- **owner 决定**（2026-11-09）：E-1a（两类登记是否经同一入口维护）选分开维护，接入登记经 System 的管理接口，访问记录经 root API；运行时改动写回生效的登记文件；接入凭据由 HiveMemory 生成与轮换，环境变量照常可用并优先。同日补充：个人配置不进入仓库，两个生效文件移出版本控制，仓库只发布 `*.example.yaml` 模板，默认路径的生效文件缺失时从模板生成。
 
-**owner 决定**（2026-09-27）：接入登记维持启动时从配置装载（选项 A）。运行时登记与其他配置文件的热更新一并由未来单独的计划实现。
-
-- **补充**（owner，2026-09-30）：harness 登记的执行侧面同样从配置装载。登记使用单独的配置文件（owner，2026-10-01），2026-10-02 起 `principals` 与 `workspace_actors` 各用一个文件。
-- **并入**（2026-10-10）：Workspace 访问登记中 Agent 操作白名单的运行时编辑（含前端开关）并入同一份未来计划（[ROADMAP](../ROADMAP.md) 第 5.5 节“配置热更新”）。届时需要处理线程描述中的操作快照与即时检查之间的差异。
-
-**E-1a**：System 接入登记与 Workspace Actor 访问登记是否经同一入口维护：同一入口 / 分开维护 / 其他。owner 决定随运行时登记的计划一并决定。
-
-**分析**：按 v1.0 范围，Codex 与 pi 接入时各需登记一个 principal 与一份访问记录；维持选项 A 时，每接入一个 harness 都要修改两份配置并重启后端。
+其他配置文件（主配置）的热更新不在这条线上，见 [ROADMAP](../ROADMAP.md) 第 5.5 节“配置热更新”。
 
 ## 4. 调用方证明
 
@@ -299,9 +289,9 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 **事实文档登记的已知限制**（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节、[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节）
 
-- 接入凭据没有签发、轮换、撤销与过期，修改经重启生效；
+- 接入凭据没有过期；环境变量中的凭据修改后经重启生效（设置页生成与轮换的凭据立即生效）；
 - principal 标识执行环境，不与 Agent 绑定。这是设计，不是限制：依据是[执行环境 Idea](./execution-environment.md) 前提 9 与外部 Actor Idea 的 E-6a（owner，2026-10-06），以及一个 harness 对应一个 principal（P-1c）。同一执行环境可以以不同 Agent 运行，Agent 由经过证明的执行环境声明，权限与可见性只跟随 Agent。
-  - 仍然存在的限制是可声明的 Agent 不要求已登记：用户级记录接纳任意具体 Agent；chat 需要对应的 Profile，导入与 MCP 不要求。
+  - 接入登记可以以 `allowed_agent_ids` 限定一个来源能声明哪些 Agent（2026-11-09），登记模板中的四个 harness 登记各自只能声明自己的 Agent。仍然存在的限制是不限定的来源（前端使用的 server 来源）可以声明用户级记录接纳的任意具体 Agent；chat 需要对应的 Profile。
   - 现有登记中的 `claude_code` 与 `dsh` 把 harness 名称当作 Agent，是前提 9 之前“harness 即 agent”看法的残留，它们的白名单实际上按执行环境限权。plugin 模式目前不能选择 Agent，暂时可用；支持选择 Agent 时需要重新处理。
 - 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单；
 - Patchouli 的交互提交与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权，依赖唯一的生产调用方先完成授权。

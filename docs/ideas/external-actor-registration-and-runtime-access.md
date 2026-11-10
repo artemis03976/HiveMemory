@@ -28,7 +28,7 @@ related_docs:
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -140,7 +140,7 @@ plugin 模式的两步已经实施（第 4 节）。本节只列与本文开放�
 
 ### 2.1 接入登记
 
-- 两类登记仍在启动时从配置装载，运行中不可变，修改需要重启（E-1 选项 A，见[身份与访问体系 Idea](./identity-and-access-model.md#3-principal-登记的来源与生效时点e-1)）：System 接入登记来自 `configs/system_principals.yaml`（[`system/access/registry.py`](../../src/hivememory/system/access/registry.py)），Workspace Actor 访问登记来自 `configs/workspace_actors.yaml`（[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)），字段见[认证与访问登记](../workspace/authentication.md)。
+- 两类登记在启动时从配置装载，运行中可以经管理接口编辑并写回（2026-11-09 实施，见[身份与访问体系 Idea](./identity-and-access-model.md#3-principal-登记的来源与生效时点e-1) E-1）：System 接入登记来自 `configs/system_principals.yaml`（[`system/access/registry.py`](../../src/hivememory/system/access/registry.py)），Workspace Actor 访问登记来自 `configs/workspace_actors.yaml`（[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)），字段见[认证与访问登记](../workspace/authentication.md)。
 - 除配置文件外，没有登记、修改或撤销接入的入口。
 
 ### 2.2 认证
