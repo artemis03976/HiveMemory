@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
-
-from fastapi import APIRouter, Depends, Header, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter, Depends, Header, Query
+from fastapi.responses import JSONResponse
+from sse_starlette import EventSourceResponse, ServerSentEvent
 
 from hivememory.core.contracts.runtime_events import RuntimeEvent
 from hivememory.server.deps import get_system
@@ -21,9 +20,9 @@ router = APIRouter(
 )
 
 
-def _format_sse(event: RuntimeEvent) -> str:
+def _format_sse(event: RuntimeEvent) -> ServerSentEvent:
     data = RuntimeEventResponse.from_domain(event).model_dump_json()
-    return f"id: {event.event_id}\nevent: runtime_event\ndata: {data}\n\n"
+    return ServerSentEvent(id=event.event_id, event="runtime_event", data=data)
 
 
 @router.get("/status", response_model=RuntimeEventStatusResponse)
@@ -40,7 +39,6 @@ async def runtime_events_status(system=Depends(get_system)) -> RuntimeEventStatu
 
 @router.get("/stream", responses={503: {"model": RuntimeEventDisabledResponse}})
 async def stream_runtime_events(
-    request: Request,
     last_event_id_query: str | None = Query(default=None, alias="last_event_id"),
     last_event_id_header: str | None = Header(default=None, alias="Last-Event-ID"),
     replay_last: int = Query(default=100, ge=1),
@@ -69,22 +67,14 @@ async def stream_runtime_events(
         subscription = bus.subscribe(replay_last=replay_count, last_event_id=last_event_id)
         try:
             async for event in subscription.events():
-                if await request.is_disconnected():
-                    break
                 yield _format_sse(event)
-                await asyncio.sleep(0)
         finally:
             subscription.close()
 
-    return StreamingResponse(
-        _event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    # 订阅没有尽头，只能由响应结束：客户端断开或服务器开始关闭时 sse_starlette
+    # 取消它。服务器关闭时要先等进行中的请求结束，才执行应用的关闭流程；不随关闭
+    # 结束的流会让关闭停在等待连接上，话题也就无法结算。
+    return EventSourceResponse(_event_generator())
 
 
 __all__ = ["router"]
