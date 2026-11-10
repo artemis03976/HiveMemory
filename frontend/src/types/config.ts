@@ -1,9 +1,7 @@
 // Configuration types matching config.yaml structure
 
 export interface SystemConfig {
-  name: string;
-  version: string;
-  debug: boolean;
+  server_principal_id: string;
 }
 
 export interface LoggingConfig {
@@ -25,8 +23,8 @@ export interface ModelSelection {
   max_tokens: number | null;
 }
 
+/** 存储层的嵌入模型固定为 BGE-M3，这里只有缓存目录等运行参数。 */
 export interface EmbeddingConfig {
-  model_name: string;
   cache_dir: string | null;
 }
 
@@ -49,7 +47,6 @@ export interface QdrantConfig {
   grpc_port: number;
   api_key: string | null;
   collection_name: string;
-  vector_dimension: number;
   distance_metric: 'Cosine' | 'Euclidean' | 'Dot';
   on_disk_payload: boolean;
 }
@@ -223,7 +220,6 @@ export interface MtpPromptConfig {
 }
 
 export interface KoakumaConfig {
-  enabled: boolean;
   execution_timeout_seconds: number;
   max_recursion_depth: number;
   tool_cache_size: number;
@@ -247,6 +243,13 @@ export interface HiveMemoryConfig {
   retrieval: RetrievalConfig;
   lifecycle: LifecycleConfig;
   koakuma: KoakumaConfig;
+}
+
+/** 主配置接口的读取与保存结果：期望配置，以及立即生效与等待重启的字段路径。 */
+export interface ConfigResponse {
+  config: HiveMemoryConfig;
+  immediate_fields: string[];
+  pending_restart: string[];
 }
 
 export interface ValidationError {
