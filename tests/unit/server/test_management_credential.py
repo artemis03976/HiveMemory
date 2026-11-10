@@ -1,4 +1,5 @@
-"""HTTP 管理面的管理凭据：凭据文件、按路径默认拒绝的中间件与后端提供页面时下发的 cookie。"""
+"""HTTP 管理面的管理凭据：凭据文件、按路径默认拒绝的中间件、后端提供页面时下发的 cookie
+与桌面模式下不下发凭据。"""
 
 import re
 import stat
@@ -14,6 +15,7 @@ from hivememory.server import app as app_module
 from hivememory.server.management_credential import (
     ManagementCredentialMiddleware,
     load_management_credential,
+    use_desktop_credential,
 )
 
 CREDENTIAL = "test-management-credential"
@@ -219,3 +221,22 @@ def test_served_page_sets_cookie_that_authorizes_api_requests(tmp_path):
     assert "SameSite=strict" in set_cookie
     assert "Path=/" in set_cookie
     assert api.status_code == 200
+
+
+def test_served_page_in_desktop_mode_does_not_hand_out_credential(tmp_path):
+    """桌面模式下请求页面拿不到凭据；主进程放进窗口会话的凭据照常通过。"""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html></html>", encoding="utf-8")
+    app = _probe_app(credential=None)
+    use_desktop_credential(app, CREDENTIAL)
+    app_module.mount_frontend(app, str(dist))
+    other_process = TestClient(app)
+    desktop_window = TestClient(app, cookies={"hivememory_management": CREDENTIAL})
+
+    page = other_process.get("/sessions")
+
+    assert page.status_code == 200
+    assert "set-cookie" not in page.headers
+    assert other_process.get("/api/v1/probe").status_code == 401
+    assert desktop_window.get("/api/v1/probe").status_code == 200

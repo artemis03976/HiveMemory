@@ -1,6 +1,8 @@
 """server.app 生命周期接线测试"""
 
 import asyncio
+import contextlib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,6 +10,7 @@ from fastapi import FastAPI
 
 from hivememory import __version__
 from hivememory.server import app as app_module
+from hivememory.server.management_credential import use_desktop_credential
 from tests.helpers.mcp import connect_mcp
 
 
@@ -68,3 +71,34 @@ async def test_app_and_health_report_package_version():
 
     assert app_module.app.version == __version__
     assert response.version == __version__
+
+
+@pytest.mark.asyncio
+async def test_lifespan_in_desktop_mode_keeps_desktop_credential_and_writes_no_file(tmp_path):
+    """桌面模式的凭据只在内存中：lifespan 沿用入口收到的凭据，不生成凭据文件。
+
+    MCP 会话管理器每个进程只能运行一次，这里换成空的上下文，不进入真实的会话管理器。
+    """
+    credential_path = tmp_path / "management.token"
+    mock_system = MagicMock()
+    mock_system.start = AsyncMock()
+    mock_system.readiness_service.warmup_models = AsyncMock()
+    idle_mcp = SimpleNamespace(session_manager=SimpleNamespace(run=contextlib.nullcontext))
+
+    with (
+        patch.object(app_module, "MANAGEMENT_CREDENTIAL_PATH", credential_path),
+        patch.object(app_module, "mcp_server", idle_mcp),
+        patch.object(app_module, "load_app_config", return_value=MagicMock()),
+        patch.object(app_module, "configure_logging"),
+        patch.object(app_module, "init_system", return_value=mock_system),
+        patch.object(app_module, "init_websocket_log_broadcasting", return_value=object()),
+        patch.object(app_module, "shutdown_system", AsyncMock()),
+        patch.object(app_module, "shutdown_websocket_log_broadcasting", AsyncMock()),
+    ):
+        app = FastAPI()
+        use_desktop_credential(app, "desktop-credential")
+        async with app_module.lifespan(app):
+            assert app.state.management_credential == "desktop-credential"
+        await asyncio.sleep(0)
+
+    assert not credential_path.exists()

@@ -1,9 +1,12 @@
-"""HTTP 管理面的管理凭据：凭据文件的生成与读取，以及按路径默认拒绝的 ASGI 中间件。
+"""HTTP 管理面的管理凭据：凭据的两种来源，以及按路径默认拒绝的 ASGI 中间件。
 
 管理凭据证明调用方是本机的前端或能读到凭据文件的人，用来挡住 agent 在工作中顺手
 调用管理接口，以及局域网中的其他机器；以同一系统用户运行、专门读取凭据文件的程序
 仍能通过。它保护的是 HTTP 管理面而不是 Workspace 准入，因此只属于 server，不进入
 接入登记；请求头中的用户身份仍是声明。
+
+桌面模式下凭据由桌面客户端的主进程交来，只留在主进程与后端的内存中：不落盘，
+返回页面时也不下发，专门寻找凭据的程序因此拿不到它。
 """
 
 import hmac
@@ -13,6 +16,7 @@ import secrets
 import tempfile
 from pathlib import Path
 
+from starlette.applications import Starlette
 from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse
 from starlette.status import WS_1008_POLICY_VIOLATION
@@ -55,6 +59,20 @@ def load_management_credential(path: Path) -> str:
         raise
     logger.info("已生成管理凭据: path=%s", path)
     return credential
+
+
+def use_desktop_credential(app: Starlette, credential: str) -> None:
+    """进入桌面模式：凭据由桌面客户端的主进程交来，必须在应用启动之前调用。
+
+    后端不再读写凭据文件，返回页面时也不下发凭据 cookie：本机任何进程请求一次页面，
+    都能从 cookie 中拿到凭据。窗口的会话由主进程放入凭据。
+    """
+    app.state.management_credential = credential
+    app.state.desktop_mode = True
+
+
+def is_desktop_mode(app: Starlette) -> bool:
+    return getattr(app.state, "desktop_mode", False)
 
 
 def requires_management_credential(path: str) -> bool:

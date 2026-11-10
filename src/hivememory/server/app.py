@@ -28,6 +28,7 @@ from hivememory.server.management_credential import (
     MANAGEMENT_CREDENTIAL_COOKIE,
     MANAGEMENT_CREDENTIAL_PATH,
     ManagementCredentialMiddleware,
+    is_desktop_mode,
     load_management_credential,
 )
 from hivememory.server.models.common import HealthResponse, ReadinessResponse
@@ -71,8 +72,10 @@ async def lifespan(app: FastAPI):
     # 装配期间的日志才按配置输出。
     config = load_app_config()
     configure_logging(config.logging)
-    # 读入之前，中间件把 /api/ 下除导入之外的请求一律按凭据无效拒绝。
-    app.state.management_credential = load_management_credential(MANAGEMENT_CREDENTIAL_PATH)
+    # 读入之前，中间件把 /api/ 下除导入之外的请求一律按凭据无效拒绝。桌面模式的凭据
+    # 已由入口从桌面主进程收到，不读写凭据文件。
+    if not is_desktop_mode(app):
+        app.state.management_credential = load_management_credential(MANAGEMENT_CREDENTIAL_PATH)
     # MCP 会话管理器在装配系统之前进入、在系统停止之后退出：挂进宿主后 SDK
     # 自己的 lifespan 不会执行。系统停止时先关闭认证网关，此后的工具调用得到
     # “服务不可用”的工具结果。
@@ -203,6 +206,7 @@ def mount_frontend(app: FastAPI, dist_dir: str) -> None:
 
     返回页面时下发管理凭据 cookie，页面的同源请求、SSE 与 WebSocket 都会自动携带它。
     HttpOnly 使页面脚本读不到凭据，SameSite=Strict 使其他站点发起的请求不携带它。
+    桌面模式下不下发：凭据由桌面主进程放进窗口的会话，其他程序请求页面拿不到它。
     """
     # 挂载前端静态资源文件夹（Vite 构建通常在 assets 下）
     assets_dir = os.path.join(dist_dir, "assets")
@@ -230,13 +234,14 @@ def mount_frontend(app: FastAPI, dist_dir: str) -> None:
         index_path = os.path.join(dist_root, "index.html")
         if os.path.exists(index_path):
             response = FileResponse(index_path)
-            response.set_cookie(
-                MANAGEMENT_CREDENTIAL_COOKIE,
-                request.app.state.management_credential,
-                httponly=True,
-                samesite="strict",
-                path="/",
-            )
+            if not is_desktop_mode(request.app):
+                response.set_cookie(
+                    MANAGEMENT_CREDENTIAL_COOKIE,
+                    request.app.state.management_credential,
+                    httponly=True,
+                    samesite="strict",
+                    path="/",
+                )
             return response
         else:
             return JSONResponse(status_code=404, content={"error": "Frontend index.html not found"})

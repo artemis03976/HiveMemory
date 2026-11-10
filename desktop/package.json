@@ -1,0 +1,13 @@
+{
+  "name": "hivememory-desktop",
+  "private": true,
+  "description": "HiveMemory 桌面客户端原型：托盘常驻，启动并持有本机后端与 Qdrant",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.9.3"
+  }
+}
