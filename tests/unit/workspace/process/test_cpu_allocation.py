@@ -27,8 +27,8 @@ from hivememory.core.errors import (
     AssetNotFoundError,
     AssetOperationConflictError,
     AssetRemovedError,
+    OperationDeniedError,
     ResourceNotFoundError,
-    ScopeRequiredError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -447,7 +447,7 @@ async def test_admission_revoked_before_main_thread_fails_before_retrieval_or_to
 
     events = await _run_once(composition, service, "问题", process_id="process-admission-revoked")
 
-    assert error_code(events) == ScopeRequiredError.code
+    assert error_code(events) == OperationDeniedError.code
     assert stub.retrievals == []
     assert stub.prepared_topics == []
     assert cpu.calls == []

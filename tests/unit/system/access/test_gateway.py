@@ -3,8 +3,8 @@
 被测对象：System 统一认证网关。保护的契约：
 一次认证调用完成两项认证并返回工作 actor（来源 principal、actor 与驻留
 workspace）；未登记/禁用折叠为同一 reason（不泄漏配置）、adapter 不匹配、
-凭据缺失或不一致（含凭据环境变量未设置）、身份解析收紧、未获允许的
-system 声明、owner 准入约束与缺失 Workspace 访问记录分别拒绝；同一
+凭据缺失或不一致（含外部来源没有可用凭据）、按用户与按 Agent 的身份解析
+收紧、未获允许的 system 声明、owner 准入约束与缺失 Workspace 访问记录分别拒绝；同一
 principal 服务多个 Actor 不是失败；``gateway.close`` 只拒新认证。
 
 子工作 actor 的准入（线程表派生子线程时调用）沿用主工作 actor 的来源与驻留
@@ -172,13 +172,13 @@ async def test_registered_credential_rejects_missing_or_different_credential(cre
 
 
 @pytest.mark.asyncio
-async def test_unset_credential_env_rejects_every_authentication():
-    """凭据环境变量未设置时，即使请求同样不带凭据也被拒绝，不退化为免凭据接入。"""
+async def test_external_principal_without_credential_rejects_every_authentication():
+    """外部来源没有可用凭据时（没有声明环境变量，也没有生成凭据），即使请求同样
+    不带凭据也被拒绝，不退化为免凭据接入。"""
     gateway = _credential_gateway(
         SystemActorAccessEntry(
             principal_id="harness:test",
             adapters=frozenset({"mcp"}),
-            credential_env="TEST_HARNESS_TOKEN",
             credential=None,
         )
     )
@@ -256,6 +256,32 @@ async def test_principal_identity_rule_rejects_foreign_user():
             workspace=MAIN,
         )
     assert exc_info.value.details["reason"] == "actor_not_allowed_for_principal"
+
+
+@pytest.mark.asyncio
+async def test_principal_agent_rule_rejects_undeclared_agent():
+    """接入登记限定了可声明的 Agent 时，声明其他 Agent 以 agent_not_allowed_for_principal 拒绝。"""
+    gateway = _credential_gateway(
+        SystemActorAccessEntry(
+            principal_id="harness:test",
+            adapters=frozenset({"mcp"}),
+            allowed_agent_ids=frozenset({"a1"}),
+            credential="s3cret-token",
+        )
+    )
+
+    with pytest.raises(AdmissionDeniedError) as exc_info:
+        await gateway.authenticate(
+            adapter="mcp",
+            principal=CallerPrincipal("harness:test"),
+            credential="s3cret-token",
+            actor=ActorIdentity(user_id="u1", agent_id="a2"),
+            workspace=MAIN,
+        )
+    assert exc_info.value.details["reason"] == "agent_not_allowed_for_principal"
+
+    # 集合内的 Agent 照常认证
+    await _authenticate_harness(gateway, "s3cret-token")
 
 
 @pytest.mark.asyncio

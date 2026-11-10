@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from hivememory.core.access import WorkingActor, WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
+from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
@@ -91,7 +91,7 @@ class WorkspaceOperationAuthorizer:
         逐次授权。准入记录已不再有效时与授权一样以
         ``actor_not_admitted`` 拒绝；空白名单照常返回。
         """
-        return self._admission_record(actor).allowed_operations
+        return self._admission_record(actor, {}).allowed_operations
 
     # ---- 内部辅助 ----
 
@@ -109,8 +109,8 @@ class WorkspaceOperationAuthorizer:
         """
         if not isinstance(target_workspace, WorkspaceIdentity):
             raise TypeError("target_workspace 必须是 WorkspaceIdentity")
-        record = self._admission_record(actor)
         operation_detail = {"operation": operation.value} if operation is not None else {}
+        record = self._admission_record(actor, operation_detail)
         if target_workspace != actor.workspace:
             raise OperationDeniedError(
                 details={
@@ -131,12 +131,18 @@ class WorkspaceOperationAuthorizer:
             )
         return record
 
-    def _admission_record(self, actor: WorkingActor) -> WorkspaceActorAccessRecord:
-        """按驻留坐标确认准入仍然有效；无效时以 ``actor_not_admitted`` 拒绝。"""
+    def _admission_record(
+        self, actor: WorkingActor, operation_detail: dict[str, str]
+    ) -> WorkspaceActorAccessRecord:
+        """按驻留坐标确认准入仍然有效；无效时以 ``actor_not_admitted`` 拒绝。
+
+        访问记录可以在运行时禁用或删除：认证时有效的工作 actor 之后的操作在这里
+        被拒绝。这是授权失败，不是接线缺陷。
+        """
         record = self._registry.record_for(actor.workspace, actor.actor)
         if record is None or not record.enabled:
-            raise ScopeRequiredError(
+            raise OperationDeniedError(
                 "该 Actor 已无有效的 Workspace 访问登记",
-                details={"reason": "actor_not_admitted"},
+                details={**operation_detail, "reason": "actor_not_admitted"},
             )
         return record

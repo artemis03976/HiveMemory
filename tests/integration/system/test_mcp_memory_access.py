@@ -11,11 +11,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RuntimeEventBus
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.trace_context import current_trace_id
+from hivememory.config.access import SystemPrincipalsFile, file_digest
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.access import CallerPrincipal, WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
@@ -182,9 +184,15 @@ class _Gateway:
         )
 
 
-def _compose(allowed_operations: frozenset[WorkspaceOperation]):
-    """与组合根同构地装配接入登记、认证网关、授权者、操作入口、actor API 与 Import Bus。"""
-    principals = SystemActorAccessRegistry(
+def _compose(
+    allowed_operations: frozenset[WorkspaceOperation],
+    principals: SystemActorAccessRegistry | None = None,
+):
+    """与组合根同构地装配接入登记、认证网关、授权者、操作入口、actor API 与 Import Bus。
+
+    ``principals`` 缺省时使用以环境变量凭据登记 Claude Code 的接入登记。
+    """
+    principals = principals or SystemActorAccessRegistry(
         [
             SystemActorAccessEntry(
                 principal_id="harness:claude-code",
@@ -446,3 +454,40 @@ async def test_each_tool_call_runs_in_its_own_trace_shared_by_topic_routing():
     assert write.trace_id.startswith("mcp-")
     assert search.trace_id != write.trace_id
     assert gateway.traces == [write.trace_id]
+
+
+@pytest.mark.asyncio
+async def test_runtime_registered_harness_searches_until_its_credential_rotates(tmp_path):
+    """运行时登记得到的凭据可以经 MCP 检索记忆；轮换之后旧凭据被拒，新凭据照常。"""
+    path = tmp_path / "system_principals.yaml"
+    path.write_text(
+        "principals:\n"
+        '  - principal_id: "hivememory:system"\n'
+        '    adapters: ["local"]\n'
+        "    allow_system_actor: true\n",
+        encoding="utf-8",
+    )
+    principals = SystemActorAccessRegistry.from_config(
+        SystemPrincipalsFile.model_validate(yaml.safe_load(path.read_text(encoding="utf-8"))),
+        file_path=path,
+        file_digest=file_digest(path),
+        credentials_path=tmp_path / "principals.secrets.yaml",
+    )
+    _, old = principals.register(
+        "harness:claude-code",
+        adapters=frozenset({"mcp", "import"}),
+        allowed_agent_ids=frozenset({"claude_code"}),
+    )
+    system, _, _ = _compose(_READ_AND_SEARCH, principals=principals)
+
+    async def search(credential: str):
+        headers = {**_HEADERS, "Authorization": f"Bearer {credential}"}
+        async with serve_mcp(create_mcp_server(lambda: system), headers) as session:
+            return await session.call_tool("memory_search", {"query": "怎么部署"})
+
+    assert 'alias="deploy_flow"' in tool_text(await search(old))
+
+    _, new = principals.rotate_credential("harness:claude-code")
+
+    assert tool_error(await search(old))["reason"] == "invalid_credential"
+    assert 'alias="deploy_flow"' in tool_text(await search(new))

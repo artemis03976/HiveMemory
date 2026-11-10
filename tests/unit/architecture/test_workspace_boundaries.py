@@ -6,7 +6,9 @@ workspace 包内更严格的约束：
 
 1. 认证、准入、读取能力（cache / resolution / read_view）与配置模块只依赖
    core、workspace 自身与业务时间入口 ``utils.time``——读取器经 backing 协议冷读，不导入总线、
-   路由常量或任何子系统实现；运行时装配与失效订阅者仅另依赖总线机制；
+   路由常量或任何子系统实现；运行时装配与失效订阅者仅另依赖总线机制；会话服务与
+   访问注册表另各读取自己的配置段（访问注册表装载并写回 workspace 所有的访问登记
+   文件）；
 2. ``intents`` 作为共享登记只可另依赖 ``components``；
    ``capability`` / ``assets`` / ``process`` 作为能力层、资产设施与进程
    编排，可依赖更低层的机制（``components``），不受上一条约束；
@@ -95,6 +97,7 @@ def test_workspace_access_and_read_modules_depend_only_on_core():
             path == WORKSPACE_PACKAGE / "sessions" / "service.py"
             and module == "hivememory.config.workspace"
         )
+        and not (path == WORKSPACE_PACKAGE / "registry.py" and module == "hivememory.config.access")
         and not (
             (path in SHARED_EVENT_SUBSCRIBERS or WORKSPACE_PACKAGE / "intents" in path.parents)
             and module.startswith("hivememory.components")

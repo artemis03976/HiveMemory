@@ -136,6 +136,7 @@ def test_root_authorization_is_only_called_by_root_api_and_task_process():
     System 的服务不授权：Import Bus 只认证系统自身，需要授权的步骤经 root API。
     """
     assert _attribute_sites("authorize_root") == {
+        "workspace/capability/root/access.py",
         "workspace/capability/root/agent_profiles.py",
         "workspace/capability/root/assets.py",
         "workspace/capability/root/interaction.py",

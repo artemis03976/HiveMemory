@@ -237,6 +237,7 @@ def _build_system(
         root_memory_task=object(),  # type: ignore[arg-type]
         root_agent=object(),  # type: ignore[arg-type]
         root_session=object(),  # type: ignore[arg-type]
+        root_access=MagicMock(),
         root_topic=object(),  # type: ignore[arg-type]
         readiness=object(),  # type: ignore[arg-type]
         root_workspace_assets=object(),  # type: ignore[arg-type]
@@ -255,6 +256,7 @@ def _build_system(
         ),
         services=services,
         access_gateway=access_gateway or MagicMock(spec=ActorAuthenticationGateway),
+        principal_registry=MagicMock(),
     )
     return system, calls, subsystems, sink
 
@@ -438,6 +440,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         root_memory_task=object(),  # type: ignore[arg-type]
         root_agent=object(),  # type: ignore[arg-type]
         root_session=object(),  # type: ignore[arg-type]
+        root_access=MagicMock(),
         root_topic=object(),  # type: ignore[arg-type]
         readiness=object(),  # type: ignore[arg-type]
         root_workspace_assets=object(),  # type: ignore[arg-type]
@@ -456,6 +459,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         ),
         services=services,
         access_gateway=MagicMock(spec=ActorAuthenticationGateway),
+        principal_registry=MagicMock(),
     )
 
     await system.start()

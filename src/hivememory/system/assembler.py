@@ -27,9 +27,14 @@ from hivememory.components.events.bus import (
 )
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
-from hivememory.config.access import load_access_registration
+from hivememory.config.access import (
+    get_principal_credentials_file_path,
+    get_system_principals_file_path,
+    get_workspace_actors_file_path,
+    load_access_registration,
+)
 from hivememory.config.app import HiveMemoryConfig, provider_credentials_from_env
-from hivememory.core.access import CallerPrincipal, WorkspaceOperation
+from hivememory.core.access import CallerPrincipal
 from hivememory.gateway import GatewaySystem
 from hivememory.i18n import set_default_language
 from hivememory.infrastructure.llm import BaseLLMService, LiteLLMService, LLMRequestParams
@@ -53,6 +58,7 @@ from hivememory.workspace.capability.actor.agent_profiles import ActorAgentServi
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
+from hivememory.workspace.capability.root.access import RootAccessService
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
 from hivememory.workspace.capability.root.interaction import RootInteractionService
@@ -66,10 +72,7 @@ from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.read_view import WorkspaceReadView
-from hivememory.workspace.registry import (
-    WorkspaceActorAccessRecord,
-    WorkspaceActorAccessRegistry,
-)
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from hivememory.workspace.sessions import ConversationSessionService
 
 if TYPE_CHECKING:
@@ -170,6 +173,7 @@ class _ServicesBundle:
     root_agent: RootAgentProfileService
     root_topic: RootTopicService
     root_session: RootSessionService
+    root_access: RootAccessService
     readiness: SystemReadinessService
     root_workspace_assets: RootWorkspaceAssetService
 
@@ -216,6 +220,7 @@ class SystemAssembler:
             runtime=runtime,
             registries=registries,
             access_gateway=access_control.access_gateway,
+            principal_registry=access_control.system_registry,
             subsystems=subsystems,
             services=services,
         )
@@ -312,33 +317,29 @@ class SystemAssembler:
         """装载两类访问登记并构造认证与授权两侧。
 
         System composition 负责"装载和注入配置"：接入登记从
-        ``configs/system_principals.yaml`` 装载转入 System 注册表，同时从
-        环境变量读取各来源的接入凭据（未设置时告警，该来源的认证一律被
-        拒绝），Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
-        转入 Workspace 注册表，operation 枚举值在装载期校验（未知值显式
-        失败，不静默丢弃）。缺省空登记即 fail closed——网关拒绝一切认证。
+        ``configs/system_principals.yaml`` 装载转入 System 注册表，同时取得各
+        外部来源的接入凭据（环境变量优先，其次是同目录凭据文件中的生成凭据；
+        都没有时告警，该来源的认证一律被拒绝），Workspace Actor 访问登记从
+        ``configs/workspace_actors.yaml`` 装载转入 Workspace 注册表，operation
+        枚举值在装载期校验（未知值显式失败，不静默丢弃）。两个注册表都记下
+        生效文件的路径与装载时的内容摘要，运行时编辑写回这两个文件。缺省
+        空登记即 fail closed——网关拒绝一切认证。
         认证与操作授权分属两个类：认证一侧产出工作 actor，操作授权者读取
         它逐次授权，两者互不依赖、都只读访问注册表；组合根把操作授权者注入
         各授权点，运行持有者只经认证网关接触认证一侧。
         """
         registration = load_access_registration()
-
-        workspace_records = [
-            WorkspaceActorAccessRecord(
-                owner_user_id=entry.owner_user_id,
-                workspace_id=entry.workspace_id,
-                user_id=entry.user_id,
-                agent_id=entry.agent_id,
-                enabled=entry.enabled,
-                allowed_operations=frozenset(
-                    self._parse_operation(name, entry) for name in entry.allowed_operations
-                ),
-            )
-            for entry in registration.workspace_actors.workspace_actors
-        ]
-
-        system_registry = SystemActorAccessRegistry.from_config(registration.principals)
-        workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
+        system_registry = SystemActorAccessRegistry.from_config(
+            registration.principals,
+            file_path=get_system_principals_file_path(),
+            file_digest=registration.principals_digest,
+            credentials_path=get_principal_credentials_file_path(),
+        )
+        workspace_registry = WorkspaceActorAccessRegistry.from_config(
+            registration.workspace_actors,
+            file_path=get_workspace_actors_file_path(),
+            file_digest=registration.workspace_actors_digest,
+        )
         # 第 2 阶段的准入归认证一侧，产出工作 actor；第 3 阶段归操作授权者
         # （无状态，读取工作 actor）。两者互不依赖，都只读同一份 Workspace
         # 访问登记。
@@ -381,17 +382,6 @@ class SystemAssembler:
             ),
             root_topic=root_topic,
         )
-
-    @staticmethod
-    def _parse_operation(name: str, entry) -> WorkspaceOperation:
-        """把配置中的 operation 枚举值解析为枚举成员；未知值装载期失败。"""
-        try:
-            return WorkspaceOperation(name)
-        except ValueError as exc:
-            raise ValueError(
-                f"Workspace Actor 访问登记包含未知 operation {name!r}: "
-                f"({entry.owner_user_id}, {entry.workspace_id}, {entry.user_id}, {entry.agent_id})"
-            ) from exc
 
     # ------------------------------------------------------------------
     # 层三：workspace 能力服务与操作入口
@@ -596,6 +586,10 @@ class SystemAssembler:
             root_topic=root_topic,
             root_session=RootSessionService(
                 runtime.sessions, operation_authorizer=access_control.operation_authorizer
+            ),
+            root_access=RootAccessService(
+                access_control.workspace_registry,
+                operation_authorizer=access_control.operation_authorizer,
             ),
             readiness=readiness,
             root_workspace_assets=root_workspace_assets,

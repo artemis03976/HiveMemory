@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 from starlette.exceptions import HTTPException
 
 from hivememory.core.errors import (
+    AccessRegistrationConflictError,
+    AccessRegistrationNotFoundError,
     AdmissionDeniedError,
     AssetExpiredError,
     AssetFailedError,
@@ -56,6 +58,8 @@ from hivememory.workspace.contracts.errors import (
     ("error_type", "status", "code"),
     [
         (OperationDeniedError, 403, "workspace.operation_denied"),
+        (AccessRegistrationNotFoundError, 404, "access.registration.not_found"),
+        (AccessRegistrationConflictError, 409, "access.registration.conflict"),
         (ScopeRequiredError, 500, "workspace.scope_required"),
         (WorkspaceMismatchError, 409, "workspace.mismatch"),
         (SessionNotFoundError, 404, "workspace.session.not_found"),
@@ -125,11 +129,21 @@ def test_domain_errors_keep_http_categories_without_diagnostics(error_type, stat
             503,
             "authentication_gateway_closed",
         ),
+        (
+            AdmissionDeniedError(details={"reason": "agent_not_allowed_for_principal"}),
+            403,
+            "agent_not_allowed_for_principal",
+        ),
+        (
+            AccessRegistrationConflictError(details={"reason": "file_modified", "path": "secret"}),
+            409,
+            "file_modified",
+        ),
         (AssetOperationConflictError(details={"reason": "store_closed"}), 503, "store_closed"),
         (ImportBusUnavailableError(reason="gateway_unavailable"), 503, "gateway_unavailable"),
         (ImportBusUnavailableError(reason="queue_unavailable"), 503, "queue_unavailable"),
         (ImportBusUnavailableError(reason="shutting_down"), 503, "shutting_down"),
-        (ScopeRequiredError(details={"reason": "actor_not_admitted"}), 500, "actor_not_admitted"),
+        (OperationDeniedError(details={"reason": "actor_not_admitted"}), 403, "actor_not_admitted"),
         (
             OperationDeniedError(details={"reason": "target_workspace_not_resident"}),
             403,

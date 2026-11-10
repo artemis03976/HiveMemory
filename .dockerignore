@@ -20,3 +20,6 @@ scripts
 configs/.env
 configs/providers.secrets.yaml
 configs/management.token
+configs/principals.secrets.yaml
+configs/system_principals.yaml
+configs/workspace_actors.yaml

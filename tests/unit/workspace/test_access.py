@@ -22,7 +22,7 @@ import pytest
 
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
+from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import ActorIdentity, IdentityScope
 from tests.helpers.workspace import (
     make_access_composition,
@@ -170,8 +170,8 @@ async def test_both_methods_reject_target_outside_resident_workspace(authorize, 
 async def test_both_methods_recheck_admission_against_the_access_registry(agent_id, enabled):
     """每次授权按访问登记复查准入：记录缺失或已禁用时拒绝认证时得到的工作 actor。
 
-    访问登记在进程内不可变、系统中只有一个实例，这是防御性分支；测试以一份
-    不含该 Actor（或已禁用该 Actor）的登记构造授权者来模拟准入已失效。
+    访问记录可以在运行时禁用或删除；测试以一份不含该 Actor（或已禁用该 Actor）
+    的登记构造授权者来模拟准入已失效。这是授权失败，不是接线缺陷。
     """
     actor = await _composition().authenticate(agent_id=agent_id, user_id="u1")
     without_actor = make_access_composition(
@@ -186,7 +186,7 @@ async def test_both_methods_recheck_admission_against_the_access_registry(agent_
         default_workspace=MAIN,
     )
 
-    with pytest.raises(ScopeRequiredError) as exc_info:
+    with pytest.raises(OperationDeniedError) as exc_info:
         if agent_id == SYSTEM_AGENT_ID:
             without_actor.authorizer.authorize_root(actor, MAIN)
         else:
@@ -238,7 +238,7 @@ async def test_allowed_operations_rejects_actor_no_longer_admitted():
         default_workspace=MAIN,
     )
 
-    with pytest.raises(ScopeRequiredError) as exc_info:
+    with pytest.raises(OperationDeniedError) as exc_info:
         disabled.authorizer.allowed_operations(actor)
 
     assert exc_info.value.details["reason"] == "actor_not_admitted"

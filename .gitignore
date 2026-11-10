@@ -45,6 +45,13 @@ configs/providers.secrets.yaml
 # HTTP 管理面的管理凭据（后端首次启动时生成）
 configs/management.token
 
+# 外部来源的生成凭据（设置页“接入与权限”登记或轮换时写入）
+configs/principals.secrets.yaml
+
+# 生效的访问登记：本机的个人配置，首次启动时从同目录的 *.example.yaml 模板生成
+configs/system_principals.yaml
+configs/workspace_actors.yaml
+
 # Database
 *.db
 *.sqlite
