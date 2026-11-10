@@ -36,9 +36,9 @@ const UNALIGNED_CATEGORIES = new Set([
 function UnalignedCategoryNotice() {
   return (
     <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-5 py-4 text-sm text-slate-300 leading-relaxed">
-      该分类尚未与后端配置结构对齐，暂不提供表单。需要修改时，请直接编辑
-      <code className="mx-1 font-mono text-amber-300/80">configs/config.yaml</code>
-      并重启服务。
+      该分类尚未与后端配置结构对齐，暂不提供表单。需要修改时，请在
+      <code className="mx-1 font-mono text-amber-300/80">configs/config.local.yaml</code>
+      中写入要改的字段并重启服务。
     </div>
   );
 }

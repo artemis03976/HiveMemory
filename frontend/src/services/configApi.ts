@@ -27,8 +27,3 @@ export async function fetchDefaultConfig(): Promise<HiveMemoryConfig> {
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'fetchDefaultConfig failed'));
   return res.json();
 }
-
-export async function fetchFoldTokenThreshold(): Promise<number> {
-  const { config } = await fetchConfig();
-  return config.perception.engine.fold_token_threshold;
-}
