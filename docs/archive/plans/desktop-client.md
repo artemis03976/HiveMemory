@@ -2,7 +2,7 @@
 title: Electron 桌面客户端
 status: archived
 archived_at: 2026-11-10
-implemented_by: PR #TBD
+implemented_by: PR #214
 superseded_by: docs/frontend/desktop-client.md
 owner: frontend
 target: v1.0 范围（候选清单 D-01，含 A-02、A-05）
@@ -231,7 +231,7 @@ cd desktop && node --check src/main.js && npm run package
 
 ## 10. 实施记录
 
-2026-11-10 在分支 `feat/desktop-prototype` 实施第 4 节，做法按候选设计落地，以 PR #TBD 合并。与计划不同，或计划没有写到的地方：
+2026-11-10 在分支 `feat/desktop-prototype` 实施第 4 节，做法按候选设计落地，以 PR #214 合并。与计划不同，或计划没有写到的地方：
 
 - **模型加载失败的报告**：
   - 就绪链路新增一对路由：Patchouli 本地路由 `runtime.models.failed` 与公开路由 `patchouli.public.models.failed`，列出最近一次加载失败的模型名。原有的“是否就绪”路由不变。
