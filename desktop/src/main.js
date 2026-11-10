@@ -7,25 +7,30 @@
  */
 
 import { app, BrowserWindow, dialog, Menu, nativeImage, shell, Tray } from 'electron'
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
+import { checkoutLayout, installedLayout } from './layout.js'
 import { BACKEND_ORIGIN, LocalServices, MANAGEMENT_CREDENTIAL_COOKIE } from './services.js'
 
-const REPO_ROOT = resolve(import.meta.dirname, '..', '..')
-const LOG_DIR = join(REPO_ROOT, '.hivememory', 'logs')
 const ICON_PATH = join(import.meta.dirname, '..', 'assets', 'icon.png')
+// 与 data/model_cache 中两份推理模型的实际大小一致，只用于在启动页提示首次下载的总量。
+const MODEL_DOWNLOAD_HINT = '约 1.6 GB'
+// Qdrant 不能使用超过 260 个字符的路径，记忆库的文件在数据根之下最深约 142 个字符；
+// 数据根更长时建集合会失败，后端无法启动。
+const MAX_DATA_ROOT_LENGTH = 100
 
-function log(message) {
-  mkdirSync(LOG_DIR, { recursive: true })
-  appendFileSync(join(LOG_DIR, 'desktop.log'), `${new Date().toISOString()} ${message}\n`, 'utf8')
-}
-
-const services = new LocalServices({ repoRoot: REPO_ROOT, logDir: LOG_DIR, log })
+let logDir = null
+let services = null
 let window = null
 let tray = null
 // running → stopping（等待后端结算话题）→ stopped（可以退出）
 let lifecycle = 'running'
+
+function log(message) {
+  mkdirSync(logDir, { recursive: true })
+  appendFileSync(join(logDir, 'desktop.log'), `${new Date().toISOString()} ${message}\n`, 'utf8')
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
@@ -34,7 +39,7 @@ if (!app.requestSingleInstanceLock()) {
   // 托盘常驻：窗口全部关闭时不退出。
   app.on('window-all-closed', () => {})
   app.on('before-quit', (event) => {
-    if (lifecycle === 'stopped') return
+    if (lifecycle === 'stopped' || !services) return
     event.preventDefault()
     shutdown('quit')
   })
@@ -42,10 +47,25 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 async function startup() {
-  log(`桌面端启动: repo=${REPO_ROOT}`)
+  let layout
+  if (app.isPackaged) {
+    const dataRoot = await resolveDataRoot()
+    if (!dataRoot) {
+      lifecycle = 'stopped'
+      app.quit()
+      return
+    }
+    layout = installedLayout(process.resourcesPath, dataRoot)
+  } else {
+    layout = checkoutLayout(resolve(import.meta.dirname, '..', '..'))
+  }
+  logDir = join(layout.dataRoot, '.hivememory', 'logs')
+  services = new LocalServices({ layout, log })
+  log(`桌面端启动: version=${app.getVersion()} packaged=${app.isPackaged} data_root=${layout.dataRoot}`)
+
   tray = createTray()
   window = createWindow()
-  window.loadFile(join(import.meta.dirname, 'starting.html'))
+  await window.loadFile(join(import.meta.dirname, 'starting.html'))
   window.show()
 
   let started
@@ -53,13 +73,13 @@ async function startup() {
     started = await services.start()
   } catch (error) {
     log(`启动失败: ${error.message}`)
-    dialog.showErrorBox('HiveMemory 没有启动', `${error.message}\n\n日志目录：${LOG_DIR}`)
+    dialog.showErrorBox('HiveMemory 没有启动', `${error.message}\n\n日志目录：${logDir}`)
     shutdown('startup-failed')
     return
   }
   services.onUnexpectedExit((code) => {
     log(`后端意外退出: code=${code}`)
-    dialog.showErrorBox('HiveMemory 后端意外退出', `退出代码 ${code}。\n\n日志目录：${LOG_DIR}`)
+    dialog.showErrorBox('HiveMemory 后端意外退出', `退出代码 ${code}。\n\n日志目录：${logDir}`)
     shutdown('backend-exited')
   })
   if (started.credential) {
@@ -74,7 +94,77 @@ async function startup() {
     })
   }
   tray.setToolTip(started.attached ? 'HiveMemory：已附着到已在运行的后端' : 'HiveMemory：运行中')
+
+  setStartingStatus('正在加载推理模型…')
+  const modelsReady = await services.waitForModels((bytes) => {
+    const megabytes = Math.round(bytes / 1024 / 1024)
+    setStartingStatus(`正在下载推理模型：已下载 ${megabytes} MB，首次启动共需下载${MODEL_DOWNLOAD_HINT}`)
+  })
+  if (!modelsReady) log('推理模型仍未就绪，模型缓存也不再增长，先打开界面')
+  if (lifecycle !== 'running') return
   await window.loadURL(`${BACKEND_ORIGIN}/`)
+}
+
+/**
+ * 安装后的数据根：第一次启动时由用户选择，记在 userData 下，之后沿用。
+ * 返回 null 表示用户选择退出。
+ */
+async function resolveDataRoot() {
+  const settingsPath = join(app.getPath('userData'), 'desktop-settings.json')
+  if (existsSync(settingsPath)) {
+    return JSON.parse(readFileSync(settingsPath, 'utf8')).dataRoot
+  }
+  const dataRoot = await chooseDataRoot()
+  if (dataRoot) {
+    mkdirSync(app.getPath('userData'), { recursive: true })
+    writeFileSync(settingsPath, JSON.stringify({ dataRoot }, null, 2), 'utf8')
+  }
+  return dataRoot
+}
+
+async function chooseDataRoot() {
+  const defaultRoot = join(process.env.LOCALAPPDATA, 'HiveMemory')
+  for (;;) {
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      title: 'HiveMemory',
+      message: '选择 HiveMemory 的数据目录',
+      detail:
+        '配置、记忆库、模型缓存与日志都放在这里，卸载 HiveMemory 时保留。\n\n' +
+        `默认位置：${defaultRoot}\n\n` +
+        '已经有 HiveMemory 的数据（例如仓库的 checkout）时，可以直接选择那个目录，不需要搬动文件。',
+      buttons: ['使用默认位置', '选择已有目录…', '退出'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    })
+    if (response === 2) return null
+    let chosen = defaultRoot
+    if (response === 1) {
+      const { canceled, filePaths } = await dialog.showOpenDialog({
+        title: '选择已有的 HiveMemory 数据目录',
+        properties: ['openDirectory'],
+      })
+      if (canceled) continue
+      chosen = filePaths[0]
+    }
+    if (chosen.length <= MAX_DATA_ROOT_LENGTH) return chosen
+    await dialog.showMessageBox({
+      type: 'warning',
+      title: 'HiveMemory',
+      message: '数据目录的路径太长',
+      detail: `${chosen}\n\n记忆库的文件放在数据目录之下很深的位置，数据目录的路径不能超过 ${MAX_DATA_ROOT_LENGTH} 个字符。请选择一个更短的目录。`,
+      noLink: true,
+    })
+  }
+}
+
+/** 更新启动页上的状态文字；启动页不运行脚本，由主进程写入。 */
+function setStartingStatus(text) {
+  if (!window || window.isDestroyed()) return
+  window.webContents
+    .executeJavaScript(`document.getElementById('status').textContent = ${JSON.stringify(text)}`)
+    .catch(() => {})
 }
 
 function createWindow() {
@@ -116,11 +206,12 @@ function createWindow() {
 }
 
 function createTray() {
-  const created = new Tray(nativeImage.createFromPath(ICON_PATH))
+  const created = new Tray(nativeImage.createFromPath(ICON_PATH).resize({ width: 32, height: 32 }))
   created.setToolTip('HiveMemory：正在启动')
   created.setContextMenu(
     Menu.buildFromTemplate([
       { label: '打开 HiveMemory', click: showWindow },
+      { label: '打开数据目录', click: () => shell.openPath(services.layout.dataRoot) },
       { type: 'separator' },
       { label: '退出', click: () => app.quit() },
     ]),

@@ -1,29 +1,33 @@
 /**
  * 本机服务：Qdrant 与 HiveMemory 后端的启动、就绪等待与正常关闭。
  *
- * 原型直接使用仓库的 checkout：后端用仓库的 .venv 运行；Qdrant 的可执行文件与存储目录读自
- * .hivememory/dev.env，与 scripts/hivememory-dev.ps1 相同；日志写在 .hivememory/logs。
+ * 程序与数据的位置由 layout.js 给出；后端以数据根为工作目录，日志写在数据根的 .hivememory/logs。
  * 端口与仓库配置一致，外部 harness 的插件都连 8769，因此被占用时不换端口。
  */
 
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const BACKEND_ORIGIN = 'http://127.0.0.1:8769'
 export const MANAGEMENT_CREDENTIAL_COOKIE = 'hivememory_management'
 
 const BACKEND_HEALTH_URL = `${BACKEND_ORIGIN}/health`
+const BACKEND_READY_URL = `${BACKEND_ORIGIN}/health/ready`
 const QDRANT_READY_URL = 'http://127.0.0.1:6333/readyz'
 const BACKEND_START_TIMEOUT_MS = 120_000
 const QDRANT_START_TIMEOUT_MS = 60_000
+// 模型未就绪、模型缓存也这么久没有增长时，不再等待：下载失败或加载失败不应让窗口停在启动页。
+const MODEL_STALL_TIMEOUT_MS = 60_000
 
 export class LocalServices {
-  constructor({ repoRoot, logDir, log }) {
-    this.repoRoot = repoRoot
-    this.logDir = logDir
-    this.runDir = join(repoRoot, '.hivememory', 'run')
+  constructor({ layout, log }) {
+    this.layout = layout
+    this.logDir = join(layout.dataRoot, '.hivememory', 'logs')
+    this.runDir = join(layout.dataRoot, '.hivememory', 'run')
+    // 配置中模型缓存的默认位置，相对后端的工作目录（数据根）。
+    this.modelCacheDir = join(layout.dataRoot, 'data', 'model_cache')
     this.log = log
     this.backend = null
     this.backendExited = null
@@ -49,6 +53,29 @@ export class LocalServices {
     const credential = randomBytes(32).toString('base64url')
     await this.startBackend(credential)
     return { attached: false, credential }
+  }
+
+  /**
+   * 等推理模型就绪。首次启动时后端在预热中下载模型，期间以已下载的字节数回调 onDownload。
+   *
+   * 返回 true 表示就绪；模型缓存停止增长超过时限仍未就绪时返回 false，由调用方先打开界面。
+   */
+  async waitForModels(onDownload) {
+    const initialBytes = directorySize(this.modelCacheDir)
+    let lastBytes = initialBytes
+    let lastGrowth = Date.now()
+    while (!(await isUp(BACKEND_READY_URL))) {
+      const bytes = directorySize(this.modelCacheDir)
+      if (bytes !== lastBytes) {
+        lastBytes = bytes
+        lastGrowth = Date.now()
+      }
+      if (bytes > initialBytes) onDownload(bytes)
+      if (Date.now() - lastGrowth > MODEL_STALL_TIMEOUT_MS) return false
+      await delay(1000)
+    }
+    if (lastBytes > initialBytes) this.log(`推理模型已下载: bytes=${lastBytes - initialBytes}`)
+    return true
   }
 
   /** 后端在运行中（不是关闭时）退出时调用 handler(exitCode)。 */
@@ -84,16 +111,15 @@ export class LocalServices {
       this.log('Qdrant 已在运行，直接使用，退出时不结束它')
       return
     }
-    const settings = readDevEnv(join(this.repoRoot, '.hivememory', 'dev.env'))
-    const qdrantBin = settings.QDRANT_BIN
+    const { qdrantBin, qdrantStorage } = this.layout
     if (!qdrantBin || !existsSync(qdrantBin)) {
-      throw new Error(`Qdrant 可执行文件不存在：'${qdrantBin ?? ''}'。请在 .hivememory\\dev.env 中把 QDRANT_BIN 设为 qdrant.exe 的绝对路径。`)
+      throw new Error(`Qdrant 可执行文件不存在：'${qdrantBin ?? ''}'`)
     }
-    const storagePath = settings.QDRANT_STORAGE_PATH || join(this.repoRoot, '.hivememory', 'qdrant')
     mkdirSync(this.runDir, { recursive: true })
-    mkdirSync(storagePath, { recursive: true })
+    mkdirSync(this.logDir, { recursive: true })
+    mkdirSync(qdrantStorage, { recursive: true })
 
-    this.log(`启动 Qdrant: storage=${storagePath}`)
+    this.log(`启动 Qdrant: storage=${qdrantStorage}`)
     const stdout = openSync(join(this.logDir, 'qdrant.log'), 'a')
     const stderr = openSync(join(this.logDir, 'qdrant.err.log'), 'a')
     // 工作目录是 run 目录：Qdrant 在工作目录下写快照与初始化标记。
@@ -101,7 +127,7 @@ export class LocalServices {
       cwd: this.runDir,
       env: {
         ...process.env,
-        QDRANT__STORAGE__STORAGE_PATH: storagePath,
+        QDRANT__STORAGE__STORAGE_PATH: qdrantStorage,
         QDRANT__SERVICE__HOST: '127.0.0.1',
         QDRANT__SERVICE__HTTP_PORT: '6333',
         QDRANT__SERVICE__GRPC_PORT: '6334',
@@ -124,25 +150,24 @@ export class LocalServices {
   }
 
   async startBackend(credential) {
-    // 用不带控制台的 pythonw.exe。venv 的 python.exe 是转发器，真正的解释器是它的子进程；
-    // detached 的转发器没有控制台，Windows 会给控制台程序的解释器新开一个空的控制台窗口，
-    // 用户关掉这个窗口时后端立即被结束，来不及结算话题。
-    const python = join(this.repoRoot, '.venv', 'Scripts', 'pythonw.exe')
-    if (!existsSync(python)) {
-      throw new Error('找不到仓库的 .venv\\Scripts\\pythonw.exe；先在仓库根目录执行 uv sync --frozen --extra dev')
-    }
-    if (!existsSync(join(this.repoRoot, 'frontend', 'dist', 'index.html'))) {
-      throw new Error('前端构建产物不存在；先在 frontend 目录执行 npm run build')
+    const { python, pythonEnv, frontendIndex, dataRoot } = this.layout
+    for (const required of [python, frontendIndex]) {
+      if (!existsSync(required)) throw new Error(`找不到 ${required}`)
     }
     mkdirSync(this.logDir, { recursive: true })
 
     this.log('启动后端（桌面模式）')
     // 后端的日志配置生效之前的输出（导入错误、uvicorn 的启动提示）写到这里，与开发脚本同名。
     const output = openSync(join(this.logDir, 'backend.stdout.log'), 'a')
+    // 用不带控制台的 pythonw.exe。venv 的 python.exe 是转发器，真正的解释器是它的子进程；
+    // detached 的转发器没有控制台，Windows 会给控制台程序的解释器新开一个空的控制台窗口，
+    // 用户关掉这个窗口时后端立即被结束，来不及结算话题。
     this.backend = spawn(python, ['-m', 'hivememory.server', '--desktop'], {
-      cwd: this.repoRoot,
+      // 后端按工作目录解析 .env 与相对路径的数据目录（模型缓存、归档、Artifact）。
+      cwd: dataRoot,
       env: {
         ...process.env,
+        ...pythonEnv,
         HIVEMEMORY_SERVE_FRONTEND: 'true',
         HIVEMEMORY__LOGGING__FILE_PATH: join(this.logDir, 'backend.log'),
         HIVEMEMORY__LOGGING__EVENT_FILE_PATH: join(this.logDir, 'runtime-events.jsonl'),
@@ -172,17 +197,14 @@ export class LocalServices {
   }
 }
 
-/** dev.env 每行一个 KEY=VALUE，去掉值两侧的引号，不展开变量，与开发脚本的读法相同。 */
-function readDevEnv(path) {
-  const settings = {}
-  if (!existsSync(path)) return settings
-  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue
-    const index = trimmed.indexOf('=')
-    settings[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim().replace(/^["']|["']$/g, '')
+function directorySize(path) {
+  if (!existsSync(path)) return 0
+  let total = 0
+  for (const entry of readdirSync(path, { withFileTypes: true, recursive: true })) {
+    // 下载中的文件可能在两次读取之间被改名或删除。
+    if (entry.isFile()) total += statSync(join(entry.parentPath, entry.name), { throwIfNoEntry: false })?.size ?? 0
   }
-  return settings
+  return total
 }
 
 async function isUp(url) {
@@ -194,6 +216,10 @@ async function isUp(url) {
   }
 }
 
+function delay(ms) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms))
+}
+
 /** 轮询直到 url 可用；进程先退出或超时都返回 false。 */
 async function waitUntilUp(url, timeoutMs, processExited) {
   let exited = false
@@ -203,7 +229,7 @@ async function waitUntilUp(url, timeoutMs, processExited) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline && !exited) {
     if (await isUp(url)) return true
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 500))
+    await delay(500)
   }
   return false
 }

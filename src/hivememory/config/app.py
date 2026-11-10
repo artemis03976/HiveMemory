@@ -25,7 +25,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 from hivememory.config.alice import AliceConfig
 from hivememory.config.attachments import AttachmentCompilerConfig, AttachmentParserConfig
-from hivememory.config.files import write_atomically
+from hivememory.config.files import SHIPPED_CONFIGS_DIR, personal_configs_dir, write_atomically
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.config.import_bus import ImportBusConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
@@ -61,8 +61,7 @@ LEGACY_ENV_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 def get_default_config_file_path() -> Path:
-    # src/hivememory/config/app.py → 仓库根目录
-    return Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
+    return SHIPPED_CONFIGS_DIR / "config.yaml"
 
 
 def get_config_file_path() -> Path:
@@ -73,8 +72,11 @@ def get_config_file_path() -> Path:
 
 
 def get_local_config_file_path() -> Path:
-    """个人覆盖文件：与生效的主配置文件同目录，不受版本控制。"""
-    return get_config_file_path().parent / "config.local.yaml"
+    """个人覆盖文件，不受版本控制：主配置由环境变量指定时与它同目录，否则在个人配置目录。"""
+    configured_path = os.getenv("HIVEMEMORY_CONFIG_PATH")
+    if configured_path:
+        return Path(configured_path).parent / "config.local.yaml"
+    return personal_configs_dir() / "config.local.yaml"
 
 
 # 计算默认值（恢复默认、覆盖差异）时装载不含个人覆盖的配置。

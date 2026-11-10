@@ -23,14 +23,14 @@ from starlette.status import WS_1008_POLICY_VIOLATION
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketClose
 
+from hivememory.config.files import personal_configs_dir
 from hivememory.server.error_handlers import APIError
 
 logger = logging.getLogger(__name__)
 
-# 与 providers.secrets.yaml 同在仓库 configs 目录：都是本机密钥，都被 .gitignore 排除，
+# 与 providers.secrets.yaml 同在个人配置目录：都是本机密钥，都被 .gitignore 排除，
 # 都随 Docker Compose 挂载的 configs 目录持久化。
-# src/hivememory/server/management_credential.py → 仓库根目录 / configs
-MANAGEMENT_CREDENTIAL_PATH = Path(__file__).resolve().parents[3] / "configs" / "management.token"
+MANAGEMENT_CREDENTIAL_PATH = personal_configs_dir() / "management.token"
 
 MANAGEMENT_CREDENTIAL_COOKIE = "hivememory_management"
 
