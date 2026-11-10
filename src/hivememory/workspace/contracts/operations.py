@@ -60,12 +60,10 @@ class ResolveRunTargetRequest(OperationRequest[ReferenceResolution]):
 
 @dataclass(frozen=True)
 class RetrieveRequest(OperationRequest[list[MemoryAtom]]):
-    """检索可见记忆，过滤与数量参数由能力层映射到 canonical 读取。"""
+    """检索可见记忆，过滤参数由能力层映射到 canonical 读取；条数由检索器配置决定。"""
 
     semantic_query: str
     keywords: tuple[str, ...] = ()
-    # 缺省时由检索引擎配置的默认条数决定。
-    top_k: int | None = None
     filters: QueryFilters | None = None
 
 

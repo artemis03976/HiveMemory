@@ -91,7 +91,7 @@ class TestActorMemoryService:
     ):
         """检索请求由能力层用授权返回的可信 scope 构造，身份不进入调用方输入。
 
-        调用方只提交检索参数（semantic_query/keywords/top_k 原样进入请求），
+        调用方只提交检索参数（semantic_query/keywords 原样进入请求），
         传给 backing 读取器的 ``RetrievalRequest.identity_scope`` 与调用
         scope 都等于操作授权者组装的可信 scope。
         """
@@ -119,7 +119,7 @@ class TestActorMemoryService:
         )
 
         result = await service.retrieve(
-            RetrieveRequest(semantic_query="q", keywords=("keyword",), top_k=3), actor=actor
+            RetrieveRequest(semantic_query="q", keywords=("keyword",)), actor=actor
         )
 
         assert [atom.index.title for atom in result] == ["Hit"]
@@ -128,7 +128,6 @@ class TestActorMemoryService:
         # 调用方检索参数原样进入请求
         assert request.semantic_query == "q"
         assert request.keywords == ["keyword"]
-        assert request.top_k == 3
         # identity_scope 不是调用方输入：等于操作授权者组装的可信 scope
         # （已认证 actor + 目标 workspace）
         assert request.identity_scope == expected_scope

@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # Gateway 固定工作流
@@ -145,7 +145,7 @@ Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat app
 | `topic_routing` | 最近一轮会话的 `topic_id` 仍在候选话题中时续接该话题，否则 `NEW_TOPIC`；标题/摘要都为空 | 相邻轮次大多仍在同一话题，续接比新建无标题话题归错的代价小；只认候选中的话题，不落到已驱逐或结算的话题，也不在不知道上一轮所在的话题时猜测其他已有话题 |
 | `routed_topic_preparation` | `None` | 查询分析可以在缺少历史上下文时继续 |
 | `simple_chat_defaults` | 原文、`CHAT`、写入 `SKIP`、检索 `SKIP` | 寒暄不值得因分析能力失败阻塞入口 |
-| `user_query_analysis` | 原文、`RAG`、写入 `UNKNOWN`、`HYBRID` 和默认 `top_k` | 保留检索机会，不把未知误判为明确写入或跳过 |
+| `user_query_analysis` | 原文、`RAG`、写入 `UNKNOWN`、`HYBRID` | 保留检索机会，不把未知误判为明确写入或跳过 |
 
 只有 `TimeoutError` 与 `RecoverableGatewayError` 会触发 Step fallback。类型错误、输入选择错误、投影错误、未知状态字段和 finalize 不变量失败都会原样失败。这个边界非常重要：fallback 用来隔离能力不可用，不用来掩盖代码或契约错误。
 

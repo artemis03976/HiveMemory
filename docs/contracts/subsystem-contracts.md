@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 子系统公共契约
@@ -82,7 +82,7 @@ Gateway 只解析命令，不执行命令：`CommandParseResult` 与 `CommandPar
 | `new_topic_title` / `new_topic_summary` | 新话题的可选初始元数据 |
 | `rewritten_query` | 下游检索使用的完整查询 |
 | `search_keywords` | 稀疏检索关键词元组 |
-| `retrieval_plan` | 检索模式、`top_k` 和 dense/sparse 权重 |
+| `retrieval_plan` | 检索模式和 dense/sparse 权重；不携带条数 |
 | `intent_type` | `RAG`、`WRITE`、`CHAT`、`COMPOSITE` 或 `UNKNOWN` |
 
 决定不携带记忆价值信号：入口只看到用户输入，一轮的长期价值由 Patchouli 在生成阶段基于完整材料判断。
@@ -324,7 +324,7 @@ Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局�
 | 请求 | MTP 动词 | 参数 | 结果 `R` | actor 操作 |
 |:---|:---|:---|:---|:---|
 | `ResolveReferencesRequest` | READ（含 CALL 的 `context_refs`） | `aliases: tuple[str, ...]` | `list[ReferenceResolution]` | `memory.read` |
-| `RetrieveRequest` | SEARCH | `semantic_query`、`keywords=()`、`top_k=None`（缺省时由 `retrieval.default_top_k` 决定）、`filters=None` | `list[MemoryAtom]` | `memory.search` |
+| `RetrieveRequest` | SEARCH | `semantic_query`、`keywords=()`、`filters=None`；条数由 `retrieval.retriever.top_k` 决定 | `list[MemoryAtom]` | `memory.search` |
 | `ResolveRunTargetRequest` | RUN（记忆中的用户工具） | `alias: str` | `ReferenceResolution` | `memory.run` |
 | `SubmitWriteIntentRequest` | WRITE | `focus: WriteFocus` | `PendingAtom` | `memory.write` |
 | `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |

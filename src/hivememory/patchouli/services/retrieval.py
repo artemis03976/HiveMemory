@@ -240,17 +240,14 @@ class RetrievalFamiliar:
             source_version=atom.meta.version,
         )
 
-    async def retrieve(self, query: RetrievalQuery, top_k: int | None = None) -> list[MemoryAtom]:
+    async def retrieve(self, query: RetrievalQuery) -> list[MemoryAtom]:
         """
-        语义检索相关记忆，按领域排序返回完整原子列表。
+        语义检索相关记忆，按领域排序返回完整原子列表；条数由检索器配置决定。
 
         检索失败（存储不可用、引擎异常）按原错误传播，不伪装为空列表；
         耗时等诊断信息只进入日志，由调用侧 adapter 自行测量。
         """
-        engine_result = await self.engine.retrieve(
-            query=query,
-            top_k=top_k,
-        )
+        engine_result = await self.engine.retrieve(query=query)
 
         logger.debug(
             "检索完成: query_length=%d, filters=%s, 使魔取回了 %s 条记忆, latency=%.1fms",
@@ -261,13 +258,11 @@ class RetrievalFamiliar:
         )
         return list(engine_result.memories)
 
-    async def retrieve_async(
-        self, query: RetrievalQuery, top_k: int | None = None
-    ) -> list[MemoryAtom]:
+    async def retrieve_async(self, query: RetrievalQuery) -> list[MemoryAtom]:
         """
         异步总线入口：只执行检索与活跃度刷新。
         """
-        memories = await self.retrieve(query, top_k=top_k)
+        memories = await self.retrieve(query)
         await self._refresh_vitality_for_memories(memories)
         return memories
 

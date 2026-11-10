@@ -5,9 +5,6 @@ export function KoakumaSettings({ config, updateConfig }: SettingsWithValidation
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <SettingSection title="Koakuma 运行时">
-        <SettingRow label="启用 Koakuma" description="全局启用或禁用 Koakuma。">
-          <Toggle checked={config.koakuma.enabled} onChange={(v: boolean) => updateConfig('koakuma.enabled', v)} />
-        </SettingRow>
         <SettingRow label="执行超时 (秒)" description="允许单步执行的最大时间。">
           <Input type="number" value={config.koakuma.execution_timeout_seconds} onChange={(v: number) => updateConfig('koakuma.execution_timeout_seconds', v)} className="w-32" />
         </SettingRow>

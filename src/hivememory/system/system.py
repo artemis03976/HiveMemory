@@ -442,13 +442,8 @@ class HiveMemorySystem:
 
     @property
     def config(self) -> HiveMemoryConfig:
+        """运行配置：启动时装配的配置对象树，组件持有其中的配置段，不整体替换。"""
         return self._config
-
-    @config.setter
-    def config(self, value: HiveMemoryConfig) -> None:
-        self._config = value
-        # Patchouli 只持有自己的配置段（组合根按段注入），同步更新该段引用。
-        self._patchouli.config = value.patchouli
 
     @property
     def model_registry(self) -> ModelRegistry:

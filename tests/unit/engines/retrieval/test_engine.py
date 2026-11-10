@@ -1,10 +1,10 @@
 """
-RetrievalEngine 单元测试 (Phase B — renderer 解耦后)
+RetrievalEngine 单元测试
 
 测试覆盖:
 - 有结果时正确返回 memories
 - 空结果时返回空列表
-- 结果条数：请求的 top_k，缺省时为配置的 default_top_k；不向检索器传阈值
+- 结果条数：检索器配置的 top_k，每次检索时读取；不向检索器传阈值
 - 最终截取发生在重排阶段之后
 - 返回结果字段完整性
 - 延迟测量
@@ -16,6 +16,8 @@ import pytest
 
 from hivememory.config.patchouli import (
     DenseRetrieverConfig,
+    HybridRetrieverConfig,
+    MemoryRetrievalConfig,
     RerankerConfig,
     SparseRetrieverConfig,
 )
@@ -61,8 +63,9 @@ class TestRetrievalEngine:
 
     def setup_method(self):
         self.mock_retriever = AsyncMock()
+        self.config = MemoryRetrievalConfig(retriever=HybridRetrieverConfig(top_k=3))
         self.engine = RetrievalEngine(
-            retriever=self.mock_retriever, reranker=NoopReranker(), default_top_k=3
+            retriever=self.mock_retriever, reranker=NoopReranker(), config=self.config
         )
 
     @pytest.mark.asyncio
@@ -86,28 +89,32 @@ class TestRetrievalEngine:
         assert result.memories_count == 0
 
     @pytest.mark.asyncio
-    async def test_request_top_k_sets_candidate_count_without_threshold(self):
-        """请求给出 top_k 时据此取候选；分数阈值属于 Dense 配置，不由引擎传入。"""
-        self.mock_retriever.retrieve.return_value = SearchResults(results=[])
-        query = _make_query()
-
-        await self.engine.retrieve(query, top_k=10)
-
-        assert self.mock_retriever.retrieve.call_args.kwargs == {"query": query, "top_k": 10}
-
-    @pytest.mark.asyncio
-    async def test_missing_top_k_uses_configured_default_after_rerank(self):
-        """请求未给出 top_k：按 default_top_k 取候选，并在重排位置之后截取。"""
+    async def test_configured_top_k_sets_candidates_and_cuts_after_rerank(self):
+        """按检索器配置的 top_k 取候选并在重排位置之后截取；分数阈值属于 Dense 配置，不由引擎传入。"""
         memories = [_make_memory(f"M{i}") for i in range(5)]
         # 检索器可能交出多于请求数的候选，最终条数只由重排之后的截取决定
         self.mock_retriever.retrieve.return_value = SearchResults(
             results=[SearchResult(memory=m, score=0.9 - i * 0.1) for i, m in enumerate(memories)]
         )
+        query = _make_query()
 
+        result = await self.engine.retrieve(query)
+
+        assert self.mock_retriever.retrieve.call_args.kwargs == {"query": query, "top_k": 3}
+        assert result.memories == memories[:3]
+
+    @pytest.mark.asyncio
+    async def test_top_k_is_read_on_every_retrieval(self):
+        """配置对象被原地改写后，下一次检索即按新的条数截取，无需重建引擎。"""
+        memories = [_make_memory(f"M{i}") for i in range(5)]
+        self.mock_retriever.retrieve.return_value = SearchResults(
+            results=[SearchResult(memory=m, score=0.9) for m in memories]
+        )
+
+        self.config.retriever.top_k = 2
         result = await self.engine.retrieve(_make_query())
 
-        assert self.mock_retriever.retrieve.call_args.kwargs["top_k"] == 3
-        assert result.memories == memories[:3]
+        assert result.memories == memories[:2]
 
     @pytest.mark.asyncio
     async def test_retrieve_result_fields(self):
@@ -130,9 +137,11 @@ class TestRetrievalEngineRerankStage:
         [
             (
                 DenseRetriever,
-                DenseRetrieverConfig(enable_time_decay=False, enable_confidence_boost=False),
+                DenseRetrieverConfig(
+                    top_k=1, enable_time_decay=False, enable_confidence_boost=False
+                ),
             ),
-            (SparseRetriever, SparseRetrieverConfig()),
+            (SparseRetriever, SparseRetrieverConfig(top_k=1)),
         ],
         ids=["dense", "sparse"],
     )
@@ -148,18 +157,18 @@ class TestRetrievalEngineRerankStage:
         engine = RetrievalEngine(
             retriever=retriever_cls(storage, config),
             reranker=create_reranker(RerankerConfig(enabled=True, top_k=20), rerank_service),
-            default_top_k=5,
+            config=MemoryRetrievalConfig(retriever=config),
         )
 
-        result = await engine.retrieve(_make_query(), top_k=1)
+        result = await engine.retrieve(_make_query())
 
         assert result.memories == [second]
         # 召回取 max(top_k, reranker.top_k) 条候选，而不是只取最终的 top_k
         assert storage.search.call_args.kwargs["top_k"] == 20
 
     @pytest.mark.asyncio
-    async def test_missing_top_k_sizes_candidate_pool_from_default(self):
-        """请求未给出 top_k：候选池按 max(default_top_k, reranker.top_k)，结果按 default_top_k。"""
+    async def test_candidate_pool_is_the_larger_of_top_k_and_reranker_pool(self):
+        """候选池按 max(top_k, reranker.top_k)，结果按 top_k。"""
         memories = [_make_memory(f"M{i}") for i in range(4)]
         storage = AsyncMock()
         storage.search = AsyncMock(
@@ -168,10 +177,11 @@ class TestRetrievalEngineRerankStage:
         rerank_service = Mock(state=ModelLoadState.LOADED)
         # 重排把召回顺序完全反转
         rerank_service.compute_score = AsyncMock(return_value=[1.0, 2.0, 3.0, 4.0])
+        config = SparseRetrieverConfig(top_k=2)
         engine = RetrievalEngine(
-            retriever=SparseRetriever(storage, SparseRetrieverConfig()),
+            retriever=SparseRetriever(storage, config),
             reranker=create_reranker(RerankerConfig(enabled=True, top_k=20), rerank_service),
-            default_top_k=2,
+            config=MemoryRetrievalConfig(retriever=config),
         )
 
         result = await engine.retrieve(_make_query())

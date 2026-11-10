@@ -70,7 +70,6 @@ async def store():
     qdrant.client = AsyncQdrantClient(url=QDRANT_URL, timeout=30)
     # 每个测试独占一个集合：并行执行时同名集合会在创建时冲突。
     qdrant.collection_name = f"a2p_real_infra_local_mutation_{uuid4().hex}"
-    qdrant.vector_dimension = 2
     qdrant.embedding_service = _DeterministicEmbedding()
     await qdrant.client.create_collection(
         collection_name=qdrant.collection_name,

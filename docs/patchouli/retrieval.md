@@ -15,7 +15,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 记忆检索
@@ -38,7 +38,7 @@ RetrievalRequest
             -> Qdrant MidTermMemoryStore.search
             -> Fusion（仅 Hybrid）
        -> 重排：Reranker（CrossEncoderReranker；关闭时 NoopReranker）
-       -> 截取：请求的 top_k，缺省为 retrieval.default_top_k（只在这里进行一次）
+       -> 截取：retrieval.retriever.top_k（只在这里进行一次）
   -> RetrievalResult
   -> MemoryAtom[]（公共路由返回列表）
   -> caller-owned MemoryCompiler
@@ -113,9 +113,9 @@ CrossEncoderReranker 不等待重排模型加载：模型空闲卸载后或尚�
 - 融合分数不设阈值：RRF 只反映名次，无意义查询的第 1 名与相关查询的第 1 名得分相同；加权融合直接相加 cosine 与 BM25 原始分，尺度随查询变化；
 - 重排分数不设阈值：CrossEncoderReranker 用 sigmoid 把分数映射到 0–1，只用于排序与展示。
 
-阈值不由调用方传入，引擎与检索器接口都只接收条数。本次结果条数是请求的 `top_k`；未给出时（当前为 MTP SEARCH）使用 `patchouli.retrieval.default_top_k`（默认 5）。任务进程预检索的条数来自 Gateway 检索计划（`gateway.user_query_analysis.default_top_k`），不受该配置影响；Import Bus 不检索，忽略 Gateway 的检索计划。引擎按结果条数向重排器索取候选池，并且只在重排之后截取一次。
+阈值与条数都不由调用方传入。检索结果条数只由 `patchouli.retrieval.retriever.top_k` 决定（混合检索默认 5）：任务进程的预检索、MTP SEARCH 与 MCP 检索都不携带条数，三者每次得到的条数上限相同；经 dense 阈值粗筛后可能更少。Import Bus 不检索。引擎在每次检索时读取这一项，按它向重排器索取候选池，并且只在重排之后截取一次；运行配置中的这一项被原地改写后，下一次检索即按新值截取，设置页保存后立即生效（[System 配置](../system/configuration.md#21-个人覆盖与保存)）。检索器为 dense 或 sparse 时，同一字段（默认 50）既是该检索器的召回条数，也是结果条数；在混合检索中，`retriever.dense.top_k` 与 `retriever.sparse.top_k` 只是两路召回的条数。
 
-已删除的配置键在出现时使配置加载显式失败，而不是被静默忽略：`retrieval.retriever.sparse.score_threshold`（以及 Sparse 检索器的 `score_threshold`）、Hybrid 顶层的 `score_threshold`、融合配置的 `final_top_k`（由 `retrieval.default_top_k` 取代）。
+已删除的配置键在出现时使配置加载显式失败，而不是被静默忽略：`retrieval.retriever.sparse.score_threshold`（以及 Sparse 检索器的 `score_threshold`）、Hybrid 顶层的 `score_threshold`、融合配置的 `final_top_k`（由 `retrieval.retriever.top_k` 取代）。
 
 ## 6. 与 MemoryCompiler 的边界
 

@@ -5,7 +5,7 @@ owner: system
 scope: operator-configuration-providers-and-models
 code_paths:
   - configs/config.yaml
-  - configs/models.yaml
+  - configs/models.example.yaml
   - configs/.env.example
   - configs/providers.secrets.example.yaml
   - configs/system_principals.example.yaml
@@ -14,6 +14,7 @@ code_paths:
   - src/hivememory/config/
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
+  - src/hivememory/system/running_config.py
   - src/hivememory/server/routers/config.py
   - src/hivememory/server/management_credential.py
 related_contracts:
@@ -33,8 +34,9 @@ HiveMemory 把配置分为三类：主配置描述系统如何装配，Model Reg
 
 | 文件/来源 | 用途 | 是否应提交真实值 |
 |:---|:---|:---:|
-| `configs/config.yaml` | System、Gateway、Patchouli、Alice、日志、调度等主配置 | 可以提交非敏感默认值 |
-| `configs/models.yaml` | 模型 ID、展示名、LiteLLM model、Provider 引用和默认采样参数 | 可以提交；不要写密钥 |
+| `configs/config.yaml` | System、Gateway、Patchouli、Alice、日志、调度等主配置的默认值，随版本更新 | 随仓库发布；个人改动不写这里 |
+| `configs/config.local.yaml` | 主配置的个人覆盖：设置页保存的改动，只含与默认值不同的字段 | 不提交，已 gitignore |
+| `configs/models.yaml` | 模型 ID、展示名、LiteLLM model、Provider 引用和默认采样参数；本机的个人配置，首次启动时从 `models.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布；不要写密钥 |
 | 根 `.env` 或 `configs/.env` | 环境覆盖与 Provider 密钥 | 不提交 |
 | `configs/providers.secrets.yaml` | 由 UI/API 管理的 Provider 凭证 | 不提交，已 gitignore |
 | `configs/system_principals.yaml` | 访问登记：允许接入的调用来源（server 自身作为 `hivememory:http-server` 登记）；本机的个人配置，首次启动时从 `system_principals.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布 |
@@ -54,9 +56,12 @@ HiveMemory 把配置分为三类：主配置描述系统如何装配，Model Reg
   > .env / configs/.env
   > 旧环境变量 alias
   > Provider 动态凭证扫描
+  > config.local.yaml（与主配置文件同目录）
   > config.yaml（或 HIVEMEMORY_CONFIG_PATH）
   > file secrets
 ```
+
+各来源按层级合并：上层只替换自己写出的字段，同一段中没有写出的字段仍取下层的值。`.env` 与环境变量高于 `config.local.yaml`：被它们设置的字段，在设置页保存的值不生效。
 
 嵌套环境变量以 `HIVEMEMORY__` 开头，用双下划线分段：
 
@@ -95,7 +100,7 @@ configs/providers.secrets.example.yaml
 
 ## 4. 配置 Model Registry
 
-`configs/models.yaml` 是模型定义的当前单一注册表。每条记录主要包含：
+`configs/models.yaml` 是模型定义的当前单一注册表。它是本机的个人配置，不受版本控制：首次启动时从随仓库发布的 `configs/models.example.yaml` 原样生成，此后模型页面的改动只写回 `models.yaml`，升级不会改动它；删掉它，下次启动从模板重新生成。每条记录主要包含：
 
 - `id`：Agent Profile、Chat override 和组件配置引用的稳定 ID；
 - `display_name`：前端展示名；
@@ -107,25 +112,29 @@ configs/providers.secrets.example.yaml
 
 Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子写回 YAML。注册表会在新增/更新默认模型时清除其他默认标记；如果没有显式默认，解析 `default` 会回退到第一条记录。
 
-模型定义不保存连接凭证：密钥与 API 地址只在 Provider Registry 中保存，模型按 `provider` 取得。`models.yaml` 受版本控制，其中写入非空 `api_key` 或 `api_base` 的模型在加载时被跳过，日志指出模型 ID 与它们应在的位置；删除这两个字段、把值移到 Provider 后重启。单个模型需要不同的密钥或地址时（例如经代理访问），另登记一个 Provider 名称并让这个模型引用它。
+模型定义不保存连接凭证：密钥与 API 地址只在 Provider Registry 中保存，模型按 `provider` 取得。`models.yaml` 中写入非空 `api_key` 或 `api_base` 的模型在加载时被跳过，日志指出模型 ID 与它们应在的位置；删除这两个字段、把值移到 Provider 后重启。单个模型需要不同的密钥或地址时（例如经代理访问），另登记一个 Provider 名称并让这个模型引用它。
 
 Gateway 与 Librarian 的模型在 `configs/config.yaml` 的 `gateway.llm` 与 `patchouli.llm` 中以 `model_id` 引用这里的模型（不写或写 `default` 为默认模型），也可以在设置页的“内部引擎”中选择；整段写为 `null` 表示这个组件不使用 LLM。两段的 `temperature`、`top_p` 与 `max_tokens` 覆盖模型定义的默认值，不写时沿用；随仓库发布的配置写了组件任务要求的值，例如 Librarian 一次结算输出多条记忆，`max_tokens` 为 32768。这两个组件在启动时解析模型，修改模型、Provider 或这两段之后重启生效。
 
 ## 5. 主配置与生效边界
 
-主配置接口不读写密钥。Provider 凭证不属于主配置，由 Provider 页面与 `.env` 管理；主配置中只有 Qdrant 的 `api_key`，只来自环境变量与 `.env`。`configs/config.yaml` 受版本控制，其中出现非空 `api_key` 时启动失败，错误指出字段路径。
+主配置接口不读写密钥。Provider 凭证不属于主配置，由 Provider 页面与 `.env` 管理；主配置中只有 Qdrant 的 `api_key`，只来自环境变量与 `.env`。`config.yaml` 与 `config.local.yaml` 中出现非空 `api_key` 时启动失败，错误指出字段路径。
 
 `GET /api/v1/config` 与 `GET /api/v1/config/defaults` 的响应中，`api_key` 只返回打码值（如 `sk-...abcd`），与 Provider 接口相同：这些 HTTP 接口对本机任何进程开放。
+
+`GET /api/v1/config` 返回下次启动将装载的配置（`config`），以及两份字段路径清单：`immediate_fields` 是保存后立即生效的字段，`pending_restart` 是已经保存、要重启后才生效的字段。
 
 `POST /api/v1/config` 会：
 
 1. 把提交中的 `api_key` 一律换成当前的运行时值：原样提交读到的打码值不会覆盖真实密钥，提交新值也不会改变密钥；
 2. 用 `HiveMemoryConfig` 校验提交内容；
-3. 原子写入当前 YAML 主配置，写入的内容不含 `api_key`；
-4. 替换进程中的 `system.config`；
-5. 返回校验后的配置，`api_key` 同样打码。
+3. 把与默认值（代码默认值、`config.yaml`、`.env` 与环境变量）不同的字段写进 `config.local.yaml`，写入的内容不含 `api_key`；`config.yaml` 不被写；
+4. 把其中立即生效的字段写入运行中的服务，例如检索条数上限、相关度阈值、话题空闲结算时间、会话与附件上限（完整清单见 [System 配置](../system/configuration.md#21-个人覆盖与保存)）；
+5. 返回与 `GET` 相同的结构。
 
-这不保证所有组件热重载。已经在启动时创建的 Qdrant/Embedding/Reranker、Gateway/Librarian 的模型请求参数、scheduler 和部分 runtime 可能仍持有旧对象。涉及基础设施、模型装配、调度或子系统行为的变更，当前最安全做法是保存后重启服务，再用 readiness 和实际请求确认。
+其余字段（模型选择与采样参数、存储连接、嵌入与重排模型、调度任务、日志、默认语言等）在启动时就交给了长期存活的组件，保存后出现在 `pending_restart` 中，重启服务后生效。重启后再用 readiness 和实际请求确认。
+
+恢复默认：`GET /api/v1/config/defaults` 返回不含 `config.local.yaml` 的默认值，把它原样保存即清空个人覆盖；也可以直接删掉 `config.local.yaml` 后重启。
 
 ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证在后续动态解析时可立即被读取。但已经解析并交给长期存活组件的配置仍可能需要重启。
 
@@ -147,7 +156,7 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 
 ### 5.2 Alice 会话压缩
 
-自动压缩由 `configs/config.yaml` 的 `alice.compaction` 控制；完整默认值与单位见 [System 配置](../system/configuration.md#12-alice-会话预算与压缩)。修改后重启运行实例。模型窗口可在 `configs/models.yaml` 或模型 API 登记，不把总窗口误填为最大输出长度；未登记时使用保守默认窗口，请求的 `max_tokens` 也会占用窗口预算。
+自动压缩由主配置的 `alice.compaction` 控制；完整默认值与单位见 [System 配置](../system/configuration.md#12-alice-会话预算与压缩)。在设置页保存时 `enabled` 与 `trigger_ratio` 立即生效，其余参数与直接修改文件一样，重启运行实例后生效。模型窗口可在 `configs/models.yaml` 或模型 API 登记，不把总窗口误填为最大输出长度；未登记时使用保守默认窗口，请求的 `max_tokens` 也会占用窗口预算。
 
 关闭 `enabled` 会让 Alice 忽略已有检查点、重放原文，但不会关闭每次生成前的输入守卫。压缩不删除会话原文、不增加会话容量，也不提供跨后端重启保存；当前没有手动 `/compact` 入口。
 
@@ -168,7 +177,7 @@ Claude Code、DeepSeek Harness 等外部工具的对话经 `POST /api/v1/import/
 
 Provider、Model Registry 与接入与权限使用独立、已对齐的 API。其余主配置表单仍采用旧的扁平前端类型，而后端已经使用 `shared/patchouli/alice/gateway/...` 嵌套结构；部分分类可能显示错误、读取空字段或提交不完整结构。当前不要把 Settings 中所有可见开关都视为可靠控制面。
 
-需要修改主配置时，优先直接编辑 `configs/config.yaml` 或通过经过核验的 API 客户端提交完整当前结构，并在修改前保留版本控制 diff。前端类型完成迁移后，本限制才能移除。
+需要修改主配置时，优先直接编辑 `configs/config.local.yaml`（只写要改的字段，层级与 `config.yaml` 相同，修改后重启）或通过经过核验的 API 客户端提交完整当前结构。`config.yaml` 是随版本更新的默认值，不在其中做个人改动。前端类型完成迁移后，本限制才能移除。
 
 ## 7. 安全检查
 

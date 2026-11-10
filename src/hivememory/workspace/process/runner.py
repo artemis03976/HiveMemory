@@ -393,23 +393,18 @@ class TaskProcessRunner:
     ) -> tuple[MemoryAtom, ...]:
         """预检索：执行者的 actor 操作，按 Gateway 的检索计划经操作入口以主线程提交。
 
-        请求关闭了记忆检索、检索计划为跳过或要求零条时不检索。检索与 Alice 的
+        请求关闭了记忆检索或检索计划为跳过时不检索；检索条数由检索器配置决定。检索与 Alice 的
         SEARCH 走同一条路：actor API 以执行者授权 ``memory.search``，读取视图
         逐条做归属校验与交付授权。执行者没有 ``memory.search`` 时授权以
         ``operation_not_allowed`` 拒绝，这里把它译为不检索，对话照常进行；只译
         这一种拒绝，准入失效等其他授权失败照常传播，进程按失败收口。
         """
         plan = decision.retrieval_plan
-        if (
-            not process.request.enable_memory_retrieval
-            or plan.mode is RetrievalMode.SKIP
-            or plan.top_k == 0
-        ):
+        if not process.request.enable_memory_retrieval or plan.mode is RetrievalMode.SKIP:
             return ()
         retrieval = RetrieveRequest(
             semantic_query=decision.rewritten_query,
             keywords=tuple(decision.search_keywords),
-            top_k=plan.top_k,
         )
         try:
             return tuple(await self._operations.execute(retrieval, thread=thread.handle))

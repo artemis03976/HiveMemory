@@ -158,7 +158,7 @@ class _FakeRetrievalEngine:
     def __init__(self, atoms):
         self._atoms = atoms
 
-    async def retrieve(self, query, top_k):
+    async def retrieve(self, query):
         class _Result:
             memories = list(self._atoms)
             memories_count = len(self._atoms)
@@ -363,7 +363,6 @@ class QdrantMemoryStoreStub:
         qdrant = QdrantMemoryStore.__new__(QdrantMemoryStore)
         qdrant.client = AsyncQdrantClient(location=":memory:")
         qdrant.collection_name = "workspace_access_boundary"
-        qdrant.vector_dimension = 2
         qdrant.embedding_service = _DeterministicEmbedding()
         await qdrant.client.create_collection(
             collection_name=qdrant.collection_name,

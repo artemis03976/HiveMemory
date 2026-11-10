@@ -7,9 +7,11 @@ code_paths:
   - src/hivememory/config/
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
+  - src/hivememory/system/running_config.py
+  - src/hivememory/server/routers/config.py
   - src/hivememory/server/logging_setup.py
   - configs/config.yaml
-  - configs/models.yaml
+  - configs/models.example.yaml
   - configs/system_principals.yaml
   - configs/workspace_actors.yaml
 related_contracts:
@@ -37,7 +39,7 @@ last_reviewed: 2026-11-09
 
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
-| `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、server 自身的 principal 标识 `server_principal_id`；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
+| `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
 | `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，perception idle flush、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | 默认 embedding 模型 | 共享模型能力 |
 | `gateway` | `config.gateway` | 模型选择与生成参数（`llm`）、interceptor、commands、workflow、topic router、query analysis | Gateway |
@@ -59,7 +61,7 @@ last_reviewed: 2026-11-09
 
 话题折叠的 LLM 摘要以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60，大于 0）为每次调用的时限，只在 `relay.engine.type` 为 `llm` 时存在；超时与提供商失败一样回退为规则摘要。折叠在交互提交队列中以独立工作项执行，这一项决定一次折叠最多占用一个执行槽多久。随仓库发布的 `configs/config.yaml` 不写这一项，按默认值运行，语义见[感知与短期话题](../patchouli/perception.md#5-page-folding)。
 
-推理模型的驻留方式按模型配置：`shared.embedding.default` 与 `patchouli.retrieval.reranker` 各有 `residency` 与 `idle_timeout_seconds`。`residency` 取 `resident`（加载后一直驻留到进程结束）或 `idle_unload`（空闲超过时限即卸载，下一次使用时重新加载），两处默认都是 `idle_unload`；`idle_timeout_seconds` 是空闲时限（大于 0），嵌入模型默认 1800 秒、重排模型默认 600 秒。检查周期与开关在 `scheduler.tasks.model_idle_unload_interval_seconds`（默认 60 秒）与 `enable_model_idle_unload`（默认开启）；关闭该任务或整个调度器时模型不卸载。内存充足的机器可以把两处 `residency` 设为 `resident`。语义见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
+推理模型的驻留方式按模型配置：`shared.embedding.default` 与 `patchouli.retrieval.reranker` 各有 `residency` 与 `idle_timeout_seconds`。`residency` 取 `resident`（加载后一直驻留到进程结束）或 `idle_unload`（空闲超过时限即卸载，下一次使用时重新加载），两处默认都是 `idle_unload`；`idle_timeout_seconds` 是空闲时限（大于 0），嵌入模型默认 1800 秒、重排模型默认 600 秒。检查周期与开关在 `scheduler.tasks.model_idle_unload_interval_seconds`（默认 60 秒）与 `enable_model_idle_unload`（默认开启）；关闭该任务时模型不卸载。内存充足的机器可以把两处 `residency` 设为 `resident`。语义见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
 
 升级注意（推理模型驻留）：新增的驻留配置都有默认值，旧配置无需修改即可加载；升级后两个模型默认空闲卸载，想保持加载后一直驻留的原行为，把两处 `residency` 设为 `resident`。`/health/ready` 的含义随之变化：它表示模型至少成功加载过一次，不再表示模型此刻在内存中（[应用服务](./application-services.md#3-系统级服务)）。
 
@@ -73,7 +75,7 @@ last_reviewed: 2026-11-09
 
 会话升级后 `session_id` 实际绑定资源；缺省仍自动新建。SSE 首个事件回传会话 ID，done 以 `topic_id` 标注本轮材料归属；`topic_info` 与 `pool_topics` 已删除。Interaction codec 5 增加 `outcome`，旧版本不重放；会话仅在内存中，后端重启后前端需重新新建。
 
-升级注意（配置未知键）：各配置段改为拒绝未知键，存量 YAML 或 `HIVEMEMORY__*` 环境变量中写错的键会让启动失败。同时删除了从未生效的键：`i18n.fallback_language`、`i18n.supported_languages`、`shared.embedding.*.batch_size`、`normalize_embeddings`、`dimension`（集合向量维度由 `patchouli.storage.vector_dimension` 决定，须与嵌入模型的输出一致）、`patchouli.storage.deployment`、`data_dir`、`binary_path`（及旧环境变量 `QDRANT__DEPLOYMENT`、`QDRANT__DATA_DIR`、`QDRANT__BINARY_PATH`）、`patchouli.perception.scan_interval_seconds`（扫描间隔由 `scheduler.tasks.perception_idle_flush_interval_seconds` 决定）、`patchouli.generation.deduplicator.enable_vitality_tracking`、`patchouli.lifecycle.vitality_calculator.max_access_boost`、`points_per_access`、`alice.koakuma.execution_timeout_seconds`、`tool_cache_size` 与 `gateway.commands.unknown_command_policy`，需要从配置中移除。示例配置中位置写错的 `patchouli.perception.engine.idle_timeout_seconds` 已移到 `patchouli.perception.idle_timeout_seconds`（此前该值被忽略、按默认 900 秒运行），残留的 `gateway.analyzer` 段已删除。
+升级注意（配置未知键）：各配置段改为拒绝未知键，存量 YAML 或 `HIVEMEMORY__*` 环境变量中写错的键会让启动失败。同时删除了从未生效的键：`i18n.fallback_language`、`i18n.supported_languages`、`shared.embedding.*.batch_size`、`normalize_embeddings`、`dimension`（集合向量维度由嵌入模型决定）、`patchouli.storage.deployment`、`data_dir`、`binary_path`（及旧环境变量 `QDRANT__DEPLOYMENT`、`QDRANT__DATA_DIR`、`QDRANT__BINARY_PATH`）、`patchouli.perception.scan_interval_seconds`（扫描间隔由 `scheduler.tasks.perception_idle_flush_interval_seconds` 决定）、`patchouli.generation.deduplicator.enable_vitality_tracking`、`patchouli.lifecycle.vitality_calculator.max_access_boost`、`points_per_access`、`alice.koakuma.execution_timeout_seconds`、`tool_cache_size` 与 `gateway.commands.unknown_command_policy`，需要从配置中移除。示例配置中位置写错的 `patchouli.perception.engine.idle_timeout_seconds` 已移到 `patchouli.perception.idle_timeout_seconds`（此前该值被忽略、按默认 900 秒运行），残留的 `gateway.analyzer` 段已删除。
 
 ### 1.1 访问登记文件
 
@@ -114,7 +116,7 @@ last_reviewed: 2026-11-09
 
 ### 1.2 Alice 会话预算与压缩
 
-`ModelDefinition.context_window` 是可选的正整数，单位为总窗口 token；模型登记在 `configs/models.yaml`，模型管理 API 支持读写，显式 null 清除登记。它不作为生成参数透传给提供商。Alice 按实际解析模型与请求覆盖后的 `max_tokens` 计算输入上限：总窗口减去生成上限和安全余量，未登记窗口时使用下表默认值。
+`ModelDefinition.context_window` 是可选的正整数，单位为总窗口 token；模型登记在 `configs/models.yaml`（本机的生效文件，从模板 `models.example.yaml` 生成，第 3 节），模型管理 API 支持读写，显式 null 清除登记。它不作为生成参数透传给提供商。Alice 按实际解析模型与请求覆盖后的 `max_tokens` 计算输入上限：总窗口减去生成上限和安全余量，未登记窗口时使用下表默认值。
 
 输入预算由 `AgentRuntimeConfig`（`alice.runtime`）解释，独立于历史压缩：
 
@@ -138,7 +140,7 @@ last_reviewed: 2026-11-09
 | `max_references` | `16` | 引用条数上限，允许 0 |
 | `reference_max_chars` | `256` | 单条引用字符上限，超长引用忽略，不截成错误地址 |
 
-比例上限均为 1，触发与目标比例必须大于 0；其余长度与超时必须大于 0。默认比例按固定样本做过预算校准，不代表对真实模型质量的保证。算法、回退与已知限制见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)。摘要复用本轮模型，没有独立的辅助模型配置；这些参数修改后重启运行实例生效，不影响会话容量上限或原文保存规则。
+比例上限均为 1，触发与目标比例必须大于 0；其余长度与超时必须大于 0。默认比例按固定样本做过预算校准，不代表对真实模型质量的保证。算法、回退与已知限制见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)。摘要复用本轮模型，没有独立的辅助模型配置；经设置页保存时 `enabled` 与 `trigger_ratio` 立即生效（第 2.1 节），其余参数重启运行实例后生效，不影响会话容量上限或原文保存规则。
 
 ## 2. 来源与优先级
 
@@ -150,9 +152,12 @@ last_reviewed: 2026-11-09
   > .env / configs/.env
   > 旧环境变量别名映射
   > provider 动态凭证扫描
+  > 个人覆盖文件 config.local.yaml（与主配置文件同目录）
   > configs/config.yaml（或 HIVEMEMORY_CONFIG_PATH 指定文件）
   > file secrets
 ```
+
+各来源按层级合并：上层只替换自己写出的叶子，同一段中没有写出的字段仍取下层的值。
 
 嵌套环境变量使用 `HIVEMEMORY__` 前缀和 `__` 分隔，例如：
 
@@ -166,6 +171,36 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 
 默认配置文件不存在时使用默认值和环境变量；显式指定的 `HIVEMEMORY_CONFIG_PATH` 不存在会抛 `FileNotFoundError`。YAML 解析失败当前记录 error 并返回空配置源，最终由 Pydantic 默认值和其他来源继续构造。解析成功后，配置文件的顶层键必须是 `HiveMemoryConfig` 已声明的配置段：出现写错或已删除的段（例如 `passive_ingress`）时以 `ValueError` 加载失败，并指出段名与文件路径，而不是被根配置的宽松规则静默丢弃。配置文件受版本控制，不保存密钥：任何非空的 `api_key` 同样让加载失败，错误指出字段路径与密钥应在的位置，不包含密钥本身。主配置中的 `api_key` 只能来自环境变量与 `.env`。
 
+### 2.1 个人覆盖与保存
+
+仓库中的 `config.yaml` 受版本控制，是随版本更新的默认值；本机的个人改动写进同目录、不受版本控制的 `config.local.yaml`（已加入 `.gitignore` 与 `.dockerignore`），主配置文件由 `HIVEMEMORY_CONFIG_PATH` 指定时，覆盖文件在那个文件旁边。覆盖文件不存在表示没有个人改动；存在时与 `config.yaml` 一样拒绝未知的顶层段与写入的密钥。默认值指不含覆盖文件的合成结果：代码默认值、`config.yaml`、`.env` 与环境变量（`load_default_config()`）。
+
+主配置接口（`server/routers/config.py`）区分两份配置：
+
+- **运行配置**是启动时装配的配置对象树（`HiveMemorySystem.config`），组件持有其中的配置段。启动之后不再整体替换，只有立即生效的字段被原地改写。
+- **期望配置**是下次启动将装载的配置，即包含覆盖文件在内的全部来源的合成结果。
+
+三个接口：
+
+- `GET /api/v1/config` 返回 `config`（完整的期望配置，覆盖全部配置段，密钥打码）、`immediate_fields`（保存后立即生效的字段路径）与 `pending_restart`（期望值与运行值不同、等待重启的字段路径，以点分隔；切换了类型的策略整段算一个路径）。
+- `POST /api/v1/config` 接收完整配置，校验通过后把与默认值不同的叶子写进覆盖文件（原子替换），与默认值相同的叶子不写，改回默认值的字段因此从覆盖文件中消失，没有任何不同时删除覆盖文件；`config.yaml` 不被写。可切换类型的策略（带 `type` 的子结构）切换类型时整段写出，类型不变时只写变化的叶子但带上 `type`，下层配置缺少这一段时也能确定结构。写入之后从文件重新装载期望配置，其中立即生效、且与运行值不同的字段原地写入运行配置，响应与 `GET` 相同。覆盖文件写入失败时不改写运行配置。各步之间没有 `await`，两次保存不会交错。
+- `GET /api/v1/config/defaults` 返回默认值；把它原样保存即清空覆盖文件。
+
+立即生效的字段由 `system/running_config.py` 的 `IMMEDIATE_FIELDS` 列出，每一项的使用方都持有运行配置中的同一个对象，并在每次用到时读取：
+
+| 区域 | 字段 |
+|:---|:---|
+| 检索 | `patchouli.retrieval.retriever.top_k`；混合检索的 `retriever.dense.score_threshold`、`enable_time_decay`、`time_decay_days` |
+| 话题与生成 | `patchouli.perception.idle_timeout_seconds`；`patchouli.generation.deduplicator.high_similarity_threshold`、`low_similarity_threshold` |
+| 生命周期 | `patchouli.lifecycle.garbage_collector.low_watermark` |
+| 编译 | `memory_compiler.retrieval_context.strategy.max_memory_tokens`；`attachment_compiler.max_total_context_chars` |
+| Alice | `alice.compaction.enabled`、`trigger_ratio`；`alice.runtime.max_loop_iterations`、`default_context_window` |
+| 附件与会话 | `attachment_parser.max_raw_bytes`；`workspace.sessions.max_sessions_per_workspace`、`max_turns_per_session` |
+
+其余字段在启动时被抄进派生对象或用来建立资源（连接、模型、调度任务、组件 LLM 参数等），保存后列在 `pending_restart` 中，重启后生效；`server_principal_id`、日志与默认语言同样如此。原地改写发生在事件循环中，单个字段的读写是原子的；正在进行的一次检索可能前一个字段读到旧值、后一个读到新值，影响只在一次请求之内。
+
+环境变量与 `.env` 的优先级高于覆盖文件：被它们设置的字段，在页面上保存的值不生效，期望配置仍是环境变量的值。
+
 ## 3. Registry 解析
 
 `SystemAssembler` 在装配时：
@@ -177,7 +212,9 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 
 组件配置的类型是 `ModelSelection`（`core.models.model_definition`），与 Alice 会话请求的选择同一类型：`model_id` 与三个生成参数都可以不给，模型与凭证不能在配置文件或环境变量中直接指定。随仓库发布的配置为两个组件写了生成参数，因为它们是组件任务的要求：Gateway 的话题路由与查询分析需要稳定的短 JSON 输出（temperature 0、max_tokens 512），Librarian 一次结算输出多条记忆，输出被截断时任务失败（max_tokens 32768）；放进模型定义会让它们随模型记录被其他使用方连带修改。
 
-这一步把凭证解析从业务请求热路径移开，也避免 Gateway 和 Patchouli 对同一模型引用各自得出不同结果。解析只在装配时进行一次：模型页面与 Provider 页面的修改，Gateway 与 Patchouli 在重启后生效。请求参数不写回配置对象，是因为主配置接口读写的就是这个对象：写回会让提供商密钥经 `/api/v1/config` 读出、在保存时进入 `config.yaml`；两个组件的模型、凭证与采样参数只来自各自的配置段，共享的 LLM 服务不持有任何一方的配置（[System 组合根](./composition.md#13-llm-bundle)）。Alice 的模型参数不经组件配置，由 Agent Profile、会话覆盖经同一个 `ModelRegistry.resolve` 逐帧解析。注册表提供模型和 provider 元数据，但不拥有某次请求的执行状态。
+模型注册表的生效文件 `configs/models.yaml` 是本机的个人配置，不受版本控制（已加入 `.gitignore` 与 `.dockerignore`）；仓库只发布同目录的模板 `models.example.yaml`。默认路径的生效文件不存在时，`ModelRegistry` 从模板原样复制一份（保留注释），之后模型页面的读写只针对生效文件，模板保持原样；显式传入的路径不存在时以空注册表运行，不从模板生成。复制与原子写入和访问登记共用 `config/files.py`。
+
+这一步把凭证解析从业务请求热路径移开，也避免 Gateway 和 Patchouli 对同一模型引用各自得出不同结果。解析只在装配时进行一次：模型页面与 Provider 页面的修改，Gateway 与 Patchouli 在重启后生效。请求参数不写回配置对象，是因为主配置接口读写的就是这个对象：写回会让提供商密钥经 `/api/v1/config` 读出、在保存时进入个人覆盖文件；两个组件的模型、凭证与采样参数只来自各自的配置段，共享的 LLM 服务不持有任何一方的配置（[System 组合根](./composition.md#13-llm-bundle)）。Alice 的模型参数不经组件配置，由 Agent Profile、会话覆盖经同一个 `ModelRegistry.resolve` 逐帧解析。注册表提供模型和 provider 元数据，但不拥有某次请求的执行状态。
 
 ## 4. 配置所有权与兼容边界
 
@@ -195,6 +232,19 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 
 升级注意（密钥移出主配置）：`shared.providers` 已从主配置删除，`config.yaml` 中留有这一段时，`shared` 段因未知键加载失败；把其中的 `api_base`（与可能写入的 `api_key`）移到 `.env` 的 `HIVEMEMORY__PROVIDERS__<NAME>__API_BASE` / `__API_KEY`，或在 Provider 页面保存，再删除这一段。曾经由主配置页面保存过的 `config.yaml`，Gateway 与 Librarian 段可能写入了解析后的 `model`、`api_key` 并丢掉了 `model_id`：加载会因 `api_key` 失败，删除这些字段并恢复 `model_id`。
 
+升级注意（主配置的个人覆盖）：`POST /api/v1/config` 不再写 `config.yaml`，改写同目录的 `config.local.yaml`。曾经在设置页保存过或手工改过 `config.yaml` 的部署，升级前把与仓库版本不同的部分移到 `config.local.yaml`（只写不同的字段，层级与 `config.yaml` 相同），再把 `config.yaml` 恢复为仓库版本。
+
+升级注意（模型注册表改为模板加本地文件）：`configs/models.yaml` 移出版本控制，仓库改为发布 `configs/models.example.yaml`。在原 checkout 中升级时文件留在原处，成为本机的生效文件。其他 checkout 拉取这次改动时 git 会删除它；在模型页面登记过模型的，先把它复制到别处再拉取，拉取后放回原处，没有改过的，下次启动从模板重新生成。
+
+升级注意（删除的字段）：以下字段没有使用方或名不副实，已删除；配置文件、覆盖文件或 `HIVEMEMORY__*` 环境变量中仍有它们时启动失败，错误指出键名：
+
+- `system.name`、`system.debug`（随仓库发布的 `.env.example` 曾写有 `HIVEMEMORY__SYSTEM__DEBUG`，从 `.env` 中删除这一行）与 `gateway.commands.enabled`：没有使用方；
+- `shared.embedding.default.model_name`：存储层的嵌入模型固定为 BGE-M3（`Xenova/bge-m3`），配置的模型不是 BGE-M3 时此前也被换回；
+- `patchouli.storage.vector_dimension` 与旧环境变量 `QDRANT__VECTOR_DIMENSION`：建集合时取 BGE-M3 的维度 1024；
+- `scheduler.enabled`：关闭它只是不注册 Patchouli 的维护任务，调度器照常运行；各维护任务以 `scheduler.tasks` 中自己的开关启停；
+- `alice.koakuma.enabled`：与 `alice.koakuma.mtp_prompt.enabled` 重复控制 MTP 教学，教学只由后者控制；
+- `gateway.user_query_analysis.default_top_k` 与 `patchouli.retrieval.default_top_k`：检索条数只由 `patchouli.retrieval.retriever.top_k` 控制（[Patchouli 检索](../patchouli/retrieval.md)），默认值同为 5。改过这两项的部署改为修改 `retriever.top_k`。
+
 升级注意（模型级凭证覆盖删除）：模型页面与 `/api/v1/models` 不再接受或返回模型级的 `api_key` 与 `api_base`（请求中的这两个字段被忽略，响应不再有 `api_key_masked` 与 `api_base`）。曾经在模型页面填写过覆盖值的 `models.yaml`，对应模型在启动时被跳过：把密钥与地址移到这个模型的 Provider（或为它另登记一个 Provider 名称），再删除这两个字段后重启。跳过的模型不在注册表中，修复之前经模型页面保存任何模型，都会让它从文件中消失；两项都为 `null` 的旧文件照常加载，下次保存时这两个字段被移除。
 
 配置扩展必须先判断它属于哪一个所有者；不能为了方便在 `HiveMemoryConfig` 添加一个字段，然后让多个子系统各自解释不同含义。
@@ -202,19 +252,22 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 ## 5. 当前限制
 
 - 部分历史环境变量仍保留兼容映射，清理前不能假设只有嵌套新格式；
-- registry 只在进程装配时形成解析结果，运行中 provider/model 配置变更不会自动热重载。
+- registry 只在进程装配时形成解析结果，运行中 provider/model 配置变更不会自动热重载；
+- 主配置只有第 2.1 节列出的字段在保存后立即生效，其余字段需要重启；没有重启后端的入口，也没有进程内的重新装配。
 
 ## 6. 配置变更检查
 
 1. 新字段是否有唯一所有者和唯一真相源？
 2. 是否改变了来源优先级或旧 alias 的含义？
-3. 凭证是否仍只通过环境变量/secret 进入，而不会写入受版本控制的 YAML？
-4. 该字段是装配期事实还是请求期控制？是否被错误地在两处同时读取？
+3. 凭证是否仍只通过环境变量/secret 进入，而不会写入配置文件或覆盖文件？
+4. 该字段是装配期事实还是请求期控制？是否被错误地在两处同时读取？要加入立即生效的字段，先确认每个使用方都持有运行配置中的同一个对象并在用到时读取，没有抄写或缓存。
 5. 配置失败是应该阻止装配，还是允许明确的保守默认？是否有测试证明？
 
 ## 7. 验证入口
 
-- `tests/unit/system/test_config_agent_runtime.py`
+- `tests/unit/system/test_config_agent_runtime.py`（来源合并、覆盖文件与差异）
+- `tests/unit/system/test_running_config.py`（立即生效的字段与等待重启）
+- `tests/unit/server/routers/test_config.py`（主配置接口）
 - `tests/unit/system/test_model_registry.py`
 - `tests/unit/system/test_provider_registry.py`
 - `src/hivememory/config/`（`app.py` 为根配置与加载）

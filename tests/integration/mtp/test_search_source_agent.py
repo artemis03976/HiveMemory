@@ -13,7 +13,7 @@ from hivememory.agent_runtime.mtp.context import MTPExecutionContext, MTPExecuti
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.alice import KoakumaConfig
-from hivememory.config.patchouli import DenseRetrieverConfig
+from hivememory.config.patchouli import DenseRetrieverConfig, MemoryRetrievalConfig
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -63,7 +63,6 @@ async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermM
     qdrant = QdrantMemoryStore.__new__(QdrantMemoryStore)
     qdrant.client = AsyncQdrantClient(location=":memory:")
     qdrant.collection_name = "mtp_search_source_agent"
-    qdrant.vector_dimension = 2
     qdrant.embedding_service = _DeterministicEmbedding()
     try:
         await qdrant.client.create_collection(
@@ -78,13 +77,15 @@ async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermM
                 FileBasedStorageAdapter(archive_dir=str(tmp_path / "archive"))
             ),
         )
-        retriever = DenseRetriever(
-            mid_term,
-            DenseRetrieverConfig(enable_time_decay=False, enable_confidence_boost=False),
-            now=lambda: NOW,
+        retrieval_config = MemoryRetrievalConfig(
+            retriever=DenseRetrieverConfig(
+                top_k=5, enable_time_decay=False, enable_confidence_boost=False
+            )
         )
+        retriever = DenseRetriever(mid_term, retrieval_config.retriever, now=lambda: NOW)
         familiar = RetrievalFamiliar(
-            RetrievalEngine(retriever, reranker=NoopReranker(), default_top_k=5), library
+            RetrievalEngine(retriever, reranker=NoopReranker(), config=retrieval_config),
+            library,
         )
         local_bus = PatchouliBus()
         local_bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, familiar.retrieve_async)

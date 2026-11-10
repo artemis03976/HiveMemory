@@ -9,8 +9,7 @@ from tokenizers.pre_tokenizers import Whitespace
 
 from hivememory.config.patchouli import RerankerConfig
 from hivememory.config.shared import EmbeddingConfig
-from hivememory.infrastructure.embedding import bge_m3
-from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService, get_bge_m3_service
+from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService
 from hivememory.infrastructure.model_service import SingletonModelService
 from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
 
@@ -35,7 +34,7 @@ def text_embedding_cls(monkeypatch):
 @pytest.fixture
 def bge_m3_service():
     """进程级 multiton 实例；直接调用加载函数不改变实例的驻留状态。"""
-    return BGEM3EmbeddingService(config=EmbeddingConfig(model_name="Xenova/bge-m3"))
+    return BGEM3EmbeddingService("Xenova/bge-m3", EmbeddingConfig())
 
 
 class TestBGEM3EmbeddingService:
@@ -76,16 +75,6 @@ class TestBGEM3EmbeddingService:
         with pytest.raises(RuntimeError, match="分词器"):
             bge_m3_service._load_model()
 
-    def test_get_service_uses_bge_m3_when_configured_model_is_not_bge_m3(self, monkeypatch):
-        """存储层只支持 BGE-M3：配置为其他模型时改用 Xenova/bge-m3。"""
-        monkeypatch.setattr(bge_m3, "_bge_m3_instance", None)
-
-        service = get_bge_m3_service(
-            EmbeddingConfig(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        )
-
-        assert service.model_name == "Xenova/bge-m3"
-
 
 class _RecordingDenseModel:
     """按文本长度生成确定向量，并记录每次 embed 的输入。"""
@@ -107,8 +96,7 @@ async def make_encode_service():
     services: list[BGEM3EmbeddingService] = []
 
     def _make(model: _RecordingDenseModel) -> BGEM3EmbeddingService:
-        config = EmbeddingConfig(model_name=f"test/bge-m3-encode-{len(services)}")
-        service = BGEM3EmbeddingService(config=config)
+        service = BGEM3EmbeddingService(f"test/bge-m3-encode-{len(services)}", EmbeddingConfig())
         service._load_model = lambda: model
         services.append(service)
         return service
@@ -184,7 +172,7 @@ class TestBGEM3Encode:
 @pytest_asyncio.fixture
 async def reranker_service():
     """以独立模型名创建实例；结束时释放推理线程并移出 multiton 实例表。"""
-    service = FastEmbedRerankerService(config=RerankerConfig(model_name="test/reranker"))
+    service = FastEmbedRerankerService("test/reranker", RerankerConfig())
     yield service
     await service.close()
     SingletonModelService._instances.pop((FastEmbedRerankerService, service.model_name), None)

@@ -12,7 +12,6 @@ from time import perf_counter
 
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.protocol.gateway import (
     IntentType,
@@ -33,9 +32,6 @@ from hivememory.gateway.errors import RecoverableGatewayError
 class FallbackUserQueryAnalysisResolver:
     """不调用 Engine，直接生成稳定、保守的查询分析结果。"""
 
-    def __init__(self, config: UserQueryAnalysisConfig) -> None:
-        self._config = config
-
     async def resolve(
         self,
         context: UserQueryAnalysisContext,
@@ -46,10 +42,7 @@ class FallbackUserQueryAnalysisResolver:
             intent_type=IntentType.RAG,
             rewritten_query=context.raw_message,
             search_keywords=(),
-            retrieval_plan=RetrievalPlan(
-                mode=RetrievalMode.HYBRID,
-                top_k=self._config.default_top_k,
-            ),
+            retrieval_plan=RetrievalPlan(mode=RetrievalMode.HYBRID),
         )
 
 
@@ -71,11 +64,9 @@ class LLMUserQueryAnalysisResolver:
     def __init__(
         self,
         *,
-        config: UserQueryAnalysisConfig,
         engine: QueryUnderstandingEngine,
         runtime_events: RuntimeEventPublisher | None = None,
     ) -> None:
-        self._config = config
         self._engine = engine
         self._runtime_events = (
             runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
@@ -133,16 +124,10 @@ class LLMUserQueryAnalysisResolver:
         """检索策略是纯派生：由意图与关键词决定，不单独调用模型。"""
 
         if intent_type in (IntentType.CHAT, IntentType.WRITE):
-            return RetrievalPlan(mode=RetrievalMode.SKIP, top_k=0)
+            return RetrievalPlan(mode=RetrievalMode.SKIP)
         if not search_keywords:
-            return RetrievalPlan(
-                mode=RetrievalMode.DENSE,
-                top_k=self._config.default_top_k,
-            )
-        return RetrievalPlan(
-            mode=RetrievalMode.HYBRID,
-            top_k=self._config.default_top_k,
-        )
+            return RetrievalPlan(mode=RetrievalMode.DENSE)
+        return RetrievalPlan(mode=RetrievalMode.HYBRID)
 
     def _emit_capability(
         self,

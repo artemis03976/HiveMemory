@@ -23,7 +23,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/architecture/data-model.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 系统边界与所有权
@@ -116,7 +116,7 @@ Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括�
 - 候选话题失败：使用空候选集；
 - 话题路由失败：上一轮所在的话题仍在本次候选话题中时续接它，否则选择 `NEW_TOPIC`；
 - 已路由话题加载失败：使用空话题上下文；
-- 查询分析失败：保留原始查询，使用 `RAG + HYBRID` 和默认 `top_k`；
+- 查询分析失败：保留原始查询，使用 `RAG + HYBRID`；
 - step 投影、状态提交或终态不变量失败：不使用局部 fallback，整个 workflow 失败；
 - 外层 task cancellation：原生 `asyncio.CancelledError` 直接传播，不转为 Gateway 业务错误或 fallback；
 - 总 deadline 耗尽：只有剩余步骤都有安全 fallback 时才能继续形成保守终态，否则抛出 `GatewayTimeoutError`。

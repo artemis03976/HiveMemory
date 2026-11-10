@@ -105,7 +105,7 @@ def _coordinator(runtime, child: ExecutionFrame, *, context_provider=None) -> Ca
             provide=AsyncMock(return_value=make_call_context(agent_profile=OMNI_DOLL_PROFILE))
         ),
         frame_factory=frame_factory,
-        koakuma_config=KoakumaConfig(enabled=False),
+        koakuma_config=KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
     )
 
 
@@ -194,14 +194,11 @@ async def test_callee_prompt_uses_own_language_persona_and_policy(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("enabled,teaching_enabled", [(False, True), (True, False)])
-async def test_callee_prompt_without_teaching_keeps_persona_and_shared_context(
-    enabled: bool, teaching_enabled: bool
-) -> None:
-    """任一教学开关关闭时仍保留子帧人设、共享上下文与任务。"""
+async def test_callee_prompt_without_teaching_keeps_persona_and_shared_context() -> None:
+    """教学开关关闭时仍保留子帧人设、共享上下文与任务。"""
     frame = await _prepare_prompt_frame(
         AgentProfile(persona="子 Agent", language="zh"),
-        KoakumaConfig(enabled=enabled, mtp_prompt=MTPPromptConfig(enabled=teaching_enabled)),
+        KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
         shared_context="[共享上下文]",
     )
 
@@ -215,7 +212,8 @@ async def test_callee_prompt_without_teaching_keeps_persona_and_shared_context(
 async def test_callee_prompt_omits_empty_system_message() -> None:
     """系统片段全部为空时只发送任务，不创建空系统消息。"""
     frame = await _prepare_prompt_frame(
-        AgentProfile(persona="", language="zh"), KoakumaConfig(enabled=False)
+        AgentProfile(persona="", language="zh"),
+        KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
     )
 
     assert frame.working_history == [{"role": "user", "content": "summarize"}]
@@ -622,7 +620,7 @@ async def test_child_frame_holds_callee_thread_and_takes_its_labels() -> None:
         runtime,
         SimpleNamespace(provide=AsyncMock(return_value=CallContext(callee=callee))),
         frame_factory=FrameFactory(),
-        koakuma_config=KoakumaConfig(enabled=False),
+        koakuma_config=KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
     )
     session = _session(caller)
 
@@ -677,7 +675,7 @@ async def test_failure_after_derivation_before_child_runs_ends_child_thread(make
         runtime,
         SimpleNamespace(provide=AsyncMock(return_value=CallContext(callee=callee))),
         frame_factory=make_factory(caller, callee),
-        koakuma_config=KoakumaConfig(enabled=False),
+        koakuma_config=KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
     )
     session = _session(caller)
 

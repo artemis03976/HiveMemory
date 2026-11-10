@@ -26,7 +26,7 @@ from hivememory.alice.orchestration.session import RunSession
 from hivememory.alice.run.service import AgentRunService
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.config.alice import CompactionConfig, KoakumaConfig
+from hivememory.config.alice import CompactionConfig, KoakumaConfig, MTPPromptConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.call import StubOperationSubmitter
@@ -84,7 +84,7 @@ def _runtime_for_frame(
         agent_runtime=resolved_agent_runtime,
         call_coordinator=MagicMock(),
         frame_factory=factory,
-        koakuma_config=KoakumaConfig(enabled=False),
+        koakuma_config=KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
         compaction_config=CompactionConfig(),
         agent_run_events=AgentRunEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink())),
     )

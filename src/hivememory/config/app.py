@@ -1,5 +1,10 @@
 """应用根配置与加载：HiveMemoryConfig 聚合各配置段，并从 YAML / .env / 环境变量加载。
 
+配置来源的优先级从低到高：代码默认值、``config.yaml``、个人覆盖文件
+``config.local.yaml``、``.env``、环境变量，按层级合并。``config.yaml`` 受版本控制，
+是随版本更新的默认值；本机的个人改动只写进同目录、不受版本控制的覆盖文件，
+且只写与默认值不同的字段。
+
 只供组合根（``hivememory.system``）与入口（``hivememory.server``）使用；其余包
 只导入自己需要的配置段模块（``hivememory.config.<section>``），不得持有根配置或
 自行调用加载函数（由分层测试守护）。
@@ -8,6 +13,7 @@
 import logging
 import os
 from collections.abc import Callable
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Literal
 
@@ -19,6 +25,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 from hivememory.config.alice import AliceConfig
 from hivememory.config.attachments import AttachmentCompilerConfig, AttachmentParserConfig
+from hivememory.config.files import write_atomically
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.config.import_bus import ImportBusConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
@@ -48,7 +55,6 @@ LEGACY_ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "QDRANT__STARTUP_TIMEOUT_SECONDS": ("patchouli", "storage", "startup_timeout_seconds"),
     "QDRANT__API_KEY": ("patchouli", "storage", "api_key"),
     "QDRANT__COLLECTION_NAME": ("patchouli", "storage", "collection_name"),
-    "QDRANT__VECTOR_DIMENSION": ("patchouli", "storage", "vector_dimension"),
     "QDRANT__DISTANCE_METRIC": ("patchouli", "storage", "distance_metric"),
     "QDRANT__ON_DISK_PAYLOAD": ("patchouli", "storage", "on_disk_payload"),
 }
@@ -64,6 +70,15 @@ def get_config_file_path() -> Path:
     if configured_path:
         return Path(configured_path)
     return get_default_config_file_path()
+
+
+def get_local_config_file_path() -> Path:
+    """个人覆盖文件：与生效的主配置文件同目录，不受版本控制。"""
+    return get_config_file_path().parent / "config.local.yaml"
+
+
+# 计算默认值（恢复默认、覆盖差异）时装载不含个人覆盖的配置。
+_include_local_overrides: ContextVar[bool] = ContextVar("include_local_overrides", default=True)
 
 
 def _set_nested_value(data: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
@@ -166,6 +181,19 @@ def yaml_config_settings_source() -> dict[str, Any]:
     return yaml_content
 
 
+def local_config_settings_source() -> dict[str, Any]:
+    """个人覆盖文件的内容；文件不存在表示没有个人改动。规则与 ``config.yaml`` 相同。"""
+    if not _include_local_overrides.get():
+        return {}
+    path = get_local_config_file_path()
+    if not path.exists():
+        return {}
+    content = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    _reject_unknown_sections(content, path)
+    _reject_secrets(content, path)
+    return content
+
+
 def _reject_unknown_sections(yaml_content: Any, path: Path) -> None:
     """配置文件的顶层键必须是已声明的配置段，写错或已删除的段让加载失败。
 
@@ -222,8 +250,6 @@ class _LoaderSettingsSource(PydanticBaseSettingsSource):
 
 
 class SystemConfig(BaseModel):
-    name: str = Field(default="HiveMemory")
-    debug: bool = Field(default=False)
     # server 自身作为调用来源经统一认证网关认证时使用的 principal 标识；
     # 必须与 configs/system_principals.yaml 中的接入登记一致。
     server_principal_id: str = Field(default="hivememory:http-server")
@@ -303,6 +329,7 @@ class HiveMemoryConfig(BaseSettings):
             env_settings,
             dotenv_settings,
             _LoaderSettingsSource(settings_cls, legacy_env_alias_settings_source),
+            _LoaderSettingsSource(settings_cls, local_config_settings_source),
             _LoaderSettingsSource(settings_cls, yaml_config_settings_source),
             file_secret_settings,
         )
@@ -312,6 +339,61 @@ def load_app_config(config_path: str | None = None) -> HiveMemoryConfig:
     if config_path:
         os.environ["HIVEMEMORY_CONFIG_PATH"] = str(config_path)
     return HiveMemoryConfig()
+
+
+def load_default_config() -> HiveMemoryConfig:
+    """不含个人覆盖的配置：代码默认值、``config.yaml``、``.env`` 与环境变量。
+
+    恢复默认返回它；保存时只把与它不同的字段写进覆盖文件。
+    """
+    token = _include_local_overrides.set(False)
+    try:
+        return HiveMemoryConfig()
+    finally:
+        _include_local_overrides.reset(token)
+
+
+def write_local_overrides(config: HiveMemoryConfig) -> None:
+    """把 ``config`` 中与默认值不同的字段写进个人覆盖文件，密钥不写。
+
+    与默认值相同的字段不写，改回默认值的字段因此从覆盖文件中消失；没有任何
+    不同时删除覆盖文件。``config.yaml`` 不被写。
+    """
+    overrides = config_differences(
+        load_default_config().model_dump(mode="json"), config.model_dump(mode="json")
+    )
+    path = get_local_config_file_path()
+    if not overrides:
+        path.unlink(missing_ok=True)
+        return
+    content = yaml.safe_dump(overrides, allow_unicode=True, sort_keys=False)
+    write_atomically(path, content.encode("utf-8"))
+
+
+def config_differences(base: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    """``target`` 中与 ``base`` 不同的部分，保持原有层级；密钥不计入。
+
+    列表按整体比较。带 ``type`` 的子结构是可切换类型的策略，按 ``type`` 确定结构：
+    类型变化时整段写出，只写变化的叶子会把新类型的字段合并到旧类型的结构上而校验
+    失败；类型不变时只写变化的叶子，但带上 ``type``，下层配置缺少这一段时也能确定结构。
+    """
+    differences: dict[str, Any] = {}
+    for key, value in target.items():
+        if key == SECRET_FIELD:
+            continue
+        current = base.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            if value.get("type") != current.get("type"):
+                differences[key] = value
+                continue
+            nested = config_differences(current, value)
+            if nested and "type" in value:
+                nested = {"type": value["type"], **nested}
+            if nested:
+                differences[key] = nested
+        elif value != current:
+            differences[key] = value
+    return differences
 
 
 __all__ = [
@@ -324,6 +406,10 @@ __all__ = [
     "HiveMemoryConfig",
     # 加载与工厂函数
     "load_app_config",
+    "load_default_config",
+    "write_local_overrides",
+    "config_differences",
+    "get_local_config_file_path",
     "HIVEMEMORY_ENV_PREFIX",
     "LEGACY_ENV_ALIASES",
     "environment_value",

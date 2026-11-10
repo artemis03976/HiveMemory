@@ -229,8 +229,7 @@ def test_retrieve_splits_public_scope_into_internal_query():
     assert query.semantic_query == "query"
     assert query.belong_to == request.identity_scope.workspace_identity
     assert query.from_actor == request.identity_scope.actor_identity
-    # 请求未给出 top_k：原样缺省转发，条数由检索引擎配置决定
-    assert kwargs == {"top_k": None}
+    assert kwargs == {}
 
 
 def test_feedback_missing_lifecycle_route_is_explicitly_unavailable():

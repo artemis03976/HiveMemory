@@ -27,7 +27,7 @@ class ModelDefinition(BaseModel):
     取得记录本身。
 
     凭证解析（见 ModelRegistry.resolve）：
-    - 密钥与 API 地址只来自 provider 字段对应的 Provider 凭证；models.yaml 受版本控制，
+    - 密钥与 API 地址只来自 provider 字段对应的 Provider 凭证，
       模型定义不保存连接凭证。单个模型需要不同的密钥或地址时，另登记一个 provider
     """
 

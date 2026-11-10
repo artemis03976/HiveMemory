@@ -73,7 +73,6 @@ class GatewayRuntime:
             llm_available = llm_service is not None and llm_params is not None
             if llm_available and config.user_query_analysis.enabled:
                 analysis_resolver = LLMUserQueryAnalysisResolver(
-                    config=config.user_query_analysis,
                     engine=QueryUnderstandingEngine(
                         config=config.user_query_analysis,
                         llm_service=llm_service,
@@ -82,7 +81,7 @@ class GatewayRuntime:
                     runtime_events=self._runtime_events,
                 )
             else:
-                analysis_resolver = FallbackUserQueryAnalysisResolver(config.user_query_analysis)
+                analysis_resolver = FallbackUserQueryAnalysisResolver()
 
         # 命令只解析不执行：runtime 只装配命令注册表供入口拦截识别，不装配分发与执行。
         registry = create_builtin_command_registry(config.commands.builtin)

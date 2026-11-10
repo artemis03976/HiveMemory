@@ -190,10 +190,7 @@ def build_gateway_workflow(
             project=lambda output: {"user_query_analysis": output},
             timeout_ms=analysis_config.overall_timeout_ms,
             fallback=lambda selected, _error: {
-                "user_query_analysis": _conservative_analysis_result(
-                    selected.raw_message,
-                    analysis_config,
-                )
+                "user_query_analysis": _conservative_analysis_result(selected.raw_message)
             },
         ),
         runtime_events=runtime_events,
@@ -306,22 +303,16 @@ def _simple_chat_result(raw_message: str) -> UserQueryAnalysisResult:
         intent_type=IntentType.CHAT,
         rewritten_query=raw_message,
         search_keywords=(),
-        retrieval_plan=RetrievalPlan(mode=RetrievalMode.SKIP, top_k=0),
+        retrieval_plan=RetrievalPlan(mode=RetrievalMode.SKIP),
     )
 
 
-def _conservative_analysis_result(
-    raw_message: str,
-    config: UserQueryAnalysisConfig,
-) -> UserQueryAnalysisResult:
+def _conservative_analysis_result(raw_message: str) -> UserQueryAnalysisResult:
     return UserQueryAnalysisResult(
         intent_type=IntentType.RAG,
         rewritten_query=raw_message,
         search_keywords=(),
-        retrieval_plan=RetrievalPlan(
-            mode=RetrievalMode.HYBRID,
-            top_k=config.default_top_k,
-        ),
+        retrieval_plan=RetrievalPlan(mode=RetrievalMode.HYBRID),
     )
 
 

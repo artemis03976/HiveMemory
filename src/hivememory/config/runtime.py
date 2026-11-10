@@ -16,7 +16,6 @@ class MaintenanceTasksConfig(BaseModel):
 
 
 class SchedulerConfig(BaseModel):
-    enabled: bool = Field(default=True)
     tick_seconds: float = Field(default=1.0)
     shutdown_wait_seconds: float = Field(default=5.0)
     tasks: MaintenanceTasksConfig = Field(default_factory=MaintenanceTasksConfig)

@@ -351,7 +351,6 @@ class ActorMemoryService:
             keywords=list(request.keywords),
             identity_scope=scope,
             filters=request.filters,
-            top_k=request.top_k,
         )
         memories = await self._reader.search(retrieval, scope=scope)
         await self._record_retrieval_hits(memories, scope=scope)

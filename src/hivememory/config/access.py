@@ -24,12 +24,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+
+from hivememory.config.files import seed_from_template, write_atomically
 
 logger = logging.getLogger(__name__)
 
@@ -229,8 +230,7 @@ def _load_registration_file[ModelT: BaseModel](
     if not path.exists():
         if os.getenv(env_var):
             raise FileNotFoundError(f"访问登记文件不存在: {path}")
-        _write_atomically(path, (_repo_configs_dir() / template).read_bytes())
-        logger.info("已从模板生成访问登记: path=%s, template=%s", path, template)
+        seed_from_template(path, _repo_configs_dir() / template)
     raw = path.read_bytes()
     content = yaml.safe_load(raw.decode("utf-8")) or {}
     return model_type.model_validate(content), _digest(raw)
@@ -261,8 +261,6 @@ def load_access_registration() -> AccessRegistration:
 def write_registration_file(path: Path, document: BaseModel) -> str:
     """把登记文件或凭据文件原子写入 ``path``，返回写入内容的摘要。
 
-    POSIX 上临时文件只有当前用户可读写，替换后沿用这一权限；Windows 沿用目录的
-    ACL。
     值为 ``None`` 的字段不写出：省略 ``agent_id`` 即用户级记录，省略
     ``credential_env`` 与两项收紧即不声明。
     """
@@ -270,21 +268,8 @@ def write_registration_file(path: Path, document: BaseModel) -> str:
     content = yaml.safe_dump(
         payload, allow_unicode=True, default_flow_style=False, sort_keys=False
     ).encode("utf-8")
-    _write_atomically(path, content)
+    write_atomically(path, content)
     return _digest(content)
-
-
-def _write_atomically(path: Path, content: bytes) -> None:
-    """先写同目录的临时文件再原子替换，写入中途失败不会留下半截文件。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=f"{path.stem}_", suffix=".tmp")
-    try:
-        with os.fdopen(tmp_fd, "wb") as f:
-            f.write(content)
-        os.replace(tmp_path, path)
-    except BaseException:
-        Path(tmp_path).unlink(missing_ok=True)
-        raise
 
 
 def load_principal_credentials(path: Path) -> PrincipalCredentialsFile:

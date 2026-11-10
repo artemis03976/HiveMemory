@@ -48,9 +48,13 @@ configs/management.token
 # 外部来源的生成凭据（设置页“接入与权限”登记或轮换时写入）
 configs/principals.secrets.yaml
 
-# 生效的访问登记：本机的个人配置，首次启动时从同目录的 *.example.yaml 模板生成
+# 生效的访问登记与模型注册表：本机的个人配置，首次启动时从同目录的 *.example.yaml 模板生成
 configs/system_principals.yaml
 configs/workspace_actors.yaml
+configs/models.yaml
+
+# 主配置的个人覆盖：设置页保存的改动，只含与 config.yaml 不同的字段
+configs/config.local.yaml
 
 # Database
 *.db

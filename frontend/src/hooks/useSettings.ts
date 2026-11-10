@@ -49,7 +49,7 @@ export const useSettings = (): UseSettingsReturn => {
     const loadConfig = async () => {
       try {
         setLoading(true);
-        const data = await fetchConfig();
+        const { config: data } = await fetchConfig();
         setOriginalConfig(JSON.parse(JSON.stringify(data)));
         setValidationErrors(validateConfig(data));
       } catch (err) {

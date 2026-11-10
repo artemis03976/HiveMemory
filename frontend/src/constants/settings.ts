@@ -3,9 +3,7 @@ import type { HiveMemoryConfig } from '@/types/config';
 // Mock data for development when backend is offline
 export const MOCK_CONFIG: HiveMemoryConfig = {
   system: {
-    name: 'HiveMemory',
-    version: '0.1.0',
-    debug: true,
+    server_principal_id: 'hivememory:http-server',
   },
   logging: {
     level: 'INFO',
@@ -16,7 +14,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
   shared: {
     embedding: {
       default: {
-        model_name: 'Xenova/bge-m3',
         cache_dir: null,
       },
     },
@@ -30,7 +27,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     grpc_port: 6334,
     api_key: null,
     collection_name: 'hivememory_main',
-    vector_dimension: 1024,
     distance_metric: 'Cosine',
     on_disk_payload: true,
   },
@@ -155,7 +151,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     },
   },
   koakuma: {
-    enabled: true,
     execution_timeout_seconds: 300,
     max_recursion_depth: 5,
     tool_cache_size: 100,

@@ -23,7 +23,8 @@ ModelResidency = Literal["resident", "idle_unload"]
 
 
 class EmbeddingConfig(BaseModel):
-    model_name: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
+    """存储层嵌入模型（固定为 BGE-M3）的缓存目录与驻留方式。"""
+
     cache_dir: str | None = Field(default=None)
     residency: ModelResidency = Field(default="idle_unload", description="嵌入模型的驻留方式")
     idle_timeout_seconds: float = Field(

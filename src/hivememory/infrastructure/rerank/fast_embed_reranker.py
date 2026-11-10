@@ -75,4 +75,4 @@ def get_fast_embed_reranker_service(config: "RerankerConfig") -> FastEmbedRerank
     """
     获取全局 FastEmbed Reranker 服务实例（单例）
     """
-    return FastEmbedRerankerService(config=config)
+    return FastEmbedRerankerService(config.model_name, config)

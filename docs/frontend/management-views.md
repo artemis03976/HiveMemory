@@ -91,7 +91,7 @@ Provider 页面通过独立 `/api/v1/providers` API 管理 `configs/providers.se
 
 ### 3.2 Model Registry
 
-Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建、查询、更新、删除和默认模型标记。模型的密钥与 API 地址只来自所选 Provider 的凭证，页面与 API 都不读写模型级的 api key 或 api base；单个模型需要不同的密钥或地址时，在 Provider 页面另登记一个 Provider 再选择它。
+Model 页面通过 `/api/v1/models` 管理本机的生效文件 `configs/models.yaml`（从模板 `models.example.yaml` 生成，不受版本控制），支持创建、查询、更新、删除和默认模型标记。模型的密钥与 API 地址只来自所选 Provider 的凭证，页面与 API 都不读写模型级的 api key 或 api base；单个模型需要不同的密钥或地址时，在 Provider 页面另登记一个 Provider 再选择它。
 
 ### 3.3 接入与权限
 
@@ -103,11 +103,11 @@ Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建�
 
 ### 3.4 主配置表单
 
-主配置页面通过 `GET/POST /api/v1/config` 读取和原子写入 YAML，后端使用 Pydantic 重新校验，并替换 `system.config`。主配置接口不读写密钥：响应中的 `api_key` 只有打码值，保存时沿用当前密钥，写入的 YAML 不含 `api_key`；Provider 凭证由 Provider 页面管理。但“配置对象已替换”不等于所有已装配组件已经热重载；Qdrant 连接、模型服务和部分 runtime 仍需要重启。
+主配置页面通过 `GET/POST /api/v1/config` 读取与保存，两者都返回 `config`（下次启动将装载的完整配置）、`immediate_fields` 与 `pending_restart`；页面只使用 `config`，“恢复默认”读取 `/api/v1/config/defaults`。后端用 Pydantic 重新校验，只把与默认值不同的字段写进个人覆盖文件 `config.local.yaml`，其中立即生效的字段（检索条数上限、相关度阈值、会话与附件上限等）同时写入运行中的服务，其余字段重启后生效（[System 配置](../system/configuration.md#21-个人覆盖与保存)）。主配置接口不读写密钥：响应中的 `api_key` 只有打码值，保存时沿用当前密钥，覆盖文件不含 `api_key`；Provider 凭证由 Provider 页面管理。保存成功的提示不区分立即生效与等待重启。
 
-与后端配置结构一致的只有 General 与“内部引擎”两个分类。内部引擎读写 `gateway.llm`、`patchouli.llm` 与 `shared.embedding.default.model_name`：两个组件各有一份模型选择（`ModelSelection`），模型从模型注册表中选择（另有“注册表默认模型”一项），temperature、top_p 与 max_tokens 可以留空表示沿用模型默认值，保存后重启生效；配置为 `null`（不使用 LLM）时只显示提示，需要在 `configs/config.yaml` 中改回，因为页面不知道各组件的默认生成参数，从页面重新启用会丢掉它们。 General 读取的 `system.version` 已从后端配置删除，显示为空。
+与后端配置结构一致的只有 General 与“内部引擎”两个分类。General 读写日志级别、控制台输出与日志文件路径。内部引擎读写 `gateway.llm` 与 `patchouli.llm`，嵌入模型只作说明（固定为 BGE-M3，不可更换）：两个组件各有一份模型选择（`ModelSelection`），模型从模型注册表中选择（另有“注册表默认模型”一项），temperature、top_p 与 max_tokens 可以留空表示沿用模型默认值，保存后重启生效；配置为 `null`（不使用 LLM）时只显示提示，需要在 `configs/config.local.yaml` 中改回，因为页面不知道各组件的默认生成参数，从页面重新启用会丢掉它们。
 
-其余分类（基础设施、全局网关、记忆感知、记忆生成、记忆检索、生命周期、MTP 引擎）的表单仍按旧的前端配置结构读写，后端配置中没有对应的段或子结构不同，渲染真实配置会报错；页面对这些分类只显示“尚未与后端配置结构对齐”的提示，不渲染表单，需要修改时直接编辑 `configs/config.yaml` 并重启。加载时的校验同样只检查与后端一致的字段，读取不存在的段会抛出异常。`ConfigResponse` 返回的段也不是完整配置：`workspace`、`memory_compiler`、`import_bus` 与附件配置不在响应中，保存时由当前的 `config.yaml` 补齐。Provider 与 Model Registry 使用独立 API，不受这一具体类型偏差影响。
+其余分类（基础设施、全局网关、记忆感知、记忆生成、记忆检索、生命周期、MTP 引擎）的表单仍按旧的前端配置结构读写，后端配置中没有对应的段或子结构不同，渲染真实配置会报错；页面对这些分类只显示“尚未与后端配置结构对齐”的提示，不渲染表单，需要修改时直接编辑 `configs/config.local.yaml` 并重启。加载时的校验同样只检查与后端一致的字段，读取不存在的段会抛出异常。Provider 与 Model Registry 使用独立 API，不受这一具体类型偏差影响。
 
 后端不可达时，主配置页保持未加载并显示“配置加载失败”，“恢复默认”失败以错误 toast 提示；只有 debug 模式加载 `MOCK_CONFIG` 并保留 error，页面仍可能显示完整表单，但保存会失败。Settings 草稿只存在内存中，不会跨刷新恢复。
 

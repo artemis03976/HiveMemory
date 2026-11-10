@@ -19,6 +19,7 @@ from hivememory.config.patchouli import (
     DenseRetrieverConfig,
     GarbageCollectorConfig,
     MemoryPerceptionConfig,
+    MemoryRetrievalConfig,
     ReinforcementEngineConfig,
     SemanticFlowPerceptionConfig,
     VitalityCalculatorConfig,
@@ -185,11 +186,12 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         long_term=LongTermMemoryStore(FileBasedStorageAdapter(archive_dir=str(tmp_path))),
         artifact_store=artifacts,
     )
+    retrieval_config = MemoryRetrievalConfig(retriever=DenseRetrieverConfig(top_k=5))
     retrieval = RetrievalFamiliar(
         RetrievalEngine(
-            DenseRetriever(mid_term, DenseRetrieverConfig()),
+            DenseRetriever(mid_term, retrieval_config.retriever),
             reranker=NoopReranker(),
-            default_top_k=5,
+            config=retrieval_config,
         ),
         library,
         local_bus,

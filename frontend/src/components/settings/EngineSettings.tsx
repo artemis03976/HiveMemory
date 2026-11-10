@@ -115,12 +115,8 @@ export function EngineSettings({ config, updateConfig, getFieldError }: Settings
       </SettingSection>
 
       <SettingSection title="Embedding: 默认 embedding 模型">
-        <SettingRow label="模型名称" description="用于生成向量嵌入的模型。">
-          <Input
-            value={config.shared.embedding.default.model_name}
-            onChange={(v: string) => updateConfig('shared.embedding.default.model_name', v)}
-            className="w-64"
-          />
+        <SettingRow label="模型" description="存储层的嵌入模型固定为 BGE-M3，不可更换。">
+          <span className="text-sm text-slate-400">Xenova/bge-m3</span>
         </SettingRow>
       </SettingSection>
 

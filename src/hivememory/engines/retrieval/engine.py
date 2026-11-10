@@ -3,7 +3,8 @@ Retrieval Engine - 纯计算执行层
 
 职责：
 - 编排召回与重排两个阶段：检索器召回候选，重排器对任意检索器的输出精排
-- 在重排之后按本次结果条数截取一次（请求未给出时使用配置的默认条数）
+- 在重排之后按检索器配置的 ``top_k`` 截取一次；每次检索时读取配置对象，它被原地改写后
+  下一次检索即按新值截取
 - 统计检索耗时与产出规模
 """
 
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import time
 
+from hivememory.config.patchouli import MemoryRetrievalConfig
 from hivememory.engines.retrieval.interfaces import BaseMemoryRetriever, BaseReranker
 from hivememory.engines.retrieval.models import RetrievalQuery, RetrievalResult
 
@@ -21,20 +23,16 @@ class RetrievalEngine:
         retriever: BaseMemoryRetriever,
         *,
         reranker: BaseReranker,
-        default_top_k: int,
+        config: MemoryRetrievalConfig,
     ) -> None:
         # 重排序关闭时由 NoopReranker 顶替，重排阶段始终存在。
         self.retriever = retriever
         self.reranker = reranker
-        self.default_top_k = default_top_k
+        self.config = config
 
-    async def retrieve(
-        self,
-        query: RetrievalQuery,
-        top_k: int | None = None,
-    ) -> RetrievalResult:
+    async def retrieve(self, query: RetrievalQuery) -> RetrievalResult:
         start_time = time.time()
-        result_count = self.default_top_k if top_k is None else top_k
+        result_count = self.config.retriever.top_k
 
         # 召回：按重排器声明的候选池大小取候选；分数阈值只在 Dense 召回内部生效
         candidates = await self.retriever.retrieve(

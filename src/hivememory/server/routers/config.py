@@ -1,42 +1,53 @@
 """配置管理 API 路由
 
+主配置有两份：运行配置是启动时装配、组件正在使用的配置；期望配置是下次启动将装载
+的配置。读取返回期望配置；保存只把与默认值不同的字段写进个人覆盖文件
+``config.local.yaml``，其中可立即生效的字段同时原地写入运行配置，其余字段等待
+重启。仓库中的 ``config.yaml`` 不被写。
+
 主配置接口不读写密钥。配置中的 Qdrant 带有 ``api_key``，运行时的值只来自环境变量与
 ``.env``（模型的提供商凭证由 Provider 接口管理，不属于主配置）：
 
 - 响应中的密钥与提供商接口一样只返回打码值，HTTP 接口对本机任何进程开放；
 - 保存时提交中的 ``api_key`` 一律沿用当前的运行时值，前端原样提交读到的打码值
   不会覆盖真实密钥；
-- 写入 ``config.yaml`` 的内容不含 ``api_key``：该文件受版本控制，出现密钥时加载失败。
+- 覆盖文件不写 ``api_key``，出现密钥时加载失败。
 """
 
 import logging
-import os
-import tempfile
-from pathlib import Path
 from typing import Any
 
-import yaml
 from fastapi import APIRouter, Depends
 from pydantic import ValidationError
 
 from hivememory.config.app import (
     SECRET_FIELD,
     HiveMemoryConfig,
-    get_config_file_path,
+    load_default_config,
+    write_local_overrides,
 )
 from hivememory.server.deps import get_system
 from hivememory.server.error_handlers import APIError, error_responses, validation_issues
 from hivememory.server.models.config import ConfigResponse
 from hivememory.server.models.secrets import mask_api_key
 from hivememory.system import HiveMemorySystem
+from hivememory.system.running_config import (
+    IMMEDIATE_FIELDS,
+    apply_immediate_fields,
+    pending_restart,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["config"])
 
 
-def _masked_response(config: HiveMemoryConfig) -> ConfigResponse:
-    return ConfigResponse(**_mask_secrets(config.model_dump(mode="json")))
+def _config_response(running: HiveMemoryConfig, desired: HiveMemoryConfig) -> ConfigResponse:
+    return ConfigResponse(
+        config=_mask_secrets(desired.model_dump(mode="json")),
+        immediate_fields=list(IMMEDIATE_FIELDS),
+        pending_restart=pending_restart(running, desired),
+    )
 
 
 def _mask_secrets(node: Any) -> Any:
@@ -65,107 +76,42 @@ def _keep_current_secrets(submitted: Any, current: Any) -> Any:
     }
 
 
-def _without_secrets(node: Any) -> Any:
-    if isinstance(node, dict):
-        return {key: _without_secrets(value) for key, value in node.items() if key != SECRET_FIELD}
-    if isinstance(node, list):
-        return [_without_secrets(item) for item in node]
-    return node
-
-
-def _build_config_without_path_override(
-    config_data: dict[str, Any] | None = None,
-) -> HiveMemoryConfig:
-    original_path = os.environ.pop("HIVEMEMORY_CONFIG_PATH", None)
-    try:
-        if config_data is None:
-            return HiveMemoryConfig()
-        return HiveMemoryConfig(**config_data)
-    finally:
-        if original_path is not None:
-            os.environ["HIVEMEMORY_CONFIG_PATH"] = original_path
-
-
-def _persist_config_atomically(config: HiveMemoryConfig) -> Path:
-    config_path = get_config_file_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-
-    temp_file_path: str | None = None
-    try:
-        fd, temp_file_path = tempfile.mkstemp(
-            prefix=f"{config_path.name}.",
-            suffix=".tmp",
-            dir=str(config_path.parent),
-            text=True,
-        )
-        with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
-            yaml.safe_dump(
-                _without_secrets(config.model_dump(mode="json")),
-                temp_file,
-                allow_unicode=True,
-                sort_keys=False,
-            )
-
-        os.replace(temp_file_path, config_path)
-
-        with open(config_path, encoding="utf-8") as persisted_file:
-            persisted_data = yaml.safe_load(persisted_file) or {}
-        _build_config_without_path_override(persisted_data)
-    except Exception as e:
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
-        raise RuntimeError(f"配置文件持久化失败: {e}") from e
-
-    return config_path
-
-
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     system: HiveMemorySystem = Depends(get_system),
 ):
-    """
-    获取当前系统配置
-
-    返回当前运行时的完整配置，包括所有模块的参数设置；密钥只返回打码值。
-    """
-    return _masked_response(system.config)
+    """读取期望配置，并列出可立即生效的字段与等待重启的字段；密钥只返回打码值。"""
+    return _config_response(system.config, HiveMemoryConfig())
 
 
-@router.post("/config")
+@router.post("/config", response_model=ConfigResponse)
 async def update_config(
     new_config: dict[str, Any],
     system: HiveMemorySystem = Depends(get_system),
 ):
-    """
-    更新系统配置
+    """保存主配置。
 
-    接收新的配置参数并验证，然后更新运行时配置。
-    注意：某些配置项（如基础设施连接）需要重启服务才能生效。
-
-    Args:
-        new_config: 新的配置字典
-
-    Returns:
-        更新后的配置
+    提交的完整配置通过校验后，只把与默认值不同的字段写进个人覆盖文件；再从文件重新
+    装载期望配置，其中可立即生效的字段原地写入运行配置。环境变量覆盖的字段以环境
+    变量为准，提交的值不生效。各步之间没有 await，两次保存不会交错。
     """
     submitted = _keep_current_secrets(new_config, system.config.model_dump(mode="json"))
     try:
-        validated_config = _build_config_without_path_override(submitted)
+        validated = HiveMemoryConfig(**submitted)
     except ValidationError as e:
         # 校验异常含完整 input；响应与常规日志均不复制该输入。
         raise APIError("request.validation_failed", issues=validation_issues(e.errors())) from e
-    _persist_config_atomically(validated_config)
-    system.config = validated_config
-    logger.info("配置已更新")
-    return _masked_response(validated_config)
+    write_local_overrides(validated)
+    desired = HiveMemoryConfig()
+    applied = apply_immediate_fields(system.config, desired)
+    logger.info("主配置已保存: immediate_applied=%d", len(applied))
+    return _config_response(system.config, desired)
 
 
-@router.get("/config/defaults", response_model=ConfigResponse)
+@router.get("/config/defaults", response_model=dict[str, Any])
 async def get_default_config():
-    """
-    获取默认配置
+    """默认配置：不含个人覆盖文件，含仓库中的 ``config.yaml``、``.env`` 与环境变量。
 
-    返回系统的默认配置值，不包含任何环境变量或YAML文件的覆盖。
-    可用于重置配置或查看默认值；密钥只返回打码值。
+    把它原样保存即清空个人覆盖文件；密钥只返回打码值。
     """
-    return _masked_response(_build_config_without_path_override())
+    return _mask_secrets(load_default_config().model_dump(mode="json"))

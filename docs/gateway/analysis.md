@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # Gateway 话题与查询分析
@@ -117,8 +117,8 @@ Tier 2 不再调用模型。检索模式是 Gateway 根据已提交分析派生�
 
 | 场景 | Intent | Retrieval | 说明 |
 |:---|:---|:---|:---|
-| L1 简单寒暄 | `CHAT` | `SKIP`, `top_k=0` | 明确规则命中 |
-| `PASSIVE_MEMORY` 的每一轮 | `CHAT` | `SKIP`, `top_k=0` | 与简单寒暄同一个默认值步骤；导入只使用话题路由 |
+| L1 简单寒暄 | `CHAT` | `SKIP` | 明确规则命中 |
+| `PASSIVE_MEMORY` 的每一轮 | `CHAT` | `SKIP` | 与简单寒暄同一个默认值步骤；导入只使用话题路由 |
 | Runtime 未装配 LLM 或分析被禁用 | `RAG` | `HYBRID` | `FallbackUserQueryAnalysisResolver` 的配置级保守结果 |
 | LLM Resolver 运行中超时/可恢复失败 | `RAG` | `HYBRID` | workflow 的 Step fallback |
 
@@ -129,7 +129,7 @@ Tier 2 不再调用模型。检索模式是 Gateway 根据已提交分析派生�
 - `target_topic_id` 是话题路由建议，话题实体仍由 Patchouli 管理；
 - `rewritten_query` 与 `search_keywords` 是检索输入，不是新的用户原文；
 - `intent_type` 是入口主意图，不是 Alice 任务图；
-- `retrieval_plan` 是依赖中立的模式、预算和权重提示，不包含具体 Retriever 或索引实现。
+- `retrieval_plan` 是依赖中立的模式与权重提示，不包含具体 Retriever 或索引实现，也不携带条数：检索条数只由 Patchouli 的检索器配置决定。
 
 `RetrievalPlan` 当前可以携带 dense/sparse weight，但下游对权重的消费仍有限。不能因为字段存在，就宣称稀疏/稠密融合在所有链路中都严格按该权重执行。
 
@@ -149,7 +149,7 @@ WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限�
 
 ### 7.4 未消费字段与配置边界仍需收敛
 
-`RetrievalPlan` 已经携带 mode、top-k 与 dense/sparse weight，但任务进程的预检索当前只消费是否跳过和 top-k，具体融合权重仍由 Retrieval 自身配置决定。`UserQueryAnalysisConfig` 也同时承载 Resolver 开关、模型覆盖和 context 截断等实现细节，尚未形成“稳定公共策略”与“Resolver 私有参数”的清晰分层。
+`RetrievalPlan` 携带 mode 与 dense/sparse weight，但任务进程的预检索当前只消费是否跳过，具体融合权重仍由 Retrieval 自身配置决定。`UserQueryAnalysisConfig` 也同时承载 Resolver 开关、模型覆盖和 context 截断等实现细节，尚未形成“稳定公共策略”与“Resolver 私有参数”的清晰分层。
 
 这些问题不能通过继续增加 DTO 字段解决。第二代调整前应先观察 rewrite 重复率、keywords 质量和 `COMPOSITE` 样本，再决定删除无消费者字段、下沉私有配置、扩展 Patchouli 消费，或拆分独立能力。观测只保存计数、耗时和脱敏摘要，不应把原始用户输入塞进 RuntimeEvent。复合意图的协议与样本门禁见[复合意图分解 Idea](../ideas/composite-intent-decomposition.md)，该方向当前未排期。
 

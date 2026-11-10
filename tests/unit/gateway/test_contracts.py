@@ -90,7 +90,7 @@ def test_public_gateway_result_is_immutable_and_serializable() -> None:
         target_topic_id="NEW_TOPIC",
         rewritten_query="原问题",
         search_keywords=["gateway"],
-        retrieval_plan=RetrievalPlan(mode=RetrievalMode.HYBRID, top_k=8),
+        retrieval_plan=RetrievalPlan(mode=RetrievalMode.HYBRID),
         intent_type=IntentType.RAG,
     )
     outcome = GatewayDecisionOutcome(decision=decision)

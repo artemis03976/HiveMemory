@@ -210,11 +210,7 @@ class MemoryManagementService:
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
         )
-        return await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_RETRIEVE,
-            query,
-            top_k=request.top_k,
-        )
+        return await self._bus.request(PatchouliLocalRoutes.MEMORY_RETRIEVE, query)
 
     async def retrieve_by_aliases(
         self,

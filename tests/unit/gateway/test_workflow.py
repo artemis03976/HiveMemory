@@ -72,10 +72,7 @@ class _Resolver:
                 rewritten_query="分析后的问题",
                 # list 输入：验证 finalize 投影前 pydantic 归一化为 tuple
                 search_keywords=["gateway"],
-                retrieval_plan=RetrievalPlan(
-                    mode=RetrievalMode.HYBRID,
-                    top_k=7,
-                ),
+                retrieval_plan=RetrievalPlan(mode=RetrievalMode.HYBRID),
             )
         )
 

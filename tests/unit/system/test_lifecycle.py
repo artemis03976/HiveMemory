@@ -84,7 +84,7 @@ def mock_patchouli():
     )
     runtime.shutdown_drain = AsyncMock(return_value={"success": True})
     p.runtime = runtime
-    p.register_maintenance_tasks = MagicMock(return_value=True)
+    p.register_maintenance_tasks = MagicMock()
     p.unregister_maintenance_tasks = MagicMock(return_value=1)
     p.name = "patchouli"
     p._global_bus = None
