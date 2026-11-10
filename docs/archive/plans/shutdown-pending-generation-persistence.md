@@ -2,7 +2,7 @@
 title: 退出时保存待生成的记忆工作
 status: archived
 archived_at: 2026-11-10
-implemented_by: PR #TBD
+implemented_by: PR #213
 superseded_by: docs/patchouli/generation.md
 owner: patchouli
 target: 版本之外的工作（v1.0 范围内的桌面客户端，候选清单 D-03 跨重启状态的第一步）
@@ -230,7 +230,7 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 
 ## 10. 实施记录
 
-2026-11-10 实施，在分支 `feat/shutdown-saves-pending-generation` 以 PR #TBD 合并，第 4 节的设计按原样落地。与计划不同，或计划没有写到的地方：
+2026-11-10 实施，在分支 `feat/shutdown-saves-pending-generation` 以 PR #213 合并，第 4 节的设计按原样落地。与计划不同，或计划没有写到的地方：
 
 - **进入提交的登记方式**：
   - 本地路由 `generation.execute_spec` 增加关键字参数 `on_commit_started`，数据面开始写入之前同步调用它，控制器记在任务句柄上（`commit_started`）。
