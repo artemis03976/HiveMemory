@@ -2,7 +2,7 @@
 title: 主配置的个人覆盖与热更新
 status: archived
 archived_at: 2026-11-09
-implemented_by: 分支 feat/config-overrides-hot-reload（尚未提交）
+implemented_by: PR #210
 superseded_by: docs/system/configuration.md
 owner: system
 target: 版本之外的工作（v1.0 范围内的配置热更新，候选清单 D-09）
