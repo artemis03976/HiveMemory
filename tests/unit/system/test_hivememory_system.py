@@ -10,6 +10,7 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.assembler import (
     _RegistriesBundle,
@@ -26,6 +27,7 @@ from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
+    make_identity_scope,
     make_workspace_read_view,
 )
 
@@ -325,3 +327,17 @@ class TestHiveMemorySystem:
             assert h["models_ready"] is True
         finally:
             await system.stop()
+
+    @pytest.mark.asyncio
+    async def test_preset_agent_profiles_are_seeded_once_per_data_root(self, system, tmp_path):
+        """写入成功后留下标记，之后不再写入：用户删掉预设 Agent 后重启不会写回。"""
+        marker = tmp_path / ".hivememory" / "preset_agent_profiles_seeded"
+        system.config.system.preset_agent_profiles_marker = str(marker)
+        seed = AsyncMock(return_value=["coder_doll"])
+        system._global_bus.register(PatchouliRoutes.AGENT_PROFILE_SEED_PRESETS, seed)
+        workspace = make_identity_scope().workspace_identity
+
+        assert await system.seed_preset_agent_profiles(workspace) == ["coder_doll"]
+        assert marker.exists()
+        assert await system.seed_preset_agent_profiles(workspace) == []
+        seed.assert_awaited_once_with(workspace)

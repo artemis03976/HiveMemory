@@ -66,6 +66,7 @@ class TestPatchouliPublicRoutes:
 
         ready = await self.global_bus.request(PatchouliRoutes.MODELS_READY)
         assert ready is True
+        assert await self.global_bus.request(PatchouliRoutes.MODELS_FAILED) == ["bge-m3"]
         tasks = await self.global_bus.request(PatchouliRoutes.MEMORY_TASK_LIST)
         assert tasks == ["task"]
 
@@ -184,6 +185,7 @@ class TestPatchouliPublicRoutes:
         model_readiness_service = MagicMock()
         model_readiness_service.warmup_models = AsyncMock()
         model_readiness_service.is_models_ready = AsyncMock(return_value=True)
+        model_readiness_service.failed_models = AsyncMock(return_value=["bge-m3"])
 
         public_api = PatchouliPublicApi(
             chat=service,

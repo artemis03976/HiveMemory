@@ -5,6 +5,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,7 @@ from hivememory import __version__
 from hivememory.config.app import load_app_config
 from hivememory.mcp_server import create_http_app, create_mcp_server
 from hivememory.server.deps import (
+    default_request_workspace,
     get_system,
     init_system,
     init_websocket_log_broadcasting,
@@ -47,12 +49,34 @@ from hivememory.server.routers.sessions import router as sessions_router
 from hivememory.server.routers.topics import router as topics_router
 from hivememory.server.routers.workspace_assets import router as workspace_assets_router
 
+if TYPE_CHECKING:
+    from hivememory.system import HiveMemorySystem
+
 logger = logging.getLogger(__name__)
 
 # MCP 入口：外部 harness 经插件声明的 MCP server 检索、读取、写入与更新记忆。
 # 门面在每次工具调用时取得，因此可以在模块导入时先于系统装配构造。
 mcp_server = create_mcp_server(get_system)
 mcp_app = create_http_app(mcp_server)
+
+
+async def _warm_up_and_seed_presets(system: "HiveMemorySystem") -> None:
+    """预热推理模型，再完成初次部署的预设 Agent 写入：写入要计算嵌入，放在预热之后。
+
+    模型没有就绪时不写入：写入会再次触发模型加载，就绪检查就看不到“加载失败”，桌面端
+    无法提示用户。写入失败只记录日志、不留标记，下次启动重试；不影响服务。
+    """
+    await system.readiness_service.warmup_models()
+    if not await system.readiness_service.is_models_ready():
+        logger.warning("推理模型未就绪，跳过初次部署的预设 Agent 写入，下次启动重试")
+        return
+    try:
+        created = await system.seed_preset_agent_profiles(default_request_workspace())
+    except Exception:
+        logger.exception("初次部署写入预设 Agent 失败: reason=preset_agent_profiles_failed")
+        return
+    if created:
+        logger.info("初次部署写入预设 Agent: aliases=%s", ",".join(created))
 
 
 @asynccontextmanager
@@ -88,8 +112,8 @@ async def lifespan(app: FastAPI):
         ws_manager = init_websocket_log_broadcasting(system.config)
         app.state.ws_manager = ws_manager  # 存储到 app state
 
-        # 后台预热推理模型（不阻塞服务启动）
-        asyncio.create_task(system.readiness_service.warmup_models())
+        # 后台预热推理模型并完成初次部署的预设 Agent 写入（不阻塞服务启动）
+        asyncio.create_task(_warm_up_and_seed_presets(system))
 
         logger.info("HiveMemorySystem 就绪，服务启动完成")
         yield

@@ -23,3 +23,6 @@ class ModelReadinessService:
 
     async def is_models_ready(self) -> bool:
         return await self._bus.request(PatchouliLocalRoutes.RUNTIME_MODELS_READY)
+
+    async def failed_models(self) -> list[str]:
+        return await self._bus.request(PatchouliLocalRoutes.RUNTIME_MODELS_FAILED)

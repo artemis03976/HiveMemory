@@ -5,8 +5,11 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     ResolvedAgentProfile,
+    WorkspaceIdentity,
     require_identity_scope,
+    system_actor_for_workspace,
 )
+from hivememory.patchouli.application.preset_agent_profiles import PRESET_AGENT_PROFILES
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_management import AgentProfileCreation
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -44,6 +47,41 @@ class AgentProfileManagementService:
             alias=creation.alias,
             agent_config=creation.agent_config,
         )
+
+    async def seed_preset_agent_profiles(self, belong_to: WorkspaceIdentity) -> list[str]:
+        """向 Workspace 写入尚不存在的预设 Profile，返回写入的 alias；已存在的 alias 跳过。
+
+        只用于初次部署，以所属 Workspace 的 ``system`` 为发起者直接写入，不经过授权：
+        这时还没有任何调用方，写入的也只是随程序发布的预设内容。
+        """
+        actor = system_actor_for_workspace(belong_to)
+        page = await self._bus.request(
+            PatchouliLocalRoutes.MEMORY_LIST,
+            belong_to=belong_to,
+            from_actor=actor,
+            filters={"index.memory_type": "AGENT_PROFILE"},
+            limit=len(PRESET_AGENT_PROFILES) + 1000,
+            enforce_actor_visibility=False,
+        )
+        existing = {memory.index.alias for memory in page.memories}
+        created: list[str] = []
+        for preset in PRESET_AGENT_PROFILES:
+            if preset.alias in existing:
+                continue
+            await self._bus.request(
+                PatchouliLocalRoutes.MEMORY_CREATE,
+                belong_to,
+                from_actor=actor,
+                memory_type=MemoryType.AGENT_PROFILE,
+                title=preset.title,
+                summary=preset.summary,
+                content=preset.content,
+                tags=list(preset.tags),
+                alias=preset.alias,
+                agent_config=preset.agent_config,
+            )
+            created.append(preset.alias)
+        return created
 
     async def list_agent_profiles(
         self,

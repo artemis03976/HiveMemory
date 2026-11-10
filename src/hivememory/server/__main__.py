@@ -3,10 +3,14 @@
 import argparse
 import logging
 import os
+import shutil
 import sys
 import threading
+from pathlib import Path
 
 import uvicorn
+
+from hivememory.config.app import HiveMemoryConfig, load_app_config
 
 logger = logging.getLogger("hivememory.server")
 
@@ -67,6 +71,36 @@ def _shutdown_when_stdin_closes(server: uvicorn.Server) -> None:
     server.should_exit = True
 
 
+def _delete_memory_data(config: HiveMemoryConfig) -> list[Path]:
+    """删除后端拥有的记忆数据，返回实际删除的路径。
+
+    包括 Artifact、长期归档、关闭时保存的生成工作（含读不回的 rejected 文件）与预设
+    Agent 的写入标记；删除标记后，下次启动重新写入预设 Agent。由桌面端在关闭后端与
+    Qdrant 之后调用，记忆库的 Qdrant 存储由桌面端删除。配置、密钥、接入凭据、模型缓存与
+    日志保留。相对路径按工作目录（数据根）解析；只删这些路径，不删数据根本身，数据根
+    指向仓库 checkout 时仓库文件不受影响。
+    """
+    patchouli = config.patchouli
+    saved_work = Path(patchouli.shutdown.pending_work_file)
+    targets = [
+        Path(patchouli.artifacts.root_dir),
+        Path(patchouli.lifecycle.archiver.archive_dir),
+        saved_work,
+        *saved_work.parent.glob(f"{saved_work.stem}.rejected-*{saved_work.suffix}"),
+        Path(config.system.preset_agent_profiles_marker),
+    ]
+    deleted: list[Path] = []
+    for target in targets:
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists():
+            target.unlink()
+        else:
+            continue
+        deleted.append(target)
+    return deleted
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="hivememory-server")
     parser.add_argument(
@@ -74,8 +108,17 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="由桌面客户端启动：stdin 第一行是管理凭据，stdin 结束时正常关闭",
     )
+    parser.add_argument(
+        "--delete-memory-data",
+        action="store_true",
+        help="删除记忆数据后退出：Artifact、长期归档、保存的生成工作与预设 Agent 标记",
+    )
     args = parser.parse_args(argv)
 
+    if args.delete_memory_data:
+        for path in _delete_memory_data(load_app_config()):
+            print(f"已删除: {path}")
+        return
     _install_thread_exception_hook()
     if args.desktop:
         _run_desktop()

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from hivememory.config.app import HiveMemoryConfig
 from hivememory.server import __main__ as server_main
 from hivememory.server import app as app_module
 from hivememory.server.management_credential import is_desktop_mode
@@ -135,3 +136,37 @@ def test_desktop_mode_without_credential_exits_before_serving(monkeypatch, deskt
 
     assert desktop_server == []
     assert not is_desktop_mode(app_module.app)
+
+
+def test_delete_memory_data_removes_only_memory_paths(tmp_path):
+    """只删 Artifact、长期归档、保存的生成工作与预设 Agent 标记；配置、模型缓存与其他文件保留。"""
+    saved_work = tmp_path / ".hivememory" / "pending_generation.json"
+    config = HiveMemoryConfig(
+        system={"preset_agent_profiles_marker": str(tmp_path / ".hivememory" / "seeded")},
+        patchouli={
+            "artifacts": {"root_dir": str(tmp_path / ".hivememory" / "artifacts")},
+            "lifecycle": {"archiver": {"archive_dir": str(tmp_path / "data" / "archived")}},
+            "shutdown": {"pending_work_file": str(saved_work)},
+        },
+    )
+    memory_files = [
+        tmp_path / ".hivememory" / "artifacts" / "a" / "artifact.json",
+        tmp_path / "data" / "archived" / "atom.json",
+        saved_work,
+        tmp_path / ".hivememory" / "pending_generation.rejected-20261110T000000Z.json",
+        tmp_path / ".hivememory" / "seeded",
+    ]
+    kept_files = [
+        tmp_path / "configs" / "config.local.yaml",
+        tmp_path / "data" / "model_cache" / "model.onnx",
+        tmp_path / ".hivememory" / "logs" / "hivememory.log",
+        tmp_path / ".hivememory" / "dev.env",
+    ]
+    for path in memory_files + kept_files:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x", encoding="utf-8")
+
+    server_main._delete_memory_data(config)
+
+    assert [path for path in memory_files if path.exists()] == []
+    assert [path for path in kept_files if not path.exists()] == []

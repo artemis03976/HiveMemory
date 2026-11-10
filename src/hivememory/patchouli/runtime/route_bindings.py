@@ -24,6 +24,10 @@ def build_patchouli_route_bindings(
         """读取运行时模型就绪状态。"""
         return runtime.is_models_ready()
 
+    async def models_failed() -> list[str]:
+        """读取最近一次加载失败的推理模型名。"""
+        return runtime.failed_models()
+
     async def get_topic(topic_id: str, *, belong_to: WorkspaceIdentity) -> TopicData | None:
         """读取指定归属的话题。"""
         return runtime.retrieval_familiar.get_topic(topic_id, belong_to=belong_to)
@@ -106,6 +110,7 @@ def build_patchouli_route_bindings(
         RouteBinding.of(PatchouliLocalRoutes.RUNTIME_MODELS_WARMUP, runtime.warmup_models),
         RouteBinding.of(PatchouliLocalRoutes.RUNTIME_MODELS_PREFETCH, runtime.prefetch_models),
         RouteBinding.of(PatchouliLocalRoutes.RUNTIME_MODELS_READY, models_ready),
+        RouteBinding.of(PatchouliLocalRoutes.RUNTIME_MODELS_FAILED, models_failed),
         RouteBinding.of(PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH, runtime.check_storage_health),
         RouteBinding.of(
             PatchouliLocalRoutes.MEMORY_RECORD_HIT, runtime.lifecycle_familiar.record_hit

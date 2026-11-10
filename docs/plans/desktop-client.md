@@ -31,7 +31,7 @@ related_docs:
 
 # Electron 桌面客户端
 
-> **状态**：Active（2026-11-10 建立，同日开始实施）。owner 的决定见第 1.1 节；第 4 节中注明“候选”的做法已由 owner 按候选定下（2026-11-10，第 1.1 节第 11 条）。两版原型已在分支 `feat/desktop-prototype` 上（第 3 节），本计划在同一分支上把它们做成可发布的客户端。对应 [ROADMAP](../ROADMAP.md) 第 5.1 节。
+> **状态**：Active（2026-11-10 建立，同日实施，实施记录见第 10 节；手动验收与当前文档更新尚未进行）。owner 的决定见第 1.1 节；第 4 节中注明“候选”的做法已由 owner 按候选定下（2026-11-10，第 1.1 节第 11 条）。两版原型已在分支 `feat/desktop-prototype` 上（第 3 节），本计划在同一分支上把它们做成可发布的客户端。对应 [ROADMAP](../ROADMAP.md) 第 5.1 节。
 
 ## 1. 背景和问题
 
@@ -225,3 +225,49 @@ cd desktop && node --check src/main.js && npm run package
   - [ROADMAP](../ROADMAP.md) 第 4.2 节表格与第 5.1 节更新；
   - [身份与访问体系 Idea](../ideas/identity-and-access-model.md) 中 A-02、A-05 的状态同步；
   - [Plans 导航](./README.md)同步。
+
+## 10. 实施记录
+
+2026-11-10 在分支 `feat/desktop-prototype` 实施第 4 节，做法按候选设计落地。与计划不同，或计划没有写到的地方：
+
+- **模型加载失败的报告**：
+  - 就绪链路新增一对路由：Patchouli 本地路由 `runtime.models.failed` 与公开路由 `patchouli.public.models.failed`，列出最近一次加载失败的模型名。原有的“是否就绪”路由不变。
+  - `/health/ready` 未就绪时，有模型加载失败则状态为 `model_load_failed`，并带 `failed_models`，否则仍为 `warming_up`。
+  - 启动页收到失败后停在启动页，显示失败的模型名与日志目录，不再打开界面。
+- **预设 Agent 的写入方**：
+  - 预设定义移到 `patchouli/application/preset_agent_profiles.py`。
+  - Patchouli 新增公开路由 `patchouli.public.agent_profile.seed_presets`：以所属 Workspace 的 `system` 写入缺少的预设，不经授权。
+  - System 门面 `seed_preset_agent_profiles` 负责标记文件，标记路径是新增的配置项 `system.preset_agent_profiles_marker`。
+  - 写入由 server 的 lifespan 在模型预热之后发起，写进不带身份声明的请求所在的 Workspace：默认身份只能在 server 的身份解析中取得。
+  - 模型没有就绪时不写入，否则写入会再次触发模型加载，就绪检查看不到“加载失败”。
+- **删除记忆数据**：
+  - 后端新增一次性运行模式 `--delete-memory-data`。
+  - 删除范围除第 4.5 节列出的路径外，还包括读不回的 rejected 文件与预设 Agent 的标记。预设 Agent 存在记忆库中，删除后要随下次启动重新写入。
+  - 删除完成后应用自己重新启动，与更改数据目录相同。
+- **附着**：后端与 Qdrant 都由本应用启动时才能删除记忆数据；用 checkout 运行、附着到了已在运行的服务时，删除入口只给出说明。
+- **端口检查**：安装版检查 8769、6333 与 6334，6334 是 Qdrant 的 gRPC 端口。
+- **数据目录对话框**：第三个按钮由“退出”改为“取消”，在首次启动时表示退出，在更改数据目录时表示不改。
+- **删除的测试**：注入脚本的集成测试随脚本删除，“已存在的 alias 跳过”改由 Patchouli 的单元测试守护。
+
+实测（免安装目录版，独立的 userData 与新数据目录，2026-11-10）：
+
+- 开发用 Qdrant 占着 6333 时启动：约 1 秒报错退出，没有启动后端，也没有接入那个 Qdrant。
+- 端口空闲、带模型缓存的新数据目录：约 25 秒打开界面，窗口标题为“HiveMemory 0.7.3”，预设 Agent 在预热后写入；从主进程退出，4 秒内全部进程结束，后端 2.8 秒正常关闭。
+- 删除记忆数据：用安装版的 Python 运行删除模式，只删了 Artifact、长期归档与标记，配置、日志与模型缓存保留；重新启动后记忆为空，两个预设 Agent 重新写入。
+- 没有模型缓存且禁止下载时：约 14 秒启动页显示两个模型加载失败与日志目录，预设 Agent 的写入按设计跳过。
+
+验证：后端单元与集成测试（不含 `live_llm`、`e2e`、`slow`）3350 通过、1 跳过；`ruff check .`、`black --check .`、`mypy` 通过；`node --check` 通过。
+
+尚未完成：
+
+- **第 7 节中需要手动操作或会改动本机设置的验收**，由 owner 进行：
+  - 托盘菜单的两次确认对话框与删除流程；
+  - 登录 Windows 时启动（会写注册表）；
+  - 更改数据目录；
+  - 安装包的 SmartScreen 放行；
+  - 覆盖安装升级与配置残留键时的错误框；
+  - Windows 注销与关机；
+  - 四个 harness 的逐个验证。
+- **收尾时第 9 节之外还要更新的当前文档**：
+  - [System 配置](../system/configuration.md)、[认证与访问登记](../workspace/authentication.md)与[能力层](../workspace/capability.md)中关于注入脚本与 `hivememory:profile-injector` 的段落；
+  - 提到 `/health/ready` 的[应用服务](../system/application-services.md)、[安装与启动](../help/setup.md)与[故障排查](../help/troubleshooting.md)。

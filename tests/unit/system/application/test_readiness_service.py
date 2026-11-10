@@ -31,10 +31,20 @@ class TestSystemReadinessService:
         assert await service.is_models_ready() is True
         assert await service.readiness() == {"status": "ready", "models_ready": True}
 
-        # 未就绪分支：生产代码应映射为 warming_up
+        # 未就绪且没有模型加载失败：仍在加载
         handler.return_value = False
+        failed = AsyncMock(return_value=[])
+        bus.register(PatchouliRoutes.MODELS_FAILED, failed)
         assert await service.is_models_ready() is False
         assert await service.readiness() == {
             "status": "warming_up",
             "models_ready": False,
+        }
+
+        # 有模型加载失败：报告失败与模型名，桌面端据此提示重试而不是一直等待
+        failed.return_value = ["bge-m3"]
+        assert await service.readiness() == {
+            "status": "model_load_failed",
+            "models_ready": False,
+            "failed_models": ["bge-m3"],
         }

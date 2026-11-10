@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         ResolvedAgentProfile,
         TopicData,
         TopicSnapshot,
+        WorkspaceIdentity,
     )
     from hivememory.core.protocol.models import InteractionPayload, RetrievalRequest
     from hivememory.patchouli.contracts.interaction_submission import (
@@ -115,6 +116,11 @@ class PatchouliRoutes:
         identity_scope: IdentityScope, creation: AgentProfileCreation
     ) -> MemoryAtom:
         """以调用方提交的材料创建目标 Workspace 的 Agent Profile，返回持久化后的原子。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("patchouli.public.agent_profile.seed_presets")
+    async def AGENT_PROFILE_SEED_PRESETS(belong_to: WorkspaceIdentity) -> list[str]:
+        """初次部署时向 Workspace 写入尚不存在的预设 Profile，返回写入的 alias；以该 Workspace 的 system 直接写入，不经授权。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.agent_profile.list")
@@ -279,6 +285,11 @@ class PatchouliRoutes:
         """读取推理模型是否就绪：每个启用的模型至少成功加载过一次，且当前不处于加载失败状态；空闲卸载不改变就绪。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
+    @route("patchouli.public.models.failed")
+    async def MODELS_FAILED() -> list[str]:
+        """列出最近一次加载失败的推理模型名，供就绪检查区分“仍在加载”与“加载失败”；重新开始加载后不再列出。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
     ALL = (
         MEMORY_CREATE,
         MEMORY_LIST,
@@ -291,6 +302,7 @@ class PatchouliRoutes:
         MEMORY_TASK_CANCEL,
         AGENT_PROFILE_CREATE,
         AGENT_PROFILE_LIST,
+        AGENT_PROFILE_SEED_PRESETS,
         TOPIC_LIST_ACTIVE,
         TOPIC_GET_DATA,
         MEMORY_RETRIEVE,
@@ -310,6 +322,7 @@ class PatchouliRoutes:
         WARMUP_MODELS,
         PREFETCH_MODELS,
         MODELS_READY,
+        MODELS_FAILED,
     )
 
 

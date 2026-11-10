@@ -233,6 +233,12 @@ def resolve_request_identity_claims(
     )
 
 
+def default_request_workspace() -> WorkspaceIdentity:
+    """不带身份声明的请求所在的 Workspace；桌面窗口与浏览器的请求都不带声明。"""
+    selection = RequestIdentitySelection(user_id=None, workspace_id=None)
+    return resolve_request_identity_claims(selection).workspace
+
+
 # ---------------------------------------------------------------------------
 # 统一认证网关接入
 #

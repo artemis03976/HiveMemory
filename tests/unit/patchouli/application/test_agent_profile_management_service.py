@@ -17,10 +17,12 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    system_actor_for_workspace,
 )
 from hivememory.patchouli.application import AgentProfileManagementService
+from hivememory.patchouli.application.preset_agent_profiles import PRESET_AGENT_PROFILES
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.memory_management import AgentProfileCreation
+from hivememory.patchouli.contracts.memory_management import AgentProfileCreation, MemoryListPage
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -115,3 +117,31 @@ async def test_profile_read_without_scope_does_not_enter_resolver(bus):
         await service.get_agent_profile("custom_agent", identity_scope=None)
 
     bus.request.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_seed_presets_writes_missing_presets_as_workspace_system_and_skips_existing(bus):
+    """初次部署的预设只补上缺少的 alias，以该 Workspace 的 system 写入、类型固定为 Profile。"""
+    service = AgentProfileManagementService(bus=bus)
+    workspace = make_identity_scope(user_id="u1").workspace_identity
+    existing = _make_memory_atom()
+    existing.index.alias = PRESET_AGENT_PROFILES[0].alias
+    calls = []
+
+    async def request(route, *args, **kwargs):
+        calls.append((route, args, kwargs))
+        if route == PatchouliLocalRoutes.MEMORY_LIST:
+            return MemoryListPage(memories=(existing,), next_cursor=None, total=1)
+        return _make_memory_atom()
+
+    bus.request = AsyncMock(side_effect=request)
+
+    created = await service.seed_preset_agent_profiles(workspace)
+
+    assert created == [preset.alias for preset in PRESET_AGENT_PROFILES[1:]]
+    creates = [call for call in calls if call[0] == PatchouliLocalRoutes.MEMORY_CREATE]
+    assert [kwargs["alias"] for _, _, kwargs in creates] == created
+    for _, args, kwargs in creates:
+        assert args == (workspace,)
+        assert kwargs["from_actor"] == system_actor_for_workspace(workspace)
+        assert kwargs["memory_type"] == MemoryType.AGENT_PROFILE

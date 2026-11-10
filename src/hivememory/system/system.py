@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 from hivememory.components.events.bus import RuntimeEventBus
 from hivememory.components.events.publisher import Severity
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.files import write_atomically
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.assembler import (
     SystemAssembler,
     _RegistriesBundle,
@@ -18,6 +21,7 @@ from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 
 if TYPE_CHECKING:
+    from hivememory.core.models import WorkspaceIdentity
     from hivememory.gateway import GatewaySystem
     from hivememory.system.access import SystemActorAccessRegistry
     from hivememory.system.application.import_bus_service import ImportBusService
@@ -357,6 +361,21 @@ class HiveMemorySystem:
             "subsystems": subsystem_health,
             "models_ready": self._patchouli.runtime.is_models_ready(),
         }
+
+    async def seed_preset_agent_profiles(self, workspace: WorkspaceIdentity) -> list[str]:
+        """初次部署时向 Workspace 写入预设 Agent，只做一次，返回写入的 alias。
+
+        数据根中有标记文件时什么也不做；写入成功后留下标记，用户之后删掉预设 Agent
+        也不会在重启时写回。写入需要嵌入模型，调用方在模型预热之后调用。
+        """
+        marker = Path(self._config.system.preset_agent_profiles_marker)
+        if marker.exists():
+            return []
+        created: list[str] = await self._global_bus.request(
+            PatchouliRoutes.AGENT_PROFILE_SEED_PRESETS, workspace
+        )
+        write_atomically(marker, b"")
+        return created
 
     # ========== 应用服务入口 ==========
 

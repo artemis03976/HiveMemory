@@ -255,6 +255,9 @@ class SystemConfig(BaseModel):
     # server 自身作为调用来源经统一认证网关认证时使用的 principal 标识；
     # 必须与 configs/system_principals.yaml 中的接入登记一致。
     server_principal_id: str = Field(default="hivememory:http-server")
+    # 初次部署写入预设 Agent 之后留下的标记文件；存在时不再写入，用户删掉预设 Agent
+    # 后重启不会写回。相对路径按工作目录（数据根）解析。
+    preset_agent_profiles_marker: str = Field(default=".hivememory/preset_agent_profiles_seeded")
 
     model_config = ConfigDict(extra="forbid")
 
