@@ -78,12 +78,11 @@ def _build_service(*, runtime_events=None, config=None) -> tuple[AgentRuntime, A
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mode,has_teaching",
-    [("enabled", True), ("koakuma_disabled", False), ("teaching_disabled", False)],
+    [("enabled", True), ("teaching_disabled", False)],
 )
 async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode, has_teaching):
     """根帧直接采用清单文本与语言，动词取主线程的操作快照；工具开关只影响教学，不重渲染 Profile。"""
     config = HiveMemoryConfig()
-    config.alice.koakuma.enabled = mode != "koakuma_disabled"
     config.alice.koakuma.mtp_prompt.enabled = mode != "teaching_disabled"
     runtime, service = _build_service(config=config)
     runtime.run_frame = AsyncMock(

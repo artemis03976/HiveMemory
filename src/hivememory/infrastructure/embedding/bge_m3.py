@@ -20,9 +20,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_CUSTOM_BGE_M3_MODEL = "Xenova/bge-m3"
+# 存储层只支持 BGE-M3：集合的向量维度与写入的向量都由它决定，模型不可配置。
+BGE_M3_MODEL = "Xenova/bge-m3"
+BGE_M3_DIMENSION = 1024
 _CUSTOM_BGE_M3_FILE = "onnx/model_int8.onnx"
-_CUSTOM_BGE_M3_DIM = 1024
 # 存储写入的 dense 文本由标题（≤200 字符）、类型、标签与摘要（≤500 字符）组成，1024 token
 # 足以容纳；按模型自身的 8192 token 截断时，一条长输入的激活内存会瞬时升到数 GB。
 _MAX_INPUT_TOKENS = 1024
@@ -49,11 +50,11 @@ class BGEM3EmbeddingService(SingletonModelService["TextEmbedding"], BaseEmbeddin
         logger.info("正在加载 FastEmbed BGE-M3 模型: %s", self.model_name)
         try:
             TextEmbedding.add_custom_model(
-                model=_CUSTOM_BGE_M3_MODEL,
+                model=BGE_M3_MODEL,
                 pooling=PoolingType.CLS,
                 normalization=True,
-                sources=ModelSource(hf=_CUSTOM_BGE_M3_MODEL),
-                dim=_CUSTOM_BGE_M3_DIM,
+                sources=ModelSource(hf=BGE_M3_MODEL),
+                dim=BGE_M3_DIMENSION,
                 model_file=_CUSTOM_BGE_M3_FILE,
             )
         except ValueError:
@@ -151,10 +152,6 @@ def get_bge_m3_service(config: Optional["EmbeddingConfig"] = None) -> BGEM3Embed
                 # 配置由调用方（存储层装配）显式提供；基础设施层不读取全局配置。
                 if config is None:
                     raise ValueError("config is required for get_bge_m3_service")
-                if "bge-m3" not in config.model_name.lower():
-                    logger.info("Embedding 配置的模型不是 BGE-M3，存储层改用 Xenova/bge-m3")
-                    config = config.model_copy(update={"model_name": _CUSTOM_BGE_M3_MODEL})
-
-                _bge_m3_instance = BGEM3EmbeddingService(config=config)
+                _bge_m3_instance = BGEM3EmbeddingService(BGE_M3_MODEL, config)
 
     return _bge_m3_instance

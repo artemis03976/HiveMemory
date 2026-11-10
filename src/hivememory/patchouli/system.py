@@ -179,10 +179,8 @@ class PatchouliSystem(SubsystemProtocol):
 
     _MAINTENANCE_OWNER = "patchouli"
 
-    def register_maintenance_tasks(self, scheduler: AsyncMaintenanceScheduler) -> bool:
-        """向全局维护器注册 Patchouli 子系统的维护任务。"""
-        if not self._scheduler_config.enabled:
-            return False
+    def register_maintenance_tasks(self, scheduler: AsyncMaintenanceScheduler) -> None:
+        """向全局维护器注册 Patchouli 子系统的维护任务，各任务按自己的开关启停。"""
         tasks_config = self._scheduler_config.tasks
         scheduler.register(
             MaintenanceTaskSpec(
@@ -211,7 +209,6 @@ class PatchouliSystem(SubsystemProtocol):
             ),
             self.runtime.unload_idle_models,
         )
-        return True
 
     def unregister_maintenance_tasks(self, scheduler: AsyncMaintenanceScheduler) -> int:
         """从全局维护器卸载 Patchouli 子系统的维护任务。"""
@@ -228,7 +225,8 @@ class PatchouliSystem(SubsystemProtocol):
         await self.runtime.start_memory_generation_queue()
 
         if self._scheduler and not self._maintenance_registered:
-            self._maintenance_registered = self.register_maintenance_tasks(self._scheduler)
+            self.register_maintenance_tasks(self._scheduler)
+            self._maintenance_registered = True
 
     async def stop(self) -> None:
         if self._scheduler and self._maintenance_registered:

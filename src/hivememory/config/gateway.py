@@ -15,11 +15,10 @@ class SystemCommandConfig(BaseModel):
     """
     System Gateway 系统指令配置。
 
-    builtin 使用 command_id -> enabled 的简单覆盖表；它仍决定哪些命令能被
+    builtin 使用 command_id -> enabled 的简单覆盖表；它决定哪些命令能被
     入口拦截识别。命令只解析不执行，这里没有执行相关的配置。
     """
 
-    enabled: bool = Field(default=True)
     builtin: dict[str, bool] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="forbid")

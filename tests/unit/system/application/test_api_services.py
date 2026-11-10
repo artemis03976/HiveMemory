@@ -23,7 +23,6 @@ def system_config():
     scheduler = MagicMock()
     scheduler.tick_seconds = 0.01
     scheduler.shutdown_wait_seconds = 0.1
-    scheduler.enabled = False
 
     config = MagicMock()
     config.scheduler = scheduler

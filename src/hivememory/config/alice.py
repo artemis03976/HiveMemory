@@ -10,7 +10,6 @@ class MTPPromptConfig(BaseModel):
 
 
 class KoakumaConfig(BaseModel):
-    enabled: bool = Field(default=True)
     python_repl_timeout_seconds: int = Field(default=10)
     workspace_path: str = Field(default="./workspace")
     file_read_max_bytes: int = Field(default=102400)

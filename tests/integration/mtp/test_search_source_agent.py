@@ -63,7 +63,6 @@ async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermM
     qdrant = QdrantMemoryStore.__new__(QdrantMemoryStore)
     qdrant.client = AsyncQdrantClient(location=":memory:")
     qdrant.collection_name = "mtp_search_source_agent"
-    qdrant.vector_dimension = 2
     qdrant.embedding_service = _DeterministicEmbedding()
     try:
         await qdrant.client.create_collection(

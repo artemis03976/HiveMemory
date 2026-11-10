@@ -75,7 +75,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
         )
     )
     config = HiveMemoryConfig()
-    config.alice.koakuma.enabled = False
+    config.alice.koakuma.mtp_prompt.enabled = False
     config.alice.runtime.safety_margin = 100
     llm = ScriptedLLMService("完成")
     _, service = build_run_service(config=config, model_registry=registry, llm_service=llm)
@@ -533,7 +533,7 @@ def _compaction_inputs(*, compressible=True):
     from hivememory.core.models import TurnEvent
 
     config = HiveMemoryConfig()
-    config.alice.koakuma.enabled = False
+    config.alice.koakuma.mtp_prompt.enabled = False
     config.alice.runtime.default_context_window = 33768
     config.alice.runtime.safety_margin = 0
     config.alice.compaction = CompactionConfig(summary_max_tokens=64)

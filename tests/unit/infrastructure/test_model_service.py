@@ -58,12 +58,8 @@ async def make_service():
         loader: Callable[[], _FakeModel] = _FakeModel,
     ) -> tuple[_FakeModelService, _FakeClock]:
         clock = _FakeClock()
-        config = EmbeddingConfig(
-            model_name=f"test/model-{next(_model_names)}",
-            residency=residency,
-            idle_timeout_seconds=_IDLE_TIMEOUT_SECONDS,
-        )
-        service = _FakeModelService(config, clock=clock)
+        config = EmbeddingConfig(residency=residency, idle_timeout_seconds=_IDLE_TIMEOUT_SECONDS)
+        service = _FakeModelService(f"test/model-{next(_model_names)}", config, clock=clock)
         service.loader = loader
         service.load_threads = []
         services.append(service)

@@ -6,8 +6,6 @@
 
 # ========== 系统配置 ==========
 system:
-  name: "HiveMemory"
-  debug: true
   # server 自身经统一认证网关认证时使用的 principal 标识；
   # 必须与 configs/system_principals.yaml 中的接入登记一致。
   server_principal_id: "hivememory:http-server"
@@ -40,8 +38,8 @@ runtime_events:
 # ========== 跨子系统共享配置 ==========
 shared:
   embedding:
+    # 存储层的嵌入模型固定为 BGE-M3（Xenova/bge-m3），集合的向量维度随之固定为 1024
     default:
-      model_name: "Xenova/bge-m3"
       cache_dir: "data/model_cache"
       # resident：加载后一直驻留；idle_unload：空闲超过 idle_timeout_seconds 秒后卸载，下次使用时重新加载
       residency: "idle_unload"
@@ -95,7 +93,6 @@ patchouli:
     startup_timeout_seconds: 30
     api_key: null  # 通过环境变量 HIVEMEMORY__PATCHOULI__STORAGE__API_KEY 设置
     collection_name: "hivememory_main"
-    vector_dimension: 1024
     distance_metric: "Cosine"
     on_disk_payload: false
 
@@ -209,7 +206,6 @@ workspace:
 # ========== Alice 子系统配置 ==========
 alice:
   koakuma:
-    enabled: true
     workspace_path: "./workspace"
     mtp_prompt:
       enabled: true

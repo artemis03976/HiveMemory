@@ -6,14 +6,19 @@ HiveMemory Embedding 模块
 
 from hivememory.config.shared import EmbeddingConfig
 from hivememory.infrastructure.embedding.base import BaseEmbeddingService
-from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService, get_bge_m3_service
+from hivememory.infrastructure.embedding.bge_m3 import (
+    BGE_M3_DIMENSION,
+    BGE_M3_MODEL,
+    BGEM3EmbeddingService,
+    get_bge_m3_service,
+)
 
 
 def get_embedding_service(config: EmbeddingConfig) -> BaseEmbeddingService:
     """
     通用 Embedding 服务工厂函数（配置由调用方显式提供）
     """
-    return BGEM3EmbeddingService(config=config)
+    return BGEM3EmbeddingService(BGE_M3_MODEL, config)
 
 
 def get_default_embedding_service(config: EmbeddingConfig) -> BaseEmbeddingService:
@@ -32,6 +37,8 @@ def get_perception_embedding_service(config: EmbeddingConfig) -> BaseEmbeddingSe
 
 __all__ = [
     "BaseEmbeddingService",
+    "BGE_M3_DIMENSION",
+    "BGE_M3_MODEL",
     "BGEM3EmbeddingService",
     "get_bge_m3_service",
     "get_embedding_service",

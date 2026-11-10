@@ -363,7 +363,6 @@ class QdrantMemoryStoreStub:
         qdrant = QdrantMemoryStore.__new__(QdrantMemoryStore)
         qdrant.client = AsyncQdrantClient(location=":memory:")
         qdrant.collection_name = "workspace_access_boundary"
-        qdrant.vector_dimension = 2
         qdrant.embedding_service = _DeterministicEmbedding()
         await qdrant.client.create_collection(
             collection_name=qdrant.collection_name,

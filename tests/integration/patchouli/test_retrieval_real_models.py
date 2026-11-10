@@ -98,7 +98,8 @@ async def mid_term():
 @pytest.fixture(scope="module")
 def reranker():
     return create_reranker(
-        _RETRIEVAL.reranker, FastEmbedRerankerService(config=_RETRIEVAL.reranker)
+        _RETRIEVAL.reranker,
+        FastEmbedRerankerService(_RETRIEVAL.reranker.model_name, _RETRIEVAL.reranker),
     )
 
 

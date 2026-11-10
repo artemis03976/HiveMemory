@@ -32,7 +32,7 @@ from hivememory.core.errors import (
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 from hivememory.engines.retrieval.memory_codec import MemoryDecodeError, decode_memory_payload
-from hivememory.infrastructure.embedding import get_bge_m3_service
+from hivememory.infrastructure.embedding import BGE_M3_DIMENSION, get_bge_m3_service
 from hivememory.infrastructure.storage._errors import storage_operation
 from hivememory.infrastructure.storage.qdrant_client import (
     create_async_qdrant_client,
@@ -83,7 +83,6 @@ class QdrantMemoryStore:
         self.embedding_service = get_bge_m3_service(config=self.embedding_config)
 
         self.collection_name = self.qdrant_config.collection_name
-        self.vector_dimension = self.qdrant_config.vector_dimension
 
     async def ensure_ready(self) -> None:
         await wait_for_qdrant_ready(
@@ -109,7 +108,7 @@ class QdrantMemoryStore:
 
         vectors_config = {
             "dense_text": VectorParams(
-                size=self.vector_dimension,
+                size=BGE_M3_DIMENSION,
                 distance=getattr(Distance, self.qdrant_config.distance_metric.upper()),
             ),
         }

@@ -55,9 +55,9 @@ class SingletonModelService[M](ABC):
     _instances: ClassVar[dict[tuple[type, str], "SingletonModelService[Any]"]] = {}
     _instances_lock = threading.Lock()
 
-    def __new__(cls, config, *args, **kwargs):
-        """按服务类与配置的 model_name 获取或创建实例。"""
-        key = (cls, config.model_name)
+    def __new__(cls, model_name, config, *args, **kwargs):
+        """按服务类与模型名获取或创建实例。"""
+        key = (cls, model_name)
         if key not in cls._instances:
             with cls._instances_lock:
                 if key not in cls._instances:
@@ -68,6 +68,7 @@ class SingletonModelService[M](ABC):
 
     def __init__(
         self,
+        model_name: str,
         config: "EmbeddingConfig | RerankerConfig",
         *,
         clock: Callable[[], float] | None = None,
@@ -76,14 +77,15 @@ class SingletonModelService[M](ABC):
         初始化服务配置与驻留状态；同一实例再次构造时沿用首次的配置。
 
         Args:
-            config: 嵌入或重排模型配置，提供模型名、缓存目录、驻留方式与空闲时限
+            model_name: 加载的模型名，同一服务类按它区分实例
+            config: 嵌入或重排模型配置，提供缓存目录、驻留方式与空闲时限
             clock: 判定空闲时长的时钟；默认单调时钟，不受系统墙钟回拨影响
         """
         if getattr(self, "_initialized", False):
             return
 
         self.config = config
-        self.model_name = config.model_name
+        self.model_name = model_name
         self.cache_dir = config.cache_dir
         self._clock = clock or time.monotonic
         # 加载、推理与卸载都在这个线程中逐个执行，不占用事件循环。

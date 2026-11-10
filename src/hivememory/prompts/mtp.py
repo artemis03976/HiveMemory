@@ -213,12 +213,12 @@ def render_mtp_teaching(
     language: str,
     permitted_verbs: Iterable[str],
 ) -> str:
-    """按 Koakuma 配置与帧的动词集合生成教学；Koakuma 或教学开关关闭时不教学。
+    """按 Koakuma 配置与帧的动词集合生成教学；教学开关关闭时不教学。
 
     根帧与 CALL 子帧共用这一规则，各自只传入自己的语言与动词集合。
     """
     prompt_config = config.mtp_prompt
-    if not (config.enabled and prompt_config.enabled):
+    if not prompt_config.enabled:
         return ""
     return MTPPromptBuilder(
         language=language,

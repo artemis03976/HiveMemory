@@ -17,7 +17,6 @@ class QdrantConfig(BaseModel):
     startup_timeout_seconds: int = Field(default=30)
     api_key: str | None = Field(default=None)
     collection_name: str = Field(default="hivememory_main")
-    vector_dimension: int = Field(default=1024)
     distance_metric: str = Field(default="Cosine")
     on_disk_payload: bool = Field(default=False)
 

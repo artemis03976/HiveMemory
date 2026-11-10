@@ -48,7 +48,6 @@ LEGACY_ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "QDRANT__STARTUP_TIMEOUT_SECONDS": ("patchouli", "storage", "startup_timeout_seconds"),
     "QDRANT__API_KEY": ("patchouli", "storage", "api_key"),
     "QDRANT__COLLECTION_NAME": ("patchouli", "storage", "collection_name"),
-    "QDRANT__VECTOR_DIMENSION": ("patchouli", "storage", "vector_dimension"),
     "QDRANT__DISTANCE_METRIC": ("patchouli", "storage", "distance_metric"),
     "QDRANT__ON_DISK_PAYLOAD": ("patchouli", "storage", "on_disk_payload"),
 }
@@ -222,8 +221,6 @@ class _LoaderSettingsSource(PydanticBaseSettingsSource):
 
 
 class SystemConfig(BaseModel):
-    name: str = Field(default="HiveMemory")
-    debug: bool = Field(default=False)
     # server 自身作为调用来源经统一认证网关认证时使用的 principal 标识；
     # 必须与 configs/system_principals.yaml 中的接入登记一致。
     server_principal_id: str = Field(default="hivememory:http-server")

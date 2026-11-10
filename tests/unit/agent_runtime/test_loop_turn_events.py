@@ -28,7 +28,7 @@ from hivememory.alice.orchestration.call import CallContextProvider, CallCoordin
 from hivememory.alice.orchestration.executor import RunExecutor
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.orchestration.session import RunSession
-from hivememory.config.alice import AgentRuntimeConfig, KoakumaConfig
+from hivememory.config.alice import AgentRuntimeConfig, KoakumaConfig, MTPPromptConfig
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
@@ -501,7 +501,7 @@ async def test_call_backfill_completes_the_suspended_call_with_child_outcome():
         agent_runtime,
         CallContextProvider(),
         frame_factory=frame_factory,
-        koakuma_config=KoakumaConfig(enabled=False),
+        koakuma_config=KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
     )
     frame = _make_frame()
     frame.submit_operation = StubOperationSubmitter(derive=submit_operation)
