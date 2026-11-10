@@ -223,6 +223,8 @@ class PatchouliSystem(SubsystemProtocol):
         self._bridge.mount()
         await self._interaction_submission_queue.start()
         await self.runtime.start_memory_generation_queue()
+        # 上次关闭时保存的生成工作只入队、在后台执行，不拖慢启动。
+        await self.runtime.restore_saved_generation()
 
         if self._scheduler and not self._maintenance_registered:
             self.register_maintenance_tasks(self._scheduler)
@@ -237,6 +239,7 @@ class PatchouliSystem(SubsystemProtocol):
         # perception flush，避免 handler 晚于 shutdown settlement 写入。任务进程
         # 的提交由进程持有，系统关闭时进程服务先于 Patchouli 停止，等待已经在
         # 那里完成。折叠先行关闭：排空时不再等待摘要模型，结算会带走话题的完整 blocks。
+        # 结算产生的生成任务不在关闭时执行，与排队中的工作一起保存，下次启动后继续。
         self._interaction_submission_queue.close_compactions()
         await self._interaction_submission_queue.drain_all(timeout=None)
         await self._interaction_submission_queue.stop()

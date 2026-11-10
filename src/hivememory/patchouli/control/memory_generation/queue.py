@@ -21,6 +21,7 @@ from hivememory.components.work_queue import (
     WorkQueueRuntime,
     WorkQueueShutdownSummary,
     adapt_queue_task,
+    encode_canonical_json,
 )
 from hivememory.core.errors import (
     DomainError,
@@ -48,8 +49,9 @@ from hivememory.patchouli.control.memory_generation.models import (
 logger = logging.getLogger(__name__)
 
 MemoryGenerationResults = tuple[MemoryGenerationResult, ...]
+# 第二个参数在数据面开始写入记忆之前调用。
 ExecuteGeneration = Callable[
-    [MemoryGenerationTaskSpec],
+    [MemoryGenerationTaskSpec, Callable[[], None]],
     Awaitable[list[MemoryGenerationResult]],
 ]
 
@@ -306,11 +308,21 @@ class MemoryGenerationHandle(TaskHandle[MemoryGenerationResults]):
     ) -> None:
         super().__init__(work_id=work_id, queue=queue)
         self._payload_bytes = payload_bytes
+        self._commit_started = False
 
     def matches_payload(self, payload_bytes: bytes) -> bool:
         """判断重复 work identity 是否仍指向同一不可变 payload。"""
 
         return self._payload_bytes == payload_bytes
+
+    @property
+    def commit_started(self) -> bool:
+        """数据面是否已开始写入记忆；开始之后取消不会中途打断写入。"""
+
+        return self._commit_started
+
+    def _record_commit_started(self) -> None:
+        self._commit_started = True
 
 
 def memory_generation_failure_reason(error: Exception) -> str:
@@ -356,7 +368,7 @@ class MemoryGenerationHandler(WorkHandlerPort[_MemoryGenerationWork, str]):
 
         handle = self._handles[context.work_id]
         handle._record_execution_started()
-        results = await self._execute_generation(work.spec)
+        results = await self._execute_generation(work.spec, handle._record_commit_started)
         if not isinstance(results, list) or not all(
             isinstance(result, MemoryGenerationResult) for result in results
         ):
@@ -461,10 +473,43 @@ class MemoryGenerationQueue:
             if not self._runtime.started:
                 await self._runtime.start()
 
+    async def stop_dispatch(self) -> None:
+        """停止取新工作；已在执行的工作照常结束，入队照常接受。"""
+
+        await self._runtime.stop_dispatch()
+
     async def stop(self) -> WorkQueueShutdownSummary:
         """停止底层运行时并返回尚未完成的工作摘要。"""
 
         return await self._runtime.stop()
+
+    def encode_for_restart(self, task_id: str, spec: MemoryGenerationTaskSpec) -> dict[str, object]:
+        """把一项未执行的工作编码为保存文件中的一项，载荷与入队时的工作信封相同。"""
+
+        return {
+            "kind": self._adapter.kind,
+            "schema_version": self._adapter.schema_version,
+            "payload": self._adapter.encode(_MemoryGenerationWork(task_id=task_id, spec=spec)),
+        }
+
+    def decode_for_restart(self, item: object) -> MemoryGenerationTaskSpec:
+        """解码保存文件中的一项；``kind`` 或版本不认识、载荷不规范时抛错。"""
+
+        if not isinstance(item, dict):
+            raise TypeError("saved memory generation work must be an object")
+        _require_exact_keys(
+            item,
+            expected={"kind", "schema_version", "payload"},
+            field_name="saved memory generation work",
+        )
+        kind = item["kind"]
+        schema_version = item["schema_version"]
+        if not isinstance(kind, str) or not isinstance(schema_version, int | str):
+            raise TypeError("saved memory generation work has an invalid kind or schema_version")
+        work = self._codecs.decode(kind, schema_version, encode_canonical_json(item["payload"]))
+        if not isinstance(work, _MemoryGenerationWork):
+            raise TypeError("saved work is not memory generation work")
+        return work.spec
 
     async def submit(
         self,

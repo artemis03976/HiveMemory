@@ -1,4 +1,5 @@
-from unittest.mock import AsyncMock, Mock, patch
+from pathlib import Path
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
@@ -12,30 +13,10 @@ from hivememory.memory_library.models import (
     StorageHealthReport,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.memory_generation.models import (
-    MemoryGenerationSource,
-    MemoryGenerationTask,
-    MemoryGenerationTaskStatus,
-)
+from hivememory.patchouli.control.memory_generation.saved_work import SavedWorkReport
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
-from tests.helpers.workspace import make_identity_scope
-
-
-def _memory_task(
-    task_id: str,
-    status: MemoryGenerationTaskStatus,
-) -> MemoryGenerationTask:
-    return MemoryGenerationTask(
-        task_id=task_id,
-        topic_id="topic-1",
-        label=task_id,
-        source=MemoryGenerationSource.WRITE,
-        status=status,
-        belong_to=make_identity_scope().workspace_identity,
-        from_actor=make_identity_scope().actor_identity,
-    )
 
 
 def _create_runtime():
@@ -55,7 +36,7 @@ def _create_runtime():
         patch.object(PatchouliRuntime, "_register_services"),
     ):
         patchouli_config = Mock()
-        patchouli_config.shutdown.generation_wait_timeout_seconds = 30.0
+        patchouli_config.shutdown.pending_work_file = "saved/pending_generation.json"
         runtime_events = RecordingRuntimeEventSink()
         runtime = PatchouliRuntime(
             patchouli_config=patchouli_config,
@@ -71,8 +52,8 @@ def _create_runtime():
             "lifecycle": Mock(),
         }
         runtime._task_controller = Mock()
-        runtime._task_controller.wait_all = AsyncMock(return_value=[])
-        runtime._task_controller.cancel_many = AsyncMock(return_value=0)
+        runtime._task_controller.stop_dispatch = AsyncMock()
+        runtime._task_controller.save_unfinished = AsyncMock(return_value=SavedWorkReport())
         runtime.storage = Mock()
         runtime.memory_library = Mock()
         runtime.memory_library.mid_term.upsert = Mock()
@@ -82,88 +63,53 @@ def _create_runtime():
 
 class TestRuntimeShutdownDrain:
     @pytest.mark.asyncio
-    async def test_shutdown_drain_flushes_perception_once(self):
+    async def test_shutdown_drain_stops_dispatch_before_settling_and_saves_unfinished(self):
         runtime = _create_runtime()
-        runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
+        steps = Mock()
+        stop_dispatch = AsyncMock()
+        flush = AsyncMock(
             return_value=TopicShutdownFlushReport(
                 settled_topic_ids=("t1", "t2"),
                 generation_skipped_topic_ids=("t2",),
                 resident_block_count=2,
             )
         )
+        save = AsyncMock(
+            return_value=SavedWorkReport(saved_by_source={"SETTLE": 1}, file_written=True)
+        )
+        steps.attach_mock(stop_dispatch, "stop_dispatch")
+        steps.attach_mock(flush, "flush")
+        steps.attach_mock(save, "save")
+        runtime._task_controller.stop_dispatch = stop_dispatch
+        runtime.perception_familiar.flush_all_for_shutdown = flush
+        runtime._task_controller.save_unfinished = save
 
         result = await runtime.shutdown_drain()
 
-        runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
-        runtime._task_controller.wait_all.assert_awaited_once_with(
-            timeout=30.0, include_merges=False
-        )
-        runtime._task_controller.cancel_many.assert_not_awaited()
+        # 停止取新工作先于结算：结算产生的任务只入队，与排队中的工作一起保存。
+        assert steps.mock_calls == [
+            call.stop_dispatch(),
+            call.flush(),
+            call.save(Path("saved/pending_generation.json")),
+        ]
         assert result["reentrant"] is False
-        assert result["perception"].settled_topic_ids == ("t1", "t2")
-        assert result["perception"].generation_skipped_topic_ids == ("t2",)
-        assert result["generation"]["timed_out"] == 0
-        assert result["generation_cancelled_after_timeout"] == 0
+        assert result["success"] is True
         events = runtime._test_runtime_events.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
             RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED,
         ]
-        assert events[0].status == "started"
         assert events[0].source == "patchouli.shutdown_drain"
-        assert events[0].subsystem == "patchouli"
-        assert events[0].component == "patchouli_runtime"
-        assert events[0].data["operation_key"] == "patchouli.shutdown_drain"
-        assert events[0].data["operation_name"] == "shutdown_drain"
         assert events[0].data["operation_kind"] == "shutdown"
         completed = events[-1]
         assert completed.status == "completed"
-        assert completed.data["operation_key"] == "patchouli.shutdown_drain"
-        assert completed.data["success"] is True
         assert completed.data["perception"] == {
             "settled_topic_count": 2,
             "generation_skipped_topic_count": 1,
             "resident_block_count": 2,
         }
-        assert completed.data["generation"]["timed_out"] == 0
-        assert isinstance(completed.data["duration_ms"], float)
-
-    @pytest.mark.asyncio
-    async def test_shutdown_drain_reports_generation_timeout(self):
-        runtime = _create_runtime()
-        runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
-            return_value=TopicShutdownFlushReport(
-                settled_topic_ids=("t1",),
-                resident_block_count=1,
-            )
-        )
-        runtime._task_controller.wait_all = AsyncMock(
-            return_value=[
-                _memory_task(
-                    "memory-task-timeout",
-                    MemoryGenerationTaskStatus.RUNNING,
-                )
-            ]
-        )
-        runtime._task_controller.cancel_many = AsyncMock(return_value=1)
-
-        result = await runtime.shutdown_drain()
-
-        runtime._task_controller.cancel_many.assert_awaited_once_with(
-            ["memory-task-timeout"],
-            reason="shutdown_timeout",
-        )
-        assert result["success"] is False
-        assert result["generation"]["timed_out"] == 1
-        assert result["generation_cancelled_after_timeout"] == 1
-        completed = runtime._test_runtime_events.events[-1]
-        assert completed.event_type == RuntimeEventType.SUBSYSTEM_OPERATION_COMPLETED
-        assert completed.status == "completed_with_timeout"
-        assert completed.severity == "warning"
-        assert completed.data["success"] is False
-        assert completed.data["generation"]["running"] == 1
-        assert completed.data["generation"]["timed_out"] == 1
-        assert completed.data["generation_cancelled_after_timeout"] == 1
+        assert completed.data["generation"]["saved"] == 1
+        assert completed.data["generation"]["file_written"] is True
 
     @pytest.mark.asyncio
     async def test_shutdown_drain_is_reentrant(self):
@@ -181,7 +127,7 @@ class TestRuntimeShutdownDrain:
         assert first["reentrant"] is False
         assert second["reentrant"] is True
         runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
-        runtime._task_controller.wait_all.assert_awaited_once()
+        runtime._task_controller.save_unfinished.assert_awaited_once()
         events = runtime._test_runtime_events.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SUBSYSTEM_OPERATION_STARTED,
@@ -192,7 +138,7 @@ class TestRuntimeShutdownDrain:
         assert events[-2].data["reentrant"] is True
         assert events[-1].data["reentrant"] is True
         assert events[-1].data["perception"]["settled_topic_count"] == 0
-        assert events[-1].data["generation"]["requested"] == 0
+        assert events[-1].data["generation"]["saved"] == 0
 
     @pytest.mark.asyncio
     async def test_shutdown_drain_failure_emits_failed_event(self):

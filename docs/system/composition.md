@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-10
 ---
 
 # System 组合根与生命周期
@@ -159,7 +159,7 @@ ActorAuthenticationGateway.close
   -> SYSTEM_STOPPED
 ```
 
-认证网关最先关闭：此后拒绝新的认证，新的请求、注册与导入都取不到工作 actor；已有进程持有注册时认证的工作 actor，照常收尾，子线程的准入不受网关关闭影响。工作 actor 不登记、不撤销，在途请求由随后各组件的关闭拒绝。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Import Bus 等待在途导入结束：认证网关已经关闭，新的导入以 503 拒绝，门外等待的导入以 `shutting_down` 拒绝，正在处理的导入继续到应用确认，因为 Patchouli 的提交队列要到 Patchouli 停止时才排空（[Import Bus](./import-bus.md#61-关闭)）。全部任务进程关闭后清空会话，再停止 Alice；任务进程的交互提交由进程持有，进程 task 结束时提交已经结束，Patchouli 不再为它们另行等待。Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序 drain interaction submission、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+认证网关最先关闭：此后拒绝新的认证，新的请求、注册与导入都取不到工作 actor；已有进程持有注册时认证的工作 actor，照常收尾，子线程的准入不受网关关闭影响。工作 actor 不登记、不撤销，在途请求由随后各组件的关闭拒绝。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Import Bus 等待在途导入结束：认证网关已经关闭，新的导入以 503 拒绝，门外等待的导入以 `shutting_down` 拒绝，正在处理的导入继续到应用确认，因为 Patchouli 的提交队列要到 Patchouli 停止时才排空（[Import Bus](./import-bus.md#61-关闭)）。全部任务进程关闭后清空会话，再停止 Alice；任务进程的交互提交由进程持有，进程 task 结束时提交已经结束，Patchouli 不再为它们另行等待。Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序排空 interaction submission、结算话题并把未执行的生成工作保存到磁盘（不等待模型调用，下次启动后继续，见[记忆生成](../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)）、停止 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会等待 Import Bus 的在途导入并发布 `already_stopped=true`。`system.stopped` 与 `system.stop_failed` 的 `import_bus_shutdown` 字段报告 Import Bus 开始关闭时的在途请求数（`waited_requests`）。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、失败步骤、scheduler 状态和 Import Bus 的等待结果后抛出异常。
 

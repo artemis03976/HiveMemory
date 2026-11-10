@@ -22,7 +22,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-10
 ---
 
 # Patchouli
@@ -190,7 +190,7 @@ Patchouli 向全局调度器注册三个维护任务：
 
 返回空列表的周期没有做事，调度器不为它发事件（[运行时机制](../components/runtime-and-bus.md#22-运行结果与事件)第 2.2 节）。
 
-调度器只拥有时钟、非重入与停止语义，Perception、Lifecycle 与模型服务仍拥有各自的业务规则。关闭时 Patchouli 先结算全部非空活跃话题，再等待当时仍运行的记忆任务；超过 `generation_wait_timeout_seconds` 的任务会被请求取消；生成 lane 停止后取消尚未结束的模型预取，并释放两个模型的推理线程（等待在途推理与已经开始的加载结束，后续使用会重新创建；模型保持当时的驻留状态），随后才卸载 bridge 与 local routes。
+调度器只拥有时钟、非重入与停止语义，Perception、Lifecycle 与模型服务仍拥有各自的业务规则。关闭时 Patchouli 先停止生成队列取新工作，再结算全部非空活跃话题，把队列中未执行的生成工作保存到磁盘，不等待模型调用：还没开始写入的在跑任务被取消、一并保存，已开始写入的写完再结束；下次启动时在生成队列启动之后读回、重新接纳（[记忆生成](./generation.md#62-提交阶段关闭时保存与启动时继续)）。生成 lane 停止后取消尚未结束的模型预取，并释放两个模型的推理线程（等待在途推理与已经开始的加载结束，后续使用会重新创建；模型保持当时的驻留状态），随后才卸载 bridge 与 local routes。
 
 ## 5. 当前设计文档
 
@@ -220,8 +220,8 @@ Patchouli 向全局调度器注册三个维护任务：
 
 ## 7. 当前限制与设计张力
 
-- 记忆生成任务和终态 registry 都是进程内状态，默认只保留最近 50 个终态任务；进程重启后不能恢复，也不是持久化 Job Queue；
-- 短期话题默认只在内存中，关闭依赖 shutdown drain 尽力结算；异常退出仍可能丢失未结算 blocks；
+- 记忆生成任务和终态 registry 都是进程内状态，默认只保留最近 50 个终态任务；正常关闭时未执行的工作保存到磁盘、下次启动后继续，崩溃或强制结束时丢失，旧任务 ID 重启后查不到，不是持久化 Job Queue；
+- 短期话题默认只在内存中，正常关闭时结算并随生成工作保存；异常退出仍会丢失未结算 blocks；
 - Interaction/Document Artifact 是可选来源旁路，失败不阻断内容提交；Memory Creation/Version Artifact 是内容提交的强制前置条件，但与 canonical 写入仍非原子事务，后续写入失败可能留下孤立历史记录；
 - 中期与长期存储的 archive/revive 是顺序 I/O，不具备跨存储事务；
 - Perception 的 token overflow 目前只形成摘要并折叠旧前缀，不生成长期记忆；

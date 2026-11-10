@@ -178,6 +178,10 @@ class _FailingPutStore(ArtifactStore):
         raise RuntimeError("版本存储写入失败（测试注入）")
 
 
+def _ignore_commit_start() -> None:
+    """数据面在开始写入前调用的登记；这些用例不关心它。"""
+
+
 def _atom(content: str, *, version: int = 1, workspace_id: str = "main_workspace") -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
@@ -253,7 +257,7 @@ async def test_update_snapshot_captures_versioned_atom_before_own_refs(tmp_path)
 
     outcome = _update_outcome(before, "v2 content")
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
-    await familiar.execute(_spec(identity_scope))
+    await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
 
     key = WorkspaceMemoryKey(
         workspace_identity=identity_scope.workspace_identity, memory_id=before.id
@@ -297,7 +301,7 @@ async def test_canonical_publish_failure_leaves_orphan_version_not_head(tmp_path
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
 
     with pytest.raises(RuntimeError, match="canonical 写入失败"):
-        await familiar.execute(_spec(identity_scope))
+        await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
 
     # 旧 canonical 仍有效：内容/版本未变，且没有新的 VERSIONED 事件。
     key = WorkspaceMemoryKey(
@@ -337,7 +341,7 @@ async def test_version_record_failure_aborts_before_canonical_publish(tmp_path):
     )
 
     with pytest.raises(RuntimeError, match="版本存储写入失败"):
-        await familiar.execute(_spec(identity_scope))
+        await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
 
     assert mid_term.upsert_calls == [], "版本记录失败后不得发布 canonical"
     assert failing_store.put_calls >= 1
@@ -357,7 +361,7 @@ async def test_cancelled_canonical_publish_propagates(tmp_path):
     familiar, _ = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
 
     with pytest.raises(asyncio.CancelledError):
-        await familiar.execute(_spec(identity_scope))
+        await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
 
 
 @pytest.mark.asyncio
@@ -370,7 +374,7 @@ async def test_history_immutable_after_post_commit_mutation(tmp_path):
 
     outcome = _update_outcome(before, "v2 content")
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
-    await familiar.execute(_spec(identity_scope))
+    await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
 
     key = WorkspaceMemoryKey(
         workspace_identity=identity_scope.workspace_identity, memory_id=before.id
@@ -409,7 +413,7 @@ async def test_noop_version_store_fails_content_creation(tmp_path):
         ArtifactEngine.noop(),
     )
     with pytest.raises(RuntimeError, match="版本存储未产生"):
-        await familiar.execute(_spec(identity_scope))
+        await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
 
     assert mid_term.upsert_calls == []
 
@@ -478,7 +482,8 @@ async def test_two_workspace_commits_do_not_cross_talk(tmp_path):
             source=MemoryGenerationSource.WRITE,
             request=GenerationRequest(context=GenerationContext()),
             interaction_input=None,
-        )
+        ),
+        on_commit_started=_ignore_commit_start,
     )
 
     updated = await mid_term.get(main_scope.workspace_identity, shared_id)
@@ -504,7 +509,7 @@ async def test_history_policy_snapshot_is_not_authorization_basis(tmp_path):
     # 提交时点策略为 PUBLIC（进入版本快照的历史事实）。
     outcome = _update_outcome(before, "v2 content")
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path))
-    await familiar.execute(_spec(owner_scope))
+    await familiar.execute(_spec(owner_scope), on_commit_started=_ignore_commit_start)
 
     canonical = await mid_term.get(owner_scope.workspace_identity, outcome.atom.id)
     # 提交后策略收紧为 PRIVATE：仅 a1 可读。

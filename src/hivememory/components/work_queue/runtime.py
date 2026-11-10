@@ -122,6 +122,13 @@ class WorkQueueRuntime:
             raise WorkQueueStoppedError("Work queue runtime cannot restart after stop")
         await self._supervisor.start()
 
+    async def stop_dispatch(self) -> None:
+        """停止取新工作但仍接受入队：已在执行的工作照常结束，入队的工作排队等待，
+        直到 ``stop`` 收尾。用于关闭前让调用方先把仍需接纳的工作放进队列、再决定如何处置。
+        """
+
+        await self._supervisor.stop_dispatch()
+
     async def stop(self) -> WorkQueueShutdownSummary:
         """停止接收和 claim，按 lane drain 后返回未完成工作摘要。"""
 

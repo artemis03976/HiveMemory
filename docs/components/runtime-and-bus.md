@@ -23,7 +23,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-10
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -220,6 +220,7 @@ Codec 编码失败在接纳前拒绝，解码失败在已接纳 work 的 attempt
 - per-key FIFO 中未 ready 的头部会阻止同 key 后续 work 越过，但不阻塞其他 key；
 - cancel 是否允许由 lane policy 与业务 handler 共同决定，Runtime 不强行回滚已发生副作用；
 - shutdown 先停止新接纳，再 drain 已接纳 work，最后按 policy 取消或保留明确终态；
+- `stop_dispatch()` 只停止取新工作：已在执行的 work 照常结束，入队照常接受，排队的 work 留在 store 中直到 `stop()`。业务方据此在关闭前先放入仍需接纳的 work，再自行处置排队的 work；Patchouli 的生成队列用它在关闭时保存未执行的工作（[记忆生成](../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续））；
 - System shutdown 必须在关闭 Patchouli perception、artifact/storage 与 RuntimeEvent 基础设施前完成相关 queue drain。
 
 ### 3.6 Workspace 与共享运行时

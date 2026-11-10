@@ -315,7 +315,7 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
     first_started = asyncio.Event()
     release = asyncio.Event()
 
-    async def execute(route, spec):
+    async def execute(route, spec, on_commit_started):
         if spec.label == "first":
             first_started.set()
             await release.wait()
@@ -358,7 +358,7 @@ async def test_queued_cancel_never_calls_generation_handler() -> None:
     release = asyncio.Event()
     called_labels: list[str] = []
 
-    async def execute(route, spec):
+    async def execute(route, spec, on_commit_started):
         called_labels.append(spec.label)
         if spec.label == "first":
             first_started.set()
@@ -391,7 +391,7 @@ async def test_running_cancel_interrupts_handler_and_projects_cancelled() -> Non
     started = asyncio.Event()
     released = asyncio.Event()
 
-    async def execute(route, spec):
+    async def execute(route, spec, on_commit_started):
         started.set()
         try:
             await asyncio.Event().wait()
@@ -484,7 +484,7 @@ async def test_non_retryable_failure_fails_once() -> None:
 
 @pytest.mark.asyncio
 async def test_timeout_fails_without_retry() -> None:
-    async def execute(route, spec):
+    async def execute(route, spec, on_commit_started):
         await asyncio.Event().wait()
 
     bus = Mock(

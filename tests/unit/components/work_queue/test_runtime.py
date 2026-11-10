@@ -761,6 +761,33 @@ async def test_shutdown_cancels_running_work_when_lane_policy_allows_it() -> Non
 
 
 @pytest.mark.asyncio
+async def test_stop_dispatch_keeps_admission_open_without_starting_new_work() -> None:
+    handler = _ControlledHandler()
+    runtime = _runtime(shutdown_wait_seconds=1)
+    runtime.register_lane(
+        "lane",
+        handler=handler,
+        policy=QueuePolicy(capacity=3, max_concurrency=2),
+    )
+    await runtime.enqueue(_item("running", lane="lane"))
+    await runtime.start()
+    assert await asyncio.wait_for(handler.started.get(), timeout=1) == "running"
+
+    await runtime.stop_dispatch()
+    await runtime.enqueue(_item("after", lane="lane"))
+    handler.release("running")
+    finished = await runtime.wait("running", timeout=1)
+
+    assert finished.state == WorkState.SUCCEEDED
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(handler.started.get(), timeout=0.1)
+    queued = await runtime.get("after")
+    assert queued is not None and queued.state == WorkState.QUEUED
+    summary = await runtime.stop()
+    assert summary.queued == 1
+
+
+@pytest.mark.asyncio
 async def test_work_events_emit_safe_identifiers_without_business_payload() -> None:
     sink = RecordingRuntimeEventSink()
     runtime = _runtime(runtime_events=RuntimeEventPublisher(sink))

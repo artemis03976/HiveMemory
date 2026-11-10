@@ -49,7 +49,7 @@ async def chain():
         await admit.wait()
         return None
 
-    async def execute(spec):
+    async def execute(spec, on_commit_started):
         specs.append(spec)
         generating.set()
         await finish.wait()

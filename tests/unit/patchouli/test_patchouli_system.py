@@ -11,6 +11,7 @@ async def test_start_ensures_storage_ready_before_mounting_routes():
     system.runtime = MagicMock()
     system.runtime.ensure_storage_ready = AsyncMock()
     system.runtime.start_memory_generation_queue = AsyncMock()
+    system.runtime.restore_saved_generation = AsyncMock()
     system.runtime.local_routes_registered = False
     system.runtime.mount_local_routes = MagicMock()
     system._service = MagicMock()
@@ -27,3 +28,4 @@ async def test_start_ensures_storage_ready_before_mounting_routes():
     system._bridge.mount.assert_called_once()
     system._interaction_submission_queue.start.assert_awaited_once()
     system.runtime.start_memory_generation_queue.assert_awaited_once()
+    system.runtime.restore_saved_generation.assert_awaited_once()

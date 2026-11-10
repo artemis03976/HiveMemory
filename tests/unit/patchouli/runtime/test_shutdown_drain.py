@@ -1,61 +1,40 @@
-from hivememory.patchouli.control.memory_generation.models import (
-    MemoryGenerationSource,
-    MemoryGenerationTask,
-    MemoryGenerationTaskStatus,
-)
+from hivememory.patchouli.control.memory_generation.saved_work import SavedWorkReport
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 from hivememory.patchouli.runtime.shutdown_drain import (
-    build_shutdown_generation_summary,
     shutdown_drain_completed_severity,
     shutdown_drain_completed_status,
     summarize_shutdown_drain_failure,
     summarize_shutdown_drain_perception,
     summarize_shutdown_drain_result,
 )
-from tests.helpers.workspace import make_identity_scope
 
 
-def test_summarize_shutdown_drain_result_uses_counts_only():
+def test_shutdown_drain_reports_saved_work_and_flags_unwritten_file_as_error():
     perception = TopicShutdownFlushReport(
         settled_topic_ids=("topic-a", "topic-b"),
         generation_skipped_topic_ids=("topic-b",),
         resident_block_count=3,
     )
-    generation = build_shutdown_generation_summary(
-        [
-            MemoryGenerationTask(
-                task_id="memory-task-timeout",
-                topic_id="topic-1",
-                label="timeout",
-                source=MemoryGenerationSource.WRITE,
-                status=MemoryGenerationTaskStatus.RUNNING,
-                belong_to=make_identity_scope().workspace_identity,
-                from_actor=make_identity_scope().actor_identity,
-            )
-        ]
+    saved = SavedWorkReport(
+        saved_by_source={"SETTLE": 1, "WRITE": 2}, waited_for_commit=1, file_written=False
     )
+    result = {"reentrant": False, "success": False, "perception": perception, "generation": saved}
 
-    summary = summarize_shutdown_drain_result(
-        {
-            "reentrant": False,
-            "success": False,
-            "observer_payloads_submitted": 0,
-            "perception": perception,
-            "generation": generation,
-            "generation_cancelled_after_timeout": 1,
-        }
-    )
+    summary = summarize_shutdown_drain_result(result)
 
     assert summary["perception"] == {
         "settled_topic_count": 2,
         "generation_skipped_topic_count": 1,
         "resident_block_count": 3,
     }
-    assert summary["generation"]["running"] == 1
-    assert summary["generation"]["timed_out"] == 1
-    assert summary["generation_cancelled_after_timeout"] == 1
-    assert shutdown_drain_completed_status({"generation": generation}) == ("completed_with_timeout")
-    assert shutdown_drain_completed_severity({"generation": generation}) == "warning"
+    assert summary["generation"] == {
+        "saved": 3,
+        "saved_by_source": {"SETTLE": 1, "WRITE": 2},
+        "waited_for_commit": 1,
+        "file_written": False,
+    }
+    assert shutdown_drain_completed_status(result) == "completed_without_saved_work"
+    assert shutdown_drain_completed_severity(result) == "error"
 
 
 def test_summarize_shutdown_drain_perception_accepts_reentrant_dict():

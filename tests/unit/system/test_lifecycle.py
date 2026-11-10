@@ -51,6 +51,7 @@ def _build_runtime_with_local_bus():
     runtime.storage = MagicMock()
     runtime.ensure_storage_ready = AsyncMock()
     runtime.start_memory_generation_queue = AsyncMock()
+    runtime.restore_saved_generation = AsyncMock()
     runtime.stop_memory_generation_queue = AsyncMock()
     runtime.stop_inference_workers = AsyncMock()
     runtime.mount_local_routes = PatchouliRuntime.mount_local_routes.__get__(
@@ -74,6 +75,7 @@ def mock_patchouli():
     runtime.local_routes_registered = False
     runtime.ensure_storage_ready = AsyncMock()
     runtime.start_memory_generation_queue = AsyncMock()
+    runtime.restore_saved_generation = AsyncMock()
     runtime.stop_memory_generation_queue = AsyncMock()
     runtime.stop_inference_workers = AsyncMock()
     runtime.mount_local_routes = MagicMock(

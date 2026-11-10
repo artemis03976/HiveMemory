@@ -6,9 +6,11 @@ import asyncio
 import dataclasses
 import logging
 import uuid
-from collections import OrderedDict
+from collections import Counter, OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -20,6 +22,7 @@ from hivememory.components.work_queue import (
     WorkErrorSnapshot,
     WorkPayloadEncodeError,
     WorkQueueCapacityError,
+    WorkQueueError,
     WorkQueueShutdownSummary,
     WorkQueueStoppedError,
     WorkState,
@@ -44,10 +47,21 @@ from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationQueue,
     MemoryGenerationResults,
 )
+from hivememory.patchouli.control.memory_generation.saved_work import (
+    RestoredWorkReport,
+    SavedWorkFileError,
+    SavedWorkReport,
+    take_saved_work,
+    write_rejected_work,
+    write_saved_work,
+)
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
 
 logger = logging.getLogger(__name__)
+
+# 关闭时保存到磁盘、下次启动后继续的任务，在本进程内以这个原因取消。
+SHUTDOWN_PERSISTED_REASON = "shutdown_persisted"
 
 
 class _MemoryGenerationIntentConflictError(ValueError):
@@ -271,6 +285,7 @@ class MemoryGenerationTaskController:
     async def _execute_generation(
         self,
         spec: MemoryGenerationTaskSpec,
+        on_commit_started: Callable[[], None],
     ) -> list[MemoryGenerationResult]:
         """由队列 handler 调用现有的记忆生成数据面。
 
@@ -278,22 +293,23 @@ class MemoryGenerationTaskController:
         本次结算到的记忆。在执行时而不是接纳时读取：同一话题先后派发的写入，前一条
         完成后，后一条执行时才能看到它。生成 lane 不按话题排序：结算开始时仍在执行的
         同话题写入不在记录中，它与被动草稿之间照旧按查重处理。话题结算之后不再接收
-        写入，SETTLE 取出后即清除这个话题的记录。
+        写入，SETTLE 成功后清除这个话题的记录；SETTLE 在关闭时被中止的，记录留给
+        保存文件中的这项结算。
         """
 
-        if spec.source == MemoryGenerationSource.SETTLE:
-            written = self._topic_write_memory_ids.pop(spec.topic_id, set())
-        elif spec.source == MemoryGenerationSource.WRITE:
-            written = self._topic_write_memory_ids.get(spec.topic_id, set())
+        if spec.source in {MemoryGenerationSource.SETTLE, MemoryGenerationSource.WRITE}:
+            written = set(self._topic_write_memory_ids.get(spec.topic_id, set()))
         else:
             written = set()
         if written:
-            request = spec.request.model_copy(update={"topic_write_memory_ids": frozenset(written)})
-            spec = dataclasses.replace(spec, request=request)
+            spec = _with_topic_writes(spec, written)
         results: list[MemoryGenerationResult] = await self._bus.request(
             PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
             spec,
+            on_commit_started=on_commit_started,
         )
+        if spec.source == MemoryGenerationSource.SETTLE:
+            self._topic_write_memory_ids.pop(spec.topic_id, None)
         self._record_topic_writes(spec.topic_id, results)
         return results
 
@@ -507,17 +523,13 @@ class MemoryGenerationTaskController:
     async def wait_all(
         self,
         timeout: float | None = None,
-        *,
-        include_merges: bool = True,
     ) -> list[MemoryGenerationTask]:
-        """等待调用时尚未终结的任务；关闭排空可排除不承载保存承诺的合并。"""
+        """等待调用时尚未终结的任务。"""
 
         task_ids = [
             task_id
             for task_id, entry in self._entries.items()
-            if entry.final_snapshot is None
-            and entry.finalizer is not None
-            and (include_merges or entry.spec.source != MemoryGenerationSource.MERGE)
+            if entry.final_snapshot is None and entry.finalizer is not None
         ]
         results = await self.wait_many(task_ids, timeout=timeout)
         # task_ids 来自当前 entry 集合，因此此处不会产生缺失项；过滤只用于
@@ -559,6 +571,133 @@ class MemoryGenerationTaskController:
         """逐项请求取消并返回运行时接纳的数量。"""
 
         return sum([await self.cancel_task(task_id, reason=reason) for task_id in task_ids])
+
+    # ========== 关闭时保存、启动时读回 ==========
+
+    async def stop_dispatch(self) -> None:
+        """停止取新工作；已在执行的任务照常继续，入队照常接受。"""
+
+        await self._queue.stop_dispatch()
+
+    async def save_unfinished(self, path: Path) -> SavedWorkReport:
+        """把还没执行的工作写进保存文件，供下次启动读回；在 ``stop_dispatch`` 之后调用。
+
+        在跑的任务中，还没开始写入记忆的立即取消，按未执行保存，下次从头执行；已经开始
+        写入的等它写完，结算与提名的合并照常完成，提名的合并入队后一并保存。保存的任务
+        随后以取消结束，原因为 ``shutdown_persisted``。
+        """
+        running: list[_MemoryTaskEntry] = []
+        for entry in list(self._entries.values()):
+            if await self._work_state(entry) == WorkState.RUNNING:
+                running.append(entry)
+        for entry in running:
+            if not self._handle(entry).commit_started:
+                await self.cancel_task(entry.task_id, reason=SHUTDOWN_PERSISTED_REASON)
+        # 等到结算与合并提名都完成：已在写入的任务提名的合并在这期间入队。
+        await self.wait_many([entry.task_id for entry in running])
+
+        # 取消与开始写入之间没有原子性：取消送达前已开始写入的任务会写完再结束，
+        # 因此以是否开始写入、而不是是否被取消，判断要不要重跑。
+        interrupted = {entry.task_id for entry in running if not self._handle(entry).commit_started}
+        to_save: list[_MemoryTaskEntry] = []
+        for entry in list(self._entries.values()):
+            if entry.task_id in interrupted or await self._work_state(entry) in {
+                WorkState.QUEUED,
+                WorkState.RETRY_WAIT,
+            }:
+                to_save.append(entry)
+
+        file_written = False
+        if to_save:
+            items = [
+                self._queue.encode_for_restart(entry.task_id, self._spec_to_save(entry.spec))
+                for entry in to_save
+            ]
+            try:
+                write_saved_work(path, items)
+                file_written = True
+            except OSError:
+                logger.error(
+                    "保存未执行的记忆生成工作失败: reason=saved_work_write_failed, "
+                    "path=%s, count=%d",
+                    path,
+                    len(items),
+                    exc_info=True,
+                )
+            queued_ids = [entry.task_id for entry in to_save if entry.task_id not in interrupted]
+            await self.cancel_many(queued_ids, reason=SHUTDOWN_PERSISTED_REASON)
+            await self.wait_many(queued_ids)
+
+        return SavedWorkReport(
+            saved_by_source=dict(Counter(entry.spec.source.value for entry in to_save)),
+            waited_for_commit=len(running) - len(interrupted),
+            file_written=file_written,
+        )
+
+    async def restore_saved(self, path: Path) -> RestoredWorkReport:
+        """读回保存文件并重新接纳其中的工作；在队列启动之后调用，不等待执行。
+
+        读不回或接纳被拒绝的项写进保存文件旁边的 rejected 文件，其余照常接纳。
+        """
+        try:
+            items = take_saved_work(path)
+        except SavedWorkFileError as error:
+            logger.error(
+                "读回保存的记忆生成工作失败: reason=saved_work_unreadable, rejected_file=%s",
+                error.rejected_path,
+                exc_info=True,
+            )
+            return RestoredWorkReport(rejected_file=str(error.rejected_path))
+        if items is None:
+            return RestoredWorkReport()
+
+        rejected: list[object] = []
+        for item in items:
+            try:
+                await self.submit_generation(self._queue.decode_for_restart(item))
+            except (TypeError, ValueError, WorkQueueError):
+                logger.warning(
+                    "保存的记忆生成工作无法重新接纳: reason=saved_work_item_rejected",
+                    exc_info=True,
+                )
+                rejected.append(item)
+        rejected_file = None
+        if rejected:
+            rejected_file = str(write_rejected_work(path, rejected))
+            logger.error(
+                "部分保存的记忆生成工作没有重新接纳: reason=saved_work_items_rejected, "
+                "rejected=%d, rejected_file=%s",
+                len(rejected),
+                rejected_file,
+            )
+        return RestoredWorkReport(
+            read=len(items),
+            resubmitted=len(items) - len(rejected),
+            rejected=len(rejected),
+            rejected_file=rejected_file,
+        )
+
+    def _spec_to_save(self, spec: MemoryGenerationTaskSpec) -> MemoryGenerationTaskSpec:
+        """结算任务带上本话题主动写入的记录：它只在内存中，执行时据此不改写这些记忆。"""
+
+        written = self._topic_write_memory_ids.get(spec.topic_id)
+        if spec.source != MemoryGenerationSource.SETTLE or not written:
+            return spec
+        return _with_topic_writes(spec, written)
+
+    @staticmethod
+    def _handle(entry: _MemoryTaskEntry) -> MemoryGenerationHandle:
+        if entry.handle is None:
+            raise RuntimeError("accepted memory work is missing its task handle")
+        return entry.handle
+
+    async def _work_state(self, entry: _MemoryTaskEntry) -> WorkState | None:
+        """任务在队列中的当前状态；领域终态已经确定的任务返回 ``None``。"""
+
+        if entry.final_snapshot is not None:
+            return None
+        outcome = await self._handle(entry).snapshot()
+        return outcome.record.state if outcome is not None else None
 
     def _retain_terminal_entries(self) -> None:
         """按队列保留策略淘汰最早的领域终态及进程内结果。"""
@@ -607,7 +746,9 @@ class MemoryGenerationTaskController:
         intent_id = entry.spec.intent_id
         if pending_alias is not None and intent_id is not None:
             if snapshot.status == MemoryGenerationTaskStatus.CANCELLED:
-                await self._pending_atom_settler.cancelled(pending_alias, intent_id)
+                # 关闭时保存的写入在下次启动后还会结算，不是被取消的写入。
+                if snapshot.cancel_reason != SHUTDOWN_PERSISTED_REASON:
+                    await self._pending_atom_settler.cancelled(pending_alias, intent_id)
             elif snapshot.status == MemoryGenerationTaskStatus.FAILED:
                 await self._pending_atom_settler.failed(pending_alias, intent_id)
 
@@ -647,4 +788,14 @@ class MemoryGenerationTaskController:
                 await self._pending_atom_settler.settled(result.settlement)
 
 
-__all__ = ["MemoryGenerationTaskController"]
+def _with_topic_writes(
+    spec: MemoryGenerationTaskSpec, written: set[str]
+) -> MemoryGenerationTaskSpec:
+    """把本话题主动写入结算到的记忆并入任务规范；读回的结算任务已带有关闭时的记录。"""
+
+    ids = spec.request.topic_write_memory_ids | frozenset(written)
+    request = spec.request.model_copy(update={"topic_write_memory_ids": ids})
+    return dataclasses.replace(spec, request=request)
+
+
+__all__ = ["SHUTDOWN_PERSISTED_REASON", "MemoryGenerationTaskController"]

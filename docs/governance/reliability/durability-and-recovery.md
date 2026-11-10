@@ -23,7 +23,7 @@ related_docs:
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
   - docs/components/observability.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-10
 ---
 
 # 运行时状态持久化与故障恢复治理
@@ -39,10 +39,10 @@ last_reviewed: 2026-10-19
 | `MemoryAtom` 与 Qdrant 索引 | MidTerm store/Qdrant | 与 Artifact 写入不是原子事务，失败可能留下未引用 Artifact 或缺少 provenance 的 atom | 事务边界、reconciliation 与幂等 upsert |
 | Artifact | filesystem adapter | 没有完整反向索引、orphan/ref 扫描和 compare-and-set；同一 id 的覆盖保护不足 | 版本化写入、引用一致性扫描、保留/删除策略 |
 | LongTerm archive/revive | file archive + MidTerm store | 跨存储搬运不是事务，失败可能形成重复副本或中间态 | 可重试 saga、状态记录和恢复检查 |
-| Active topic / `SemanticBuffer` | 进程内 ShortTerm store | 异常退出会丢失未结算 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
+| Active topic / `SemanticBuffer` | 进程内 ShortTerm store | 正常关闭时结算，生成工作写进保存文件；异常退出会丢失未结算 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
 | WorkspaceAsset / opaque ref | workspace 的进程内 `WorkspaceAssetStore`（组合根装配） | asset、representation、ref 与 lease 不跨重启保留；shutdown 时随 Store 清空 | 保持当前进程内 ephemeral 语义；仅在已有 Topic settlement 交接中由 ref 反查当前 Store，不为旧 ref 建立恢复承诺 |
 | Passive/Active interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失；有界 `_StoredSubmission` 旁路索引与 `WorkRecord` 重复保存 receipt/payload 定位信息 | SQLite WorkStore 成为唯一持久化状态真相；旁路索引仅可保留为可重建定位缓存，当前实现后置 |
-| Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影 | 重启后 work 与投影均无法查询或恢复，运行中 extractor 也不能任意 checkpoint | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
+| Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影；正常关闭时未执行的 work 写进保存文件（[记忆生成](../../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)） | 崩溃或强制结束时 work 丢失；投影与旧任务 ID 重启后查不到；运行中 extractor 不能 checkpoint，关闭时在提交之前被中止的任务从头重跑 | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |
 | PendingAtom / alias / intent | workspace 进程内 `WriteIntentRegistry`，唯一状态机 | 登记可跨任务进程读回，但没有 durable ledger、TTL、replay 或通知未送达补偿；终态句柄保留到重启 | 持久化 intent、状态、resolution 和 settlement cursor |
 | Agent frame / run | `ExecutionFrame` 与 Alice runtime 内存对象 | frame、迭代进度和消息事实不可恢复；请求迁移后不能继续执行 | 版本化 checkpoint 与明确 resume policy |
 | workspace Profile/atom cache（含 CALL 目标） | `WorkspaceReadView` 持有按 Workspace/UUID 与 alias 定位的 AtomCache、按 Workspace/alias 定位并在命中时重验当前 actor 的 ProfileCache | 已接 canonical 变更的内联失效与在途回填代次校验；通知无重试/replay，不跨重启保留 | 保持 ephemeral derived 语义；失效只删除派生项，冷读重建并重验归属与 actor policy，不把 cache 当事实 |
