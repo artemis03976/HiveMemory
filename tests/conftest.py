@@ -14,8 +14,13 @@ from unittest.mock import patch
 
 import pytest
 
+from hivememory.config import app as config_app
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.i18n import set_default_language
+from hivememory.system.model_registry import ModelRegistry
+
+# 本机的个人覆盖文件：与仓库中的 configs/config.yaml 同目录，不受版本控制。
+_PERSONAL_OVERRIDES = config_app.get_default_config_file_path().with_name("config.local.yaml")
 
 # ========== Pytest Fixtures ==========
 
@@ -26,6 +31,32 @@ def reset_i18n_default_language_between_tests():
     set_default_language("zh")
     yield
     set_default_language("zh")
+
+
+@pytest.fixture(autouse=True)
+def isolate_personal_config(monkeypatch, tmp_path_factory):
+    """测试不读写本机的个人配置，结果不随这台机器保存过的设置变化。
+
+    - 主配置的覆盖文件：未指定主配置路径时改到不存在的位置；以 HIVEMEMORY_CONFIG_PATH
+      指定了主配置的测试仍使用它旁边的覆盖文件。
+    - 默认路径的模型注册表：改到每个测试自己的临时目录，从随仓库发布的模板生成。
+    """
+    absent_overrides = tmp_path_factory.getbasetemp() / "no-personal-config" / "config.local.yaml"
+    resolve_overrides = config_app.get_local_config_file_path
+
+    def local_overrides_path():
+        path = resolve_overrides()
+        return absent_overrides if path == _PERSONAL_OVERRIDES else path
+
+    registry_dirs = []
+
+    def model_registry_path():
+        if not registry_dirs:
+            registry_dirs.append(tmp_path_factory.mktemp("models"))
+        return registry_dirs[0] / "models.yaml"
+
+    monkeypatch.setattr(config_app, "get_local_config_file_path", local_overrides_path)
+    monkeypatch.setattr(ModelRegistry, "_default_path", staticmethod(model_registry_path))
 
 
 @pytest.fixture

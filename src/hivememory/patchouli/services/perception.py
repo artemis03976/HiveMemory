@@ -77,7 +77,8 @@ class PerceptionFamiliar:
         self._store = store
         self._working_set = working_set
         self._bus = bus
-        self._idle_timeout_seconds = config.idle_timeout_seconds
+        # 空闲时限在每次扫描时读取，配置对象被原地改写后下一次扫描即按新值判断。
+        self._config = config
         self._events = (runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())).scoped(
             subsystem="patchouli", component="perception"
         )
@@ -353,7 +354,7 @@ class PerceptionFamiliar:
         """扫描并 settle 空闲超时话题；候选由 WorkingSet 提供。"""
         flushed: list[str] = []
         for belong_to, topic_id in self._working_set.list_idle_candidates(
-            self._idle_timeout_seconds
+            self._config.idle_timeout_seconds
         ):
             logger.debug("检测到空闲话题: topic_id=%s", topic_id)
             try:
