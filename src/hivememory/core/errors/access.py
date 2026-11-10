@@ -44,10 +44,30 @@ class OperationDeniedError(WorkspaceDomainError):
     code = "workspace.operation_denied"
 
 
+class AccessRegistrationNotFoundError(DomainError):
+    """运行时要修改或删除的接入登记或 Workspace 访问记录不存在。"""
+
+    code = "access.registration.not_found"
+
+
+class AccessRegistrationConflictError(DomainError):
+    """访问登记的运行时编辑被拒绝，登记与文件都保持原样。
+
+    ``reason`` 区分原因：``protected``（进程内来源与保留的 ``system`` 记录只能经
+    文件修改）、``duplicate``（登记键已存在）、``credential_from_env``（凭据来自
+    环境变量，不能轮换）、``file_modified``（登记文件在运行中被外部改动，需要
+    重启装载之后再编辑）。
+    """
+
+    code = "access.registration.conflict"
+
+
 __all__ = [
     "ScopeRequiredError",
     "ThreadEndedError",
     "WorkspaceMismatchError",
     "AdmissionDeniedError",
     "OperationDeniedError",
+    "AccessRegistrationNotFoundError",
+    "AccessRegistrationConflictError",
 ]

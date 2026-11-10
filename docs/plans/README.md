@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # Plans
@@ -14,7 +14,7 @@ last_reviewed: 2026-11-08
 
 版本内容已收尾（2026-11-04），规范版本调整为 0.7.3，发布标签 v0.7.3 在合并后创建；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.3-release-closeout-audit.md)。版本内的三份计划（话题内主动写入优先、生成任务失败带原因码、主动写入沿用 agent 的标题）与收尾审计登记在 [Archived Plans](../archive/plans/README.md#v073)。
 
-v0.7.3 之后的版本目标尚未确定，当前没有生效计划。
+v0.7.3 之后的版本目标尚未确定，当前没有绑定版本的计划。
 
 ## 已发布的版本
 
@@ -24,7 +24,7 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 当前没有生效计划；前端 UI 优化与其余空入口接线另写计划。身份与访问主线是版本之外的工作，后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
 
-Claude Code 唤醒后的续作导入、dsh 插件并入统一插件目录、pi 插件接入与 Codex 插件接入（2026-11-08）、全局运行页、Runtime Event 体系完善（2026-11-07）、交互提交收束与话题按需创建、WorkspaceAsset 的归属拆分、Import Bus 的授权移入能力层与统一身份授权入口（2026-11-06）、HTTP 管理面的管理凭据（2026-11-05）、此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，其余工作包以治理主题跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
+访问登记的运行时管理（2026-11-09）、Claude Code 唤醒后的续作导入、dsh 插件并入统一插件目录、pi 插件接入与 Codex 插件接入（2026-11-08）、全局运行页、Runtime Event 体系完善（2026-11-07）、交互提交收束与话题按需创建、WorkspaceAsset 的归属拆分、Import Bus 的授权移入能力层与统一身份授权入口（2026-11-06）、HTTP 管理面的管理凭据（2026-11-05）、此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，其余工作包以治理主题跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
 
 ## 准入规则
 

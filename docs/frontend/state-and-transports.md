@@ -71,7 +71,7 @@ Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store �
 
 Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送请求体。RuntimeEvent 是 GET 流，使用 EventSource。日志需要双向 ping/pong 和持续推送，使用 WebSocket。
 
-身份选择传输约定：Session、Memory、Memory task、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；后端不接受 Topic 等管理路由的 `?user_id=` query；Chat/stop 请求体不携带身份字段。管理请求（Session/Memory/Memory task/Agent/Topic）默认依赖统一请求头，不需要额外参数。
+身份选择传输约定：Session、Memory、Memory task、Agent、Topic、访问记录、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；后端不接受 Topic 等管理路由的 `?user_id=` query；Chat/stop 请求体不携带身份字段。管理请求（Session/Memory/Memory task/Agent/Topic/访问记录）默认依赖统一请求头，不需要额外参数。
 
 ### 3.1 HTTP 错误解析
 

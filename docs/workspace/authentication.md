@@ -6,15 +6,17 @@ scope: two-phase-authentication-access-registration-and-working-actor
 code_paths:
   - src/hivememory/workspace/authentication.py
   - src/hivememory/workspace/registry.py
+  - src/hivememory/workspace/capability/root/access.py
   - src/hivememory/core/access.py
   - src/hivememory/config/access.py
   - src/hivememory/system/access/
   - src/hivememory/server/deps.py
+  - src/hivememory/server/routers/access.py
   - src/hivememory/server/management_credential.py
   - src/hivememory/server/routers/import_bus.py
   - src/hivememory/mcp_server/
-  - configs/system_principals.yaml
-  - configs/workspace_actors.yaml
+  - configs/system_principals.example.yaml
+  - configs/workspace_actors.example.yaml
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/mcp.md
@@ -24,7 +26,7 @@ related_docs:
   - docs/system/configuration.md
   - docs/system/import-bus.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # 认证与访问登记
@@ -35,7 +37,7 @@ last_reviewed: 2026-11-08
 
 | 阶段 | 检查 | 负责者 |
 |:---|:---|:---|
-| 1 Principal 认证 | 调用来源已登记并启用、可经该 adapter 接入；登记了凭据的来源提供一致的凭据；可代表声明中的用户；声明保留的 `system` 时登记允许它这样做 | System：`core.access.PrincipalAuthenticator` 端口，由 `system/access/` 的 `SystemPrincipalAuthenticator` 实现 |
+| 1 Principal 认证 | 调用来源已登记并启用、可经该 adapter 接入；外部来源提供一致的凭据；可代表声明中的用户与 Agent；声明保留的 `system` 时登记允许它这样做 | System：`core.access.PrincipalAuthenticator` 端口，由 `system/access/` 的 `SystemPrincipalAuthenticator` 实现 |
 | 2 Workspace 认证 | actor 用户等于要进入的 Workspace 的 owner，准入记录存在且启用 | workspace：`WorkspaceAuthenticator` |
 
 两个阶段由唯一对外的认证入口 `ActorAuthenticationGateway.authenticate(adapter, principal, credential, actor, workspace)` 依次完成，通过后返回工作 actor（第 3 节）。调用认证的是入口与系统组件：server 与 MCP 入口、任务进程的注册入口与 Import Bus 服务；它们只面对认证网关，不直接持有 `WorkspaceAuthenticator`。第 1 阶段属于 System，是因为“哪个调用来源可以接入”是部署的配置，与任何 Workspace 无关；第 2 阶段属于 workspace，是因为“谁能进入哪个 Workspace”是 Workspace 的配置。workspace 以端口声明对第 1 阶段的需要，由组合根注入实现，因此不导入 System。
@@ -53,11 +55,13 @@ last_reviewed: 2026-11-08
 
 **接入凭据**：
 
-- 登记只写环境变量名（`credential_env`），凭据本身不进入仓库。组合根装配接入登记时按与其他配置相同的来源读取：进程环境变量优先，其次是 `.env` 文件；去掉首尾空白，凭据只存在于内存中的登记里，不进入日志与 `repr`。
-- 第 1 阶段在 adapter 检查之后以常量时间比较核对凭据：登记了 `credential_env` 的 principal 必须提供一致的凭据，否则以 `invalid_credential` 拒绝。环境变量为空时启动时记录一条警告，此后该 principal 的每次认证都被拒绝；HiveMemory 照常启动，不使用这个来源的部署不受影响。凭据错误与未登记分开报告，用户才能区分“没登记”和“凭据不对”。
-- 装载时校验：列出外部 adapter 的登记必须声明 `credential_env`，列出进程内 adapter 的登记不能声明凭据，否则装载失败。没有凭据的 principal（server、Profile 注入脚本）因此只能经进程内 adapter 接入，外部请求无法借用它们的身份；进程内入口总是不带凭据认证，与凭据同登记会使这些入口一律被拒绝。新增的 adapter 默认属于外部入口，必须声明凭据。
+- 外部来源的凭据有两个来源：登记中 `credential_env` 指向的环境变量，或 HiveMemory 在登记与轮换时生成、保存在接入登记文件同目录 `principals.secrets.yaml` 中的生成凭据（第 2 节）。环境变量按与其他配置相同的来源在启动时读取，进程环境变量优先，其次是 `.env` 文件；它有值时优先于生成凭据，规则与 Provider 凭证相同。凭据去掉首尾空白，只存在于内存中的登记与凭据文件里，不进入日志、`repr` 与列表响应。
+- 第 1 阶段在 adapter 检查之后以常量时间比较核对凭据：外部来源的每次认证都要提供与生效凭据一致的凭据，否则以 `invalid_credential` 拒绝。外部来源两种凭据都没有时，启动时记录一条警告，此后它的每次认证都被拒绝；HiveMemory 照常启动，不使用这个来源的部署不受影响。凭据错误与未登记分开报告，用户才能区分“没登记”和“凭据不对”。
+- 装载时校验：一条登记要么只列进程内 adapter（`local`、`http`），要么只列外部 adapter，混用时装载失败；列出进程内 adapter 的登记不能声明凭据。没有凭据的进程内 principal（server、系统自身、Profile 注入脚本）因此只能经进程内 adapter 接入，外部请求无法借用它们的身份；进程内入口总是不带凭据认证，与凭据同登记会使这些入口一律被拒绝。新增的 adapter 默认属于外部入口，必须以凭据证明。
 
 **`system` 的声明范围**：登记的 `allow_system_actor` 默认为 `false`。第 1 阶段在用户检查之后拒绝不允许的 principal 声明保留的 `system`（`system_actor_not_allowed`）；能声明 `system` 的只有用户经 HTTP 入口的管理访问、Profile 注入脚本与系统自身的 principal，三者的登记显式设为 `true`，外部 harness 取默认值。
+
+**可声明的 Agent**：登记的 `allowed_agent_ids` 限定这个来源能声明哪些 Agent，默认不限定；第 1 阶段在用户检查之后核对，声明集合之外的 Agent 以 `agent_not_allowed_for_principal` 拒绝。登记模板中的四个 harness 登记各自只能声明自己的 Agent（`claude_code`、`dsh`、`codex`、`pi`），前端使用的 server 来源不限定。限定的是一个集合，不是一对一绑定：同一个执行环境仍可以以多个 Agent 运行。
 
 **HTTP 管理面的管理凭据**：上表的 server 的 principal 不携带凭据，HTTP 管理面另由管理凭据证明调用方，检查发生在认证网关之前。
 
@@ -69,27 +73,31 @@ last_reviewed: 2026-11-08
 
 ## 2. 两类访问登记
 
-两类登记各用一个 YAML 文件，对应各自的配置所有者，由 `config/access.py` 的 `load_access_registration()` 在启动时装载：
+两类登记各用一个 YAML 文件，对应各自的配置所有者，由 `config/access.py` 的 `load_access_registration()` 在启动时装载，运行中可以经管理接口编辑并写回（本节“运行时编辑”）。两个生效文件是本机的个人配置，不受版本控制；仓库只发布同目录的模板 `system_principals.example.yaml` 与 `workspace_actors.example.yaml`：
 
 | 文件 | 内容 | 配置所有者 | 装载为 |
 |:---|:---|:---|:---|
-| `configs/system_principals.yaml` | `principals`：稳定来源标识 `principal_id`、连接方式 `kind`、是否启用、可用 adapter、可选的 `allowed_user_ids` 收紧、能否声明 `system` 的 `allow_system_actor`（默认 `false`）、接入凭据的环境变量名 `credential_env` | System | `system/access/registry.py` 的接入注册表（`SystemActorAccessRegistry.from_config` 装配并读取凭据） |
+| `configs/system_principals.yaml` | `principals`：稳定来源标识 `principal_id`、连接方式 `kind`、是否启用、可用 adapter、可选的 `allowed_user_ids` 与 `allowed_agent_ids` 收紧、能否声明 `system` 的 `allow_system_actor`（默认 `false`）、接入凭据的环境变量名 `credential_env`（外部来源可以不写，改用生成凭据） | System | `system/access/registry.py` 的接入注册表（`SystemActorAccessRegistry.from_config` 装配并读取凭据） |
 | `configs/workspace_actors.yaml` | `workspace_actors`：`(owner_user_id, workspace_id, user_id, agent_id)` 坐标、是否启用、`allowed_operations` | Workspace | `workspace/registry.py` 的 Workspace Actor 访问注册表 |
 
 - principal 登记不授予任何 Workspace operation；一条 Workspace 访问记录同时承载准入状态与 actor 操作白名单，白名单允许为空（可进入但不能执行 actor 操作）。白名单只表达六项 actor 操作（[能力层](./capability.md#2-actor-操作目录)）；root 授权的系统级操作都不经白名单。白名单是 Agent 操作权限的唯一来源：Agent Profile 不承载权限，内置 OMNI_DOLL 的默认能力就是默认用户级记录的全部六项；它与 Profile 原子是否存在无关，也适用于没有 Profile 原子的 actor。`session_id`、run/frame 和调用协议不进入权限键；两个 owner 使用相同 `workspace_id` 时记录不串扰。
 - **用户级记录**：省略 `agent_id` 的记录覆盖该用户的所有具体 Agent，但不覆盖保留的 `system`；`system` 必须单独登记。查询时精确记录优先，精确记录被禁用即拒绝，不回落到用户级记录；每个 `(owner, workspace, user)` 至多一条用户级记录。
-- **装载规则**：两个文件都拒绝未知字段；装载期拒绝重复键、跨 owner 记录（W0 基线：`user_id` 必须等于 `owner_user_id`）、“禁用却配置白名单”的矛盾配置，以及为保留的 `system` 配置 operation 的记录；未知 operation 值（包括已删除的旧名称）装载期失败并指出值与记录坐标。默认路径的文件缺失时按空登记装载并告警，网关随后拒绝一切认证（fail closed）；文件路径可用 `HIVEMEMORY_PRINCIPALS_PATH` / `HIVEMEMORY_WORKSPACE_ACTORS_PATH` 覆盖，显式指定的路径缺失或内容非法则显式失败。登记在运行实例内不可变，修改经重启生效。
-- **随仓库发布的默认登记**：
+- **装载规则**：两个文件都拒绝未知字段；装载期拒绝重复键、跨 owner 记录（W0 基线：`user_id` 必须等于 `owner_user_id`）、“禁用却配置白名单”的矛盾配置，以及为保留的 `system` 配置 operation 的记录；未知 operation 值（包括已删除的旧名称）装载期失败并指出值与记录坐标。默认路径的生效文件缺失时，先从模板原样复制一份（保留注释）再装载，已有的生效文件不被模板覆盖；文件路径可用 `HIVEMEMORY_PRINCIPALS_PATH` / `HIVEMEMORY_WORKSPACE_ACTORS_PATH` 覆盖，指定的路径不从模板生成，缺失或内容非法时显式失败，避免路径写错时悄悄生成一份默认登记。
+- **运行时编辑**：两份登记都可以在运行中编辑，立即生效并写回当前生效的登记文件（路径变量指向的文件，未设置时是 `configs/` 下不受版本控制的生效文件），模板保持原样。每次编辑先构造新的完整登记并走与装载相同的校验，写回成功后才替换内存中的内容；校验或写入失败时内存与文件都不变。装载时记下文件内容的摘要，写回前核对：文件在运行中被手工改动时，编辑以 409 `access.registration.conflict`（`reason=file_modified`）拒绝，不覆盖手工修改，重启装载之后再编辑。写回重新序列化 YAML，不保留注释。编辑方法是同步的，路由在事件循环中调用，校验、写回与替换之间没有 `await`。
+  - 接入登记属于 System：管理接口 `/api/v1/access/principals` 与提供商、模型接口一样只由管理凭据保护，System 中不做授权，读写方法在接入注册表上。只能编辑外部来源：登记（`kind` 为 `harness`，不能声明 `system`，同时生成凭据）、启停、修改 adapter 与可声明的 Agent、轮换凭据与删除（同时删除它的生成凭据）；凭据明文只在登记与轮换的响应中返回一次。进程内来源（server、系统自身、Profile 注入脚本）只读，编辑以 `reason=protected` 拒绝：它们关系到管理接口、chat 与导入本身能否工作，禁用它们会让管理接口立即失效，而恢复它们恰恰需要管理接口。凭据来自环境变量时不能轮换（`reason=credential_from_env`）。
+  - Workspace 访问记录属于 workspace：经 root API 的 `RootAccessService` 编辑（HTTP 为 `/api/v1/access/actors`），每次调用在入口 root 授权，只能读写目标 Workspace 坐标下的记录，记录的 owner 与用户都取目标 Workspace 的 owner。保留的 `system` 记录不在列表中，也不能修改或删除（`reason=protected`）：root 授权以它准入 `system`。
+  - 生效时点见第 8 节。
+- **随仓库发布的模板**（从模板生成的生效登记即为以下内容）：
 
 | 文件 | 登记 | 内容 |
 |:---|:---|:---|
 | principals | server 的 principal `hivememory:http-server` | adapter `http`，`allow_system_actor: true`；需与 `config.yaml` 的 `system.server_principal_id` 一致；只用于前端的管理、chat 与取消路由 |
 | principals | 系统自身的 principal `hivememory:system` | kind `local-process`，adapter `local`，`allow_system_actor: true`；任务进程的注册入口与 Import Bus 服务以它认证系统的 root 工作 actor（第 5 节） |
 | principals | Profile 注入脚本的 principal `hivememory:profile-injector` | kind `local-process`，adapter `local`，`allow_system_actor: true`；脚本以它和 `system` 声明经认证网关得到工作 actor，再调用 root API |
-| principals | Claude Code 的 principal `harness:claude-code` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CLAUDE_CODE_TOKEN`；不能声明 `system` |
-| principals | DeepSeek Harness 的 principal `harness:dsh` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_DSH_TOKEN`；不能声明 `system` |
-| principals | Codex 的 principal `harness:codex` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CODEX_TOKEN`；不能声明 `system` |
-| principals | pi 的 principal `harness:pi` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_PI_TOKEN`；不能声明 `system` |
+| principals | Claude Code 的 principal `harness:claude-code` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CLAUDE_CODE_TOKEN`，只能声明 Agent `claude_code`；不能声明 `system` |
+| principals | DeepSeek Harness 的 principal `harness:dsh` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_DSH_TOKEN`，只能声明 Agent `dsh`；不能声明 `system` |
+| principals | Codex 的 principal `harness:codex` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CODEX_TOKEN`，只能声明 Agent `codex`；不能声明 `system` |
+| principals | pi 的 principal `harness:pi` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_PI_TOKEN`，只能声明 Agent `pi`；不能声明 `system` |
 | workspace_actors | 用户 `default` 在 `main_workspace` 的用户级记录（所有具体 Agent） | 六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call` |
 | workspace_actors | 用户 `default` 的 `system` | 只登记准入，不配置 operation |
 | workspace_actors | 用户 `default` 的 `claude_code`（Claude Code 导入与 MCP 访问声明的 Agent） | 精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` |
@@ -136,7 +144,7 @@ last_reviewed: 2026-11-08
 
 系统级操作以保留的 `system` 执行（[身份与授权](./identity-and-authorization.md#4-操作授权)）。系统组件取得这个身份的方式与 Profile 注入脚本相同：以自己登记的 principal 经进程内 adapter 认证 (user, `system`)。
 
-- 随仓库发布的登记包含 `hivememory:system`（`local` adapter、允许声明 `system`、不带凭据）；它的标识与 adapter 标识一样定义为 `system/access/` 中的常量 `SYSTEM_PRINCIPAL_ID`，只由组合根引用，注入任务进程的注册入口与 Import Bus 服务（架构测试守护）。
+- 随仓库发布的登记模板包含 `hivememory:system`（`local` adapter、允许声明 `system`、不带凭据）；它的标识与 adapter 标识一样定义为 `system/access/` 中的常量 `SYSTEM_PRINCIPAL_ID`，只由组合根引用，注入任务进程的注册入口与 Import Bus 服务（架构测试守护）。
 - 任务进程注册时认证一次，得到存进进程记录的系统 root 工作 actor；Import Bus 每次导入或确定话题时认证一次，认证的是参与者驻留 Workspace 的 `system`。
 - (user, `system`) 的准入沿用访问登记中已有的 `system` 记录。缺少系统自身的 principal 时，chat 注册、导入与 MCP 写入都以 `unknown_principal` 拒绝；缺少该用户在对应 Workspace 的 `system` 记录时以 `actor_not_admitted` 拒绝。
 - 能声明 `system` 的来源由登记逐个限定，外部 harness 不能；外部请求声明 `system` 作为参与者时，入口的声明解析先以 `request.agent_reserved` 拒绝。
@@ -154,24 +162,25 @@ last_reviewed: 2026-11-08
 
 ## 7. 装配
 
-`SystemAssembler` 从两个登记文件装载两类注册表（接入注册表经 `SystemActorAccessRegistry.from_config` 装配，同时读取各来源的接入凭据），构造 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`（两者都只接收 Workspace Actor 访问注册表），再以 `SystemPrincipalAuthenticator` 与 `WorkspaceAuthenticator` 组装认证网关：
+`SystemAssembler` 从两个登记文件装载两类注册表（接入注册表经 `SystemActorAccessRegistry.from_config` 装配，同时取得各外部来源的接入凭据；两个注册表都记下生效文件的路径与装载时的内容摘要，供运行时编辑写回），构造 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`（两者都只接收 Workspace Actor 访问注册表），再以 `SystemPrincipalAuthenticator` 与 `WorkspaceAuthenticator` 组装认证网关：
 
 - 认证网关注入任务进程的注册入口与 Import Bus 服务，并经 `HiveMemorySystem.access_gateway` 暴露给 server 与 MCP 入口；系统自身的 principal 与 `local` adapter 注入注册入口与 Import Bus 服务；
 - 操作授权者注入 root API 与 actor API 的各服务、注册入口、执行器、CPU 分配与进程线程管理；Import Bus 服务只注入认证网关，需要授权的步骤经 root API；CPU 分配另注入读取视图的 Profile 读取端口；
 - 进程表由组合根在构建 actor API 之前创建，同时交给注册入口与进程线程管理 `ProcessThreads`；`ProcessThreads` 以认证网关作为子工作 actor 的准入端口、以操作授权者读取操作快照、以 root 话题 API 为进程这一轮确定话题，注入执行器（主线程的派生与兜底结束）、操作入口与 actor API（线程端口 `ExecutionThreadTable`，位于 `workspace/thread_ports.py`，不属于公共契约）；能力层不导入任务进程，任务进程在能力层中只导入 root API；
 - `WorkspaceOperationEntry` 由组合根以 actor API 与线程端口装配，公共 `OperationEntry` 注入 `AliceCPU`，同一个入口经门面的 `operation_entry` 交给 MCP 入口，只用其请求级提交；MCP 入口把经门面的 `import_bus_service` 为这一轮确定话题的回调交给写入与更新，actor API 在授权之后才调用它；actor API 只由操作入口持有，门面不暴露它；
+- 接入注册表经门面的 `principal_registry` 交给 server 的接入登记管理接口；`RootAccessService` 以 Workspace 访问注册表与操作授权者装配，经门面的 `root_access_service` 交给访问记录管理接口；
 - Patchouli 与 Gateway 不注入任何认证或授权对象。
 
 ## 8. 已知限制
 
-- 访问登记只有进程内本地配置：无远程凭据协议、通用 IAM、管理 API 或热更新；HTTP 请求头中的用户身份不做证明，只适用于本地单用户部署；
+- 访问登记是本地配置文件，可以经设置页与管理接口在运行时编辑；没有远程凭据协议与通用 IAM；HTTP 请求头中的用户身份不做证明，只适用于本地单用户部署；
 - 管理凭据只防误用：它挡住 agent 在工作中顺手调用管理接口，以及读不到凭据文件的其他机器；以同一系统用户运行、专门读取 `configs/management.token` 的程序仍能通过。后端提供页面时，能请求到页面的程序都能取得 cookie，因此正式入口默认只监听本机地址（[安装与启动](../help/setup.md#43-启动后端)）。凭据不区分用户，没有轮换与过期；
-- 接入凭据是每个外部 principal 一份本地共享密钥，存在于两侧的环境变量中：只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；凭据由用户生成，没有签发、轮换、撤销与过期，修改经重启生效；
+- 接入凭据是每个外部 principal 一份本地共享密钥：HiveMemory 一侧在环境变量或凭据文件 `principals.secrets.yaml` 中，harness 一侧在它读取的环境变量中。它只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境或凭据文件的程序；凭据没有过期，环境变量中的凭据修改后经重启生效；
 - 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单；按 Agent 区分需要逐个登记精确记录；
-- Agent 操作白名单只能通过修改 `workspace_actors.yaml` 并重启来变更，前端没有权限编辑入口；运行时编辑并入 [ROADMAP](../ROADMAP.md) 的“配置热更新”，届时需要处理线程描述中的快照与即时检查之间的差异。
+- 运行时编辑的生效时点：授权每次即时查询访问记录，编辑在下一次授权时生效；准入被禁用或删除后，认证时有效的工作 actor 的下一次操作以 `operation_denied`（`reason=actor_not_admitted`）拒绝。线程描述中的操作快照在派生线程时生成：收回的操作仍出现在本轮的提示词与动词集合中，调用时被拒；新授予的操作从下一轮开始出现。接入登记只在认证时检查：禁用或删除一个来源、轮换它的凭据，只拒绝它之后的认证，已经接纳的导入照常完成。进程内来源与保留的 `system` 记录只能修改登记文件并重启。
 
 ## 9. 代码与测试入口
 
 - 认证：[`workspace/authentication.py`](../../src/hivememory/workspace/authentication.py)（认证网关与 `WorkspaceAuthenticator`）、[`system/access/`](../../src/hivememory/system/access/)（接入登记、Principal authentication、adapter 标识与系统自身的 principal）、[`core/access.py`](../../src/hivememory/core/access.py)（工作 actor、调用来源身份与端口）；
-- 登记：[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)、[`config/access.py`](../../src/hivememory/config/access.py)；请求的工作 actor：[`server/deps.py`](../../src/hivememory/server/deps.py)；
-- 测试：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)（认证结果、拒绝原因与子工作 actor 的准入）、[`test_process_threads.py`](../../tests/integration/workspace/test_process_threads.py)（子线程沿用主工作 actor 的来源与驻留 Workspace、被调用方准入）、[`test_registration_configuration.py`](../../tests/integration/workspace/test_registration_configuration.py)（旧 operation 与 `system` 白名单的装载失败）、[`test_published_registration_chain.py`](../../tests/integration/workspace/test_published_registration_chain.py)（随仓库发布的登记文件驱动的 HTTP 链路）、[`tests/unit/system/access/test_registry.py`](../../tests/unit/system/access/test_registry.py)（凭据与 adapter 类别的装载校验、从环境变量与 `.env` 读取凭据）、[`test_import_bus.py`](../../tests/unit/server/routers/test_import_bus.py)（导入以请求声明的 principal、凭据与具体 Agent 认证，缺少声明、凭据不对、未准入与网关关闭的拒绝）、[`test_import_bus_submission.py`](../../tests/integration/system/test_import_bus_submission.py)（系统自身的 principal 未登记时导入被拒）、[`test_mcp_memory_access.py`](../../tests/integration/system/test_mcp_memory_access.py)（MCP 入口经真实网关的凭据核对与借用 server principal 的拒绝）、[`test_import_turns.py`](../../tests/e2e/system/test_import_turns.py)（白名单为空的 Agent 经 HTTP 导入一轮交互）。
+- 登记：[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)、[`config/access.py`](../../src/hivememory/config/access.py)；运行时管理：[`server/routers/access.py`](../../src/hivememory/server/routers/access.py)、[`workspace/capability/root/access.py`](../../src/hivememory/workspace/capability/root/access.py)；请求的工作 actor：[`server/deps.py`](../../src/hivememory/server/deps.py)；
+- 测试：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)（认证结果、拒绝原因与子工作 actor 的准入）、[`test_process_threads.py`](../../tests/integration/workspace/test_process_threads.py)（子线程沿用主工作 actor 的来源与驻留 Workspace、被调用方准入）、[`test_registration_configuration.py`](../../tests/integration/workspace/test_registration_configuration.py)（旧 operation 与 `system` 白名单的装载失败）、[`test_published_registration_chain.py`](../../tests/integration/workspace/test_published_registration_chain.py)（随仓库发布的登记文件驱动的 HTTP 链路）、[`tests/unit/system/access/test_registry.py`](../../tests/unit/system/access/test_registry.py)（adapter 类别与凭据的装载校验、凭据来源与优先级、外部来源的运行时编辑与写回）、[`test_import_bus.py`](../../tests/unit/server/routers/test_import_bus.py)（导入以请求声明的 principal、凭据与具体 Agent 认证，缺少声明、凭据不对、未准入与网关关闭的拒绝）、[`test_import_bus_submission.py`](../../tests/integration/system/test_import_bus_submission.py)（系统自身的 principal 未登记时导入被拒）、[`test_mcp_memory_access.py`](../../tests/integration/system/test_mcp_memory_access.py)（MCP 入口经真实网关的凭据核对、借用 server principal 的拒绝，以及运行时登记的来源与凭据轮换）、[`test_import_turns.py`](../../tests/e2e/system/test_import_turns.py)（白名单为空的 Agent 经 HTTP 导入一轮交互）、[`tests/unit/workspace/capability/root/test_access.py`](../../tests/unit/workspace/capability/root/test_access.py)（访问记录的 root 授权、`system` 记录不可编辑与编辑即时生效）、[`tests/unit/server/routers/test_access.py`](../../tests/unit/server/routers/test_access.py)（凭据明文只在登记与轮换时返回、两类记录的路径）。

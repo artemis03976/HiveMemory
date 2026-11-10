@@ -92,10 +92,12 @@ def test_extension_identity_is_registered_for_mcp_and_import():
     token_env = _string_constant(index, "tokenEnv")
     source = _string_constant(_source("pi/turns.js"), "SOURCE")
     principals = SystemPrincipalsFile.model_validate(
-        yaml.safe_load((REPO_ROOT / "configs" / "system_principals.yaml").read_text("utf-8"))
+        yaml.safe_load(
+            (REPO_ROOT / "configs" / "system_principals.example.yaml").read_text("utf-8")
+        )
     )
     actors = WorkspaceActorsFile.model_validate(
-        yaml.safe_load((REPO_ROOT / "configs" / "workspace_actors.yaml").read_text("utf-8"))
+        yaml.safe_load((REPO_ROOT / "configs" / "workspace_actors.example.yaml").read_text("utf-8"))
     )
 
     [principal] = [entry for entry in principals.principals if entry.principal_id == principal_id]

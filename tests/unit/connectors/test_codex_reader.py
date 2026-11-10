@@ -222,10 +222,12 @@ def test_codex_declarations_match_connector_and_registration():
     assert all(f" {HARNESS.source} hook " in command for command in commands)
 
     principals = SystemPrincipalsFile.model_validate(
-        yaml.safe_load((REPO_ROOT / "configs" / "system_principals.yaml").read_text("utf-8"))
+        yaml.safe_load(
+            (REPO_ROOT / "configs" / "system_principals.example.yaml").read_text("utf-8")
+        )
     )
     actors = WorkspaceActorsFile.model_validate(
-        yaml.safe_load((REPO_ROOT / "configs" / "workspace_actors.yaml").read_text("utf-8"))
+        yaml.safe_load((REPO_ROOT / "configs" / "workspace_actors.example.yaml").read_text("utf-8"))
     )
     [principal] = [p for p in principals.principals if p.principal_id == HARNESS.principal_id]
     [actor] = [a for a in actors.workspace_actors if a.agent_id == HARNESS.default_agent_id]

@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from hivememory.core.errors import (
+    AccessRegistrationConflictError,
+    AccessRegistrationNotFoundError,
     AdmissionDeniedError,
     AssetExpiredError,
     AssetFailedError,
@@ -122,6 +124,12 @@ class APIError(HTTPException):
 # 映射只决定 HTTP 类别与安全呈现，不改变 owner 的判断与重试策略。
 _DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     OperationDeniedError: (403, "workspace.operation_denied", "当前身份无权执行该操作"),
+    AccessRegistrationNotFoundError: (404, "access.registration.not_found", "访问登记不存在"),
+    AccessRegistrationConflictError: (
+        409,
+        "access.registration.conflict",
+        "访问登记未修改：与现有登记冲突，或该登记只能经登记文件修改",
+    ),
     ScopeRequiredError: (500, "workspace.scope_required", "请求处理失败，请联系服务维护者"),
     WorkspaceMismatchError: (409, "workspace.mismatch", "请求与目标 Workspace 不一致"),
     SessionNotFoundError: (404, "workspace.session.not_found", "会话不存在"),
@@ -199,6 +207,7 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
             "adapter_mismatch",
             "invalid_credential",
             "actor_not_allowed_for_principal",
+            "agent_not_allowed_for_principal",
             "actor_not_owner",
             "actor_not_admitted",
             "system_actor_not_allowed",
@@ -206,13 +215,16 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
     ),
     OperationDeniedError: frozenset(
         {
+            "actor_not_admitted",
             "operation_not_allowed",
             "root_required",
             "target_workspace_not_resident",
             "target_owner_mismatch",
         }
     ),
-    ScopeRequiredError: frozenset({"actor_not_admitted"}),
+    AccessRegistrationConflictError: frozenset(
+        {"protected", "duplicate", "credential_from_env", "file_modified"}
+    ),
     WorkspaceMismatchError: frozenset({"target_workspace_not_resident", "target_owner_mismatch"}),
     ResourceUnavailableError: frozenset({"lifecycle_unavailable"}),
     MemoryAliasConflictError: frozenset(

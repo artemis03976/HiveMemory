@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/execution-threads.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/attachments.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 能力层
@@ -64,6 +64,7 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 | `RootMemoryService` | `create_memory`、`list_memories`、`get_memory`、`update_memory`、`record_feedback`、`delete_memory`、`storage_available` | 以授权返回的 `IdentityScope` 经 Patchouli public route 执行；创建与编辑只提交 API 字段，原子由 Patchouli 构造与校验，root API 不组装 `MemoryAtom`。列表查询显式排除 `AGENT_PROFILE`，避免普通记忆管理与 Profile 资产混为一类；不存在的 get/update 使用共享的 `ResourceNotFoundError`。`storage_available` 读取存储是否可用，只供任务进程使用（存储健康决定提示词的离线提示），没有 HTTP 管理路由 |
 | `RootAgentProfileService` | `create_agent_profile`、`list_agent_profiles` | 只提交创建材料并列出 `AGENT_PROFILE`，Profile 原子的构造、持久化和可见性都由 Patchouli 负责；`agent_config` 是资产内容，不是 System 直接解释的运行时权限 |
 | `RootSessionService` | `create_session`、`list_sessions`、`get_session`、`rename_session`、`delete_session` | 委托共享会话服务（[会话资源](./sessions.md)） |
+| `RootAccessService` | `list_records`、`put_record`、`delete_record` | 管理目标 Workspace 的访问记录（准入与 actor 操作白名单），不新增可登记给 actor 的管理 operation。列表不含保留的 `system` 记录，它也不能修改或删除：root 授权以它准入 `system`。编辑写回登记文件，授权者在下一次授权时按新内容判定（[认证与访问登记](./authentication.md#2-两类访问登记)第 2 节） |
 | `RootTopicService` | `list_active_topics`、`settle_topic`、`evict_topic`、`determine_topic` | 授权后以返回的 scope 经 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`determine_topic` 为一轮确认或建立话题，返回真实话题标识与是否新建，不检索：话题来源是任务进程的 Gateway 决定，或一轮待路由的外部交互（`PassiveTurnRouting`：用户消息、最近几轮，以及续接上一轮所需的话题或交互标识）。后者先按交互标识查进度，已应用的返回实际所在的话题，已提交仍在应用的不返回话题，否则以 PASSIVE_MEMORY 模式请求 Gateway 路由；然后经 Patchouli 的话题准备路由确认已有话题并刷新驻留，或以 Gateway 的标题与摘要建立新话题（必要时先按 LRU 结算）。它供任务进程的线程表与 Import Bus 的编排器使用，没有 HTTP 管理路由 |
 | `RootMemoryTaskService` | `list_memory_tasks`、`get_memory_task`、`cancel_memory_task` | Patchouli 将 scope 的目标 Workspace 与任务的 `belong_to` 比对；不存在与越域任务统一隐藏，HTTP 查询和取消都映射为同一 404。不从任务对象推导第二套状态机 |
 | `RootWorkspaceAssetService` | `upload_asset` | 编排附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；在接收与注册副作用之前执行 root 授权，注册与解析交接只使用授权返回的 scope；链路事实见 [Chat 附件链路](../system/attachments.md) |

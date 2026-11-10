@@ -27,7 +27,7 @@ from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     AssetNotReadyError,
-    ScopeRequiredError,
+    OperationDeniedError,
 )
 from hivememory.core.models import (
     ActorIdentity,
@@ -604,7 +604,7 @@ async def test_retrieval_authorization_failure_other_than_missing_search_fails_p
 
     events = await _run_once(composition, service, "问题", process_id="process-retrieval-denied")
 
-    assert error_code(events) == ScopeRequiredError.code
+    assert error_code(events) == OperationDeniedError.code
     assert stub.retrievals == []
     assert stub.prepared_topics == []
     assert cpu.calls == []
@@ -792,7 +792,7 @@ async def test_revoked_system_admission_after_actor_fails_without_submission() -
     )
     events = await _run_once(composition, service, "问题", process_id="process-submit-denied")
 
-    assert error_code(events) == ScopeRequiredError.code
+    assert error_code(events) == OperationDeniedError.code
     assert len(cpu.calls) == 1
     assert cpu.finished is True
     assert stub.submissions == []

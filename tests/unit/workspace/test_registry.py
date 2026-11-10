@@ -4,15 +4,22 @@
 键使用完整 Workspace 坐标 + Actor 坐标（两 owner 相同 workspace_id 不串扰）、
 缺失记录查无结果、重复键与跨 owner 记录在装载期显式失败、空白名单与
 禁用记录的配置语义；用户级记录覆盖该用户的所有具体
-Agent 但不覆盖保留 ``system``，精确记录优先、禁用即拒绝不回落。
+Agent 但不覆盖保留 ``system``，精确记录优先、禁用即拒绝不回落；运行时
+编辑走与装载相同的校验并写回文件，被外部改动的文件不被覆盖，拒绝时内存与
+文件保持原样。
 """
 
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
 
+import pytest
+import yaml
+
+from hivememory.config.access import WorkspaceActorsFile, file_digest
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
+from hivememory.core.errors import AccessRegistrationConflictError, AccessRegistrationNotFoundError
 from hivememory.core.models import ActorIdentity
 from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.workspace import (
@@ -219,3 +226,101 @@ def test_system_record_rejects_actor_operation_at_load():
                 )
             ]
         )
+
+
+# ---- 运行时编辑 ----
+
+_ACTORS_YAML = """\
+workspace_actors:
+  - owner_user_id: "u1"
+    workspace_id: "main_workspace"
+    user_id: "u1"
+    allowed_operations: ["memory.read", "memory.search"]
+  - owner_user_id: "u1"
+    workspace_id: "main_workspace"
+    user_id: "u1"
+    agent_id: "system"
+"""
+
+MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
+
+
+def _editable_registry(tmp_path: Path) -> WorkspaceActorAccessRegistry:
+    """从 tmp_path 中的登记文件装载，写回与重新装载都指向这个文件。"""
+    path = tmp_path / "workspace_actors.yaml"
+    if not path.exists():
+        path.write_text(_ACTORS_YAML, encoding="utf-8")
+    return WorkspaceActorAccessRegistry.from_config(
+        WorkspaceActorsFile.model_validate(yaml.safe_load(path.read_text(encoding="utf-8"))),
+        file_path=path,
+        file_digest=file_digest(path),
+    )
+
+
+def test_put_and_delete_round_trip_through_the_file(tmp_path):
+    """新增、替换与删除立即反映在查询中，写回的文件重新装载后与内存一致。"""
+    registry = _editable_registry(tmp_path)
+    exact = make_actor_access_record(
+        owner_user_id="u1",
+        agent_id="a1",
+        allowed_operations=frozenset({WorkspaceOperation.MEMORY_WRITE}),
+    )
+    user_level = make_actor_access_record(
+        owner_user_id="u1", agent_id=None, enabled=False, allowed_operations=frozenset()
+    )
+
+    registry.put(exact)
+    registry.put(user_level)
+
+    assert registry.record_for(MAIN, ActorIdentity(user_id="u1", agent_id="a1")) == exact
+    assert registry.record_for(MAIN, ActorIdentity(user_id="u1", agent_id="a2")) == user_level
+    assert _editable_registry(tmp_path).records_in(MAIN) == registry.records_in(MAIN)
+
+    registry.delete(exact.key)
+    # 精确记录删除后回落到用户级记录。
+    assert registry.record_for(MAIN, ActorIdentity(user_id="u1", agent_id="a1")) == user_level
+    assert _editable_registry(tmp_path).records_in(MAIN) == registry.records_in(MAIN)
+
+
+def test_invalid_edit_leaves_memory_and_file_unchanged(tmp_path):
+    """运行时编辑走与装载相同的校验：禁用却带白名单被拒，内存与文件都不变。"""
+    registry = _editable_registry(tmp_path)
+    path = tmp_path / "workspace_actors.yaml"
+    before_file = path.read_bytes()
+    before_records = registry.records_in(MAIN)
+
+    with pytest.raises(ValueError, match="已禁用却配置了行为白名单"):
+        registry.put(
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="a1",
+                enabled=False,
+                allowed_operations=frozenset({WorkspaceOperation.MEMORY_READ}),
+            )
+        )
+
+    assert registry.records_in(MAIN) == before_records
+    assert path.read_bytes() == before_file
+
+
+def test_externally_modified_file_is_not_overwritten(tmp_path):
+    """文件在运行中被手工改动后，写回以 file_modified 拒绝，不覆盖手工修改。"""
+    registry = _editable_registry(tmp_path)
+    path = tmp_path / "workspace_actors.yaml"
+    manual = path.read_text(encoding="utf-8").replace("memory.search", "memory.write")
+    path.write_text(manual, encoding="utf-8")
+
+    with pytest.raises(AccessRegistrationConflictError) as exc_info:
+        registry.put(make_actor_access_record(owner_user_id="u1", agent_id="a1"))
+
+    assert exc_info.value.details["reason"] == "file_modified"
+    assert registry.record_for(MAIN, ActorIdentity(user_id="u1", agent_id="a1")).agent_id is None
+    assert path.read_text(encoding="utf-8") == manual
+
+
+def test_deleting_a_missing_record_is_reported(tmp_path):
+    """删除不存在的记录报告不存在，不静默成功。"""
+    registry = _editable_registry(tmp_path)
+
+    with pytest.raises(AccessRegistrationNotFoundError):
+        registry.delete(("u1", "main_workspace", "u1", "a1"))

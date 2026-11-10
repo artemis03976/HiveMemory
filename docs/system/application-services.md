@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/capability.md
   - docs/architecture/boundaries.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 应用服务
@@ -98,6 +98,6 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 - `tests/unit/system/application/test_readiness_service.py`
 - `tests/unit/architecture/test_access_boundaries.py`（能力层、任务进程入口与 Import Bus 服务只以工作 actor 接收身份；`authorize_agent` 只在 actor API 中调用，`authorize_root` 只在 root API 与任务进程中调用；系统自身的 principal 的使用位置）
 - `tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）
-- `tests/integration/workspace/test_published_registration_chain.py`（随仓库发布的登记文件驱动的管理路由、chat 与取消链路）
+- `tests/integration/workspace/test_published_registration_chain.py`（随仓库发布的登记模板驱动的管理路由、chat 与取消链路）
 
 任务进程与能力层的测试入口见[任务进程](../workspace/task-process.md#16-代码与测试入口)与[能力层](../workspace/capability.md#10-代码与测试入口)，Import Bus 的测试入口见 [Import Bus](./import-bus.md#14-代码与测试入口)。

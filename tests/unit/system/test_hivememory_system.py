@@ -110,6 +110,7 @@ def system(mock_patchouli, recorded_events):
         root_memory_task=memory_task_service,
         root_agent=agent_service,
         root_session=object(),  # type: ignore[arg-type]
+        root_access=MagicMock(),
         root_topic=topic_service,
         readiness=readiness_service,
         root_workspace_assets=MagicMock(),
@@ -122,6 +123,7 @@ def system(mock_patchouli, recorded_events):
         subsystems=subsystems,
         services=services,
         access_gateway=MagicMock(spec=ActorAuthenticationGateway),
+        principal_registry=MagicMock(),
     )
     return system
 

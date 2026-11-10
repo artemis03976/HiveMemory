@@ -6,15 +6,15 @@ scope: pi-extension-installation-configuration-verification-and-troubleshooting
 code_paths:
   - integrations/hivememory/package.json
   - integrations/hivememory/node/
-  - configs/system_principals.yaml
-  - configs/workspace_actors.yaml
+  - configs/system_principals.example.yaml
+  - configs/workspace_actors.example.yaml
 related_contracts:
   - docs/contracts/mcp.md
 related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/claude-code-plugin.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # 接入 pi
@@ -43,6 +43,8 @@ last_reviewed: 2026-11-08
 | 重启并确认 | 两侧 | 重启 HiveMemory、重新打开 pi，确认工具与导入（第 6 节） |
 
 ## 2. 配置接入凭据
+
+凭据可以在 HiveMemory 设置页的“接入与权限”中为 `harness:pi` 生成或轮换：HiveMemory 一侧立即生效，不需要重启后端，把页面显示的凭据写进 pi 一侧的 `HIVEMEMORY_PI_TOKEN` 即可。HiveMemory 一侧的同名环境变量有值时优先于生成的凭据，页面上不能轮换。也可以按下面的方式自己生成一份，写入两侧的环境变量。
 
 先生成一份随机凭据，例如：
 
@@ -85,7 +87,7 @@ pi 把这个本地路径写入个人设置（`%USERPROFILE%\.pi\agent\settings.j
 
 ## 5. 访问登记
 
-随仓库发布的 `configs/system_principals.yaml` 登记了 `harness:pi`（adapter `mcp` 与 `import`，凭据变量 `HIVEMEMORY_PI_TOKEN`），`configs/workspace_actors.yaml` 为默认用户 `default` 登记了 Agent `pi`，获准检索、读取、写入与更新。使用默认配置时不需要修改；两份配置在后端启动时装载，更新到包含这些登记的版本之后要重启后端。自定义过登记或改用别的用户、Agent 时，按[接入 Claude Code](./claude-code-plugin.md#5-访问登记)第 5 节的写法补齐。
+随仓库发布的登记模板 `configs/system_principals.example.yaml` 登记了 `harness:pi`（adapter `mcp` 与 `import`，凭据变量 `HIVEMEMORY_PI_TOKEN`，只能声明 Agent `pi`），`configs/workspace_actors.example.yaml` 为默认用户 `default` 登记了 Agent `pi`，获准检索、读取、写入与更新。本机的生效登记首次启动时从这两份模板生成，已包含这些登记，不需要修改；更早生成的生效登记不会随升级更新，缺少这些登记时在设置页的“接入与权限”中补上，或按模板手工加入后重启后端。自定义过登记或改用别的用户、Agent 时，按[接入 Claude Code](./claude-code-plugin.md#5-访问登记)第 5 节的写法补齐。
 
 ## 6. 确认
 

@@ -217,10 +217,10 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 | Code | 语义 |
 |:---|:---|
-| `workspace.scope_required` | 缺少完整 `IdentityScope`；授权时工作 actor 的准入记录已不存在（`reason=actor_not_admitted`）；或执行线程的接线缺陷（登记的不是这一个线程句柄、子线程试图派生、CPU 结束主线程） |
+| `workspace.scope_required` | 缺少完整 `IdentityScope`，或执行线程的接线缺陷（登记的不是这一个线程句柄、子线程试图派生、CPU 结束主线程） |
 | `workspace.mismatch` | 资源与请求 Workspace 不一致，例如同一 `interaction_id` 的交互已由另一个 Workspace 提交，或 Artifact、记忆生成任务的归属与请求的 Workspace 不符 |
-| `workspace.admission_denied` | 统一认证网关的接入/准入拒绝（`details.reason` 区分阶段：`unknown_principal`、`adapter_mismatch`、`invalid_credential`、`actor_not_allowed_for_principal`、`system_actor_not_allowed`、`actor_not_owner`、`actor_not_admitted`、`authentication_gateway_closed`） |
-| `workspace.operation_denied` | 第 3 阶段授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`、`root_required`） |
+| `workspace.admission_denied` | 统一认证网关的接入/准入拒绝（`details.reason` 区分阶段：`unknown_principal`、`adapter_mismatch`、`invalid_credential`、`actor_not_allowed_for_principal`、`agent_not_allowed_for_principal`、`system_actor_not_allowed`、`actor_not_owner`、`actor_not_admitted`、`authentication_gateway_closed`） |
+| `workspace.operation_denied` | 第 3 阶段授权失败（`details.reason` 区分：`actor_not_admitted`、`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`、`root_required`） |
 | `workspace.resource.not_found` | 当前 Workspace 作用域内不存在目标资源 |
 | `workspace.resource.not_visible` | 资源存在但当前 Actor 未通过可见性授权（与 not_found 有意区分；调用方可按契约合并呈现） |
 | `workspace.resource.unavailable` | 资源 provider 暂时不可用，不代表资源不存在或被拒绝 |
@@ -239,8 +239,9 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 |:---|:---|:---|:---|
 | 第 1 阶段：接入未登记或已禁用（不区分，避免泄漏配置） | `AdmissionDeniedError` | `unknown_principal` | 403 |
 | 第 1 阶段：adapter 不匹配 | `AdmissionDeniedError` | `adapter_mismatch` | 403 |
-| 第 1 阶段：登记了凭据的 principal 未提供一致的凭据，或凭据环境变量未设置 | `AdmissionDeniedError` | `invalid_credential` | 403 |
+| 第 1 阶段：外部来源未提供一致的凭据，或它没有可用凭据（环境变量未设置，也没有生成凭据） | `AdmissionDeniedError` | `invalid_credential` | 403 |
 | 第 1 阶段：principal 的身份解析规则不允许该用户 | `AdmissionDeniedError` | `actor_not_allowed_for_principal` | 403 |
+| 第 1 阶段：principal 的身份解析规则不允许该 Agent | `AdmissionDeniedError` | `agent_not_allowed_for_principal` | 403 |
 | 第 1 阶段：登记不允许该 principal 声明保留的 `system` | `AdmissionDeniedError` | `system_actor_not_allowed` | 403 |
 | 第 2 阶段：actor 用户不是要进入的 Workspace 的 owner | `AdmissionDeniedError` | `actor_not_owner` | 403 |
 | 第 2 阶段：准入记录缺失或已禁用 | `AdmissionDeniedError` | `actor_not_admitted` | 403 |
@@ -249,7 +250,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | 第 3 阶段：actor 用户不是目标 Workspace 的 owner | `OperationDeniedError` | `target_owner_mismatch` | 403 |
 | 第 3 阶段（`authorize_agent`）：白名单不含该 actor 操作 | `OperationDeniedError` | `operation_not_allowed` | 403 |
 | 第 3 阶段（`authorize_root`）：actor 不是保留的 `system` | `OperationDeniedError` | `root_required` | 403 |
-| 第 3 阶段：工作 actor 的准入记录在授权时已不存在 | `ScopeRequiredError` | `actor_not_admitted` | 500：访问登记在运行实例内不可变，生产中不应出现 |
+| 第 3 阶段：工作 actor 的准入记录在授权时已被禁用或删除（访问记录可以在运行时编辑） | `OperationDeniedError` | `actor_not_admitted` | 403 |
 | 执行线程的接线缺陷：登记的不是这一个线程句柄、以子线程派生 CALL 子线程、CPU 结束主线程（线程已结束见下文） | `ScopeRequiredError` | 无 | 500：出现即为接线缺陷 |
 | 资源与请求 Workspace 不一致 | `WorkspaceMismatchError` | —— | 409 |
 
@@ -260,6 +261,8 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 - 凭据错误与未登记分开报告（`invalid_credential` 与 `unknown_principal`），用户才能区分“没登记”和“凭据不对”；两者都不泄露凭据本身。外部入口缺少 principal 声明时在入口以 400 `request.principal_required` 拒绝，不经网关。
 - HTTP 映射由 server 的异常处理器统一完成（`server/error_handlers.py`），响应体包含稳定机器码 `error`、安全 `detail` 与可选 `reason`，不暴露接入凭据。MCP 入口复用同一投影，把结果写入 `isError` 的工具结果；写入与更新缺少连接器补上的轮次信息时，在认证前以 400 `request.turn_required` 拒绝（[MCP 记忆访问](./mcp.md#5-错误)）。
 - 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
+
+访问登记的运行时编辑（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节）被拒时，登记与文件都保持原样：要修改或删除的接入登记或访问记录不存在时抛 `AccessRegistrationNotFoundError`（`access.registration.not_found`，404）；与现有登记冲突，或该登记只能经文件修改时抛 `AccessRegistrationConflictError`（`access.registration.conflict`，409），`reason` 为 `protected`（进程内来源与保留的 `system` 记录）、`duplicate`（principal 已登记）、`credential_from_env`（凭据来自环境变量，不能轮换）或 `file_modified`（登记文件在运行中被手工改动）。两者定义在 `core.errors`，接入登记（System）与访问记录（workspace）共用。
 
 这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace](../workspace/README.md)。
 

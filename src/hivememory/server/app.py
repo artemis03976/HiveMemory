@@ -31,6 +31,7 @@ from hivememory.server.management_credential import (
     load_management_credential,
 )
 from hivememory.server.models.common import HealthResponse, ReadinessResponse
+from hivememory.server.routers.access import router as access_router
 from hivememory.server.routers.agents import router as agents_router
 from hivememory.server.routers.chat import router as chat_router
 from hivememory.server.routers.config import router as config_router
@@ -160,6 +161,7 @@ async def readiness():
 
 
 # 注册路由
+app.include_router(access_router, prefix="/api/v1")
 app.include_router(agents_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")

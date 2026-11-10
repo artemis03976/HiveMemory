@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 前端管理页面
@@ -73,17 +73,17 @@ Agent Profile 是存储在 Patchouli 中的 `AGENT_PROFILE` 记忆，也是 Alic
 
 ### 2.2 权限与状态限制
 
-- 管理页不编辑权限：Agent Profile 不承载权限，Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，`sys_*` 系统工具不设权限；
+- 管理页不编辑权限：Agent Profile 不承载权限，Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，在 Settings 的“接入与权限”中编辑（第 3.3 节），`sys_*` 系统工具不设权限；
 - Active/Inactive 只是前端字段，`toPayload()` 不发送 status，启停按钮没有后端运行语义；
 - model 是自由文本，而不是 Model Registry 选择器，可能保存不存在的 model ID；
-- Profile 获取失败时列表为空，页面提示“Agent 列表读取失败，请检查后端服务后刷新”；只有 debug 模式回退到 `MOCK_AGENT_CONFIGS`，这些条目看似可编辑，但保存仍需要真实后端；
+- Profile 获取失败时列表为空，页面显示后端给出的原因，连不上后端时提示“Agent 列表读取失败，请检查后端服务后刷新”；只有 debug 模式回退到 `MOCK_AGENT_CONFIGS`，这些条目看似可编辑，但保存仍需要真实后端；
 - Chat 消息中的 Agent 名称和图标有一部分仍依赖静态 `MOCK_AGENTS`，不完全反映 Profile 元数据。
 
 权限的后端契约与 runtime 闸门以 [MTP 契约](../contracts/mtp.md)第 4 节和 [System 配置](../system/configuration.md)的访问登记为准。
 
 ## 3. Settings
 
-Settings 当前包含通用、Provider、Model Registry、内部引擎、基础设施、Gateway、Perception、Generation、Retrieval、Lifecycle 与 Koakuma 分类。它们实际分成三种不同的管理路径。
+Settings 当前包含通用、Provider、Model Registry、接入与权限、内部引擎、基础设施、Gateway、Perception、Generation、Retrieval、Lifecycle 与 Koakuma 分类。Provider、Model Registry 与接入与权限各有独立的 API，其余分类共用主配置接口。
 
 ### 3.1 Provider Registry
 
@@ -93,7 +93,15 @@ Provider 页面通过独立 `/api/v1/providers` API 管理 `configs/providers.se
 
 Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建、查询、更新、删除和默认模型标记。模型的密钥与 API 地址只来自所选 Provider 的凭证，页面与 API 都不读写模型级的 api key 或 api base；单个模型需要不同的密钥或地址时，在 Provider 页面另登记一个 Provider 再选择它。
 
-### 3.3 主配置表单
+### 3.3 接入与权限
+
+接入与权限页面读写 `/api/v1/access` 的两组接口（[公开路由与事件](../contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界)第 6 节），修改立即生效并写回登记文件：
+
+- 外部接入列出全部接入登记，进程内来源只读。可以登记外部 harness：登记后弹出只显示一次的凭据，并提示写进 harness 一侧的哪个环境变量；同一流程中可以为它可声明的 Agent 建立访问记录，这一步失败时来源已登记，页面提示补建。也可以启停、修改接入方式与可声明的 Agent、轮换凭据与删除；凭据来自环境变量的来源不能轮换。
+- Agent 操作权限列出当前 Workspace 的访问记录（不含 `system`），用户级记录显示为“其余所有 Agent”。每条以准入开关与六项操作的勾选编辑，改动立即保存；关闭准入时一并清空操作，因为禁用的记录不能带白名单。可以从已有 Profile 中选择或直接填写 Agent 标识，新增精确记录。
+- 修改被拒时以 toast 显示原因：登记冲突按 `reason` 换成可操作的提示，例如登记文件在运行中被手工修改过时提示重启后端。
+
+### 3.4 主配置表单
 
 主配置页面通过 `GET/POST /api/v1/config` 读取和原子写入 YAML，后端使用 Pydantic 重新校验，并替换 `system.config`。主配置接口不读写密钥：响应中的 `api_key` 只有打码值，保存时沿用当前密钥，写入的 YAML 不含 `api_key`；Provider 凭证由 Provider 页面管理。但“配置对象已替换”不等于所有已装配组件已经热重载；Qdrant 连接、模型服务和部分 runtime 仍需要重启。
 
@@ -108,7 +116,7 @@ Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建�
 - 页面展示的 Memory、Agent、Provider、Model 与 Config 必须能追溯到明确后端来源，mock 数据只在 debug 模式下出现；
 - 乐观更新失败时必须恢复或显著提示失配，不能让“界面消失”冒充“后端删除成功”；
 - Agent persona 与权限字段分离，权限以 runtime 校验为准；
-- API key 不在列表响应中返回明文，不把密钥写进受版本控制的配置或模型文件；
+- API key 与接入凭据不在列表响应中返回明文，不把密钥写进受版本控制的配置或模型文件；
 - 配置保存与配置生效是两个阶段，只有被重新装配或动态读取的组件才能宣称即时生效；
 - 设计稿中的 Pin、Memory Library 的 Archive、统计或状态切换，只有后端契约和失败语义同时落地后才可进入当前能力表；Topic 生命周期使用 `settle`，不在此处复用 `archive`。
 
@@ -121,5 +129,6 @@ Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建�
 | Settings | `hooks/useSettings.ts`、`components/settings/`、`services/configApi.ts` | `test_config.py` |
 | Provider Registry | `ProviderSettings.tsx`、`providerRegistryApi.ts` | `test_providers_router.py`、`test_provider_registry.py` |
 | Model Registry | `ModelRegistrySettings.tsx`、`modelRegistryApi.ts` | `test_models_router.py`、`test_model_registry.py` |
+| 接入与权限 | `AccessSettings.tsx`、`accessApi.ts`；冲突提示与请求路径由 `frontend/tests/access-api.test.mjs` 验证 | `tests/unit/server/routers/test_access.py`、`tests/unit/system/access/test_registry.py`、`tests/unit/workspace/capability/root/test_access.py` |
 
 配置文件、优先级和安全操作步骤见 [Help 配置指南](../help/configuration.md)。

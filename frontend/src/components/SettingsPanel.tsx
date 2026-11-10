@@ -1,15 +1,17 @@
-import { Settings as SettingsIcon, Cpu, Database, Network, Activity, Save, RefreshCw, Undo2, TerminalSquare, Search, Eye, Sparkles, Boxes, KeyRound } from 'lucide-react';
+import { Settings as SettingsIcon, Cpu, Database, Network, Activity, Save, RefreshCw, Undo2, TerminalSquare, Search, Eye, Sparkles, Boxes, KeyRound, ShieldCheck } from 'lucide-react';
 import { useSettings } from '../hooks/useSettings';
 import { useChatUiStore, useToastStore } from '@/stores';
 import { GeneralSettings } from './settings/GeneralSettings';
 import { ModelRegistrySettings } from './settings/ModelRegistrySettings';
 import { ProviderSettings } from './settings/ProviderSettings';
+import { AccessSettings } from './settings/AccessSettings';
 import { EngineSettings } from './settings/EngineSettings';
 
 const CATEGORIES = [
   { id: 'general', label: '通用设置', icon: SettingsIcon },
   { id: 'providers', label: '提供商凭证', icon: KeyRound },
   { id: 'models', label: '模型注册表', icon: Boxes },
+  { id: 'access', label: '接入与权限', icon: ShieldCheck },
   { id: 'engines', label: '内部引擎', icon: Cpu },
   { id: 'infrastructure', label: '基础设施', icon: Database },
   { id: 'gateway', label: '全局网关', icon: Network },
@@ -166,6 +168,7 @@ export default function Settings() {
             {activeCategory === 'general' && <GeneralSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {activeCategory === 'providers' && <ProviderSettings />}
             {activeCategory === 'models' && <ModelRegistrySettings />}
+            {activeCategory === 'access' && <AccessSettings />}
             {activeCategory === 'engines' && <EngineSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
             {UNALIGNED_CATEGORIES.has(activeCategory) && <UnalignedCategoryNotice />}
           </div>

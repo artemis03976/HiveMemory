@@ -29,8 +29,9 @@ class SystemPrincipalAuthenticator:
 
     - 接入未登记/禁用（不区分，避免泄漏配置）→ ``unknown_principal``；
     - adapter 不匹配 → ``adapter_mismatch``；
-    - 登记了凭据而未提供一致的凭据 → ``invalid_credential``；
+    - 外部来源未提供一致的凭据（含它没有可用凭据）→ ``invalid_credential``；
     - principal 身份解析规则不允许该用户 → ``actor_not_allowed_for_principal``；
+    - principal 身份解析规则不允许该 Agent → ``agent_not_allowed_for_principal``；
     - 不允许声明 ``system`` 的来源声明了它 → ``system_actor_not_allowed``。
 
     凭据错误与未登记分开报告，用户才能区分"没登记"与"凭据不对"；两者都
@@ -67,9 +68,9 @@ class SystemPrincipalAuthenticator:
                     "reason": "adapter_mismatch",
                 },
             )
-        if entry.credential_env is not None and not _credential_matches(
-            credential, entry.credential
-        ):
+        # 外部来源的 principal 只是请求中的声明，每次都以凭据证明；进程内来源
+        # 以自己的 principal 接入，不携带凭据。
+        if not entry.is_in_process and not _credential_matches(credential, entry.credential):
             raise AdmissionDeniedError(
                 message="调用来源的接入凭据无效",
                 details={
@@ -85,6 +86,14 @@ class SystemPrincipalAuthenticator:
                     "reason": "actor_not_allowed_for_principal",
                 },
             )
+        if entry.allowed_agent_ids is not None and actor.agent_id not in entry.allowed_agent_ids:
+            raise AdmissionDeniedError(
+                message="接入登记的身份解析规则不允许该 Agent",
+                details={
+                    "principal_id": principal.principal_id,
+                    "reason": "agent_not_allowed_for_principal",
+                },
+            )
         if actor.agent_id == SYSTEM_AGENT_ID and not entry.allow_system_actor:
             raise AdmissionDeniedError(
                 message="该调用来源不能声明保留的 system actor",
@@ -96,7 +105,7 @@ class SystemPrincipalAuthenticator:
 
 
 def _credential_matches(provided: str | None, expected: str | None) -> bool:
-    """以常量时间比较凭据；登记的凭据为空（环境变量未设置）时一律不匹配。"""
+    """以常量时间比较凭据；登记没有可用凭据时一律不匹配。"""
     if not provided or not expected:
         return False
     return hmac.compare_digest(provided.encode(), expected.encode())

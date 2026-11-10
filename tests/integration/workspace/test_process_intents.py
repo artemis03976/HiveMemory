@@ -16,7 +16,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError, ScopeRequiredError
+from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -449,7 +449,7 @@ async def test_submission_authorization_failure_preserves_dispatched_intents(mak
     status = chain.runtime.intents.get(
         submitted[0].pending_alias, chain.access.default_workspace
     ).status
-    assert error_code(events) == ScopeRequiredError.code
+    assert error_code(events) == OperationDeniedError.code
     assert (status, chain.patchouli.submissions) == (PendingAtomStatus.MATERIALIZING, [])
 
 

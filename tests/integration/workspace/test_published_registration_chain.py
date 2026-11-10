@@ -1,8 +1,9 @@
 """随仓库发布的访问登记文件驱动的集成链路测试。
 
-被测链路：``load_access_registration()`` 装载随仓库发布的两个登记文件
-（``configs/system_principals.yaml`` 与 ``configs/workspace_actors.yaml``），
-按组合根 ``SystemAssembler._build_access_control`` 的同一方式构造真实认证
+被测链路：读取随仓库发布的两份登记模板
+（``configs/system_principals.example.yaml`` 与 ``configs/workspace_actors.example.yaml``，
+本机生效的登记首次启动时从它们生成），以组合根 ``SystemAssembler._build_access_control``
+所用的 ``from_config`` 构造真实认证
 组合——``SystemPrincipalAuthenticator``（第 1 阶段）+
 ``WorkspaceAuthenticator``（第 2 阶段准入，产出工作 actor）+ ``WorkspaceOperationAuthorizer``
 （第 3 阶段授权，与认证一侧互不依赖）+ ``ActorAuthenticationGateway``（唯一对外认证入口）。
@@ -33,19 +34,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.config.access import load_access_registration
+from hivememory.config.access import SystemPrincipalsFile, WorkspaceActorsFile
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.access import CallerPrincipal, WorkspaceOperation
+from hivememory.core.access import CallerPrincipal
 from hivememory.core.constants import DEFAULT_USER_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
@@ -102,12 +105,20 @@ from hivememory.workspace.contracts import ResolveReferencesRequest, ResolveRunT
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
-from hivememory.workspace.registry import WorkspaceActorAccessRecord, WorkspaceActorAccessRegistry
+from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import PatchouliTurnStub, make_task_process_service
 from tests.helpers.workspace import make_workspace_read_view
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _template(name: str) -> dict:
+    """读取随仓库发布的登记模板；测试不读取本机生效的个人登记。"""
+    return yaml.safe_load((REPO_ROOT / "configs" / name).read_text(encoding="utf-8"))
+
 
 #: 发布 principals 登记中 server 的接入标识（adapter http）；测试断言它与
 #: ``HiveMemoryConfig`` 的 ``system.server_principal_id`` 对齐。
@@ -118,24 +129,13 @@ class _PublishedRegistration:
     """从发布登记文件装载的组合：真实注册表 + 认证与授权两侧。"""
 
     def __init__(self) -> None:
-        registration = load_access_registration()
-        # 与组合根 _build_access_control 相同的转换：接入登记经同一构造
-        # 读取凭据环境变量；operation 枚举值在装载期解析（未知值显式失败）。
-        self.system_registry = SystemActorAccessRegistry.from_config(registration.principals)
-        self.workspace_registry = WorkspaceActorAccessRegistry(
-            [
-                WorkspaceActorAccessRecord(
-                    owner_user_id=entry.owner_user_id,
-                    workspace_id=entry.workspace_id,
-                    user_id=entry.user_id,
-                    agent_id=entry.agent_id,
-                    enabled=entry.enabled,
-                    allowed_operations=frozenset(
-                        WorkspaceOperation(name) for name in entry.allowed_operations
-                    ),
-                )
-                for entry in registration.workspace_actors.workspace_actors
-            ]
+        # 与组合根 _build_access_control 相同的构造：接入登记经同一构造读取凭据
+        # 环境变量；operation 枚举值在装载期解析（未知值显式失败）。
+        self.system_registry = SystemActorAccessRegistry.from_config(
+            SystemPrincipalsFile.model_validate(_template("system_principals.example.yaml"))
+        )
+        self.workspace_registry = WorkspaceActorAccessRegistry.from_config(
+            WorkspaceActorsFile.model_validate(_template("workspace_actors.example.yaml"))
         )
         self.authenticator = WorkspaceAuthenticator(self.workspace_registry)
         self.authorizer = WorkspaceOperationAuthorizer(self.workspace_registry)

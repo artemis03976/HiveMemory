@@ -1,6 +1,8 @@
 """共享中立错误的公开入口；子系统专属错误由各自 contracts 提供。"""
 
 from .access import (
+    AccessRegistrationConflictError,
+    AccessRegistrationNotFoundError,
     AdmissionDeniedError,
     OperationDeniedError,
     ScopeRequiredError,
@@ -34,6 +36,8 @@ __all__ = [
     "WorkspaceMismatchError",
     "AdmissionDeniedError",
     "OperationDeniedError",
+    "AccessRegistrationNotFoundError",
+    "AccessRegistrationConflictError",
     "InvalidMemoryFieldError",
     "AssetNotFoundError",
     "AssetExpiredError",

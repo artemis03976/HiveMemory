@@ -14,11 +14,12 @@ from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
 from hivememory.server.error_handlers import APIError
 from hivememory.system import HiveMemorySystem
-from hivememory.system.access import HTTP_ADAPTER
+from hivememory.system.access import HTTP_ADAPTER, SystemActorAccessRegistry
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.workspace.authentication import ActorAuthenticationGateway
+from hivememory.workspace.capability.root.access import RootAccessService
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
 from hivememory.workspace.capability.root.memory import RootMemoryService
@@ -90,6 +91,16 @@ def get_root_agent_service() -> RootAgentProfileService:
 def get_root_session_service() -> RootSessionService:
     """从门面取得会话管理 root API。"""
     return get_system().root_session_service
+
+
+def get_root_access_service() -> RootAccessService:
+    """FastAPI Depends 注入 — 从门面获取 root 访问记录管理 API。"""
+    return get_system().root_access_service
+
+
+def get_principal_registry() -> SystemActorAccessRegistry:
+    """FastAPI Depends 注入 — 获取 System 接入注册表（外部来源的运行时管理）。"""
+    return get_system().principal_registry
 
 
 def get_root_topic_service() -> RootTopicService:

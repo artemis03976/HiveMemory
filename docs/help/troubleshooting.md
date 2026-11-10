@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # HiveMemory 故障排查
@@ -155,6 +155,8 @@ debug 模式的页面没有 mock 标识。验证后端能力时不要设置 `VIT
 ## 10. 外部 harness 插件：工具不出现、导入停止或被拒
 
 各插件的现象与处理见对应手册的排查一节：[接入 Claude Code](./claude-code-plugin.md#9-排查)、[接入 DeepSeek Harness](./deepseek-harness-plugin.md#8-排查)、[接入 Codex](./codex-plugin.md#9-排查)、[接入 pi](./pi-plugin.md#8-排查)。
+
+请求返回 403 `agent_not_allowed_for_principal`：harness 声明的 Agent 不在这个来源可声明的 Agent 中，通常是改了 `HIVEMEMORY_AGENT_ID`；在设置页的“接入与权限”中把这个 Agent 加入该来源。设置页的修改被拒并提示重启后端：登记文件在后端运行时被手工改过，重启装载之后再在页面上修改。
 
 管理接口返回 403 `system_actor_not_allowed` 与插件无关：自定义的 `system_principals.yaml` 没有为 server 的登记设置 `allow_system_actor: true`。
 

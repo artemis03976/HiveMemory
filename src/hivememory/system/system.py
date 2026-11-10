@@ -19,10 +19,12 @@ from hivememory.system.provider_registry import ProviderRegistry
 
 if TYPE_CHECKING:
     from hivememory.gateway import GatewaySystem
+    from hivememory.system.access import SystemActorAccessRegistry
     from hivememory.system.application.import_bus_service import ImportBusService
     from hivememory.system.application.readiness_service import SystemReadinessService
     from hivememory.workspace.authentication import ActorAuthenticationGateway
     from hivememory.workspace.capability.operations import WorkspaceOperationEntry
+    from hivememory.workspace.capability.root.access import RootAccessService
     from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
     from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
     from hivememory.workspace.capability.root.memory import RootMemoryService
@@ -49,6 +51,7 @@ class HiveMemorySystem:
         subsystems: _SubsystemBundle,
         services: _ServicesBundle,
         access_gateway: ActorAuthenticationGateway,
+        principal_registry: SystemActorAccessRegistry,
     ) -> None:
         self._config = config
 
@@ -77,6 +80,7 @@ class HiveMemorySystem:
         self._root_agent_service = services.root_agent
         self._root_topic_service = services.root_topic
         self._root_session_service = services.root_session
+        self._root_access_service = services.root_access
         self._readiness_service = services.readiness
         self._root_workspace_asset_service = services.root_workspace_assets
 
@@ -88,6 +92,8 @@ class HiveMemorySystem:
         # 认证，得到工作 actor。操作授权者无状态、不需要关闭，门面只持有
         # 网关以在停止时先关闭、拒绝新认证。
         self._access_gateway = access_gateway
+        # 接入登记属于 System：管理接口与提供商、模型接口一样直接读写注册表。
+        self._principal_registry = principal_registry
 
         self._started = False
         self._scheduler_stopped = False
@@ -394,6 +400,16 @@ class HiveMemorySystem:
     def root_session_service(self) -> RootSessionService:
         """会话管理 root API。"""
         return self._root_session_service
+
+    @property
+    def root_access_service(self) -> RootAccessService:
+        """root 访问记录管理 API（准入与 actor 操作白名单）。"""
+        return self._root_access_service
+
+    @property
+    def principal_registry(self) -> SystemActorAccessRegistry:
+        """System 接入注册表：外部来源的运行时登记、修改、凭据轮换与删除。"""
+        return self._principal_registry
 
     @property
     def root_topic_service(self) -> RootTopicService:
