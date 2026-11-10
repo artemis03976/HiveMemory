@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-10
 ---
 
 # 记忆生成
@@ -169,7 +169,7 @@ Mode A 的每条草稿与 Mode B 的草稿都按 MemoryCompiler 的 `DENSE_EMBED
 
 ### 4.1 合并任务
 
-Familiar 完成 N 的创建提交后，在 `MemoryGenerationResult` 中携带合并提名（`MergeFocus`：保留记忆 M 与被吸收记忆 N 的 ID；N 来自主动 WRITE 时另带这次写入的 `pending_alias` 与 `intent_id`），WRITE 的首次结算照常为 `CREATED`。Controller 在原任务成功并发布结算之后，以原任务的归属、发起者与话题提交一个 `MERGE` 来源的任务，提名放在 `GenerationRequest.merge_focus`。合并任务不持有写入意图的终态，任务标识一次性生成，失败或取消都不发布句柄事件。队列已停止或容量不足时只记录 warning，两条记忆都保留；shutdown drain 不等待合并任务，尚未执行的合并在关闭时丢失，结果同样是两条都保留。
+Familiar 完成 N 的创建提交后，在 `MemoryGenerationResult` 中携带合并提名（`MergeFocus`：保留记忆 M 与被吸收记忆 N 的 ID；N 来自主动 WRITE 时另带这次写入的 `pending_alias` 与 `intent_id`），WRITE 的首次结算照常为 `CREATED`。Controller 在原任务成功并发布结算之后，以原任务的归属、发起者与话题提交一个 `MERGE` 来源的任务，提名放在 `GenerationRequest.merge_focus`。合并任务不持有写入意图的终态，任务标识一次性生成，失败或取消都不发布句柄事件。队列已停止或容量不足时只记录 warning，两条记忆都保留；关闭时尚未执行的合并与其他生成任务一起保存，下次启动后执行（第 6.2 节）。
 
 Familiar 的合并路径：
 
@@ -190,7 +190,7 @@ Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前
 查重与合并本身不区分来源。只按相似度判断时，被动提取会从同一份材料里重新推导出 agent 已经写入的内容，判为相似后并入；合并按新旧定主次，较新的被动草稿成为骨架，把 agent 有意精简掉的风险清单、行号与未决问题带回记忆。同一轮里 agent 有意分开写的几条记忆，也会因相似度越过阈值而互相合并。证据与考虑过的做法见[已归档的收敛 Idea](../archive/ideas/generation-source-convergence.md)第 2、3 节。因此同一话题内，主动写入结算到的记忆优先：
 
 - **记录**：控制器在进程内按话题记录本话题主动写入结算到的正式记忆，即 WRITE、UPDATE 的结算目标，以及吸收了写入新建记忆的合并所保留的那条。带 settlement 的结果只来自主动写入链路，数据面返回后即记下。
-- **传递**：WRITE 与 SETTLE 执行时，控制器把该话题当前的记录放进生成请求（`GenerationRequest.topic_write_memory_ids`）；SETTLE 取出后清除这个话题的记录，话题结算之后不再接收写入。读取发生在执行时而不是接纳时：同一话题先后派发的写入，前一条完成后，后一条执行时才能看到它。
+- **传递**：WRITE 与 SETTLE 执行时，控制器把该话题当前的记录放进生成请求（`GenerationRequest.topic_write_memory_ids`）；SETTLE 执行成功后清除这个话题的记录，话题结算之后不再接收写入；关闭时保存的 SETTLE 带上这份记录（第 6.2 节）。读取发生在执行时而不是接纳时：同一话题先后派发的写入，前一条完成后，后一条执行时才能看到它。
 - **Mode A**：草稿查重为 IDENTICAL 或 SIMILAR、且命中记录中的记忆时丢弃，不新建、不触碰、不提名合并，只记一行日志。一段话题的草稿全部被丢弃时任务照常成功，没有新记忆，来源 InteractionArtifact 照常保存。被动提取照常运行，写入没有覆盖的事实照常进入记忆。
 - **Mode B**：SIMILAR 命中记录中的记忆时照常新建、不提名合并；IDENTICAL 照常只触碰，同一轮写了两次相同的内容时触碰仍然正确。
 - **不变的部分**：跨话题的查重、合并提名与合并语义不变；Mode C 不查重，不受影响；结算事件、任务快照与任务 API 不变。
@@ -243,7 +243,7 @@ spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 re
 PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
 ```
 
-私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.1"`，`spec` 独立编码归属与发起者，只注册当前版本。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`；版本化载荷用于进程内冻结和一致性校验，不代表已有持久化队列或旧任务迁移能力。
+私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.1"`，`spec` 独立编码归属与发起者，只注册当前版本。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`，队列本身不持久化；版本化载荷用于进程内冻结和一致性校验，也是关闭时保存工作的格式（第 6.2 节）。保存的载荷在下次启动时由另一个进程解码并重新编码比对，因此载荷必须与进程无关：`GenerationRequest.topic_write_memory_ids` 按排序输出。改动信封格式时，同一改动必须让新版本读得回上一版本保存的工作，否则这些工作在升级后进入 rejected 文件。
 
 `WorkRecord` 是执行状态的唯一真相源，Queue 的 `TaskHandle` 提供 snapshot/wait/cancel；
 TaskController 只在查询时映射非终态快照，并在 work 终止后执行一次 settlement 与终态事件。
@@ -259,7 +259,7 @@ Controller。由此，Engine 计算语义与 Patchouli 已持久化事实保持�
 控制面提供 list/get/cancel/wait/wait_many/wait_all。`wait_task()` 直接返回
 `MemoryGenerationTask | None`，`wait_many()` 按请求顺序返回快照或 `None` 的列表，不再复制一层
 WaitResult/WaitSummary。等待使用 `asyncio.shield`，超时返回当前 `PENDING/RUNNING` 快照，不会接管或
-自动取消后台任务；仅 shutdown drain 会把超时窗口后仍未终结的快照汇总为观测计数，并显式 cancel 那批任务。
+自动取消后台任务。
 
 任务状态通过 RuntimeEvent 发布。TaskController 只决定生命周期事件的发生时机，`MemoryTaskEventEmitter` 集中选择 `memory.task.*` 类型并组装稳定 payload；通用队列仍独立发布 `work.*` 基础设施事件，两者不互相替代。主动任务完成后，settlement 会通过 PatchouliBridge 转发为全局 PendingAtom event，由 workspace registry 更新登记终态；发布失败不会回滚已持久化记忆，Controller 会 best-effort 发布 pending failure。PendingAtom settlement、failed、cancelled 仍属于功能事件并继续留在 TaskController；当前没有事件未送达补偿或跨重启恢复，不能保证 registry 在通知丢失后自行补齐终态。
 
@@ -283,6 +283,35 @@ PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中�
 超窗是提供商失败的子类，先于它判断。原因码写入工作记录，由 `work.failed` 投影；Controller 发布 `memory.task.failed` 时 `reason` 取工作记录中的原因码，载荷的 `error_class` 为异常类名，取消终态的 `reason` 仍是取消原因。payload 解码失败与分类器自身出错不经过这张表，原因分别为 `invalid_work_payload` 与 `failure_classifier_error`。
 
 同一次失败只在分类处记一行 error 日志：`work_id`（`memory_generation:<task_id>`）、原因码与异常类名；领域错误另记 `details`，未预期的异常带堆栈，提供商失败与超时不带堆栈（提取器重试前已以 warning 记录第一次失败的原因）。日志不带话题与来源，它们在同一任务的 `memory.task.failed` 中，按 `task_id` 在运行时事件记录文件里对应（[可观测性](../components/observability.md#51-事件记录文件)第 5.1 节）。任务快照与任务 API 不变，公开 `error` 仍是固定说明；写入意图的失败结算不带原因。分类与日志由生成队列的单元测试覆盖，原因码到 `work.failed` 与 `memory.task.failed` 的传递由控制器的单元测试覆盖。
+
+### 6.2 提交阶段、关闭时保存与启动时继续
+
+Familiar 把一次任务分成两段：
+
+- **提交之前**：为结算保存来源 InteractionArtifact，调用模型提取、修订或合并，查重；合并任务另有写回之前的重读与校验。这一段除了交互 Artifact 不写任何东西。
+- **提交**：写版本记录、upsert 中期存储、提升附件；合并任务是写回保留记忆、删除被吸收的记忆。只有本地写入，一般在秒级。
+
+开始提交之前，Familiar 同步调用执行路由 `generation.execute_spec` 的 `on_commit_started`，控制器把它记在任务句柄上。提交这一段以 `join_shielded` 执行，期间收到的取消等写完再传出，因此在提交之前被中止的任务可以从头重跑，不会留下写了一半的记忆。用户取消或 lane 时限恰好落在提交阶段时，任务写完后以取消或超时结束：写入意图报告取消或失败，记忆已经落库；写入本身出错时，错误随取消一起丢弃。
+
+后端关闭时不等待模型调用，Patchouli 依次：
+
+1. 生成队列停止取新工作，入队照常接受；
+2. 结算全部驻留话题，SETTLE 任务只入队、不执行（[感知与短期话题](./perception.md#7-维护与关闭)）；
+3. 在跑的任务中，还没开始提交的立即取消，按未执行保存；已开始提交的写完再结束，结算与合并提名照常完成，提名的合并入队后一并保存。取消与开始提交之间没有原子性，因此以是否开始提交、而不是是否被取消决定要不要保存，不会重复生成；
+4. 队列中全部未执行的工作按入队顺序写进 `patchouli.shutdown.pending_work_file`（默认 `.hivememory/pending_generation.json`，相对路径按工作目录解析），先写临时文件再原子替换，没有工作时不写。每项是工作信封的 `kind`、`schema_version` 与规范载荷；SETTLE 带上本话题主动写入的记录（第 4.2 节）；
+5. 被保存的任务在本进程内以取消结束，原因 `shutdown_persisted`；其中的 WRITE、UPDATE 不发布写入意图的取消事件，它们在下次启动后还会结算。
+
+文件没写出（例如磁盘错误）时记录 `saved_work_write_failed`，这些工作随进程结束丢失。
+
+下次启动时，Patchouli 在生成队列启动之后读回保存文件：
+
+- 先删除文件，再逐项经控制器重新接纳，与新任务走同一条路；只入队，执行在后台进行，不阻塞启动。接纳过程中崩溃会丢失这些工作，但不会在下一次启动重复生成。
+- 整个文件无法解析或格式版本不认识时，文件改名为同目录的 `pending_generation.rejected-<UTC 时间>.json`；单项的 `kind` 或 `schema_version` 不认识、载荷不规范或接纳被拒绝时，这些项写进同样命名的文件，其余照常接纳。两种情况都记录错误日志并发布事件，启动继续。
+- 读回的工作以新任务出现，主动写入的任务 ID 沿用 `active:{intent_id}`。写入意图登记不跨重启，旧句柄读不到，任务生成的记忆照常落库（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。
+
+观测：`patchouli.shutdown_drain` 的完成事件报告按来源分的保存数、等待提交结束的任务数与文件是否写出，没写出时状态为 `completed_without_saved_work`、级别 error。读回作为一次 `patchouli.restore_saved_generation` 操作发布开始与完成事件，报告读回、重新接纳与写进 rejected 文件的数量；有内容进入 rejected 文件时状态为 `completed_with_rejections`、级别 error。
+
+停止取新工作由工作队列的单元测试覆盖，提交阶段不被取消打断由 Familiar 的单元测试覆盖，保存、读回与 rejected 文件由控制器的单元测试覆盖；“关闭时结算产生的任务不调用提取、新进程读回后落库”由[生成流水线集成测试](../../tests/integration/patchouli/test_memory_generation_pipeline.py)验证。
 
 ## 7. 实时派发与交互提交
 
@@ -316,10 +345,10 @@ Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动
 - 一段话题的全部草稿共用一次调用的输出上限：草稿多、正文长的话题被截断时任务失败，原文仍在来源 InteractionArtifact 中，但没有记忆引用它；
 - 结果未知或结算事件丢失时，句柄可能长期保持 MATERIALIZING；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
 - UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
-- memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
+- 正常关闭时未执行的工作保存到磁盘、下次启动后继续（第 6.2 节），崩溃或强制结束时随进程丢失；typed result 与终态快照只存在于当前进程，旧任务 ID 重启后查不到；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Controller 的 admission 持有同一把锁串行执行，并发提交的意图按取得锁的顺序入队；
-- 提取、修订与合并的 LLM 调用没有独立超时，只受生成 lane 的时限（默认 300 秒，到期以 `memory_generation_timed_out` 失败）、取消与 shutdown drain 约束；
+- 提取、修订与合并的 LLM 调用没有独立超时，只受生成 lane 的时限（默认 300 秒，到期以 `memory_generation_timed_out` 失败）与取消约束；
 - 后台抽取与 chat 共用提供商配额，限流表现为提供商失败：Mode A 与合并任务按任务失败收尾（合并失败时两条记忆都保留），Mode B/C 使用 fallback；当前没有生成侧的并发控制；
 - Mode A/B 去重仍只取 dense top-1；检索调用链独立携带归属与发起者，Memory store/adapter 先强制 Workspace ownership hard filter，再重验 actor policy；其他去重策略限制仍待收敛；
 - 查重只按 dense top-1 余弦与固定阈值判断，分不开同一工作与同项目的其他记忆：误判的两条无关记忆也会被合并，只能经版本记录与人工编辑纠正；判定信号的证据与后续见[查重决策信号 Todo](../todo/generation-dedup-decision-signal.md)；
@@ -327,11 +356,11 @@ Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动
 - 新建到合并完成之间，检索与前端同时看到 M 与 N；
 - 改指事件与结算事件属于同一可靠性等级，没有补偿：丢失时句柄仍指向已删除的 N，读取得到不带原子的重定向；
 - 两个合并同时以同一条 M 为保留记忆时（同一次结算的两条草稿命中同一条 M，或两个话题同时命中；生成队列并发为 2），后写回的合并以 `merge_aborted.version_changed` 失败，留下重复；真实样本见[合并版本冲突 Todo](../todo/merge-version-conflict.md)；
-- 本话题主动写入的记录只在进程内，进程崩溃时丢失，之后的结算退回不区分来源的查重；话题未经结算即被删除，或结算开始之后才完成的同话题写入，留下的记录保留到进程结束；
+- 本话题主动写入的记录只在进程内（正常关闭时随保存的结算任务写盘），进程崩溃时丢失，之后的结算退回不区分来源的查重；话题未经结算即被删除，或结算开始之后才完成的同话题写入，留下的记录保留到进程结束；
 - 生成 lane 不按话题排序：结算开始时仍在执行的同话题写入不在记录中，它与被动草稿之间照旧按查重合并；
 - 复述写入但相似度不高于下限的被动草稿照常新建；话题路由错误时（[跨会话话题路由 Todo](../todo/cross-conversation-topic-placement.md)），另一段对话里与这些写入相似的草稿也会被丢弃；被动草稿里比主动写入更细的内容随草稿一起丢弃；
 - 生成材料只截断工具结果，单个轮次没有总量上限，生成也不分片读取：工作视图保留的 blocks 很大时（例如单轮上百次工具调用），结算的提取可能超出模型窗口，任务以 `model_context_window_exceeded` 失败（超窗不重试），原文仍在来源 InteractionArtifact 中但没有记忆引用；
-- Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
+- Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；关闭时在提交之前被中止的结算任务重跑时再保存一份来源 InteractionArtifact，前一份没有记忆引用；
 - memory 版本 Artifact 失败会阻断该次内容提交（无历史不成功）；provenance 写入与 MemoryAtom 发布仍不是原子事务，canonical 失败会留下孤立 Artifact。
 
 未来若引入 durable queue，首先要保持私有工作信封 codec、`WorkRecord` 单一状态源和 settlement 语义不变，避免基础设施升级重新把控制面塞回 GenerationEngine。

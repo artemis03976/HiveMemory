@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # Archived Plans
@@ -19,6 +19,7 @@ last_reviewed: 2026-11-09
 
 ## 版本之外
 
+- [退出时保存待生成的记忆工作](./shutdown-pending-generation-persistence.md)：2026-11-10，PR #TBD；[Patchouli 生成](../../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)、[Patchouli](../../patchouli/README.md#42-维护任务与关闭)
 - [主配置的个人覆盖与热更新](./config-overrides-and-hot-reload.md)：2026-11-09，PR #210；[System 配置](../../system/configuration.md#21-个人覆盖与保存)、[配置指南](../../help/configuration.md#5-主配置与生效边界)
 - [访问登记的运行时管理](./runtime-access-registration.md)：2026-11-09，PR #209；[认证与访问登记](../../workspace/authentication.md#2-两类访问登记)、[管理页面](../../frontend/management-views.md#33-接入与权限)
 - [Claude Code 唤醒后的续作导入](./claude-code-wake-turns.md)：2026-11-08，PR #203；[Import Bus](../../system/import-bus.md#83-轮次的切分与映射)、[Gateway 分析](../../gateway/analysis.md#3-topic-router只做选择)

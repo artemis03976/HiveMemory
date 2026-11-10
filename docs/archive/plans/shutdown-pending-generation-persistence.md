@@ -1,6 +1,9 @@
 ---
 title: 退出时保存待生成的记忆工作
-status: active
+status: archived
+archived_at: 2026-11-10
+implemented_by: PR #TBD
+superseded_by: docs/patchouli/generation.md
 owner: patchouli
 target: 版本之外的工作（v1.0 范围内的桌面客户端，候选清单 D-03 跨重启状态的第一步）
 scope: shutdown-saves-unfinished-memory-generation-work-instead-of-running-it-and-resubmits-it-after-next-start
@@ -29,7 +32,7 @@ related_docs:
 
 # 退出时保存待生成的记忆工作
 
-> **状态**：Active（2026-11-10 建立，同日在分支 `feat/desktop-prototype` 实施，实施记录见第 10 节；手动验收与当前文档更新尚未进行）。方向由 owner 于 2026-11-10 决定，见第 1.1 节；第 4 节的具体做法是候选设计，不是 owner 决定，可在评审时调整。对应桌面客户端（[ROADMAP](../ROADMAP.md) 第 5.1 节）中跨重启状态的第一步，不依赖桌面计划，`ps1 serve` 的 Ctrl+C 退出同样适用。不绑定版本。
+> **状态**：Archived（2026-11-10，已实施，实施记录见第 10 节）。当前事实见[记忆生成](../../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)第 6.2 节与[Patchouli](../../patchouli/README.md#42-维护任务与关闭)第 4.2 节。以下为实施时的计划原文，链接已按归档位置改正。方向由 owner 于 2026-11-10 决定，见第 1.1 节；第 4 节的做法是当时的候选设计，按原样落地。对应桌面客户端（[ROADMAP](../../ROADMAP.md) 第 5.1 节）中跨重启状态的第一步。不绑定版本。
 
 ## 1. 背景和问题
 
@@ -50,8 +53,8 @@ related_docs:
 
 已有的基础：
 
-- 结算已经把话题的全部交互记录与折叠记录冻结进任务规范，任务进入队列后不再依赖话题本身（[感知与短期话题](../patchouli/perception.md#7-维护与关闭)）。
-- 生成队列的工作信封（`patchouli.memory_generation`，`schema_version` 1.1）把完整的任务规范编码为规范 JSON，解码时拒绝缺字段、多字段与非规范的载荷（[记忆生成](../patchouli/generation.md)）。
+- 结算已经把话题的全部交互记录与折叠记录冻结进任务规范，任务进入队列后不再依赖话题本身（[感知与短期话题](../../patchouli/perception.md#7-维护与关闭)）。
+- 生成队列的工作信封（`patchouli.memory_generation`，`schema_version` 1.1）把完整的任务规范编码为规范 JSON，解码时拒绝缺字段、多字段与非规范的载荷（[记忆生成](../../patchouli/generation.md)）。
 - 队列的存储经 `WorkStorePort`，目前只有进程内实现；版本化载荷只用于进程内冻结与一致性校验。
 
 ### 1.1 owner 决定（2026-11-10）
@@ -69,8 +72,8 @@ related_docs:
 
 ### 2.2 非目标
 
-- **崩溃、强制结束进程与断电**：驻留话题与排队中的工作仍只在内存中，照旧丢失。随写随存属于 SQLite WorkStore（[恢复治理](../governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)第 4.6 节），不在本计划。
-- **写入句柄跨重启**：写入意图登记仍只在内存中，重启后旧句柄读不到，这与现在相同；恢复的任务生成的记忆照常落库，可以检索（[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)）。
+- **崩溃、强制结束进程与断电**：驻留话题与排队中的工作仍只在内存中，照旧丢失。随写随存属于 SQLite WorkStore（[恢复治理](../../governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)第 4.6 节），不在本计划。
+- **写入句柄跨重启**：写入意图登记仍只在内存中，重启后旧句柄读不到，这与现在相同；恢复的任务生成的记忆照常落库，可以检索（[写入意图后续方向 Idea](../../ideas/pending-intent-migration.md)）。
 - **话题跨重启继续积累**：退出时仍然结算话题，不保存驻留话题本身。
 - **任务记录跨重启**：重启后旧的任务 ID 查不到，恢复的工作以新任务出现（主动写入的任务 ID 沿用 `active:{intent_id}`）。
 - **其他关闭等待**：任务进程（最多 10 秒）、Import Bus 的在途导入与交互提交队列的排空不变。
@@ -145,7 +148,7 @@ Patchouli 停止时：
 
 - **关闭**：`patchouli.shutdown_drain` 的完成事件与日志汇总报告：按来源分的保存数、等待提交结束的任务数、保存文件是否写出；不再报告超时取消数。
 - **启动**：发布一次恢复事件，报告读回数、重新接纳数与写进 rejected 文件的数；失败带稳定原因码。
-- 事件与原因码的命名遵循[日志与运行时事件](../governance/observability/logs-and-events.md)第 2 节。
+- 事件与原因码的命名遵循[日志与运行时事件](../../governance/observability/logs-and-events.md)第 2 节。
 
 ## 5. 受影响的系统、契约与数据
 
@@ -212,22 +215,22 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 
 ## 9. 完成时必须更新的当前文档
 
-- [Patchouli](../patchouli/README.md)：第 4.2 节关闭顺序；当前限制中“短期话题关闭时尽力结算”“生成任务进程内”两条。
-- [感知与短期话题](../patchouli/perception.md)：第 7 节关闭。
-- [记忆生成](../patchouli/generation.md)：
+- [Patchouli](../../patchouli/README.md)：第 4.2 节关闭顺序；当前限制中“短期话题关闭时尽力结算”“生成任务进程内”两条。
+- [感知与短期话题](../../patchouli/perception.md)：第 7 节关闭。
+- [记忆生成](../../patchouli/generation.md)：
   - 合并任务在关闭时丢失的说明；
   - 工作信封的版本化载荷用途；
   - 关闭时取消任务的说明；
   - 当前限制中进程内工作与本话题主动写入记录两条。
-- [运行时机制](../components/runtime-and-bus.md)：第 3.5 节“Backpressure、取消与关闭”，停止取新工作。
-- [System 组合根与生命周期](../system/composition.md)：关闭顺序中 Patchouli 的部分。
-- [安装与启动](../help/setup.md)：停止后端的说明。
-- [恢复治理](../governance/reliability/durability-and-recovery.md)：第 1 节表中“Active topic”与“Memory generation task”两行。
-- 收尾时：本计划归档，[ROADMAP](../ROADMAP.md) 第 5.1 节与 [Plans 导航](./README.md)同步。
+- [运行时机制](../../components/runtime-and-bus.md)：第 3.5 节“Backpressure、取消与关闭”，停止取新工作。
+- [System 组合根与生命周期](../../system/composition.md)：关闭顺序中 Patchouli 的部分。
+- [安装与启动](../../help/setup.md)：停止后端的说明。
+- [恢复治理](../../governance/reliability/durability-and-recovery.md)：第 1 节表中“Active topic”与“Memory generation task”两行。
+- 收尾时：本计划归档，[ROADMAP](../../ROADMAP.md) 第 5.1 节与 [Plans 导航](../../plans/README.md)同步。
 
 ## 10. 实施记录
 
-2026-11-10 在分支 `feat/desktop-prototype` 实施，第 4 节的设计按原样落地。与计划不同，或计划没有写到的地方：
+2026-11-10 实施，在分支 `feat/shutdown-saves-pending-generation` 以 PR #TBD 合并，第 4 节的设计按原样落地。与计划不同，或计划没有写到的地方：
 
 - **进入提交的登记方式**：
   - 本地路由 `generation.execute_spec` 增加关键字参数 `on_commit_started`，数据面开始写入之前同步调用它，控制器记在任务句柄上（`commit_started`）。
@@ -249,11 +252,8 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 
 验证：
 
-- 后端单元与集成测试（不含 `live_llm`、`e2e`、`slow`）3339 通过、9 跳过，覆盖率 94.90%；
+- 后端单元与集成测试（不含 `live_llm`、`e2e`、`slow`）3342 通过、1 跳过，覆盖率 94.89%；
 - `ruff check .`、`black --check .`、`mypy` 通过；
 - 测试运行后仓库的 `.hivememory/` 中没有保存文件。
 
-尚未完成：
-
-- 第 7 节的手动验收：`ps1 serve` 下按 Ctrl+C 退出、再次启动后记忆在后台生成，以及桌面端从托盘退出，需要以本分支启动后端，由 owner 进行；
-- 第 9 节当前文档的更新，留到收尾。
+收尾时第 9 节列出的当前文档已经更新。第 7 节的手动验收（`ps1 serve` 下按 Ctrl+C 退出、再次启动后记忆在后台生成，以及桌面端从托盘退出）由 owner 在日常使用中进行，不阻塞归档。
