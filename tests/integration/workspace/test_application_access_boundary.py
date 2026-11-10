@@ -235,7 +235,7 @@ async def wired():
     )
     local_bus.register(
         PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
-        AsyncMock(side_effect=lambda spec: _settlement_results(spec.pending_alias)),
+        AsyncMock(side_effect=lambda spec, **_: _settlement_results(spec.pending_alias)),
     )
     local_bus.register(
         PatchouliLocalRoutes.TOPIC_GET,

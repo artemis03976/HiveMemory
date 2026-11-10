@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from hivememory.core.contracts.route import route
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from typing import Any
     from uuid import UUID
 
@@ -176,8 +176,13 @@ class PatchouliLocalRoutes:
     @route("generation.execute_spec")
     async def GENERATION_EXECUTE_SPEC(
         spec: MemoryGenerationTaskSpec,
+        *,
+        on_commit_started: Callable[[], None],
     ) -> list[MemoryGenerationResult]:
-        """执行统一生成任务规范，只返回结果不发布事件。"""
+        """执行统一生成任务规范，只返回结果不发布事件。
+
+        开始写入记忆之前同步调用 ``on_commit_started``；此后的写入不被取消打断。
+        """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory_task.submit_generation")

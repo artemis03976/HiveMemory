@@ -112,13 +112,8 @@ class WorkQueueSupervisor:
         task.cancel()
         return True
 
-    async def stop(self) -> WorkQueueShutdownSummary:
-        async with self._stop_lock:
-            return await self._stop_once()
-
-    async def _stop_once(self) -> WorkQueueShutdownSummary:
-        if self._last_summary is not None:
-            return replace(self._last_summary, already_stopped=True)
+    async def stop_dispatch(self) -> None:
+        """停止各 lane 取新工作；已在执行的工作照常继续，排队的工作留在 store 中。"""
 
         self._stopping = True
         dispatchers = [lane.dispatcher for lane in self._lanes.values() if lane.dispatcher]
@@ -127,6 +122,15 @@ class WorkQueueSupervisor:
         if dispatchers:
             await asyncio.gather(*dispatchers, return_exceptions=True)
 
+    async def stop(self) -> WorkQueueShutdownSummary:
+        async with self._stop_lock:
+            return await self._stop_once()
+
+    async def _stop_once(self) -> WorkQueueShutdownSummary:
+        if self._last_summary is not None:
+            return replace(self._last_summary, already_stopped=True)
+
+        await self.stop_dispatch()
         summaries = await asyncio.gather(*(self._drain_lane(lane) for lane in self._lanes.values()))
         self._started = False
         self._last_summary = WorkQueueShutdownSummary(lanes=tuple(summaries))

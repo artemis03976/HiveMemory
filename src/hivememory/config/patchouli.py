@@ -389,7 +389,12 @@ class ArtifactConfig(BaseModel):
 
 
 class PatchouliShutdownConfig(BaseModel):
-    generation_wait_timeout_seconds: float = Field(default=30.0, ge=0)
+    pending_work_file: str = Field(
+        default=".hivememory/pending_generation.json",
+        description=(
+            "关闭时保存还没执行的记忆生成工作的文件，下次启动时读回；相对路径按工作目录解析"
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 

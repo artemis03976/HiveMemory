@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
 from hivememory.components.events.bus import NullRuntimeEventSink
@@ -44,14 +45,19 @@ from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
-from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTaskStatus
+from hivememory.patchouli.control.memory_generation.saved_work import (
+    RestoredWorkReport,
+    SavedWorkReport,
+)
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
 from hivememory.patchouli.runtime.shutdown_drain import (
-    build_shutdown_generation_summary,
+    restore_completed_severity,
+    restore_completed_status,
     shutdown_drain_completed_severity,
     shutdown_drain_completed_status,
+    summarize_restore_result,
     summarize_shutdown_drain_failure,
     summarize_shutdown_drain_result,
 )
@@ -255,9 +261,7 @@ class PatchouliRuntime:
         return unloaded
 
     async def shutdown_drain(self) -> dict[str, Any]:
-        """
-        服务关闭前结算并驱逐活跃话题，再等待后台记忆生成任务完成。
-        """
+        """服务关闭前结算全部活跃话题，把还没执行的记忆生成工作保存到磁盘。"""
         observer = RuntimeOperationObserver(
             self._runtime_events,
             subsystem="patchouli",
@@ -278,7 +282,6 @@ class PatchouliRuntime:
     async def _run_shutdown_drain(self) -> dict[str, Any]:
         if self._shutdown_drain_started:
             logger.info("shutdown drain 已执行，跳过重复调用")
-            generation_summary = build_shutdown_generation_summary([])
             return {
                 "success": True,
                 "perception": {
@@ -286,47 +289,63 @@ class PatchouliRuntime:
                     "generation_skipped_topic_ids": [],
                     "resident_block_count": 0,
                 },
-                "generation": generation_summary,
+                "generation": SavedWorkReport(),
                 "reentrant": True,
             }
 
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
 
+        # 先停止取新工作，结算产生的任务只入队、不执行，随后连同排队中的工作一起保存，
+        # 下次启动后继续：退出不等待提取与合并的模型调用。
+        await self._task_controller.stop_dispatch()
         perception_result = await self.perception_familiar.flush_all_for_shutdown()
-        generation_tasks = await self._task_controller.wait_all(
-            timeout=(self._patchouli_config.shutdown.generation_wait_timeout_seconds),
-            include_merges=False,
-        )
-        timed_out_task_ids = [
-            task.task_id
-            for task in generation_tasks
-            if task.status
-            in {
-                MemoryGenerationTaskStatus.PENDING,
-                MemoryGenerationTaskStatus.RUNNING,
-            }
-        ]
-        generation_summary = build_shutdown_generation_summary(generation_tasks)
-        cancelled_after_timeout = 0
-        if timed_out_task_ids:
-            cancelled_after_timeout = await self._task_controller.cancel_many(
-                timed_out_task_ids,
-                reason="shutdown_timeout",
-            )
+        saved = await self._task_controller.save_unfinished(self.saved_generation_path)
         result = {
-            "success": generation_summary["timed_out"] == 0,
+            "success": saved.saved == 0 or saved.file_written,
             "perception": perception_result,
-            "generation": generation_summary,
-            "generation_cancelled_after_timeout": cancelled_after_timeout,
+            "generation": saved,
             "reentrant": False,
         }
         logger.info(
-            "shutdown drain 完成: observer_payloads=0, settled_topics=%s, generation_timed_out=%s",
+            "shutdown drain 完成: settled_topics=%d, saved_generation=%d, "
+            "waited_for_commit=%d, saved_file_written=%s",
             len(perception_result.settled_topic_ids),
-            generation_summary["timed_out"],
+            saved.saved,
+            saved.waited_for_commit,
+            saved.file_written,
         )
         return result
+
+    @property
+    def saved_generation_path(self) -> Path:
+        """关闭时保存未执行生成工作的文件；相对路径按工作目录（数据根）解析。"""
+        return Path(self._patchouli_config.shutdown.pending_work_file)
+
+    async def restore_saved_generation(self) -> RestoredWorkReport:
+        """读回上次关闭时保存的生成工作并重新接纳；在生成队列启动之后调用。"""
+        observer = RuntimeOperationObserver(
+            self._runtime_events,
+            subsystem="patchouli",
+            component="patchouli_runtime",
+            operation_key="patchouli.restore_saved_generation",
+            operation_name="restore_saved_generation",
+            operation_kind="startup",
+        )
+        report: RestoredWorkReport = await observer.observe(
+            lambda: self._task_controller.restore_saved(self.saved_generation_path),
+            summarize=summarize_restore_result,
+            completed_status=restore_completed_status,
+            completed_severity=restore_completed_severity,
+        )
+        if report.read:
+            logger.info(
+                "已读回上次关闭时保存的生成工作: read=%d, resubmitted=%d, rejected=%d",
+                report.read,
+                report.resubmitted,
+                report.rejected,
+            )
+        return report
 
     # ========== 基础设施初始化 ==========
 

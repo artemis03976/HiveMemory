@@ -22,7 +22,7 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 ## 未绑定版本
 
-- [退出时保存待生成的记忆工作](./shutdown-pending-generation-persistence.md)：Planned（2026-11-10）。
+- [退出时保存待生成的记忆工作](./shutdown-pending-generation-persistence.md)：Active（2026-11-10）。
 
 前端 UI 优化与其余空入口接线另写计划。身份与访问主线是版本之外的工作，后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
 

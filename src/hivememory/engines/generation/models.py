@@ -14,7 +14,7 @@ HiveMemory Generation 模块数据模型
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
@@ -273,6 +273,12 @@ class GenerationRequest(BaseModel):
             "不提名合并"
         ),
     )
+
+    @field_serializer("topic_write_memory_ids")
+    def _serialize_topic_write_memory_ids(self, ids: frozenset[str]) -> list[str]:
+        # 排序输出：生成任务的载荷要求规范编码，关闭时保存、下次启动读回的载荷
+        # 在另一个进程中重新编码时必须得到同样的顺序。
+        return sorted(ids)
 
     @property
     def is_write(self) -> bool:

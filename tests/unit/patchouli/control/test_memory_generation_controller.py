@@ -1,6 +1,8 @@
 """生成控制器的接纳、终态发布与后续合并调度测试。"""
 
 import asyncio
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -20,6 +22,7 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmissionStatus
 from hivememory.patchouli.control.memory_generation.controller import (
+    SHUTDOWN_PERSISTED_REASON,
     MemoryGenerationTaskController,
 )
 from hivememory.patchouli.control.memory_generation.models import (
@@ -29,6 +32,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
 )
+from hivememory.patchouli.control.memory_generation.saved_work import write_saved_work
 from tests.helpers.memory import make_memory_identity_scope
 
 
@@ -93,7 +97,7 @@ class TestMemoryGenerationTaskController:
         blocker = asyncio.Event()
         recorder = RecordingRuntimeEventSink()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             await blocker.wait()
             return []
 
@@ -202,7 +206,7 @@ class TestMemoryGenerationTaskController:
         blocker = asyncio.Event()
         bus = Mock()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             assert route == PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC
             await blocker.wait()
             return []
@@ -366,7 +370,7 @@ class TestMemoryGenerationTaskController:
         }
         seen = []
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             seen.append((spec.label, spec.request.topic_write_memory_ids))
             return replies.get(spec.label, [])
 
@@ -417,7 +421,7 @@ class TestMemoryGenerationTaskController:
         started = asyncio.Event()
         released = asyncio.Event()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             started.set()
             try:
                 await asyncio.Event().wait()
@@ -473,7 +477,7 @@ class TestMemoryGenerationTaskController:
         started = asyncio.Event()
         released = asyncio.Event()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             started.set()
             try:
                 await asyncio.Event().wait()
@@ -529,7 +533,7 @@ class TestMemoryGenerationTaskController:
         started = asyncio.Event()
         release = asyncio.Event()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             started.set()
             await release.wait()
             return []
@@ -561,7 +565,7 @@ class TestMemoryGenerationTaskController:
     async def test_wait_task_waits_for_background_completion(self):
         blocker = asyncio.Event()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             await blocker.wait()
             return []
 
@@ -586,7 +590,7 @@ class TestMemoryGenerationTaskController:
     async def test_wait_task_timeout_does_not_cancel_background_task(self):
         blocker = asyncio.Event()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             await blocker.wait()
             return []
 
@@ -623,7 +627,7 @@ class TestMemoryGenerationTaskController:
     async def test_wait_many_returns_ordered_snapshots_and_missing_entries(self):
         blocker = asyncio.Event()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             await blocker.wait()
             return []
 
@@ -655,7 +659,7 @@ class TestMemoryGenerationTaskController:
     async def test_wait_all_waits_for_current_running_tasks(self):
         blocker = asyncio.Event()
 
-        async def request(route, spec):
+        async def request(route, spec, on_commit_started):
             await blocker.wait()
             return []
 
@@ -715,7 +719,7 @@ async def test_successful_nomination_settles_first_then_submits_and_redirects():
         }
     )
 
-    async def execute(route, spec):
+    async def execute(route, spec, on_commit_started):
         executed.append(spec)
         if spec.source == MemoryGenerationSource.WRITE:
             return [
@@ -821,7 +825,7 @@ async def test_merge_failure_or_cancel_never_settles_original_intent(cancel):
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def execute(route, spec):
+    async def execute(route, spec, on_commit_started):
         entered.set()
         await release.wait()
         raise RuntimeError("merge failed")
@@ -848,28 +852,178 @@ async def test_merge_failure_or_cancel_never_settles_original_intent(cancel):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_wait_excludes_pending_merge():
-    entered = asyncio.Event()
-    release = asyncio.Event()
+async def test_shutdown_saves_unexecuted_work_and_waits_for_committing_task(tmp_path):
+    """关闭时排队中的工作与提交之前被中止的任务写进保存文件，已开始写入的任务写完再结束。"""
+    executed = []
+    commit_gate = asyncio.Event()
+    both_running = asyncio.Event()
 
-    async def execute(route, spec):
-        entered.set()
-        await release.wait()
+    async def execute(route, spec, on_commit_started):
+        executed.append(spec.label)
+        if len(executed) == 2:
+            both_running.set()
+        if spec.label == "committing":
+            on_commit_started()
+            await commit_gate.wait()
+            return []
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            # 写入中的任务只能在控制器取消这项还没开始写入的任务之后结束。
+            commit_gate.set()
+            raise
+
+    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    controller = MemoryGenerationTaskController(bus=bus)
+    await controller.start()
+    path = tmp_path / "pending_generation.json"
+    try:
+        committing = await controller.submit_generation(_spec(topic_id="ta", label="committing"))
+        interrupted = await controller.submit_generation(_spec(topic_id="tb", label="computing"))
+        async with asyncio.timeout(5):
+            await both_running.wait()
+        write = await controller.submit_generation(
+            _spec(
+                topic_id="tc",
+                label="write",
+                source=MemoryGenerationSource.WRITE,
+                intent_id="intent-w",
+                pending_alias="draft-w",
+            )
+        )
+        merge = await controller.submit_generation(_merge_spec())
+
+        await controller.stop_dispatch()
+        async with asyncio.timeout(5):
+            report = await controller.save_unfinished(path)
+
+        assert executed == ["committing", "computing"]
+        assert (report.saved_by_source, report.waited_for_commit, report.file_written) == (
+            {"SETTLE": 1, "WRITE": 1, "MERGE": 1},
+            1,
+            True,
+        )
+        saved = json.loads(path.read_text(encoding="utf-8"))["work"]
+        assert [controller.queue.decode_for_restart(item).label for item in saved] == [
+            "computing",
+            "write",
+            "t1",
+        ]
+        finished = {
+            task.task_id: task
+            for task in await controller.wait_many(
+                [committing.task_id, interrupted.task_id, write.task_id, merge.task_id]
+            )
+        }
+        assert finished[committing.task_id].status == MemoryGenerationTaskStatus.COMPLETED
+        assert {
+            (finished[task_id].status, finished[task_id].cancel_reason)
+            for task_id in (interrupted.task_id, write.task_id, merge.task_id)
+        } == {(MemoryGenerationTaskStatus.CANCELLED, SHUTDOWN_PERSISTED_REASON)}
+        # 保存的写入下次启动后还会结算，不发布写入意图的取消。
+        bus.publish.assert_not_awaited()
+    finally:
+        commit_gate.set()
+        await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_restore_resubmits_saved_work_and_sets_aside_unreadable_items(tmp_path):
+    executed = []
+
+    async def execute(route, spec, on_commit_started):
+        executed.append(spec)
         return []
+
+    path = tmp_path / "pending_generation.json"
+    writer = MemoryGenerationTaskController(bus=Mock())
+    original = _spec(
+        source=MemoryGenerationSource.WRITE, intent_id="intent-w", pending_alias="draft-w"
+    )
+    readable = writer.queue.encode_for_restart("old", original)
+    unknown_version = {**readable, "schema_version": "0.9"}
+    write_saved_work(path, [readable, unknown_version])
 
     controller = MemoryGenerationTaskController(
         bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
     )
     await controller.start()
     try:
-        task = await controller.submit_generation(_merge_spec())
-        async with asyncio.timeout(5):
-            await entered.wait()
-            tasks = await controller.wait_all(include_merges=False)
-        assert tasks == []
-        assert (
-            await controller.get_task(task.task_id)
-        ).status == MemoryGenerationTaskStatus.RUNNING
+        report = await controller.restore_saved(path)
+        await controller.wait_all()
+
+        assert (report.read, report.resubmitted, report.rejected) == (2, 1, 1)
+        assert not path.exists()
+        assert executed == [original]
+        assert [task.task_id for task in await controller.list_tasks()] == ["active:intent-w"]
+        rejected = json.loads(Path(report.rejected_file).read_text(encoding="utf-8"))["work"]
+        assert rejected == [unknown_version]
     finally:
-        release.set()
         await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_restore_sets_aside_unparseable_file_without_failing(tmp_path):
+    path = tmp_path / "pending_generation.json"
+    path.write_text("{not json", encoding="utf-8")
+    controller = MemoryGenerationTaskController(bus=Mock())
+    await controller.start()
+    try:
+        report = await controller.restore_saved(path)
+
+        assert not path.exists()
+        assert Path(report.rejected_file).read_text(encoding="utf-8") == "{not json"
+        assert await controller.list_tasks() == []
+    finally:
+        await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_saved_settlement_keeps_topic_write_records_across_restart(tmp_path):
+    """本话题主动写入的记录只在内存中：关闭时随结算任务保存，重启后执行时仍在。"""
+    written = PendingAtomSettlement(
+        pending_alias="draft-w",
+        intent_id="intent-w",
+        resolution=PendingAtomResolution.CREATED,
+        canonical_uuid="memory-from-write",
+    )
+    first = MemoryGenerationTaskController(
+        bus=Mock(
+            request=AsyncMock(return_value=[MemoryGenerationResult(settlement=written)]),
+            publish=AsyncMock(),
+        )
+    )
+    await first.start()
+    path = tmp_path / "pending_generation.json"
+    try:
+        write = await first.submit_generation(
+            _spec(
+                source=MemoryGenerationSource.WRITE, intent_id="intent-w", pending_alias="draft-w"
+            )
+        )
+        await first.wait_task(write.task_id)
+        await first.stop_dispatch()
+        await first.submit_generation(_spec(source=MemoryGenerationSource.SETTLE))
+        await first.save_unfinished(path)
+    finally:
+        await first.stop()
+
+    executed = []
+
+    async def execute(route, spec, on_commit_started):
+        executed.append(spec)
+        return []
+
+    second = MemoryGenerationTaskController(
+        bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    )
+    await second.start()
+    try:
+        await second.restore_saved(path)
+        await second.wait_all()
+
+        [settlement] = executed
+        assert settlement.source == MemoryGenerationSource.SETTLE
+        assert settlement.request.topic_write_memory_ids == frozenset({"memory-from-write"})
+    finally:
+        await second.stop()

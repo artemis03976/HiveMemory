@@ -1,6 +1,6 @@
 ---
 title: 退出时保存待生成的记忆工作
-status: planned
+status: active
 owner: patchouli
 target: 版本之外的工作（v1.0 范围内的桌面客户端，候选清单 D-03 跨重启状态的第一步）
 scope: shutdown-saves-unfinished-memory-generation-work-instead-of-running-it-and-resubmits-it-after-next-start
@@ -29,7 +29,7 @@ related_docs:
 
 # 退出时保存待生成的记忆工作
 
-> **状态**：Planned（2026-11-10 建立）。方向由 owner 于 2026-11-10 决定，见第 1.1 节；第 4 节的具体做法是候选设计，不是 owner 决定，可在评审时调整。对应桌面客户端（[ROADMAP](../ROADMAP.md) 第 5.1 节）中跨重启状态的第一步，不依赖桌面计划，`ps1 serve` 的 Ctrl+C 退出同样适用。不绑定版本。
+> **状态**：Active（2026-11-10 建立，同日在分支 `feat/desktop-prototype` 实施，实施记录见第 10 节；手动验收与当前文档更新尚未进行）。方向由 owner 于 2026-11-10 决定，见第 1.1 节；第 4 节的具体做法是候选设计，不是 owner 决定，可在评审时调整。对应桌面客户端（[ROADMAP](../ROADMAP.md) 第 5.1 节）中跨重启状态的第一步，不依赖桌面计划，`ps1 serve` 的 Ctrl+C 退出同样适用。不绑定版本。
 
 ## 1. 背景和问题
 
@@ -224,3 +224,36 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 - [安装与启动](../help/setup.md)：停止后端的说明。
 - [恢复治理](../governance/reliability/durability-and-recovery.md)：第 1 节表中“Active topic”与“Memory generation task”两行。
 - 收尾时：本计划归档，[ROADMAP](../ROADMAP.md) 第 5.1 节与 [Plans 导航](./README.md)同步。
+
+## 10. 实施记录
+
+2026-11-10 在分支 `feat/desktop-prototype` 实施，第 4 节的设计按原样落地。与计划不同，或计划没有写到的地方：
+
+- **进入提交的登记方式**：
+  - 本地路由 `generation.execute_spec` 增加关键字参数 `on_commit_started`，数据面开始写入之前同步调用它，控制器记在任务句柄上（`commit_started`）。
+  - 提交这一段用已有的 `join_shielded` 执行：期间收到的取消等写完再传出。
+  - 合并任务从写回保留记忆起算提交，写回之前的重读与校验仍可中止。
+- **取消与开始写入之间的竞争**：控制器先取消还没开始写入的在跑任务，等全部在跑任务结束，再按“是否开始写入”决定要不要保存。取消送达之前恰好开始写入的任务会写完、不保存，不会重复生成。
+- **其他来源的取消也受影响**：用户取消任务或生成 lane 的 300 秒时限，如果恰好落在提交阶段，现在会等写入完成再以取消或超时结束，不再中途打断写入。代价是这种情况下写入意图报告取消或失败，记忆却已落库；写入本身出错时，错误随取消一起丢弃，不另记日志。
+- **本话题主动写入的记录**：
+  - SETTLE 原先在执行开始时取出并清除这条记录，现在执行成功后才清除，在关闭时被中止的 SETTLE 因此还能把它写进保存文件。
+  - `GenerationRequest.topic_write_memory_ids` 改为按排序输出：保存的载荷在另一个进程里解码时要重新编码并比对，集合的迭代顺序随进程变化，不排序时读回会被判为非规范载荷。
+- **`wait_all` 删除 `include_merges` 参数**：它只服务于原来关闭时的等待。
+- **观测**：
+  - `patchouli.shutdown_drain` 的完成事件改为报告保存数（按来源）、等待写完的任务数与文件是否写出；没写出时状态为 `completed_without_saved_work`，级别 error。
+  - 启动时的读回作为一次 `patchouli.restore_saved_generation` 操作发布开始与完成事件；有内容写进 rejected 文件时状态为 `completed_with_rejections`，级别 error。
+  - 读不回的文件改名为 `pending_generation.rejected-<UTC 时间>.json`。
+- **测试隔离**：保存文件的默认路径相对工作目录，从仓库根运行测试时会写进本机的数据目录、被下一次真实启动读回。测试的公共 fixture 把默认路径改到每个测试自己的临时目录，指定了路径的测试照旧。
+- **集成用例的位置**：第 7 节写在 `test_perception.py`，实际放在 `tests/integration/patchouli/test_memory_generation_pipeline.py`。那里已经装配了协调器、控制器、真实数据面与中期存储，覆盖从结算接纳、保存、读回到落库的整条链；结算时序本身没有改动，由感知的现有用例覆盖。
+- **故意改坏验证**：分别去掉提交阶段的屏蔽、停止取新工作、按是否开始写入的判断、保存时补上主动写入的记录、保存任务不发布取消事件，对应的新测试都会失败。
+
+验证：
+
+- 后端单元与集成测试（不含 `live_llm`、`e2e`、`slow`）3339 通过、9 跳过，覆盖率 94.90%；
+- `ruff check .`、`black --check .`、`mypy` 通过；
+- 测试运行后仓库的 `.hivememory/` 中没有保存文件。
+
+尚未完成：
+
+- 第 7 节的手动验收：`ps1 serve` 下按 Ctrl+C 退出、再次启动后记忆在后台生成，以及桌面端从托盘退出，需要以本分支启动后端，由 owner 进行；
+- 第 9 节当前文档的更新，留到收尾。

@@ -513,6 +513,47 @@ async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engi
     assert published[0]["settlement"].canonical_alias == "memory_alias"
 
 
+@pytest.mark.asyncio
+async def test_settlement_saved_at_shutdown_lands_after_restart(
+    memory_library, artifact_engine, tmp_path
+):
+    """关闭时结算产生的任务不调用提取、写进保存文件；新进程读回后由真实数据面落库。"""
+    path = tmp_path / "pending_generation.json"
+    atom = _memory_atom()
+    stub = _StubGenerationEngine([GenerationOutcome(atom=atom, action=GenerationAction.CREATE)])
+
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    _wire_generation_familiar(bus, memory_library, stub, artifact_engine)
+    await controller.start()
+    await controller.stop_dispatch()
+    await coordinator.submit_settlement(_settlement_task())
+    saved = await controller.save_unfinished(path)
+    await controller.stop()
+
+    assert (saved.saved, stub.requests) == (1, [])
+
+    restarted_bus = PatchouliBus()
+    _, restarted = _wire_generation_pipeline(restarted_bus)
+    _wire_generation_familiar(restarted_bus, memory_library, stub, artifact_engine)
+    await restarted.start()
+    try:
+        restored = await restarted.restore_saved(path)
+        [task] = await restarted.wait_all()
+
+        assert (restored.resubmitted, task.status) == (1, MemoryGenerationTaskStatus.COMPLETED)
+        [request] = stub.requests
+        assert request.context.state_summary == "state summary"
+        stored = await memory_library.mid_term.get(
+            _identity_scope().workspace_identity,
+            atom.id,
+            from_actor=_identity_scope().actor_identity,
+        )
+        assert stored is not None
+    finally:
+        await restarted.stop()
+
+
 def _draft(title: str, content: str) -> ExtractedMemoryDraft:
     return ExtractedMemoryDraft(
         title=title,

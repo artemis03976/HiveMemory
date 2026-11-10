@@ -14,6 +14,7 @@ MemoryGenerationFamiliar 单元测试
 - TOUCH 不走 upsert，走受限 patch_payload 推进访问统计。
 """
 
+import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
@@ -55,6 +56,10 @@ from tests.helpers.workspace import make_identity_scope
 
 # 提交边界固定时点：全部时间点断言都收敛到该值。
 FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def _ignore_commit_start() -> None:
+    """数据面在开始写入前调用的登记；这些用例不关心它。"""
 
 
 def _identity_scope():
@@ -160,6 +165,19 @@ def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_inter
     return spec
 
 
+def _familiar_with(gen_engine: Mock, mid_term: Mock) -> MemoryGenerationFamiliar:
+    """以给定的引擎与中期存储构造数据面，版本记录照常产出。"""
+    mid_term.ensure_alias_available = AsyncMock(return_value=None)
+    memory_lib = Mock()
+    memory_lib.mid_term = mid_term
+    return MemoryGenerationFamiliar(
+        generation_engine=gen_engine,
+        memory_library=memory_lib,
+        artifact_engine=_memory_artifact_engine(),
+        now=lambda: FIXED_NOW,
+    )
+
+
 class TestMemoryGenerationFamiliarExecute:
     """execute() 方法测试"""
 
@@ -208,7 +226,7 @@ class TestMemoryGenerationFamiliarExecute:
 
         familiar = self._make_familiar(gen_engine=gen_engine, artifact_engine=artifact_engine)
 
-        results = await familiar.execute(spec)
+        results = await familiar.execute(spec, on_commit_started=_ignore_commit_start)
 
         assert results == []
         gen_engine.process.assert_awaited_once()
@@ -234,7 +252,7 @@ class TestMemoryGenerationFamiliarExecute:
             artifact_engine=artifact_engine,
         )
 
-        await familiar.execute(spec)
+        await familiar.execute(spec, on_commit_started=_ignore_commit_start)
 
         artifact_engine.interaction.build_and_store.assert_not_called()
 
@@ -265,12 +283,79 @@ class TestMemoryGenerationFamiliarExecute:
             now=lambda: FIXED_NOW,
         )
 
-        await familiar.execute(spec)
+        await familiar.execute(spec, on_commit_started=_ignore_commit_start)
 
         # 即使交互 artifact 构建失败，生成仍应继续
         gen_engine.process.assert_awaited_once()
         # CREATE 决策的 atom 仍应被写入（版本记录 builder 成功产出）
         assert mid_term.upsert.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cancel_before_commit_writes_nothing(self):
+        """提交之前被取消的任务不写记忆，也没有登记进入提交，可以从头重跑。"""
+        computing = asyncio.Event()
+
+        async def process(*args, **kwargs):
+            computing.set()
+            await asyncio.Event().wait()
+
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(side_effect=process)
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+        familiar = _familiar_with(gen_engine, mid_term)
+        commit_starts: list[str] = []
+
+        task = asyncio.create_task(
+            familiar.execute(
+                _make_spec(include_interaction_input=False),
+                on_commit_started=lambda: commit_starts.append("started"),
+            )
+        )
+        await asyncio.wait_for(computing.wait(), timeout=1)
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert commit_starts == []
+        mid_term.upsert.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cancel_during_commit_finishes_writing_before_propagating(self):
+        """进入提交之后收到的取消不打断写入：写完之后才把取消传出去。"""
+        writing = asyncio.Event()
+        release = asyncio.Event()
+        written: list[str] = []
+        commit_starts: list[str] = []
+
+        async def upsert(atom, **kwargs):
+            commit_starts.append("upsert")
+            writing.set()
+            await release.wait()
+            written.append(atom.index.title)
+
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(return_value=[_make_outcome(atom=_make_memory_atom())])
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock(side_effect=upsert)
+        familiar = _familiar_with(gen_engine, mid_term)
+
+        task = asyncio.create_task(
+            familiar.execute(
+                _make_spec(include_interaction_input=False),
+                on_commit_started=lambda: commit_starts.append("started"),
+            )
+        )
+        await asyncio.wait_for(writing.wait(), timeout=1)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert commit_starts == ["started", "upsert"]
+        assert written == ["test_memory"]
 
 
 class TestMemoryGenerationFamiliarRunGeneration:
@@ -326,7 +411,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
             interaction_input=None,
         )
 
-        results = await familiar._run_generation(spec)
+        results = await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         assert len(results) == 1
         assert results[0].canonical_alias is None
@@ -367,7 +454,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
             interaction_input=None,
         )
 
-        await familiar._run_generation(spec)
+        await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         # CREATE 提交必然重算向量
         mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=True)
@@ -400,7 +489,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
             interaction_input=None,
         )
 
-        await familiar._run_generation(spec)
+        await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         # 无 before 快照时按 embedding 输入变化处理，重算向量
         mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=True)
@@ -441,7 +532,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
             interaction_input=None,
         )
 
-        await familiar._run_generation(spec)
+        await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=False)
 
@@ -478,7 +571,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
             interaction_input=None,
         )
 
-        await familiar._run_generation(spec)
+        await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         mid_term.patch_payload.assert_awaited_once()
         key, patch = mid_term.patch_payload.await_args.args
@@ -522,7 +617,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
             interaction_input=None,
         )
 
-        await familiar._run_generation(spec)
+        await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         mid_term.upsert.assert_not_called()
 
@@ -555,7 +652,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
             interaction_input=None,
         )
 
-        await familiar._run_generation(spec)
+        await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         assert atom.meta.version == original_version + 1
         assert atom.meta.updated_at == FIXED_NOW
@@ -591,7 +690,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
 
         with pytest.raises(RuntimeError, match="upsert failed"):
-            await familiar._run_generation(spec)
+            await familiar._run_generation(
+                spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+            )
 
     @pytest.mark.asyncio
     async def test_run_generation_propagates_version_builder_failure(self):
@@ -630,7 +731,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
 
         with pytest.raises(RuntimeError, match="version store down"):
-            await familiar._run_generation(spec)
+            await familiar._run_generation(
+                spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+            )
 
         mid_term.upsert.assert_not_called()
 
@@ -669,7 +772,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
 
         with pytest.raises(RuntimeError, match="版本存储未产生"):
-            await familiar._run_generation(spec)
+            await familiar._run_generation(
+                spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+            )
 
         mid_term.upsert.assert_not_called()
 
@@ -685,7 +790,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
         mid_term.upsert = AsyncMock()
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
-        results = await familiar._run_generation(spec)
+        results = await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         assert results[0].settlement is not None
         assert results[0].settlement.resolution.value == "created"
@@ -703,7 +810,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
         mid_term.upsert = AsyncMock()
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
-        results = await familiar._run_generation(spec)
+        results = await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         assert results[0].settlement is not None
         assert results[0].settlement.resolution.value == "updated"
@@ -733,7 +842,9 @@ class TestMemoryGenerationFamiliarRunGeneration:
         mid_term.upsert = AsyncMock()
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
-        results = await familiar._run_generation(spec)
+        results = await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
 
         assert results[0].merge_nomination == MergeFocus(
             retained_memory_id=target_id,
@@ -1261,7 +1372,7 @@ async def test_merge_commits_version_and_sources_before_deleting_absorbed_memory
         return outcome
 
     engine.merge.side_effect = compute_after_access
-    results = await familiar.execute(spec)
+    results = await familiar.execute(spec, on_commit_started=_ignore_commit_start)
 
     stored = store.memories[retained.id]
     assert store.operations == [("write", retained.id, False), ("delete", absorbed.id)]
@@ -1305,7 +1416,7 @@ async def test_merge_without_write_handle_returns_no_settlement():
         ),
     )
 
-    results = await familiar.execute(spec)
+    results = await familiar.execute(spec, on_commit_started=_ignore_commit_start)
 
     assert store.operations == [("write", retained.id, False), ("delete", absorbed.id)]
     assert (results[0].canonical_uuid, results[0].settlement) == (str(retained.id), None)
@@ -1351,7 +1462,7 @@ async def test_merge_rejects_invalid_inputs_without_writing(failure):
     before = {key: value.model_copy(deep=True) for key, value in store.memories.items()}
 
     with pytest.raises(MemoryMergeAbortedError) as raised:
-        await familiar.execute(spec)
+        await familiar.execute(spec, on_commit_started=_ignore_commit_start)
 
     assert raised.value.code == "workspace.memory.merge_aborted"
     assert raised.value.details["reason"] == reason
@@ -1399,7 +1510,7 @@ async def test_merge_rechecks_both_memories_after_model_call(change):
 
     engine.merge.side_effect = compute
     with pytest.raises(MemoryMergeAbortedError) as raised:
-        await familiar.execute(spec)
+        await familiar.execute(spec, on_commit_started=_ignore_commit_start)
     assert raised.value.details["reason"] == expected_reason
     assert store.operations == []
     assert store.memories[retained.id].payload.content == retained.payload.content
@@ -1422,7 +1533,7 @@ async def test_merge_failure_never_deletes_unmerged_content(failure):
         store.fail_delete = True
 
     with pytest.raises(type(error)):
-        await familiar.execute(spec)
+        await familiar.execute(spec, on_commit_started=_ignore_commit_start)
 
     assert store.memories[absorbed.id] == absorbed
     if failure == "delete":

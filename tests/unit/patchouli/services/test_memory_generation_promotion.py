@@ -36,6 +36,10 @@ from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 
+def _ignore_commit_start() -> None:
+    """数据面在开始写入前调用的登记；这些用例不关心它。"""
+
+
 def _workspace() -> WorkspaceIdentity:
     return make_workspace_identity(owner_user_id="user-1")
 
@@ -327,7 +331,9 @@ async def test_generation_gating_skips_promotion_for_touch() -> None:
 
     # 门控位于 _run_generation 内部：TOUCH 不触发 promotion。
     # TOUCH 走受限 patch_payload 而非完整 upsert。
-    await familiar._run_generation(spec, interaction_ref=None)
+    await familiar._run_generation(
+        spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+    )
     assert builder.calls == []
     assert familiar._mid_term.upsert_calls == []
     assert len(familiar._mid_term.patch_calls) == 1
@@ -341,7 +347,9 @@ async def test_generation_gating_skips_promotion_for_touch() -> None:
 
     # 同一 spec、同一 binding：改为 CREATE 提交动作后才提升。
     familiar._generation_engine._actions = [GenerationAction.CREATE]
-    await familiar._run_generation(spec, interaction_ref=None)
+    await familiar._run_generation(
+        spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+    )
     assert len(builder.calls) == 1
     # CREATE 走完整 upsert 且必重算向量
     assert [recompute for _, recompute in familiar._mid_term.upsert_calls] == [True]

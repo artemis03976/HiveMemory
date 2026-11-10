@@ -243,7 +243,7 @@ v0.7.0 A2-P 完整记忆历史 + 文档来源 / 版本 -> MTP READ 专项编译
 
 Electron renderer 使用公开资源 API，main process 只持有必要的原生桥接与服务管理权限；远程内容和 Agent 代码不在特权主进程执行。Electron 的 renderer sandbox 不能替代 Agent 执行沙箱。
 
-验收是可安装、启动、使用、关闭、重启和升级，用户知识资产持续可读；卸载/删除数据必须有明确语义。桌面生命周期引出的最小持久化需求按 [恢复治理](./governance/reliability/durability-and-recovery.md) 拆出，不依靠 localStorage 承担权威资源恢复。其中第一步由计划[退出时保存待生成的记忆工作](./plans/shutdown-pending-generation-persistence.md)（Planned，方向由 owner 于 2026-11-10 决定）承担：任何退出都只结算话题、不做生成，未完成的生成工作保存到磁盘，下次启动后继续；崩溃时的丢失不在其中。
+验收是可安装、启动、使用、关闭、重启和升级，用户知识资产持续可读；卸载/删除数据必须有明确语义。桌面生命周期引出的最小持久化需求按 [恢复治理](./governance/reliability/durability-and-recovery.md) 拆出，不依靠 localStorage 承担权威资源恢复。其中第一步由计划[退出时保存待生成的记忆工作](./plans/shutdown-pending-generation-persistence.md)（Active，方向由 owner 于 2026-11-10 决定）承担：任何退出都只结算话题、不做生成，未完成的生成工作保存到磁盘，下次启动后继续；崩溃时的丢失不在其中。
 
 ### 5.2 Alice 高级编排
 

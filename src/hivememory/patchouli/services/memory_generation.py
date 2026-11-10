@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Coroutine, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from pydantic import ValidationError
 
+from hivememory.components.cancellation import join_shielded
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     MemoryMergeAbortedError,
@@ -95,12 +97,20 @@ class MemoryGenerationFamiliar:
     async def execute(
         self,
         spec: MemoryGenerationTaskSpec,
+        *,
+        on_commit_started: Callable[[], None],
     ) -> list[MemoryGenerationResult]:
-        """
-        执行统一生成任务规范，只返回结果不发布事件。
+        """执行统一生成任务规范，只返回结果不发布事件。
+
+        任务分两段：提交之前保存来源交互 Artifact、调用模型、查重与重验，除交互
+        Artifact 外不写任何东西；提交写版本记录、中期存储与附件。开始提交之前同步调用
+        ``on_commit_started``，提交这一段不被取消打断，写完后再传出取消：在提交之前被
+        中止的任务可以从头重跑而不留下写了一半的记忆。
         """
         if spec.request.merge_focus is not None:
-            return await self._run_merge(spec, spec.request.merge_focus)
+            return await self._run_merge(
+                spec, spec.request.merge_focus, on_commit_started=on_commit_started
+            )
         interaction_ref = await self._capture_interaction_artifact(
             spec.interaction_input,
             spec.belong_to,
@@ -108,10 +118,23 @@ class MemoryGenerationFamiliar:
         return await self._run_generation(
             spec,
             interaction_ref=interaction_ref,
+            on_commit_started=on_commit_started,
         )
 
+    @staticmethod
+    async def _commit_uninterrupted[T](
+        commit: Coroutine[Any, Any, T], on_commit_started: Callable[[], None]
+    ) -> T:
+        """登记进入提交后执行提交；期间收到的取消等提交结束后再传出。"""
+        on_commit_started()
+        return await join_shielded(asyncio.create_task(commit))
+
     async def _run_merge(
-        self, spec: MemoryGenerationTaskSpec, focus: MergeFocus
+        self,
+        spec: MemoryGenerationTaskSpec,
+        focus: MergeFocus,
+        *,
+        on_commit_started: Callable[[], None],
     ) -> list[MemoryGenerationResult]:
         """先写回保留记忆，再删除被吸收记忆；失败最多留下重复，不回退为覆盖。"""
         retained = await self._mid_term.get(
@@ -141,6 +164,18 @@ class MemoryGenerationFamiliar:
         for ref in absorbed.payload.artifacts.refs:
             if ref.artifact_type == ArtifactType.INTERACTION:
                 self._append_artifact_ref_once(atom, ref)
+        return await self._commit_uninterrupted(
+            self._commit_merge(spec, focus, outcome, retained, absorbed), on_commit_started
+        )
+
+    async def _commit_merge(
+        self,
+        spec: MemoryGenerationTaskSpec,
+        focus: MergeFocus,
+        outcome: GenerationOutcome,
+        retained: MemoryAtom,
+        absorbed: MemoryAtom,
+    ) -> list[MemoryGenerationResult]:
         await self._commit_outcome(
             outcome,
             belong_to=spec.belong_to,
@@ -365,7 +400,9 @@ class MemoryGenerationFamiliar:
     async def _run_generation(
         self,
         spec: MemoryGenerationTaskSpec,
-        interaction_ref: ArtifactRef | None = None,
+        *,
+        interaction_ref: ArtifactRef | None,
+        on_commit_started: Callable[[], None],
     ) -> list[MemoryGenerationResult]:
         """
         执行 compute -> commit -> artifacts -> persist 流水线。
@@ -383,7 +420,18 @@ class MemoryGenerationFamiliar:
             from_actor=spec.from_actor,
             now=commit_now,
         )
+        return await self._commit_uninterrupted(
+            self._commit_generation(spec, outcomes, commit_now, interaction_ref),
+            on_commit_started,
+        )
 
+    async def _commit_generation(
+        self,
+        spec: MemoryGenerationTaskSpec,
+        outcomes: list[GenerationOutcome],
+        commit_now: datetime,
+        interaction_ref: ArtifactRef | None,
+    ) -> list[MemoryGenerationResult]:
         memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
         logger.info(
             "提取出 %d 条记忆: topic_id=%s, intent_id=%s",
