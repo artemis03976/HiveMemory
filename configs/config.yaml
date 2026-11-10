@@ -124,10 +124,9 @@ patchouli:
       max_result_chars: 800
 
   retrieval:
-    # 请求未给出 top_k 时的结果条数；最终截取只在重排阶段之后进行一次
-    default_top_k: 5
     retriever:
       type: "hybrid"
+      # 每次检索返回的记忆条数上限：融合与重排之后截取，经相关度阈值过滤后可能更少
       top_k: 5
       enable_parallel: true
       dense:

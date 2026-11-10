@@ -14,7 +14,7 @@ import pytest
 import pytest_asyncio
 
 from hivememory.config.app import load_app_config
-from hivememory.config.patchouli import DenseRetrieverConfig
+from hivememory.config.patchouli import DenseRetrieverConfig, MemoryRetrievalConfig
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -149,13 +149,16 @@ async def test_company_query_ranks_stock_report_above_fruit(mid_term):
 
 async def test_engine_with_real_reranker_keeps_code_snippet_first(mid_term, reranker):
     """接入真实重排模型的检索引擎，“Python 排序算法实现”的首位是快速排序代码片段。"""
+    config = _RETRIEVAL.model_copy(
+        update={"retriever": _RETRIEVAL.retriever.model_copy(update={"top_k": 10})}
+    )
     engine = RetrievalEngine(
-        retriever=create_retriever(mid_term=mid_term, config=_RETRIEVAL.retriever),
+        retriever=create_retriever(mid_term=mid_term, config=config.retriever),
         reranker=reranker,
-        default_top_k=_RETRIEVAL.default_top_k,
+        config=config,
     )
 
-    result = await engine.retrieve(_query("Python 排序算法实现"), top_k=10)
+    result = await engine.retrieve(_query("Python 排序算法实现"))
 
     assert str(result.memories[0].id) == QUICKSORT
 
@@ -173,7 +176,7 @@ async def test_dense_threshold_keeps_unrelated_candidates_out(mid_term, reranker
     engine = RetrievalEngine(
         retriever=DenseRetriever(mid_term, dense),
         reranker=reranker,
-        default_top_k=_RETRIEVAL.default_top_k,
+        config=MemoryRetrievalConfig(retriever=dense),
     )
     result = await engine.retrieve(query)
 

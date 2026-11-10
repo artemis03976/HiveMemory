@@ -59,7 +59,6 @@ class UserQueryAnalysisConfig(BaseModel):
 
     enabled: bool = True
     overall_timeout_ms: int = Field(default=5000, ge=1)
-    default_top_k: int = Field(default=5, ge=0)
     context_block_limit: int = Field(default=3, ge=0)
     context_text_limit: int = Field(default=200, ge=1)
 

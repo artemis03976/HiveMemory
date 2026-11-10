@@ -104,7 +104,7 @@ class _OperationHarness:
 
     async def _retrieve(self, request):
         self.owner_calls.append(PatchouliRoutes.MEMORY_RETRIEVE)
-        return list(self.memories.values())[: request.top_k]
+        return list(self.memories.values())
 
     async def _get_profile(self, agent_alias, *, identity_scope, enforce_actor_visibility=True):
         self.owner_calls.append(PatchouliRoutes.GET_AGENT_PROFILE)

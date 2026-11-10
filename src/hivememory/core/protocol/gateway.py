@@ -55,7 +55,6 @@ class RetrievalPlan(BaseModel):
     """Gateway 的依赖中立检索计划。"""
 
     mode: RetrievalMode = RetrievalMode.HYBRID
-    top_k: int = Field(default=5, ge=0)
     dense_weight: float = Field(default=0.7, ge=0.0, le=1.0)
     sparse_weight: float = Field(default=0.3, ge=0.0, le=1.0)
 

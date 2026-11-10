@@ -9,7 +9,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.config.gateway import SystemGatewayConfig, UserQueryAnalysisConfig
+from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
@@ -62,7 +62,7 @@ def _build_engine_mock(
 
 @pytest.mark.asyncio
 async def test_fallback_resolver_returns_fixed_conservative_result() -> None:
-    resolver = FallbackUserQueryAnalysisResolver(UserQueryAnalysisConfig(default_top_k=11))
+    resolver = FallbackUserQueryAnalysisResolver()
     context = _build_context("不要改写这个问题")
 
     result = await resolver.resolve(context)
@@ -71,7 +71,6 @@ async def test_fallback_resolver_returns_fixed_conservative_result() -> None:
     assert result.rewritten_query == "不要改写这个问题"
     assert result.search_keywords == ()
     assert result.retrieval_plan.mode == RetrievalMode.HYBRID
-    assert result.retrieval_plan.top_k == 11
 
 
 @pytest.mark.asyncio
@@ -84,7 +83,7 @@ async def test_llm_resolver_maps_engine_result() -> None:
             search_keywords=("关键词甲", "关键词乙"),
         )
     )
-    resolver = LLMUserQueryAnalysisResolver(config=UserQueryAnalysisConfig(), engine=engine)
+    resolver = LLMUserQueryAnalysisResolver(engine=engine)
 
     result = await resolver.resolve(_build_context("那个报错怎么修"))
 
@@ -97,13 +96,12 @@ async def test_llm_resolver_maps_engine_result() -> None:
 @pytest.mark.asyncio
 async def test_llm_resolver_rule_overrides_explicit_write_intent() -> None:
     engine = _build_engine_mock()
-    resolver = LLMUserQueryAnalysisResolver(config=UserQueryAnalysisConfig(), engine=engine)
+    resolver = LLMUserQueryAnalysisResolver(engine=engine)
 
     result = await resolver.resolve(_build_context("记住我不吃香菜"))
 
     assert result.intent_type == IntentType.WRITE
     assert result.retrieval_plan.mode == RetrievalMode.SKIP
-    assert result.retrieval_plan.top_k == 0
 
 
 @pytest.mark.asyncio
@@ -115,14 +113,11 @@ async def test_llm_resolver_derives_dense_mode_without_keywords() -> None:
             search_keywords=(),
         )
     )
-    resolver = LLMUserQueryAnalysisResolver(
-        config=UserQueryAnalysisConfig(default_top_k=7), engine=engine
-    )
+    resolver = LLMUserQueryAnalysisResolver(engine=engine)
 
     result = await resolver.resolve(_build_context("随便聊聊热点新闻"))
 
     assert result.retrieval_plan.mode == RetrievalMode.DENSE
-    assert result.retrieval_plan.top_k == 7
 
 
 @pytest.mark.asyncio
@@ -130,7 +125,6 @@ async def test_llm_resolver_converts_engine_error_to_recoverable() -> None:
     engine = _build_engine_mock(error=QueryUnderstandingError("解析失败"))
     events = RecordingRuntimeEventSink()
     resolver = LLMUserQueryAnalysisResolver(
-        config=UserQueryAnalysisConfig(),
         engine=engine,
         runtime_events=RuntimeEventPublisher(events),
     )
@@ -167,7 +161,7 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
 
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, list_active_topics)
     runtime = GatewayRuntime(
-        config=SystemGatewayConfig(user_query_analysis=UserQueryAnalysisConfig(default_top_k=9)),
+        config=SystemGatewayConfig(),
         global_bus=bus,
         runtime_events=RuntimeEventPublisher(events),
         llm_service=llm_service,
@@ -184,7 +178,6 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
     assert result.decision.rewritten_query == "标准查询的重写结果"
     assert result.decision.search_keywords == ("标准查询",)
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
-    assert result.decision.retrieval_plan.top_k == 9
     assert len(llm_service.calls) == 2
     completed = next(
         event
@@ -216,7 +209,7 @@ async def test_runtime_falls_back_to_conservative_result_on_analysis_error() -> 
 
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, list_active_topics)
     runtime = GatewayRuntime(
-        config=SystemGatewayConfig(user_query_analysis=UserQueryAnalysisConfig(default_top_k=9)),
+        config=SystemGatewayConfig(),
         global_bus=bus,
         llm_service=llm_service,
         llm_params=DEFAULT_LLM_PARAMS,
@@ -231,4 +224,3 @@ async def test_runtime_falls_back_to_conservative_result_on_analysis_error() -> 
     assert result.kind == "decision"
     assert result.decision.rewritten_query == "继续处理标准查询"
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
-    assert result.decision.retrieval_plan.top_k == 9

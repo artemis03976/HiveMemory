@@ -173,7 +173,6 @@ class GatewayExecutionState:
                 search_keywords=tuple(analysis.search_keywords),
                 retrieval_plan=RetrievalPlan(
                     mode=analysis.retrieval_plan.mode,
-                    top_k=analysis.retrieval_plan.top_k,
                     dense_weight=analysis.retrieval_plan.dense_weight,
                     sparse_weight=analysis.retrieval_plan.sparse_weight,
                 ),

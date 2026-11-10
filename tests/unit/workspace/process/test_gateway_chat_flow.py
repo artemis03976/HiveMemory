@@ -316,13 +316,12 @@ async def test_command_short_circuits_patchouli_and_cpu() -> None:
 async def test_pre_retrieval_follows_gateway_plan_and_delivers_through_read_view() -> None:
     """预检索在 Actor 之前按 Gateway 的检索计划执行，结果经读取视图交付。
 
-    改写后的查询、关键词与条数原样成为检索请求；不属于本 Workspace 的原子被读取视图
+    改写后的查询与关键词原样成为检索请求；不属于本 Workspace 的原子被读取视图
     丢弃，memory_refs 只投影交付的原子。
     """
     decision = _decision_outcome(
         rewritten_query="改写后的问题",
         search_keywords=("部署", "回滚"),
-        retrieval_plan=RetrievalPlan(top_k=3),
     )
     stub = PatchouliTurnStub(
         memories=[_memory_ref_atom("引用记忆"), _memory_ref_atom("他处记忆", workspace_id="other")]
@@ -340,11 +339,7 @@ async def test_pre_retrieval_follows_gateway_plan_and_delivers_through_read_view
     assert done_data(events)["status"] == "completed"
     assert retrievals_at_actor_start == [1]
     retrieval = stub.retrievals[0]
-    assert (retrieval.semantic_query, retrieval.keywords, retrieval.top_k) == (
-        "改写后的问题",
-        ["部署", "回滚"],
-        3,
-    )
+    assert (retrieval.semantic_query, retrieval.keywords) == ("改写后的问题", ["部署", "回滚"])
     memory_refs = next(event for event in events if event["event"] == "memory_refs")
     assert [memory["title"] for memory in memory_refs["data"]["memories"]] == ["引用记忆"]
 
@@ -541,23 +536,17 @@ async def test_system_stages_run_with_root_scope_and_executor_is_explicit() -> N
             {},
             _decision_outcome(retrieval_plan=RetrievalPlan(mode=RetrievalMode.SKIP)),
         ),
-        (
-            [WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH],
-            {},
-            _decision_outcome(retrieval_plan=RetrievalPlan(top_k=0)),
-        ),
     ],
     ids=[
         "executor-without-search",
         "request-disables-retrieval",
         "plan-skips-retrieval",
-        "plan-requests-zero",
     ],
 )
 async def test_process_without_pre_retrieval_still_completes(
     allowed_operations, registration, decision
 ) -> None:
-    """执行者没有 ``memory.search``、请求关闭了记忆检索，或 Gateway 的检索计划跳过检索、要求零条：
+    """执行者没有 ``memory.search``、请求关闭了记忆检索，或 Gateway 的检索计划跳过检索：
     不检索，对话照常完成并提交。"""
     bus, stub = _turn_bus(PatchouliTurnStub(memories=[_memory_ref_atom()]), decision=decision)
     composition = _composition(allowed_operations=allowed_operations)

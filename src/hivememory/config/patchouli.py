@@ -114,8 +114,8 @@ class MemoryGenerationConfig(BaseModel):
 # ========== 检索 ==========
 
 _FUSION_FINAL_TOP_K_REMOVED = (
-    "融合配置不再支持 final_top_k：融合不再截取，最终条数在重排之后按请求的 top_k"
-    "（缺省时为 retrieval.default_top_k）截取"
+    "融合配置不再支持 final_top_k：融合不再截取，最终条数在重排之后按"
+    " retrieval.retriever.top_k 截取"
 )
 
 
@@ -213,7 +213,8 @@ class RerankerConfig(BaseModel):
 class DenseRetrieverConfig(BaseModel):
     type: Literal["dense"] = "dense"
     enabled: bool = Field(default=True)
-    top_k: int = Field(default=50)
+    # 作为混合检索的一路时是召回条数；单独作为检索器时是检索结果的条数上限。
+    top_k: int = Field(default=50, ge=1)
     # 分数阈值只作用于 Dense 召回：按原始 cosine 相似度粗筛，交给重排的即粗筛后的候选。
     score_threshold: float = Field(default=0.5)
     enable_time_decay: bool = Field(default=True)
@@ -226,7 +227,8 @@ class DenseRetrieverConfig(BaseModel):
 class SparseRetrieverConfig(BaseModel):
     type: Literal["sparse"] = "sparse"
     enabled: bool = Field(default=True)
-    top_k: int = Field(default=50)
+    # 作为混合检索的一路时是召回条数；单独作为检索器时是检索结果的条数上限。
+    top_k: int = Field(default=50, ge=1)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -244,7 +246,8 @@ class SparseRetrieverConfig(BaseModel):
 
 class HybridRetrieverConfig(BaseModel):
     type: Literal["hybrid"] = "hybrid"
-    top_k: int = Field(default=5)
+    # 检索结果的条数上限：融合与重排之后截取，经 dense 阈值粗筛后可能更少。
+    top_k: int = Field(default=5, ge=1)
     enable_parallel: bool = Field(default=True)
     dense: DenseRetrieverConfig = Field(default_factory=DenseRetrieverConfig)
     sparse: SparseRetrieverConfig = Field(default_factory=SparseRetrieverConfig)
@@ -283,8 +286,6 @@ class MemoryRetrievalConfig(BaseModel):
     )
     # 重排序是召回之后的独立阶段，适用于任意召回策略。
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
-    # 请求未给出 top_k 时的结果条数；最终截取只在重排阶段之后进行一次。
-    default_top_k: int = Field(default=5, ge=1)
 
     model_config = ConfigDict(extra="forbid")
 

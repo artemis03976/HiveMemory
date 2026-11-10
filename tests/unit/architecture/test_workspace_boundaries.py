@@ -330,7 +330,7 @@ def test_operation_requests_only_expose_six_actor_requests():
         name: {field.name for field in fields(request)} for name, request in requests.items()
     } == {
         "ResolveReferencesRequest": {"aliases"},
-        "RetrieveRequest": {"semantic_query", "keywords", "top_k", "filters"},
+        "RetrieveRequest": {"semantic_query", "keywords", "filters"},
         "ResolveRunTargetRequest": {"alias"},
         "SubmitWriteIntentRequest": {"focus"},
         "SubmitUpdateIntentRequest": {"base_alias", "instruction", "content"},

@@ -63,7 +63,7 @@ class _MemoryBacking:
         ]
 
     async def retrieve(self, request: RetrievalRequest) -> list[MemoryAtom]:
-        return [atom.model_copy(deep=True) for atom in self.atoms.values()][: request.top_k]
+        return [atom.model_copy(deep=True) for atom in self.atoms.values()]
 
     async def record_citation(
         self, *, memory_id: UUID, source: str, identity_scope: IdentityScope

@@ -75,9 +75,9 @@ def test_retrieval_defaults_dense_threshold_and_result_count() -> None:
     config = MemoryRetrievalConfig()
 
     assert config.retriever.dense.score_threshold == 0.5
-    assert config.default_top_k == 5
+    assert config.retriever.top_k == 5
 
 
-def test_default_top_k_must_be_positive() -> None:
-    with pytest.raises(ValidationError, match="default_top_k"):
-        MemoryRetrievalConfig(default_top_k=0)
+def test_retrieval_result_count_must_be_positive() -> None:
+    with pytest.raises(ValidationError, match="top_k"):
+        HybridRetrieverConfig(top_k=0)

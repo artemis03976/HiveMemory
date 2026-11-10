@@ -158,7 +158,7 @@ class _FakeRetrievalEngine:
     def __init__(self, atoms):
         self._atoms = atoms
 
-    async def retrieve(self, query, top_k):
+    async def retrieve(self, query):
         class _Result:
             memories = list(self._atoms)
             memories_count = len(self._atoms)
