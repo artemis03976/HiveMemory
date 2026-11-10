@@ -208,6 +208,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 - 每次 emit 会覆盖 timestamp 并分配递增 sequence；
 - 总线保留有界 ring buffer，支持 replay last 或从 `last_event_id` 后回放；`/runtime-events/stream` 不带回放点的新连接按查询参数 `replay_last`（正整数，缺省 100）回放最近的事件，超过缓冲大小时回放整个缓冲，带回放点的续传回放其后的全部，不受它影响；
 - 找不到客户端提供的 `last_event_id` 时，先生成 `event.stream.gap`；
+- 订阅没有尽头，`/runtime-events/stream` 只在客户端断开或服务器开始关闭时结束（sse-starlette 的 `EventSourceResponse`，与 chat 的流相同），空闲时每 15 秒发送一行 SSE 注释保活，EventSource 会忽略它。服务器关闭时要先等进行中的请求结束才执行应用的关闭流程，流不随关闭结束会让关闭一直停在等待连接上，内存中的话题也就无法结算；
 - 每个订阅者队列有界，满时丢弃最旧事件；
 - RuntimeEvent 不承诺跨进程连续、持久化或 exactly-once。
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
+from sse_starlette.sse import AppStatus
 
 from hivememory.components.events.bus import RuntimeEventBus
 from hivememory.config.app import HiveMemoryConfig
@@ -14,6 +15,12 @@ from hivememory.core.contracts.runtime_events import (
     RuntimeEventType,
 )
 from hivememory.server.routers.runtime_events import runtime_events_status, stream_runtime_events
+
+
+async def _next_chunk(response) -> str:
+    """响应下一条事件按 SSE 线上格式编码后的文本。"""
+    event = await response.body_iterator.__anext__()
+    return event.encode().decode("utf-8")
 
 
 @pytest.mark.asyncio
@@ -38,10 +45,7 @@ async def test_runtime_events_stream_disabled_returns_503():
         config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=False)),
     )
 
-    response = await stream_runtime_events(
-        request=SimpleNamespace(is_disconnected=AsyncMock(return_value=False)),
-        system=system,
-    )
+    response = await stream_runtime_events(system=system)
 
     assert response.status_code == 503
 
@@ -54,10 +58,9 @@ async def test_runtime_events_stream_returns_sse_replay():
         runtime_events=bus,
         config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
     )
-    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
 
-    response = await stream_runtime_events(request=request, system=system)
-    chunk = await response.body_iterator.__anext__()
+    response = await stream_runtime_events(system=system)
+    chunk = await _next_chunk(response)
 
     assert response.media_type == "text/event-stream"
     assert "event: runtime_event" in chunk
@@ -81,10 +84,9 @@ async def test_runtime_events_stream_preserves_workspace_correlations():
         runtime_events=bus,
         config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
     )
-    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
 
-    response = await stream_runtime_events(request=request, system=system)
-    chunk = await response.body_iterator.__anext__()
+    response = await stream_runtime_events(system=system)
+    chunk = await _next_chunk(response)
     data_line = next(line for line in chunk.splitlines() if line.startswith("data: "))
     payload = json.loads(data_line.removeprefix("data: "))
 
@@ -104,14 +106,12 @@ async def test_runtime_events_stream_replays_after_last_event_id_query():
         runtime_events=bus,
         config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
     )
-    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
 
     response = await stream_runtime_events(
-        request=request,
         last_event_id_query=first_id,
         system=system,
     )
-    chunk = await response.body_iterator.__anext__()
+    chunk = await _next_chunk(response)
 
     assert "chat.run.status" in chunk
     assert "streaming" in chunk
@@ -133,15 +133,13 @@ async def test_runtime_events_stream_header_last_event_id_wins_over_stale_query(
         runtime_events=bus,
         config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
     )
-    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
 
     response = await stream_runtime_events(
-        request=request,
         last_event_id_query=stale_id,
         last_event_id_header=latest_seen_id,
         system=system,
     )
-    chunk = await response.body_iterator.__anext__()
+    chunk = await _next_chunk(response)
 
     assert "chat.run.completed" in chunk
     assert "streaming" not in chunk
@@ -159,14 +157,12 @@ async def test_runtime_events_stream_header_last_event_id_emits_gap_when_evicted
         runtime_events=bus,
         config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
     )
-    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
 
     response = await stream_runtime_events(
-        request=request,
         last_event_id_header=evicted_id,
         system=system,
     )
-    chunk = await response.body_iterator.__anext__()
+    chunk = await _next_chunk(response)
 
     assert "event.stream.gap" in chunk
     assert evicted_id in chunk
@@ -184,7 +180,7 @@ def _bus_with_statuses(*statuses: str) -> RuntimeEventBus:
 async def _replayed_statuses(response, count: int) -> list[str]:
     statuses = []
     for _ in range(count):
-        chunk = await response.body_iterator.__anext__()
+        chunk = await _next_chunk(response)
         data = json.loads(chunk.split("data: ", 1)[1])
         statuses.append(data["status"])
     await response.body_iterator.aclose()
@@ -202,9 +198,8 @@ async def test_runtime_events_stream_replays_last_n_for_new_connection(replay_la
         runtime_events=_bus_with_statuses("first", "second", "third"),
         config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
     )
-    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
 
-    response = await stream_runtime_events(request=request, replay_last=replay_last, system=system)
+    response = await stream_runtime_events(replay_last=replay_last, system=system)
 
     assert await _replayed_statuses(response, len(expected)) == expected
 
@@ -218,10 +213,33 @@ async def test_runtime_events_stream_resume_ignores_replay_last():
         runtime_events=bus,
         config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
     )
-    request = SimpleNamespace(is_disconnected=AsyncMock(return_value=False))
 
     response = await stream_runtime_events(
-        request=request, last_event_id_header=first_id, replay_last=1, system=system
+        last_event_id_header=first_id, replay_last=1, system=system
     )
 
     assert await _replayed_statuses(response, 2) == ["second", "third"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_events_stream_ends_when_server_shuts_down(monkeypatch):
+    """服务器开始关闭时流自行结束，即使客户端一直连着。
+
+    服务器关闭时要先等进行中的请求结束，才执行应用的关闭流程；订阅没有尽头，
+    不随关闭结束的流会让关闭停在等待连接上，话题也无法结算。
+    """
+    system = SimpleNamespace(
+        runtime_events=RuntimeEventBus(),
+        config=HiveMemoryConfig(runtime_events=RuntimeEventsConfig(enabled=True)),
+    )
+    response = await stream_runtime_events(system=system)
+    monkeypatch.setattr(AppStatus, "should_exit", True)
+
+    async def receive():
+        # 客户端不发送断开消息：响应只能由服务器关闭结束。
+        await asyncio.Event().wait()
+
+    async def send(message):
+        await asyncio.sleep(0)
+
+    await asyncio.wait_for(response({"type": "http", "method": "GET"}, receive, send), timeout=2)
