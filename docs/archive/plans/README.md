@@ -19,7 +19,7 @@ last_reviewed: 2026-11-09
 
 ## 版本之外
 
-- [访问登记的运行时管理](./runtime-access-registration.md)：2026-11-09，提交待定；[认证与访问登记](../../workspace/authentication.md#2-两类访问登记)、[管理页面](../../frontend/management-views.md#33-接入与权限)
+- [访问登记的运行时管理](./runtime-access-registration.md)：2026-11-09，PR #209；[认证与访问登记](../../workspace/authentication.md#2-两类访问登记)、[管理页面](../../frontend/management-views.md#33-接入与权限)
 - [Claude Code 唤醒后的续作导入](./claude-code-wake-turns.md)：2026-11-08，PR #203；[Import Bus](../../system/import-bus.md#83-轮次的切分与映射)、[Gateway 分析](../../gateway/analysis.md#3-topic-router只做选择)
 - [dsh 插件并入统一插件目录](./dsh-unified-plugin-dir.md)：2026-11-08，PR #202；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
 - [pi 插件接入](./pi-plugin-integration.md)：2026-11-08，PR #201；[Import Bus](../../system/import-bus.md#11-pi-扩展)、[接入 pi](../../help/pi-plugin.md)

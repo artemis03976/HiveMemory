@@ -2,7 +2,7 @@
 title: 访问登记的运行时管理
 status: archived
 archived_at: 2026-11-09
-implemented_by: 提交待定
+implemented_by: PR #209
 superseded_by: docs/workspace/authentication.md
 owner: project
 target: 版本之外的工作（身份与访问主线）
