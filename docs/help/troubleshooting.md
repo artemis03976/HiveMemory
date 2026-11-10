@@ -123,10 +123,9 @@ debug 模式的页面没有 mock 标识。验证后端能力时不要设置 `VIT
 
 在对齐完成前：
 
-- 直接编辑 `configs/config.yaml`；
-- 或使用能够提交完整 `HiveMemoryConfig` 新结构的 API 客户端；
-- 保存后重启并重新检查 readiness；
-- 用版本控制 diff 确认没有意外删除未出现在旧表单中的配置段。
+- 直接编辑 `configs/config.local.yaml`，只写要改的字段，层级与 `config.yaml` 相同；
+- 或使用能够提交完整 `HiveMemoryConfig` 新结构的 API 客户端，保存只把与默认值不同的字段写进 `config.local.yaml`；
+- 保存后，`GET /api/v1/config` 的 `pending_restart` 列出的字段在重启后生效，重启后重新检查 readiness。
 
 ## 8. Chat 看不到会话历史
 

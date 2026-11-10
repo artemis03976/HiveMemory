@@ -27,7 +27,7 @@ related_docs:
   - docs/system/application-services.md
   - docs/system/attachments.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 任务进程
@@ -140,7 +140,7 @@ Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit
 | 话题确认与建立、存储健康、交互提交 | 系统；交互提交时执行者作为参与者 | 经 root API（`RootTopicService.determine_topic`、`RootMemoryService.storage_available`、`RootInteractionService.submit_interaction`），由方法入口 `authorize_root(system_actor, 目标)` |
 | 预检索 | 执行者 | 经操作入口以主线程提交 `RetrieveRequest`，actor API 以 `authorize_agent(执行者, memory.search, 驻留 Workspace)` 授权；执行者没有 `memory.search`（`operation_not_allowed`）时不检索，其他授权失败（如准入已失效）照常使进程失败 |
 
-是否预检索由执行器判定：请求关闭了记忆检索（`enable_memory_retrieval`）、Gateway 的检索计划为跳过或要求零条时不提交；否则按计划构造 `RetrieveRequest`（改写后的查询、关键词与条数），经操作入口以主线程提交，与 Alice 的 SEARCH 走同一条路。系统阶段不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成对话；它只是不预检索，对话照常进行。检索按执行者的可见性进行，结果经读取视图逐条做归属校验与交付授权，并预热读取缓存：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）。actor API 随检索以执行者的 scope 为交付的记忆记录检索命中（[能力层](./capability.md#7-引用读取的副作用)），命中因此在 PREPARE 记录，本轮之后失败、停止或没有输出也不撤回。预检索以主线程提交而不由执行器自行授权，是为了让 `authorize_agent` 只在 actor API 一处调用；预检索也因此共用线程的存活判定，停止被接受后以 `ThreadEndedError` 被拒绝（第 12 节）。
+是否预检索由执行器判定：请求关闭了记忆检索（`enable_memory_retrieval`）、Gateway 的检索计划为跳过时不提交；否则按计划构造 `RetrieveRequest`（改写后的查询与关键词，条数由检索器配置决定），经操作入口以主线程提交，与 Alice 的 SEARCH 走同一条路。系统阶段不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成对话；它只是不预检索，对话照常进行。检索按执行者的可见性进行，结果经读取视图逐条做归属校验与交付授权，并预热读取缓存：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）。actor API 随检索以执行者的 scope 为交付的记忆记录检索命中（[能力层](./capability.md#7-引用读取的副作用)），命中因此在 PREPARE 记录，本轮之后失败、停止或没有输出也不撤回。预检索以主线程提交而不由执行器自行授权，是为了让 `authorize_agent` 只在 actor API 一处调用；预检索也因此共用线程的存活判定，停止被接受后以 `ThreadEndedError` 被拒绝（第 12 节）。
 
 scope 不保存在工作集中等待使用，也不进入 CPU 输入清单、线程描述或任何 CPU 可见的对象。经 root API 的阶段调用由执行器或线程表交出进程记录的系统 root 工作 actor 与目标 Workspace，root 方法在入口授权一次，方法内部依次调用的公开路由不再各自授权；Workspace 归属由资源 owner 校验，进程不另行比对自家子系统的返回值。授权失败沿异常路径按进程失败收口；提交任务中的授权失败不影响已接纳写入。两个授权方法在 `workspace.process` 中的调用位置由架构测试锁定：`authorize_root` 只在执行器（Gateway）、CPU 分配（Profile 与附件）与注册入口（取消）中调用，`authorize_agent` 不在任务进程中调用。
 

@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-09
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -142,8 +142,7 @@ Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定
 | 配置 | 默认值 | 当前作用 |
 |:---|:---:|:---|
 | `runtime.max_loop_iterations` | `10` | 单 frame generate -> MTP 最大循环次数 |
-| `koakuma.enabled` | `true` | 当前只影响是否向 prompt 注入 MTP 教学 |
-| `koakuma.mtp_prompt.enabled` | `true` | 控制 MTP prompt section |
+| `koakuma.mtp_prompt.enabled` | `true` | 控制是否向 prompt 注入 MTP 教学 |
 | `koakuma.mtp_prompt.include_demo` | `true` | 控制 one-shot 示例 |
 | `koakuma.mtp_prompt.include_error_handling` | `true` | 控制错误恢复提示 |
 | `koakuma.python_repl_timeout_seconds` | `10` | REPL 与 code snippet 子进程 timeout |
@@ -152,7 +151,7 @@ Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定
 | `koakuma.file_write_max_bytes` | `102400` | 单次写入上限 |
 | `koakuma.web_search_timeout_seconds` | `15` | 传入 web search 注册函数，但当前实现忽略 |
 
-`koakuma.enabled=false` 目前不会阻止 Runtime 解析和执行模型自行生成的 MTP 文本。若它被当作安全关闭开关，会形成错误预期；访问登记的操作白名单只能拒绝资源操作，`sys_*` 系统工具不设权限、RUN 始终可用，真正禁用执行面仍需后续补齐 runtime gate。
+`koakuma.mtp_prompt.enabled=false` 只移除教学，不阻止 Runtime 解析和执行模型自行生成的 MTP 文本。若它被当作安全关闭开关，会形成错误预期；访问登记的操作白名单只能拒绝资源操作，`sys_*` 系统工具不设权限、RUN 始终可用，真正禁用执行面仍需后续补齐 runtime gate。
 
 ## 9. 维护检查
 
@@ -184,7 +183,7 @@ Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定
 
 ## 11. 当前限制与实现偏差
 
-- `koakuma.enabled=false` 只移除 prompt 教学，不关闭 runtime 执行；它不是 kill switch；
+- `koakuma.mtp_prompt.enabled=false` 只移除 prompt 教学，不关闭 runtime 执行；它不是 kill switch；
 - `execute_mtp()` 没有整体超时；只有 REPL 与 code snippet 子进程按 `python_repl_timeout_seconds` 超时；
 - `web_search_timeout_seconds` 虽被传进 syscall registry，但 `sys_web_search()` 明确忽略该参数；底层调用可能超过配置时间；
 - 系统工具的 syscall 是同步函数，并在 async handler 中直接执行。文件、搜索和 subprocess 等工作会阻塞当前事件循环；

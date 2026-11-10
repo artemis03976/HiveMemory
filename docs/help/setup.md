@@ -21,7 +21,7 @@ related_docs:
   - docs/help/deepseek-harness-plugin.md
   - docs/help/codex-plugin.md
   - docs/help/pi-plugin.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 ---
 
 # 安装与启动 HiveMemory
@@ -72,7 +72,7 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=sk-...
 HIVEMEMORY__PROVIDERS__DEEPSEEK__API_BASE=https://api.deepseek.com
 ```
 
-默认 `configs/models.yaml` 将 `deepseek-chat` 标为默认模型，并通过 `provider: deepseek` 引用上述凭证。不要把真实密钥写入受版本控制的 `configs/config.yaml` 或 `configs/models.yaml`。其他配置方式见[配置指南](./configuration.md)。
+首次启动时从模板生成的 `configs/models.yaml` 将 `deepseek-chat` 标为默认模型，并通过 `provider: deepseek` 引用上述凭证。不要把真实密钥写入 `configs/config.yaml`、`configs/config.local.yaml` 或 `configs/models.yaml`。其他配置方式见[配置指南](./configuration.md)。
 
 ## 3. 路径 A：Docker 一体化运行
 
