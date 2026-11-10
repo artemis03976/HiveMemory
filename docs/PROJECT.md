@@ -185,7 +185,8 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 - Local Work Queue Runtime 的 lane、状态机、backpressure、retry、cancel、timeout 与 shutdown drain；
 - chat、Gateway、Agent、memory task、maintenance、Import Bus、system lifecycle 等 RuntimeEvent；
 - 有界事件回放与 stream gap 表达；
-- 全局维护调度器、模型 warmup、health/readiness；
+- 全局维护调度器、模型 warmup、health/readiness（模型加载失败时就绪检查报告失败的模型）；
+- Windows 桌面客户端：托盘常驻，持有本机的后端与 Qdrant；管理凭据只在内存中，只有桌面窗口能管理；数据根可选；首次部署写入预设 Agent；二次确认后删除记忆数据；NSIS 安装包随带 Python 运行时、依赖与 Qdrant，模型首次启动时下载（[桌面客户端](./frontend/desktop-client.md)）；
 - Provider / Model 注册表，以及会话与 Gateway、Patchouli 组件共用的模型选择（`ModelSelection`）。
 
 ## 6. 当前系统结构

@@ -23,6 +23,7 @@ last_reviewed: 2026-11-08
 
 ## 当前指南
 
+- [使用桌面客户端](./desktop-client.md)：Windows 安装版的安装、首次启动、升级、删除记忆数据与卸载；
 - [安装与启动](./setup.md)：Docker 一体化运行、本地开发、端口、health/readiness、验证，以及外部 harness 的接入入口；
 - [接入 Claude Code](./claude-code-plugin.md)：Claude Code 插件的安装、凭据、配置、确认、排查与更新；
 - [接入 DeepSeek Harness](./deepseek-harness-plugin.md)：dsh 插件的安装（Windows 桌面端与命令行）、凭据、配置、确认、排查与更新；

@@ -36,7 +36,7 @@ related_docs:
   - docs/archive/plans/unified-identity-authorization-entry.md
   - docs/archive/plans/workspace-asset-ownership-split.md
   - docs/todo/memory-visibility-policy-ui.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # 身份与访问体系
@@ -109,9 +109,9 @@ last_reviewed: 2026-11-09
 - **防刻意**：agent 专门在本机寻找凭据也拿不到。harness 的 agent 以同一个系统用户运行，用户能读的文件与环境变量它都能读，所以凭据要放在它拿不到的地方：桌面客户端主进程的内存，或需要人参与的口令。
 - harness 的共享密钥目前同样只做到防误用（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节）。
 
-防误用部分已落地（2026-11-05，[归档计划](../archive/plans/http-management-credential.md)）：`/api/` 下除导入之外的接口都要求管理凭据，后端默认只监听本机地址，当前事实见[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节。本节只剩防刻意。
+防误用部分已落地（2026-11-05，[归档计划](../archive/plans/http-management-credential.md)）：`/api/` 下除导入之外的接口都要求管理凭据，后端默认只监听本机地址，当前事实见[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节。防刻意部分见下文。
 
-**防刻意的候选设计**（不是 owner 决定，随桌面客户端的计划细化）：桌面客户端的主进程启动后端时生成凭据，经管道而不是文件或环境变量交给后端，再交给自己的页面，凭据不落盘。
+防刻意部分随桌面客户端落地（2026-11-10，[归档计划](../archive/plans/desktop-client.md)）：主进程启动后端时生成凭据，经 stdin 管道交给后端，再放进窗口的内存会话，不落盘，只有桌面窗口能管理；开发方式（`ps1`、Vite）仍使用凭据文件，只防误用（owner，2026-11-09）。当前事实见[桌面客户端](../frontend/desktop-client.md#4-管理凭据)。harness 的接入凭据仍只防误用。
 
 ### P-5 被动请求的认证
 
@@ -279,7 +279,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 **已登记的例外与暂缓**
 
 - chat 请求体中 `session_id` 的未来语义：[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md)；
-- **root 的声明范围**（owner，2026-10-20）：能以保留的 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问，其他接入来源不能声明 `system`。已落实（2026-10-29，[记忆访问计划](../archive/plans/v0.7.1-memory-access-mcp.md)）：接入登记的 `allow_system_actor` 逐个声明能否声明 `system`，默认不能，server 与 Profile 注入脚本显式允许，外部 harness 不能（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。2026-11-06 起，系统自身的 principal `hivememory:system` 同样允许，供任务进程与 Import Bus 执行系统级操作（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。Profile 注入脚本（`hivememory:profile-injector`）不在这条规则的范围内（owner，2026-10-20）：它用于向默认 Workspace 快速注入预设 Agent，理想情况下只在项目初次部署时使用，不应经过权限系统；现状仍作为登记来源经网关以 `system` 进入 root API，项目接入部署流程时再调整。
+- **root 的声明范围**（owner，2026-10-20）：能以保留的 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问，其他接入来源不能声明 `system`。已落实（2026-10-29，[记忆访问计划](../archive/plans/v0.7.1-memory-access-mcp.md)）：接入登记的 `allow_system_actor` 逐个声明能否声明 `system`，默认不能，server 显式允许，外部 harness 不能（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。2026-11-06 起，系统自身的 principal `hivememory:system` 同样允许，供任务进程与 Import Bus 执行系统级操作（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。预设 Agent 的注入不在这条规则的范围内（owner，2026-10-20）：只在初次部署时进行，不经过权限系统。已随桌面客户端落地（2026-11-10）：数据根第一次启动、模型就绪后，System 经 Patchouli 以所属 Workspace 的 `system` 直接写入预设，留下标记只写一次；原来的注入脚本与它的接入登记 `hivememory:profile-injector` 已删除（[桌面客户端](../frontend/desktop-client.md#7-推理模型与首次部署)）。
 
 **相关 Todo 与治理工作包**
 

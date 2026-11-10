@@ -29,7 +29,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # 公开路由与事件
@@ -128,6 +128,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id、`identity_scope` | `bool`；越域与不存在统一抛 `ResourceNotFoundError` |
 | `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`AgentProfileCreation`（创建材料，alias 必填） | 持久化后的 `MemoryAtom` |
 | `patchouli.public.agent_profile.list` | `list_agent_profiles` | `identity_scope`、limit | profile atom 列表 |
+| `patchouli.public.agent_profile.seed_presets` | `seed_preset_agent_profiles` | `belong_to`（`WorkspaceIdentity`） | 写入的 alias 列表；以该 Workspace 的 `system` 写入缺少的预设 Profile，已存在的 alias 跳过，不经授权；只供初次部署 |
 | `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要）、`enforce_actor_visibility`（默认真；假为管理读取，只校验 Workspace 归属，供任务进程以 root scope 加载执行者的图纸） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
@@ -137,6 +138,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.models.warmup` | `warmup_models` | 无 | `None`；依次加载启用的推理模型，失败只记录日志 |
 | `patchouli.public.models.prefetch` | `prefetch_models` | 无 | `None`；在后台开始加载尚未加载的推理模型并立即返回，只保证加载已经开始；已加载或正在加载的模型不受影响 |
 | `patchouli.public.models.ready` | `is_models_ready` | 无 | `bool`：每个启用的推理模型至少成功加载过一次，且当前不处于加载失败状态；空闲卸载不改变结果 |
+| `patchouli.public.models.failed` | `failed_models` | 无 | `list[str]`：最近一次加载失败的推理模型名；重新开始加载后不再列出 |
 
 ### 2.5 CPU 端口与交互输出
 

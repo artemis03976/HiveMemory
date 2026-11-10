@@ -35,6 +35,10 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 - **会话**：支持新建、恢复、重命名与删除；Alice 按模型预算自动精简旧工具结果并生成接力摘要，原始对话完整保留，可查看摘要与压缩边界；有输出的取消与失败轮次保留结局。会话与检查点仅在后端进程内保存，重启后消失；Topic 独立作为记忆材料。
 - **系统指令**：Gateway 只解析命令，识别为命令的消息以命令终态结束、不进入普通对话；当前版本不执行内置命令。
 
+### 桌面客户端
+
+- **Windows 桌面客户端**（`desktop/`，Electron）：托盘常驻，启动并持有本机的后端与 Qdrant，关窗后外部 harness 的记忆工具照常可用；管理凭据只在内存中，只有桌面窗口能管理；首次启动选择数据目录并下载推理模型、写入预设 Agent；托盘中可二次确认后删除记忆数据。安装包由 `desktop` 目录的 `npm run package` 生成，随带 Python 运行时、依赖与 Qdrant，没有代码签名与自动升级。使用见[使用桌面客户端](docs/help/desktop-client.md)，设计见[桌面客户端](docs/frontend/desktop-client.md)
+
 ### Workspace 与访问
 
 - 两类访问登记（`configs/system_principals.yaml` 与 `configs/workspace_actors.yaml`）经两阶段认证，决定谁能以哪个 Agent 进入哪个 Workspace；Agent 的操作权限只由访问登记的 actor 操作白名单表达，Agent Profile 不承载权限；

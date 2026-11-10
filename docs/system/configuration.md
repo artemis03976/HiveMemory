@@ -20,7 +20,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # System 配置与注册表
@@ -39,7 +39,7 @@ last_reviewed: 2026-11-09
 
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
-| `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
+| `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`、预设 Agent 写入标记的路径 `preset_agent_profiles_marker`（默认 `.hivememory/preset_agent_profiles_seeded`，相对工作目录）；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
 | `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，perception idle flush、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | 默认 embedding 模型 | 共享模型能力 |
 | `gateway` | `config.gateway` | 模型选择与生成参数（`llm`）、interceptor、commands、workflow、topic router、query analysis | Gateway |
@@ -96,7 +96,7 @@ last_reviewed: 2026-11-09
 
 访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 的 `agent_config` 不再承载权限，`sys_*` 系统工具不设权限。白名单可以在设置页的“接入与权限”中编辑，也可以修改本文件后重启。
 
-保留的 `system` 记录只登记准入，不得配置 `allowed_operations`：root 授权只要求 actor 是 `system`，不读取白名单。管理入口、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，用户级记录不覆盖它，因此用于对话、导入或 MCP 写入的 Workspace 都要为该用户单独登记 `system`，否则以 403 `actor_not_admitted` 拒绝。默认接入登记另有本地来源 `hivememory:profile-injector`（kind `local-process`，adapter `local`，`allow_system_actor: true`），供 `scripts/inject_profiles.py` 经认证网关以 `system` 认证后调用 root API 注入 Profile；脚本可用 `--principal-id` 指定其他已登记的本地来源。
+保留的 `system` 记录只登记准入，不得配置 `allowed_operations`：root 授权只要求 actor 是 `system`，不读取白名单。管理入口、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，用户级记录不覆盖它，因此用于对话、导入或 MCP 写入的 Workspace 都要为该用户单独登记 `system`，否则以 403 `actor_not_admitted` 拒绝。预设 Agent 不经接入登记写入（[桌面客户端](../frontend/desktop-client.md#7-推理模型与首次部署)）；更早生成的生效登记中残留的 `hivememory:profile-injector` 已不再使用，留着不影响启动。
 
 升级注意（能力层分为 root API 与 actor API）：旧名称 `resource.read`、`resource.search`、`profile.read`、`asset.acquire`、`interaction.submit`、`memory_intent.submit`、`task.observe` 与 `management.*` 已删除，配置中出现时装载失败并指出值与记录坐标；`system` 记录配置任何 operation 时同样装载失败。自定义过该文件的部署应改用新名称，并删除 `system` 记录上的 `allowed_operations`。旧 `memory_intent.submit` 拆为 `memory.write` 与 `memory.update`；RUN 的记忆目标改为需要 `memory.run`（不再借用 READ）。缺少对应操作时，MTP 权限拒绝沿用 `mtp.permission.verb_denied` 文案键，缺少 `agent.call` 时 CALL 以准备失败回填。
 
@@ -158,6 +158,8 @@ last_reviewed: 2026-11-09
 ```
 
 各来源按层级合并：上层只替换自己写出的叶子，同一段中没有写出的字段仍取下层的值。
+
+**数据根**：环境变量 `HIVEMEMORY_DATA_ROOT` 指定数据根（`config/files.py` 的 `personal_configs_dir()`）。设置后，本机的个人配置都在 `<数据根>/configs`：`config.local.yaml`、`models.yaml`、`providers.secrets.yaml`、两份访问登记与 `principals.secrets.yaml`、`management.token`；随程序发布的 `config.yaml` 与各 `*.example.yaml` 模板仍从源码位置推导的 `configs` 读取（`SHIPPED_CONFIGS_DIR`）。`.env` 与配置中相对路径的数据目录（模型缓存、长期归档、Artifact、保存的生成工作）按工作目录解析，桌面客户端以数据根为工作目录启动后端。不设置时，个人配置与模板同在仓库的 `configs`，与开发方式相同（[桌面客户端](../frontend/desktop-client.md#5-数据根)）。
 
 嵌套环境变量使用 `HIVEMEMORY__` 前缀和 `__` 分隔，例如：
 

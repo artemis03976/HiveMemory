@@ -1,6 +1,9 @@
 ---
 title: Electron 桌面客户端
-status: active
+status: archived
+archived_at: 2026-11-10
+implemented_by: PR #TBD
+superseded_by: docs/frontend/desktop-client.md
 owner: frontend
 target: v1.0 范围（候选清单 D-01，含 A-02、A-05）
 scope: installable-windows-desktop-client-with-tray-resident-backend-first-run-upgrade-and-data-deletion
@@ -31,7 +34,7 @@ related_docs:
 
 # Electron 桌面客户端
 
-> **状态**：Active（2026-11-10 建立，同日实施，实施记录见第 10 节；手动验收与当前文档更新尚未进行）。owner 的决定见第 1.1 节；第 4 节中注明“候选”的做法已由 owner 按候选定下（2026-11-10，第 1.1 节第 11 条）。两版原型已在分支 `feat/desktop-prototype` 上（第 3 节），本计划在同一分支上把它们做成可发布的客户端。对应 [ROADMAP](../ROADMAP.md) 第 5.1 节。
+> **状态**：Archived（2026-11-10，已实施，实施记录见第 10 节）。当前事实见[桌面客户端](../../frontend/desktop-client.md)与[使用桌面客户端](../../help/desktop-client.md)。以下为实施时的计划原文，链接已按归档位置改正。owner 的决定见第 1.1 节，第 4 节注明“候选”的做法已由 owner 按候选定下。第 7 节的手动验收由 owner 在日常使用中进行，不阻塞归档。对应 [ROADMAP](../../ROADMAP.md) 第 5.1 节。
 
 ## 1. 背景和问题
 
@@ -54,7 +57,7 @@ v1.0 的目标之一是把 HiveMemory 做成桌面客户端（ROADMAP 第 5.1 �
 3. **只有桌面窗口能管理**（2026-11-09）：桌面模式下后端不写凭据文件、不随页面下发凭据；凭据只在主进程与后端的内存中。开发模式照旧使用凭据文件。这是 A-02 的防刻意部分（2026-11-05 定为随桌面客户端完成）。
 4. **数据目录**（2026-11-09）：默认 `%LOCALAPPDATA%\HiveMemory`，首次启动可以指向已有目录；数据目录之下沿用仓库根的布局；卸载只删程序、保留数据目录。
 5. **安装包内容**（2026-11-09）：Python 运行时、依赖与 Qdrant 随包；推理模型在首次启动时下载，显示进度。
-6. **跨重启状态**（2026-11-10）：任何退出都只结算话题、不做生成，未执行的生成工作保存到磁盘、下次启动后继续。已由 [PR #213](../archive/plans/shutdown-pending-generation-persistence.md) 完成。
+6. **跨重启状态**（2026-11-10）：任何退出都只结算话题、不做生成，未执行的生成工作保存到磁盘、下次启动后继续。已由 [PR #213](./shutdown-pending-generation-persistence.md) 完成。
 7. **签名与升级**（2026-11-10）：不做代码签名；不做自动升级，由用户下载新版安装包自己升级。
 8. **删除数据**（2026-11-10）：应用提供删除入口，删除前二次确认；先不做备份。
 9. **与前端 UI 优化的先后**（2026-11-10）：桌面计划先行，打包后的桌面端参与前端 UI 优化的一部分。
@@ -215,20 +218,20 @@ cd desktop && node --check src/main.js && npm run package
 
 ## 9. 完成时必须更新的当前文档
 
-- 新增 `docs/frontend/desktop-client.md`：桌面客户端的当前设计，包括生命周期、凭据、数据目录、打包、升级、删除数据与诊断；[Frontend](../frontend/README.md)索引登记。
-- 新增 `docs/help/desktop-client.md`：安装（含 SmartScreen）、首次启动、升级、删除数据、卸载与常见问题；[安装与启动](../help/setup.md)加入口。
-- [配置指南](../help/configuration.md)与 [System 配置](../system/configuration.md)：`HIVEMEMORY_DATA_ROOT` 与个人配置的位置。
-- [身份与执行安全治理](../governance/security/identity-and-execution-safety.md)与[认证与访问登记](../workspace/authentication.md)：桌面模式下的管理凭据；`hivememory:profile-injector` 的删除。
-- [PROJECT](../PROJECT.md)：桌面客户端成为可用的运行方式。
+- 新增 `docs/frontend/desktop-client.md`：桌面客户端的当前设计，包括生命周期、凭据、数据目录、打包、升级、删除数据与诊断；[Frontend](../../frontend/README.md)索引登记。
+- 新增 `docs/help/desktop-client.md`：安装（含 SmartScreen）、首次启动、升级、删除数据、卸载与常见问题；[安装与启动](../../help/setup.md)加入口。
+- [配置指南](../../help/configuration.md)与 [System 配置](../../system/configuration.md)：`HIVEMEMORY_DATA_ROOT` 与个人配置的位置。
+- [身份与执行安全治理](../../governance/security/identity-and-execution-safety.md)与[认证与访问登记](../../workspace/authentication.md)：桌面模式下的管理凭据；`hivememory:profile-injector` 的删除。
+- [PROJECT](../../PROJECT.md)：桌面客户端成为可用的运行方式。
 - 收尾时：
   - 本计划归档；
-  - [ROADMAP](../ROADMAP.md) 第 4.2 节表格与第 5.1 节更新；
-  - [身份与访问体系 Idea](../ideas/identity-and-access-model.md) 中 A-02、A-05 的状态同步；
-  - [Plans 导航](./README.md)同步。
+  - [ROADMAP](../../ROADMAP.md) 第 4.2 节表格与第 5.1 节更新；
+  - [身份与访问体系 Idea](../../ideas/identity-and-access-model.md) 中 A-02、A-05 的状态同步；
+  - [Plans 导航](../../plans/README.md)同步。
 
 ## 10. 实施记录
 
-2026-11-10 在分支 `feat/desktop-prototype` 实施第 4 节，做法按候选设计落地。与计划不同，或计划没有写到的地方：
+2026-11-10 在分支 `feat/desktop-prototype` 实施第 4 节，做法按候选设计落地，以 PR #TBD 合并。与计划不同，或计划没有写到的地方：
 
 - **模型加载失败的报告**：
   - 就绪链路新增一对路由：Patchouli 本地路由 `runtime.models.failed` 与公开路由 `patchouli.public.models.failed`，列出最近一次加载失败的模型名。原有的“是否就绪”路由不变。
@@ -258,9 +261,9 @@ cd desktop && node --check src/main.js && npm run package
 
 验证：后端单元与集成测试（不含 `live_llm`、`e2e`、`slow`）3350 通过、1 跳过；`ruff check .`、`black --check .`、`mypy` 通过；`node --check` 通过。
 
-尚未完成：
+收尾（2026-11-10）：
 
-- **第 7 节中需要手动操作或会改动本机设置的验收**，由 owner 进行：
+- **第 7 节中需要手动操作或会改动本机设置的验收**，由 owner 在日常使用中进行，不阻塞归档：
   - 托盘菜单的两次确认对话框与删除流程；
   - 登录 Windows 时启动（会写注册表）；
   - 更改数据目录；
@@ -268,6 +271,7 @@ cd desktop && node --check src/main.js && npm run package
   - 覆盖安装升级与配置残留键时的错误框；
   - Windows 注销与关机；
   - 四个 harness 的逐个验证。
-- **收尾时第 9 节之外还要更新的当前文档**：
-  - [System 配置](../system/configuration.md)、[认证与访问登记](../workspace/authentication.md)与[能力层](../workspace/capability.md)中关于注入脚本与 `hivememory:profile-injector` 的段落；
-  - 提到 `/health/ready` 的[应用服务](../system/application-services.md)、[安装与启动](../help/setup.md)与[故障排查](../help/troubleshooting.md)。
+- **当前文档**：第 9 节列出的文档已经更新，另外一并更新了：
+  - [System 配置](../../system/configuration.md)、[认证与访问登记](../../workspace/authentication.md)与[能力层](../../workspace/capability.md)中关于注入脚本与 `hivememory:profile-injector` 的段落；
+  - 提到 `/health/ready` 的[应用服务](../../system/application-services.md)、[安装与启动](../../help/setup.md)与[故障排查](../../help/troubleshooting.md)。
+  - [路由与事件契约](../../contracts/routes-and-events.md)、[Patchouli](../../patchouli/README.md)、[状态与传输](../../frontend/state-and-transports.md)与[身份与访问体系 Idea](../../ideas/identity-and-access-model.md)。

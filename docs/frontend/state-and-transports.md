@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # 前端状态、持久化与传输
@@ -92,6 +92,7 @@ Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送�
 
 - Vite 代理每次转发 HTTP 与 WebSocket 请求时，从 `../configs/management.token` 读出凭据并附上 `Authorization` 请求头；文件尚未生成时不附加，后端以 401 拒绝；
 - 后端提供页面时，页面响应下发 `HttpOnly` 的 `hivememory_management` cookie，同源请求、SSE 与 WebSocket 自动携带它。
+- 桌面客户端中后端不下发 cookie，由主进程把同名 cookie 放进窗口的内存会话，页面的携带方式不变（[桌面客户端](./desktop-client.md#4-管理凭据)）。
 
 凭据缺失或不一致的 401 由第 3.1 节的错误解析换成“管理凭据缺失或已失效，请刷新页面后重试”：后端的说明文字面向所有调用方，而页面由后端提供时，后端换了凭据之后刷新页面即可取得新的 cookie。日志 WebSocket 的握手被拒时浏览器拿不到原因，与后端未启动一样按断线有限重连。
 
