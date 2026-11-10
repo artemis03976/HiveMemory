@@ -2,7 +2,9 @@
 HiveMemory 模型注册表服务
 
 ModelRegistry 是管理所有可用 LLM 模型的单一数据源（SSOT）。
-持久化存储在 configs/models.yaml，支持运行时 CRUD 操作。
+持久化存储在 configs/models.yaml，支持运行时 CRUD 操作。该文件是本机的个人配置，
+不受版本控制；仓库只发布同目录的模板 models.example.yaml，默认路径的文件不存在时
+从模板复制一份。
 
 使用方式：
     registry = ModelRegistry()
@@ -12,13 +14,12 @@ ModelRegistry 是管理所有可用 LLM 模型的单一数据源（SSOT）。
 """
 
 import logging
-import os
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import yaml
 
+from hivememory.config.files import seed_from_template, write_atomically
 from hivememory.config.shared import ProviderCredentials
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition, ModelSelection
@@ -28,6 +29,9 @@ if TYPE_CHECKING:
     from hivememory.system.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
+
+# model_registry.py 位于 src/hivememory/system/，向上四级到达项目根目录
+_CONFIGS_DIR = Path(__file__).resolve().parents[3] / "configs"
 
 
 class DuplicateModelIdError(Exception):
@@ -58,13 +62,17 @@ class ModelRegistry:
         """
         Args:
             registry_path: models.yaml 的路径。None 时使用项目默认路径
-                           (configs/models.yaml，相对项目根目录)
+                           (configs/models.yaml，相对项目根目录)，不存在时从模板生成
             provider_registry: ProviderRegistry 实例，优先使用（支持运行时 CRUD）。
                            若提供，_resolve_credentials 将动态查询，修改立即生效。
             provider_credentials: 静态 provider 凭证字典（兜底，主要供测试使用）。
                            provider_registry 存在时此参数被忽略。
         """
-        self._path = registry_path or self._default_path()
+        if registry_path is None:
+            registry_path = self._default_path()
+            if not registry_path.exists():
+                seed_from_template(registry_path, self._template_path())
+        self._path = registry_path
         # 优先使用 ProviderRegistry（支持运行时更新）；
         # 兜底使用静态字典（兼容旧调用路径和单元测试）
         self._provider_registry: ProviderRegistry | None = provider_registry
@@ -84,16 +92,19 @@ class ModelRegistry:
     @staticmethod
     def _default_path() -> Path:
         """解析默认注册表文件路径（configs/models.yaml）"""
-        # model_registry.py 位于 src/hivememory/system/，向上三级到达项目根目录
-        project_root = Path(__file__).parent.parent.parent.parent
-        return project_root / "configs" / "models.yaml"
+        return _CONFIGS_DIR / "models.yaml"
+
+    @staticmethod
+    def _template_path() -> Path:
+        """随仓库发布的模板（configs/models.example.yaml）。"""
+        return _CONFIGS_DIR / "models.example.yaml"
 
     # ------------------------------------------------------------------
     # 加载 & 持久化
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        """从 YAML 文件加载模型列表。文件不存在时以空注册表启动。"""
+        """从 YAML 文件加载模型列表。显式指定的文件不存在时以空注册表启动。"""
         if not self._path.exists():
             logger.warning("模型注册表文件未找到: %s，将以空注册表运行", self._path)
             return
@@ -127,36 +138,13 @@ class ModelRegistry:
             logger.error("加载模型注册表失败: %s", e)
 
     def _save(self) -> None:
-        """
-        将内存中的模型列表原子性地写入 YAML 文件。
-        先写临时文件，再用 os.replace() 原子替换，避免写入过程中文件损坏。
-        """
+        """将内存中的模型列表原子性地写入 YAML 文件，写入中途失败不会留下半截文件。"""
         payload = {"models": [model.model_dump(mode="json") for model in self._models.values()]}
-
-        # 写入同目录的临时文件，再原子替换
-        tmp_fd, tmp_path = tempfile.mkstemp(
-            dir=self._path.parent,
-            suffix=".tmp",
-            prefix="models_",
+        content = yaml.safe_dump(
+            payload, allow_unicode=True, default_flow_style=False, sort_keys=False
         )
-        try:
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                yaml.safe_dump(
-                    payload,
-                    f,
-                    allow_unicode=True,
-                    default_flow_style=False,
-                    sort_keys=False,
-                )
-            os.replace(tmp_path, self._path)
-            logger.debug("模型注册表已持久化（%s 条记录）", len(self._models))
-        except Exception:
-            # 清理临时文件后重新抛出
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        write_atomically(self._path, content.encode("utf-8"))
+        logger.debug("模型注册表已持久化（%s 条记录）", len(self._models))
 
     # ------------------------------------------------------------------
     # 查询接口
@@ -264,7 +252,7 @@ class ModelRegistry:
     def _resolve_credentials(self, model: ModelDefinition) -> tuple[str | None, str | None]:
         """解析模型的 (api_key, api_base)。
 
-        两者只来自 provider 凭证：models.yaml 受版本控制，模型定义不保存连接凭证。
+        两者只来自 provider 凭证，模型定义不保存连接凭证。
         没有对应的 provider 凭证时为 None，由 litellm 从环境变量读取。
 
         provider 凭证查询：

@@ -74,11 +74,54 @@ def _make_registry(
 # ---------------------------------------------------------------------------
 
 
+_TEMPLATE = """\
+# 模板中的说明
+models:
+  - id: "m1"
+    display_name: "M1"
+    litellm_model: "deepseek/deepseek-chat"
+    is_default: true
+"""
+
+
+@pytest.fixture
+def default_registry_path(tmp_path, monkeypatch):
+    """以 tmp_path 代替仓库的 configs 目录，只放模板。"""
+    (tmp_path / "models.example.yaml").write_text(_TEMPLATE, encoding="utf-8")
+    monkeypatch.setattr(
+        ModelRegistry, "_default_path", staticmethod(lambda: tmp_path / "models.yaml")
+    )
+    monkeypatch.setattr(
+        ModelRegistry, "_template_path", staticmethod(lambda: tmp_path / "models.example.yaml")
+    )
+    return tmp_path / "models.yaml"
+
+
 class TestLoad:
     def test_empty_registry_when_file_missing(self, tmp_path):
-        """文件不存在时以空注册表启动，不抛异常。"""
+        """显式指定的文件不存在时以空注册表启动，不抛异常，也不从模板生成。"""
         registry = ModelRegistry(registry_path=tmp_path / "nonexistent.yaml")
         assert len(registry) == 0
+        assert not (tmp_path / "nonexistent.yaml").exists()
+
+    def test_missing_default_registry_is_generated_from_the_template(self, default_registry_path):
+        """默认路径的生效文件不存在时按模板原样生成（保留注释），装载的就是模板中的模型。"""
+        registry = ModelRegistry()
+
+        assert default_registry_path.read_text("utf-8") == _TEMPLATE
+        assert [model.id for model in registry.list_models()] == ["m1"]
+
+    def test_existing_default_registry_is_not_overwritten_by_the_template(
+        self, default_registry_path
+    ):
+        """已有的生效文件是本机的个人配置，模板不覆盖它。"""
+        local = _TEMPLATE.replace('"m1"', '"mine"')
+        default_registry_path.write_text(local, encoding="utf-8")
+
+        registry = ModelRegistry()
+
+        assert default_registry_path.read_text("utf-8") == local
+        assert [model.id for model in registry.list_models()] == ["mine"]
 
     def test_load_models_from_yaml(self, tmp_path):
         """从 YAML 文件正确加载模型列表。"""
