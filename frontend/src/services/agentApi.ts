@@ -1,6 +1,7 @@
 import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import type { AgentData } from '@/types';
+import type { BackendAgent } from '@/hooks/useAgents';
 import { apiUrl } from '@/transports/backendUrl';
 import { backendFetch } from '@/transports/connectionStatus';
 
@@ -15,13 +16,14 @@ function toPayload(agent: AgentData) {
     agent_config: {
       model_name: agent.config.model_name,
       temperature: agent.config.temperature,
+      top_p: agent.config.top_p,
       language: agent.config.language,
       enabled: agent.status === 'Active',
     },
   };
 }
 
-export async function createAgent(agent: AgentData) {
+export async function createAgent(agent: AgentData): Promise<BackendAgent> {
   const res = await backendFetch(apiUrl('/api/v1/agents'), {
     method: 'POST',
     headers: {

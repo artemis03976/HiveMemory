@@ -2,6 +2,8 @@
 export interface AgentProfileConfig {
   model_name: string;
   temperature: number;
+  /** 为空时沿用模型定义的默认值。 */
+  top_p: number | null;
   language: string;
 }
 
@@ -17,4 +19,7 @@ export interface AgentData {
   model: string;       // config.model_name
   status: AgentStatus;
   config: AgentProfileConfig;
+  /** 创建与最近保存的时间（ISO 字符串）；尚未保存的草稿没有。 */
+  createdAt?: string;
+  updatedAt?: string;
 }

@@ -1,75 +1,47 @@
-import { useState, useCallback } from 'react';
-import { Tag, Plus, X } from 'lucide-react';
+import { useState } from 'react';
 
 interface TagsSectionProps {
   tags: string[];
   onChange: (tags: string[]) => void;
 }
 
+/** 标签编辑：回车加入，统一为小写；重复的标签不再加入。 */
 export function TagsSection({ tags, onChange }: TagsSectionProps) {
   const [input, setInput] = useState('');
 
-  const addTag = useCallback(() => {
-    const trimmed = input.trim().toLowerCase();
-    if (trimmed && !tags.includes(trimmed)) {
-      onChange([...tags, trimmed]);
-    }
+  const addTag = () => {
+    const tag = input.trim().toLowerCase();
+    if (tag && !tags.includes(tag)) onChange([...tags, tag]);
     setInput('');
-  }, [input, tags, onChange]);
-
-  const removeTag = useCallback((tag: string) => {
-    onChange(tags.filter(t => t !== tag));
-  }, [tags, onChange]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addTag();
-    }
-  }, [addTag]);
+  };
 
   return (
-    <section className="space-y-3">
-      <label className="text-sm font-bold text-fg flex items-center gap-2">
-        <Tag className="w-4 h-4 text-primary" />
-        标签
-      </label>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {tags.map(tag => (
-          <span
-            key={tag}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 text-xs text-primary font-mono group"
-          >
-            {tag}
-            <button
-              onClick={() => removeTag(tag)}
-              className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-magic-fire"
-            >
-              <X className="w-3 h-3" />
-            </button>
-          </span>
-        ))}
-
-        <div className="inline-flex items-center gap-1 bg-field border border-line rounded-lg px-2 py-1 focus-within:border-primary/50 transition-colors">
-          <input
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="添加标签..."
-            className="bg-transparent border-none text-xs text-fg placeholder-fg-3 focus:outline-none w-20 font-mono"
-          />
+    <div className="flex flex-wrap items-center gap-2">
+      {tags.map((tag) => (
+        <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-surface-container-high py-0.5 pl-2.5 pr-1.5 text-xs text-fg-2">
+          #{tag}
           <button
-            onClick={addTag}
-            disabled={!input.trim()}
-            aria-label="添加标签"
-            className="text-fg-3 hover:text-primary disabled:opacity-30 transition-colors"
+            onClick={() => onChange(tags.filter((t) => t !== tag))}
+            aria-label={`移除标签 ${tag}`}
+            className="rounded-full px-0.5 leading-none text-fg-3 transition-colors hover:text-fg"
           >
-            <Plus className="w-3 h-3" />
+            ×
           </button>
-        </div>
-      </div>
-    </section>
+        </span>
+      ))}
+      <input
+        type="text"
+        aria-label="添加标签"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          e.preventDefault();
+          addTag();
+        }}
+        placeholder="添加标签，回车确认"
+        className="h-7 w-40 rounded-full border border-dashed border-line-strong bg-transparent px-2.5 text-xs text-fg placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
+      />
+    </div>
   );
 }

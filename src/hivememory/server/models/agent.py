@@ -1,5 +1,6 @@
 """Agent 请求/响应模型"""
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -24,6 +25,9 @@ class AgentProfileResponse(BaseModel):
     tags: list[str]
     content: str = ""  # payload.content — Agent 的人格/系统指令
     agent_config: dict[str, Any] | None = None
+    created_at: datetime
+    # 只随内容修订推进，管理页据此显示“最近保存”
+    updated_at: datetime
 
     @classmethod
     def from_atom(cls, atom: MemoryAtom) -> "AgentProfileResponse":
@@ -35,4 +39,6 @@ class AgentProfileResponse(BaseModel):
             tags=atom.index.tags,
             content=atom.payload.content,
             agent_config=atom.payload.agent_config,
+            created_at=atom.meta.created_at,
+            updated_at=atom.meta.updated_at,
         )

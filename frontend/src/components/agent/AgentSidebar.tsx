@@ -1,8 +1,6 @@
 import { Plus, Search } from 'lucide-react';
-import { PageTitle } from '@/components/common/PageHeader';
-import { motion, AnimatePresence } from 'motion/react';
 import type { AgentData } from '@/types/agent';
-import { activateOnKey } from '@/utils/activateOnKey';
+import { AgentIcon } from './AgentIcon';
 
 interface AgentSidebarProps {
   agents: AgentData[];
@@ -13,75 +11,84 @@ interface AgentSidebarProps {
   onCreate: () => void;
 }
 
+/** 状态色：木为启用；停用为中性色；尚未保存的草稿为金色。 */
+function agentState(agent: AgentData): { label: string; text: string; dot: string } {
+  if (agent.id.startsWith('pending_')) return { label: '草稿', text: 'text-magic-metal', dot: 'bg-magic-metal' };
+  return agent.status === 'Active'
+    ? { label: '启用', text: 'text-magic-wood', dot: 'bg-magic-wood' }
+    : { label: '已停用', text: 'text-fg-3', dot: 'bg-fg-3' };
+}
+
+/** 左栏：Agent 列表，可搜索与新建。 */
 export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSearch, onCreate }: AgentSidebarProps) {
   return (
-    <div className="w-80 flex flex-col border-r border-line bg-surface-dim/40 backdrop-blur-xl shrink-0">
-      <div className="p-6 border-b border-line space-y-4">
-        <div className="flex items-center justify-between">
-          <PageTitle title="Agent" description="人偶们的名称、模型与系统指令" size="section" />
-          <button
-            onClick={onCreate}
-            className="mt-1 p-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all group"
-            title="新建 Agent"
-            aria-label="新建 Agent"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
+    <aside aria-label="Agent 列表" className="flex w-[300px] shrink-0 flex-col border-r border-line bg-surface-container-low">
+      <div className="flex flex-col gap-1 px-4.5 pb-3 pt-5.5">
+        <h1 className="flex items-center gap-2.5 font-manrope text-2xl font-extrabold text-fg">
+          Agent
+          <span aria-hidden="true" className="mt-1 h-[3px] w-8 rounded-full bg-brand" />
+        </h1>
+        <p className="text-[13px] text-fg-2">人偶们的名称、模型与系统指令</p>
+      </div>
 
-        <div className="relative">
+      <div className="flex gap-2 px-3.5 pb-3">
+        <label className="relative block flex-1">
+          <span className="sr-only">搜索 Agent</span>
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-[15px] w-[15px] -translate-y-1/2 text-fg-3" aria-hidden="true" />
           <input
             type="text"
-            placeholder="搜索 Agent..."
+            placeholder="搜索 Agent"
             value={searchQuery}
-            onChange={e => onSearch(e.target.value)}
-            className="w-full bg-field border border-line rounded-xl pl-9 pr-4 py-2 text-sm text-fg placeholder-fg-3 focus:outline-none focus:border-primary/50 transition-colors"
+            onChange={(e) => onSearch(e.target.value)}
+            className="h-[34px] w-full rounded-[10px] border border-line-strong bg-field pl-8 pr-2.5 text-[13px] text-fg placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
           />
-          <Search className="w-4 h-4 text-fg-3 absolute left-3 top-2.5" />
-        </div>
+        </label>
+        <button
+          onClick={onCreate}
+          aria-label="新建 Agent"
+          title="新建 Agent"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-primary/40 bg-primary/15 text-primary transition-colors hover:bg-primary/20"
+        >
+          <Plus className="h-4 w-4" strokeWidth={2.4} />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
-        <AnimatePresence>
-          {agents.map(agent => (
-            <motion.div
+      <div className="scrollbar-thin flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-3.5">
+        {agents.length === 0 && (
+          <p className="pt-8 text-center text-[13px] text-fg-3">{searchQuery ? '没有匹配的 Agent' : '还没有 Agent'}</p>
+        )}
+        {agents.map((agent) => {
+          const selected = agent.id === selectedId;
+          const disabled = agent.status !== 'Active';
+          const state = agentState(agent);
+          return (
+            <button
               key={agent.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              role="button"
-              tabIndex={0}
-              aria-current={selectedId === agent.id ? 'true' : undefined}
               onClick={() => onSelect(agent.id)}
-              onKeyDown={activateOnKey(() => onSelect(agent.id))}
-              className={`p-3 rounded-xl cursor-pointer border transition-all ${
-                selectedId === agent.id
-                  ? 'bg-primary/10 border-primary/30'
-                  : 'bg-surface-container border-line hover:bg-surface-container-high'
+              aria-current={selected ? 'true' : undefined}
+              className={`relative flex items-center gap-3 rounded-xl py-2.5 pl-3 pr-2.5 text-left transition-colors ${
+                selected ? 'bg-primary/15' : 'hover:bg-surface-container-high'
               }`}
             >
-              <div className="flex justify-between items-start mb-0.5">
-                <span className="font-bold text-sm text-fg truncate pr-2">{agent.name}</span>
-                <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${agent.status === 'Active' ? 'bg-magic-wood' : 'bg-fg-3'}`} />
-              </div>
-              {agent.alias && (
-                <div className="text-xs text-fg-3 font-mono mb-0.5">#{agent.alias}</div>
-              )}
-              <div className="text-xs text-fg-3 truncate mb-2">{agent.summary}</div>
-              <div className="flex gap-1 flex-wrap">
-                <span className="text-xs px-1.5 py-0.5 rounded bg-field text-fg-3 border border-line">
-                  {agent.model}
-                </span>
-                {agent.tags.length > 0 && (
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary/60 border border-primary/10">
-                    {agent.tags.length} 标签
-                  </span>
-                )}
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+              {selected && <span aria-hidden="true" className="absolute bottom-3 left-0 top-3 w-[3px] rounded-full bg-brand" />}
+              <span
+                aria-hidden="true"
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-primary/15 text-primary ${disabled ? 'opacity-50' : ''}`}
+              >
+                <AgentIcon alias={agent.alias} className="h-[18px] w-[18px]" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className={`truncate text-sm font-semibold ${disabled ? 'text-fg-3' : 'text-fg'}`}>{agent.name || '未命名 Agent'}</span>
+                <span className="truncate font-mono text-xs text-fg-3">{agent.alias}</span>
+              </span>
+              <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs ${state.text}`}>
+                <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />
+                {state.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
-    </div>
+    </aside>
   );
 }

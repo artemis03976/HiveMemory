@@ -1,9 +1,10 @@
 import type { RegisteredModel } from '@/types/model';
 
+/** Profile 中的模型参数；生成参数为 null 时表示沿用模型定义。 */
 export interface AgentModelConfig {
   model_name?: string;
-  temperature?: number;
-  top_p?: number;
+  temperature?: number | null;
+  top_p?: number | null;
 }
 
 export interface EffectiveParam {
@@ -25,8 +26,8 @@ export function effectiveModelParams(
   const modelSource: EffectiveParam['source'] = sessionModelId ? '本次会话' : agent?.model_name ? '来自 Agent' : '模型默认';
   const model = models.find((m) => m.id === modelId);
 
-  const fromAgentOrModel = (label: string, agentValue: number | undefined, modelValue: number | undefined): EffectiveParam => {
-    if (agentValue !== undefined) return { label, value: String(agentValue), source: '来自 Agent' };
+  const fromAgentOrModel = (label: string, agentValue: number | null | undefined, modelValue: number | undefined): EffectiveParam => {
+    if (agentValue != null) return { label, value: String(agentValue), source: '来自 Agent' };
     if (modelValue !== undefined) return { label, value: String(modelValue), source: '模型默认' };
     return { label, value: '—', source: '未知' };
   };

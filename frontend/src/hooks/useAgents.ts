@@ -25,25 +25,33 @@ export interface BackendAgent {
   agent_config?: {
     model_name?: string;
     temperature?: number;
+    top_p?: number | null;
     language?: string;
     enabled?: boolean;
   } | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /** 内置人偶的图标；颜色只表示状态，Agent 图标一律用主色。 */
-const ICON_MAP: Record<string, LucideIcon> = {
+export const AGENT_ICONS: Record<string, LucideIcon> = {
   omni_doll: Bot,
   coder_doll: Code2,
   reviewer_doll: CheckCircle,
   designer_doll: Palette,
 };
 
+/** Agent 的图标：内置人偶各有图标，其余用默认图标。 */
+export function agentIcon(alias: string): LucideIcon {
+  return AGENT_ICONS[alias] ?? Bot;
+}
+
 function toAgentProfile(b: BackendAgent): AgentProfile {
   return {
     id: b.alias,
     name: b.title,
     description: b.summary,
-    avatarIcon: ICON_MAP[b.alias] ?? Bot,
+    avatarIcon: agentIcon(b.alias),
     enabled: b.agent_config?.enabled !== false,
   };
 }

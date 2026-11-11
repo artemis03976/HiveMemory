@@ -22,8 +22,8 @@ test('会话选的模型优先于 Agent 的模型', () => {
   assert.deepEqual(rows['最大输出'], ['4096', '模型默认']);
 });
 
-test('Agent 给出的温度优先，没给的参数取模型默认', () => {
-  const rows = byLabel(effectiveModelParams(undefined, { model_name: 'deepseek-chat', temperature: 0.3 }, models));
+test('Agent 给出的温度优先，没给或留空（null）的参数取模型默认', () => {
+  const rows = byLabel(effectiveModelParams(undefined, { model_name: 'deepseek-chat', temperature: 0.3, top_p: null }, models));
   assert.deepEqual(rows['温度'], ['0.3', '来自 Agent']);
   assert.deepEqual(rows['Top P'], ['0.95', '模型默认']);
 });

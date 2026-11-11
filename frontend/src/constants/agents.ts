@@ -13,6 +13,7 @@ export const MOCK_AGENT_CONFIGS: AgentData[] = [
     config: {
       model_name: 'deepseek/deepseek-chat',
       temperature: 0.7,
+      top_p: null,
       language: 'zh',
     },
   },
@@ -28,6 +29,7 @@ export const MOCK_AGENT_CONFIGS: AgentData[] = [
     config: {
       model_name: 'GPT-4o',
       temperature: 0.3,
+      top_p: null,
       language: 'en',
     },
   },
@@ -43,6 +45,7 @@ export const MOCK_AGENT_CONFIGS: AgentData[] = [
     config: {
       model_name: 'Claude 3.5 Sonnet',
       temperature: 0.7,
+      top_p: null,
       language: 'zh',
     },
   },
