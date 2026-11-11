@@ -35,9 +35,9 @@ const UNALIGNED_CATEGORIES = new Set([
 
 function UnalignedCategoryNotice() {
   return (
-    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-5 py-4 text-sm text-slate-300 leading-relaxed">
+    <div className="rounded-xl border border-magic-metal/20 bg-magic-metal/5 px-5 py-4 text-sm text-fg-2 leading-relaxed">
       该分类尚未与后端配置结构对齐，暂不提供表单。需要修改时，请在
-      <code className="mx-1 font-mono text-amber-300/80">configs/config.local.yaml</code>
+      <code className="mx-1 font-mono text-magic-metal/80">configs/config.local.yaml</code>
       中写入要改的字段并重启服务。
     </div>
   );
@@ -74,7 +74,7 @@ export default function Settings() {
 
   if (!config) {
     return (
-      <div className="flex-1 flex items-center justify-center h-full bg-background text-slate-400">
+      <div className="flex-1 flex items-center justify-center h-full bg-background text-fg-3">
         配置加载失败，请稍后重试。
       </div>
     );
@@ -94,18 +94,18 @@ export default function Settings() {
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-6 border-b border-white/5 bg-surface/30 backdrop-blur-md z-10 shrink-0">
+      <header className="flex items-center justify-between px-8 py-6 border-b border-line bg-surface/30 backdrop-blur-md z-10 shrink-0">
         <div>
-          <h1 className="text-2xl font-black tracking-tighter text-primary drop-shadow-[0_0_12px_rgba(197,154,255,0.3)] flex items-center gap-3">
+          <h1 className="text-2xl font-black tracking-tighter text-primary flex items-center gap-3">
             <SettingsIcon className="w-6 h-6" />
             系统设置
           </h1>
-          <p className="text-sm text-slate-400 mt-1 font-medium">配置 HiveMemory 核心参数</p>
+          <p className="text-sm text-fg-3 mt-1 font-medium">配置 HiveMemory 核心参数</p>
         </div>
         <div className="flex items-center gap-3">
           <button 
             onClick={resetToDefaults}
-            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/70 rounded-xl border border-white/10 transition-all"
+            className="flex items-center gap-2 px-4 py-2 bg-ink/5 hover:bg-ink/10 text-fg-2 rounded-xl border border-line transition-all"
           >
             <RefreshCw className="w-4 h-4" />
             <span className="text-sm font-bold tracking-wide">恢复默认</span>
@@ -113,7 +113,7 @@ export default function Settings() {
           {isDirty && (
             <button 
               onClick={resetConfig}
-              className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white/70 rounded-xl border border-white/10 transition-all"
+              className="flex items-center gap-2 px-4 py-2 bg-ink/5 hover:bg-ink/10 text-fg-2 rounded-xl border border-line transition-all"
             >
               <Undo2 className="w-4 h-4" />
               <span className="text-sm font-bold tracking-wide">放弃更改</span>
@@ -125,7 +125,7 @@ export default function Settings() {
             className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all ${
               !isDirty || hasErrors || isSaving
                 ? 'bg-primary/5 text-primary/50 border-primary/10 cursor-not-allowed'
-                : 'bg-primary/20 hover:bg-primary/30 text-primary border-primary/30 shadow-[0_0_15px_rgba(197,154,255,0.2)] hover:shadow-[0_0_25px_rgba(197,154,255,0.4)]'
+                : 'bg-primary/20 hover:bg-primary/30 text-primary border-primary/30'
             }`}
           >
             {isSaving ? (
@@ -141,7 +141,7 @@ export default function Settings() {
       {/* 侧边栏 */}
       <div className="flex flex-1 overflow-hidden">
         {/* Settings Sidebar */}
-        <div className="w-64 border-r border-white/5 bg-surface-container-lowest/50 p-4 flex flex-col gap-2 overflow-y-auto">
+        <div className="w-64 border-r border-line bg-surface-container-lowest/50 p-4 flex flex-col gap-2 overflow-y-auto">
           {CATEGORIES.map(cat => {
             const Icon = cat.icon;
             const isActive = activeCategory === cat.id;
@@ -151,8 +151,8 @@ export default function Settings() {
                 onClick={() => setActiveCategory(cat.id)}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-sm font-medium ${
                   isActive 
-                    ? 'bg-primary/10 text-primary border border-primary/20 shadow-[inset_0_0_20px_rgba(197,154,255,0.05)]' 
-                    : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border border-transparent'
+                    ? 'bg-primary/10 text-primary border border-primary/20'
+                    : 'text-fg-3 hover:bg-ink/5 hover:text-fg border border-transparent'
                 }`}
               >
                 <Icon className="w-4 h-4" />

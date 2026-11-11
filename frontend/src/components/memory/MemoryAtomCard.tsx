@@ -23,7 +23,7 @@ export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onPin, o
         if (onClick) onClick();
         if (onView) onView(atom.id);
       }}
-      className="group relative flex flex-col p-5 pb-4 rounded-2xl bg-surface-container border border-white/5 hover:bg-surface-container-high transition-all duration-300 cursor-pointer overflow-hidden h-64"
+      className="group relative flex flex-col p-5 pb-4 rounded-2xl bg-surface-container border border-line hover:bg-surface-container-high transition-all duration-300 cursor-pointer overflow-hidden h-64"
     >
       
       <div className="relative flex-1 flex flex-col">
@@ -32,10 +32,10 @@ export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onPin, o
           {/* 类型图标/标识 */}
           <div className="flex items-center gap-2">
             <div 
-              className="w-2 h-2 rounded-full shadow-[0_0_8px_currentColor]"
+              className="w-2 h-2 rounded-full"
               style={{ backgroundColor: typeConfig.color, color: typeConfig.color }}
             />
-            <span className="text-xs font-bold tracking-wider uppercase text-slate-300">
+            <span className="text-xs font-bold text-fg-2">
               {typeLabel}
             </span>
           </div>
@@ -44,21 +44,21 @@ export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onPin, o
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-0 top-0">
             <button 
               onClick={(e) => { e.stopPropagation(); if(onPin) onPin(atom.id); }} 
-              className={`p-1.5 rounded hover:bg-white/10 transition-colors ${atom.isPinned ? 'text-primary' : 'text-slate-400'}`} 
+              className={`p-1.5 rounded hover:bg-ink/10 transition-colors ${atom.isPinned ? 'text-primary' : 'text-fg-3'}`}
               title="固定/取消固定"
             >
               <Pin className="w-3.5 h-3.5" />
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); if(onEdit) onEdit(atom.id); }} 
-              className="p-1.5 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors" 
+              className="p-1.5 rounded hover:bg-ink/10 text-fg-3 hover:text-fg transition-colors"
               title="编辑"
             >
               <Edit2 className="w-3.5 h-3.5" />
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); if(onDelete) onDelete(atom.id); }} 
-              className="p-1.5 rounded hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors" 
+              className="p-1.5 rounded hover:bg-magic-fire/20 text-fg-3 hover:text-magic-fire transition-colors"
               title="删除"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -68,7 +68,7 @@ export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onPin, o
         </div>
 
         {/* 标题与摘要 */}
-        <h3 className="text-base font-bold text-slate-100 mb-1.5 line-clamp-1 group-hover:text-white transition-colors shrink-0">
+        <h3 className="text-base font-bold text-fg mb-1.5 line-clamp-1 group-hover:text-fg transition-colors shrink-0">
           {atom.title}
         </h3>
         
@@ -81,13 +81,13 @@ export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onPin, o
             </>
           ) : (
             <>
-              <AtSign className="w-3.5 h-3.5 text-slate-600" />
-              <span className="text-xs font-mono text-slate-500">暂无别名</span>
+              <AtSign className="w-3.5 h-3.5 text-fg-3" />
+              <span className="text-xs font-mono text-fg-3">暂无别名</span>
             </>
           )}
         </div>
 
-        <p className="text-sm text-slate-400 line-clamp-2 mb-4">
+        <p className="text-sm text-fg-3 line-clamp-2 mb-4">
           {atom.summary}
         </p>
 
@@ -96,23 +96,23 @@ export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onPin, o
           {atom.tags.slice(0, 3).map(tag => (
             <span 
               key={tag} 
-              className="px-2 py-0.5 rounded-md bg-black/20 border border-white/5 text-xs text-slate-400 font-mono"
+              className="px-2 py-0.5 rounded-md bg-field border border-line text-xs text-fg-3 font-mono"
             >
               #{tag}
             </span>
           ))}
           {atom.tags.length > 3 && (
-            <span className="px-2 py-0.5 rounded-md bg-black/20 border border-white/5 text-xs text-slate-500 font-mono">
+            <span className="px-2 py-0.5 rounded-md bg-field border border-line text-xs text-fg-3 font-mono">
               +{atom.tags.length - 3}
             </span>
           )}
         </div>
 
         {/* 底部统计信息 */}
-        <div className="flex items-center justify-between pt-3 border-t border-white/5 text-xs font-mono text-slate-500 shrink-0">
+        <div className="flex items-center justify-between pt-3 border-t border-line text-xs font-mono text-fg-3 shrink-0">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1" title="活力值 (Vitality Score)">
-              <Flame className={`w-3.5 h-3.5 ${highVitality ? 'text-amber-400' : ''}`} />
+              <Flame className={`w-3.5 h-3.5 ${highVitality ? 'text-magic-metal' : ''}`} />
               {formatVitalityScore(atom.vitality_score)}
             </div>
             <div className="flex items-center gap-1" title="置信度 (Confidence)">

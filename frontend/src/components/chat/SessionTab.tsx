@@ -14,24 +14,24 @@ export default function SessionTab() {
   return <div className="space-y-3 px-2">
     <div className="flex gap-2">
       <button disabled={busy} onClick={() => void newSession()} className="flex-1 flex items-center justify-center gap-2 p-2 rounded-lg bg-primary/15 text-primary disabled:opacity-40"><Plus size={16} />新建会话</button>
-      <button title="刷新会话" onClick={() => void refreshSessions()} className="p-2 text-slate-400"><RefreshCw size={16} /></button>
+      <button title="刷新会话" onClick={() => void refreshSessions()} className="p-2 text-fg-3"><RefreshCw size={16} /></button>
     </div>
-    {sessionError && <p role="alert" className="text-xs text-red-300">{sessionError}</p>}
-    {isLoadingHistory && <p className="text-xs text-slate-400">正在读取会话…</p>}
-    {sessions.length === 0 && <p className="py-8 text-center text-sm text-slate-500">暂无会话</p>}
-    {sessions.map(session => <div key={session.session_id} className={`p-3 rounded-xl border ${currentSessionId === session.session_id ? 'border-primary/40 bg-primary/10' : 'border-white/5 bg-white/5'}`}>
+    {sessionError && <p role="alert" className="text-xs text-magic-fire">{sessionError}</p>}
+    {isLoadingHistory && <p className="text-xs text-fg-3">正在读取会话…</p>}
+    {sessions.length === 0 && <p className="py-8 text-center text-sm text-fg-3">暂无会话</p>}
+    {sessions.map(session => <div key={session.session_id} className={`p-3 rounded-xl border ${currentSessionId === session.session_id ? 'border-primary/40 bg-primary/10' : 'border-line bg-ink/5'}`}>
       {editing === session.session_id ? <form onSubmit={event => {
         event.preventDefault(); void renameSession(session.session_id, title.trim()); setEditing(null);
       }} className="space-y-2">
-        <input aria-label="会话标题" autoFocus maxLength={200} value={title} onChange={e => setTitle(e.target.value)} className="w-full rounded bg-black/20 p-2 text-sm" />
+        <input aria-label="会话标题" autoFocus maxLength={200} value={title} onChange={e => setTitle(e.target.value)} className="w-full rounded bg-field p-2 text-sm" />
         <button disabled={busy} className="text-xs text-primary mr-3">保存</button>
-        <button type="button" onClick={() => setEditing(null)} className="text-xs text-slate-400">取消</button>
+        <button type="button" onClick={() => setEditing(null)} className="text-xs text-fg-3">取消</button>
       </form> : <>
         <button disabled={busy} onClick={() => void selectSession(session.session_id)} className="w-full text-left disabled:opacity-60">
-          <div className="truncate text-sm text-slate-200">{session.title || '新会话'}</div>
-          <div className="text-xs text-slate-500 mt-1">{session.turn_count} 轮{session.active_process_id ? ' · 运行中' : ''}</div>
+          <div className="truncate text-sm text-fg">{session.title || '新会话'}</div>
+          <div className="text-xs text-fg-3 mt-1">{session.turn_count} 轮{session.active_process_id ? ' · 运行中' : ''}</div>
         </button>
-        <div className="flex justify-end gap-3 mt-2 text-slate-400">
+        <div className="flex justify-end gap-3 mt-2 text-fg-3">
           <button title="重命名会话" disabled={busy} onClick={() => { setEditing(session.session_id); setTitle(session.title); }}><Pencil size={13} /></button>
           <button title="删除会话" disabled={busy || !!session.active_process_id} onClick={() => setDeleting(session.session_id)}><Trash2 size={13} /></button>
         </div>

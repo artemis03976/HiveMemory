@@ -3,19 +3,19 @@ import { devtools, persist } from 'zustand/middleware';
 import type { NavTab } from '@/types';
 import type { RunFilters } from '@/stores/runs';
 import { CHAT_UI_STORE_VERSION, migrateChatUiState } from '@/stores/ui/chatUiMigration';
+import type { ThemeMode } from '@/stores/ui/theme';
 
 type ContextSidebarTab = 'sessions' | 'config';
 type WorkspaceVisionTab = 'context' | 'memory-runtime';
-type ThemeMode = 'dark' | 'light';
 
 interface ChatUiStore {
   // Global navigation
   activeNavTab: NavTab;
   setActiveNavTab: (tab: NavTab) => void;
 
-  // Theme
+  // 主题选项；已保存的深色或浅色保持不变，新安装默认跟随系统
   theme: ThemeMode;
-  toggleTheme: () => void;
+  setTheme: (theme: ThemeMode) => void;
 
   // Chat layout panels
   isContextSidebarCollapsed: boolean;
@@ -53,8 +53,8 @@ export const useChatUiStore = create<ChatUiStore>()(
         activeNavTab: 'chat',
         setActiveNavTab: (tab) => set({ activeNavTab: tab }),
 
-        theme: 'dark',
-        toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
+        theme: 'system',
+        setTheme: (theme) => set({ theme }),
 
         isContextSidebarCollapsed: false,
         setContextSidebarCollapsed: (collapsed) => set({ isContextSidebarCollapsed: collapsed }),

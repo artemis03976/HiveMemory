@@ -77,8 +77,8 @@ export default function ChatMessage({ message }: ChatMessageProps) {
     >
       {/* 消息头像 - 仅在 User 时显示，Agent 时将头像和名字显示在气泡上方 */}
       {isUser && (
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-1 bg-surface-container-highest border border-white/10">
-          <User className="w-4 h-4 text-slate-400" />
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-1 bg-surface-container-highest border border-line">
+          <User className="w-4 h-4 text-fg-3" />
         </div>
       )}
 
@@ -86,14 +86,14 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         {/* Agent 头像与名字 (气泡上方) */}
         {isAgent && agent && (
           <div className="flex items-center gap-2.5 mb-1.5 px-1">
-            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-primary/10 ghost-border`}>
+            <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 bg-primary/10 border border-line`}>
               <agent.avatarIcon className={`w-3.5 h-3.5 ${agent.colorClass}`} />
             </div>
-            <span className="text-sm font-semibold text-slate-300">{agent.name}</span>
+            <span className="text-sm font-semibold text-fg-2">{agent.name}</span>
           </div>
         )}
 
-        <div className={`p-5 rounded-xl ghost-border flex flex-col gap-4 ${
+        <div className={`p-5 rounded-xl border border-line flex flex-col gap-4 ${
           isAgent ? 'bg-primary-container/10' : 'bg-surface-container-highest'
         } ${isAgent && message.isStreaming ? 'agent-processing-border' : ''}`}>
           {isProcessing && (
@@ -109,7 +109,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
                 blocks={segment.blocks}
                 isStreaming={message.isStreaming}
                 animateLastTextCursor={idx === lastInlineSegmentIdx}
-                textClassName={`text-sm leading-relaxed text-on-surface ${isAgent ? 'nebula-glow' : ''}`}
+                textClassName={`text-sm leading-relaxed text-on-surface ${isAgent ? '' : ''}`}
               />
             ) : (
               <SubAgentCard key={idx} block={segment.block} />
@@ -117,24 +117,24 @@ export default function ChatMessage({ message }: ChatMessageProps) {
           ))}
         </div>
 
-        {isAgent && <div className="flex gap-3 text-xs text-slate-500 px-1">
+        {isAgent && <div className="flex gap-3 text-xs text-fg-3 px-1">
           {message.topicId && <span title={message.topicId}>话题 · {message.topicId}</span>}
-          {message.outcome === 'cancelled' && <span className="text-amber-300">已中断 · 回复未完成</span>}
-          {message.outcome === 'failed' && <span className="text-red-300">{chatFailureMessage(message.failureReason)} · 回复可能不完整</span>}
+          {message.outcome === 'cancelled' && <span className="text-magic-metal">已中断 · 回复未完成</span>}
+          {message.outcome === 'failed' && <span className="text-magic-fire">{chatFailureMessage(message.failureReason)} · 回复可能不完整</span>}
         </div>}
         {/* Agent 消息工具按钮 */}
         {isAgent && !message.isStreaming && (
           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
             {/* 复制消息 */}
-            <button className="p-1.5 rounded bg-white/5 hover:bg-white/10 text-slate-400">
+            <button className="p-1.5 rounded bg-ink/5 hover:bg-ink/10 text-fg-3">
               <Copy className="w-3 h-3" />
             </button>
             {/* 反馈 */}
-            <button className="p-1.5 rounded bg-white/5 hover:bg-white/10 text-slate-400">
+            <button className="p-1.5 rounded bg-ink/5 hover:bg-ink/10 text-fg-3">
               <ThumbsUp className="w-3 h-3" />
             </button>
             {/* 重新生成 */}
-            <button className="p-1.5 rounded bg-white/5 hover:bg-white/10 text-slate-400">
+            <button className="p-1.5 rounded bg-ink/5 hover:bg-ink/10 text-fg-3">
               <RefreshCw className="w-3 h-3" />
             </button>
           </div>

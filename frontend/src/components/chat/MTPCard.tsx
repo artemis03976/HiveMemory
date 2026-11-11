@@ -18,28 +18,28 @@ export default function MTPCard({ action }: MTPCardProps) {
     pending: {
       icon: Loader2,
       text: '正在解析指令...',
-      bgClass: 'bg-magic-metal/10 border-magic-metal/30 shadow-[inset_0_0_12px_hsla(40,90%,55%,0.1)]',
+      bgClass: 'bg-magic-metal/10 border-magic-metal/30',
       textClass: 'text-magic-metal',
       iconClass: 'animate-spin',
     },
     executing: {
       icon: Wand2, // 使用魔杖图标代表施法/执行
       text: `正在执行 ${action.type}...`,
-      bgClass: 'bg-magic-water/10 border-magic-water/30 shadow-[inset_0_0_12px_hsla(190,90%,50%,0.15)]',
+      bgClass: 'bg-magic-water/10 border-magic-water/30',
       textClass: 'text-magic-water',
-      iconClass: 'animate-pulse drop-shadow-[0_0_8px_hsla(190,90%,50%,0.6)]',
+      iconClass: 'animate-pulse',
     },
     success: {
       icon: CheckCircle2,
       text: `${action.type} 执行完毕`,
-      bgClass: 'bg-magic-wood/10 border-magic-wood/30 shadow-[inset_0_0_12px_hsla(150,80%,45%,0.1)]',
+      bgClass: 'bg-magic-wood/10 border-magic-wood/30',
       textClass: 'text-magic-wood',
       iconClass: '',
     },
     error: {
       icon: XCircle,
       text: `${action.type} 中断`,
-      bgClass: 'bg-magic-fire/12 border-magic-fire/30 shadow-[inset_0_0_12px_hsla(340,80%,60%,0.1)]',
+      bgClass: 'bg-magic-fire/12 border-magic-fire/30',
       textClass: 'text-magic-fire',
       iconClass: '',
     },
@@ -77,14 +77,14 @@ export default function MTPCard({ action }: MTPCardProps) {
           
           <div className="flex flex-col">
             {/* 指令名 & 别名 */}
-            <span className="text-[11px] font-bold tracking-widest uppercase text-slate-300 font-manrope">
+            <span className="text-xs font-bold text-fg-2 font-manrope">
               MTP {action.type} <span className="opacity-60">[{action.target || '*'}]</span>
             </span>
 
             {/* 状态胶囊 */}
             <div className="flex items-center gap-1.5 mt-0.5">
               <StatusIcon className={`w-3 h-3 ${config.textClass} ${config.iconClass}`} />
-              <span className={`text-[9px] font-medium uppercase tracking-tighter ${config.textClass}`}>
+              <span className={`text-xs font-medium tracking-tighter ${config.textClass}`}>
                 {config.text}
               </span>
             </div>
@@ -105,9 +105,9 @@ export default function MTPCard({ action }: MTPCardProps) {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden border-t border-black/10 bg-black/30"
+            className="overflow-hidden border-t border-line bg-field"
           >
-            <div className="p-3 text-[12px] font-mono text-slate-400/80 space-y-2">
+            <div className="p-3 text-[12px] font-mono text-fg-3/80 space-y-2">
               <div className="flex">
                 <span className="w-16 shrink-0 opacity-50 select-none">TARGET |</span>
                 <span className="text-primary/80 font-semibold">{action.target || '*'}</span>
@@ -116,13 +116,13 @@ export default function MTPCard({ action }: MTPCardProps) {
               {action.params && Object.keys(action.params).length > 0 && (
                 <div className="flex">
                   <span className="w-16 shrink-0 opacity-50 select-none">ARGS   |</span>
-                  <div className="text-emerald-300/70 flex flex-col gap-0.5">
+                  <div className="text-magic-wood/70 flex flex-col gap-0.5">
                     {typeof action.params === 'string' ? (
                       <span className="line-clamp-3">{action.params}</span>
                     ) : (
                       Object.entries(action.params).map(([key, val]) => (
                         <span key={key} className="flex gap-2">
-                          <span className="text-emerald-500/50 shrink-0">{key}:</span>
+                          <span className="text-magic-wood/50 shrink-0">{key}:</span>
                           <span className="line-clamp-3 break-all">{String(val)}</span>
                         </span>
                       ))
@@ -143,10 +143,10 @@ export default function MTPCard({ action }: MTPCardProps) {
               {action.stats && Object.keys(action.stats).length > 0 && (
                 <div className="flex">
                   <span className="w-16 shrink-0 opacity-50 select-none">STATS  |</span>
-                  <div className="text-slate-400/70 flex flex-col gap-0.5">
+                  <div className="text-fg-3/70 flex flex-col gap-0.5">
                     {Object.entries(action.stats).map(([key, val]) => (
                       <span key={key} className="flex gap-2">
-                        <span className="text-slate-500 shrink-0">{key}:</span>
+                        <span className="text-fg-3 shrink-0">{key}:</span>
                         <span>{String(val)}</span>
                       </span>
                     ))}

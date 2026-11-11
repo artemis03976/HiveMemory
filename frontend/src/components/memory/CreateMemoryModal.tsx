@@ -128,7 +128,7 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6 md:p-12 bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6 md:p-12 bg-scrim backdrop-blur-sm"
           onMouseDown={(e) => { if (e.target === e.currentTarget) handleClose(); }}
         >
           <motion.div
@@ -136,16 +136,16 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-surface-container-lowest border border-white/10 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden"
+            className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-surface-container-lowest border border-line rounded-2xl shadow-pop overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-white/5 bg-surface-dim shrink-0">
-              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+            <div className="flex items-center justify-between p-6 border-b border-line bg-surface-dim shrink-0">
+              <h2 className="text-lg font-bold text-fg flex items-center gap-2">
                 <Plus className="w-5 h-5 text-primary" />
                 注入新记忆
               </h2>
-              <button onClick={handleClose} className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-slate-200 transition-colors">
+              <button onClick={handleClose} className="p-2 rounded-lg hover:bg-ink/5 text-fg-3 hover:text-fg transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -154,21 +154,21 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
             <div className="flex-1 overflow-y-auto p-6 space-y-5 scrollbar-hide">
               {/* Title */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">标题 *</label>
+                <label className="text-xs text-fg-3 font-medium ml-1">标题 *</label>
                 <input
-                  className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                  className="w-full bg-field border border-line rounded-lg px-3 py-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
                   placeholder="记忆标题..."
                   value={form.title}
                   onChange={e => update({ title: e.target.value })}
                 />
-                {errors.title && <span className="text-xs text-red-400 ml-1">{errors.title}</span>}
+                {errors.title && <span className="text-xs text-magic-fire ml-1">{errors.title}</span>}
               </div>
 
               {/* Memory Type */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">记忆类型 *</label>
+                <label className="text-xs text-fg-3 font-medium ml-1">记忆类型 *</label>
                 <select
-                  className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                  className="w-full bg-field border border-line rounded-lg px-3 py-2 text-fg focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
                   value={form.memory_type}
                   onChange={e => update({ memory_type: e.target.value as MemoryType | '' })}
                 >
@@ -177,40 +177,40 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
                     <option key={t} value={t}>{memoryTypeLabels[t]}</option>
                   ))}
                 </select>
-                {errors.memory_type && <span className="text-xs text-red-400 ml-1">{errors.memory_type}</span>}
+                {errors.memory_type && <span className="text-xs text-magic-fire ml-1">{errors.memory_type}</span>}
               </div>
 
               {/* Summary */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">摘要 * <span className="text-slate-600 normal-case">(10-500 字符)</span></label>
+                <label className="text-xs text-fg-3 font-medium ml-1">摘要 * <span className="text-fg-3 normal-case">(10-500 字符)</span></label>
                 <textarea
-                  className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all resize-none"
+                  className="w-full bg-field border border-line rounded-lg px-3 py-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all resize-none"
                   rows={2}
                   placeholder="简要描述这条记忆的核心内容..."
                   value={form.summary}
                   onChange={e => update({ summary: e.target.value })}
                 />
-                {errors.summary && <span className="text-xs text-red-400 ml-1">{errors.summary}</span>}
+                {errors.summary && <span className="text-xs text-magic-fire ml-1">{errors.summary}</span>}
               </div>
 
               {/* Content */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">内容 * <span className="text-slate-600 normal-case">(支持 Markdown)</span></label>
+                <label className="text-xs text-fg-3 font-medium ml-1">内容 * <span className="text-fg-3 normal-case">(支持 Markdown)</span></label>
                 <textarea
-                  className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all resize-none font-mono text-sm"
+                  className="w-full bg-field border border-line rounded-lg px-3 py-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all resize-none font-mono text-sm"
                   rows={8}
                   placeholder="记忆的详细内容..."
                   value={form.content}
                   onChange={e => update({ content: e.target.value })}
                 />
-                {errors.content && <span className="text-xs text-red-400 ml-1">{errors.content}</span>}
+                {errors.content && <span className="text-xs text-magic-fire ml-1">{errors.content}</span>}
               </div>
 
               {/* Tags */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">标签 <span className="text-slate-600 normal-case">(逗号分隔)</span></label>
+                <label className="text-xs text-fg-3 font-medium ml-1">标签 <span className="text-fg-3 normal-case">(逗号分隔)</span></label>
                 <input
-                  className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
+                  className="w-full bg-field border border-line rounded-lg px-3 py-2 text-fg placeholder:text-fg-3 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all"
                   placeholder="tag1, tag2, tag3"
                   value={form.tags}
                   onChange={e => update({ tags: e.target.value })}
@@ -219,11 +219,11 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
 
               {/* Alias */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] uppercase tracking-wider text-slate-500 font-medium ml-1">别名 <span className="text-slate-600 normal-case">(可选)</span></label>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/20 border border-white/10 focus-within:border-primary/50 focus-within:ring-1 focus:ring-primary/50 transition-all">
-                  <AtSign className="w-4 h-4 text-slate-500 shrink-0" />
+                <label className="text-xs text-fg-3 font-medium ml-1">别名 <span className="text-fg-3 normal-case">(可选)</span></label>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-field border border-line focus-within:border-primary/50 focus-within:ring-1 focus:ring-primary/50 transition-all">
+                  <AtSign className="w-4 h-4 text-fg-3 shrink-0" />
                   <input
-                    className="flex-1 text-sm font-mono bg-transparent text-primary/90 placeholder:text-slate-600 focus:outline-none"
+                    className="flex-1 text-sm font-mono bg-transparent text-primary/90 placeholder:text-fg-3 focus:outline-none"
                     placeholder="e.g. my-memory-alias"
                     value={form.alias}
                     onChange={e => update({ alias: e.target.value })}
@@ -233,10 +233,10 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-3 p-6 border-t border-white/5 bg-surface-dim shrink-0">
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-line bg-surface-dim shrink-0">
               <button
                 onClick={handleClose}
-                className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 rounded-lg hover:bg-white/5 transition-colors"
+                className="px-4 py-2 text-sm text-fg-3 hover:text-fg rounded-lg hover:bg-ink/5 transition-colors"
               >
                 取消
               </button>

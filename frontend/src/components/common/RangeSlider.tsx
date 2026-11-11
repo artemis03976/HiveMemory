@@ -18,7 +18,7 @@ export default function RangeSlider({ label, min, max, step, defaultValue, value
   return (
     <div>
       <div className="flex justify-between text-xs mb-2">
-        <span className="text-slate-400">{label}</span>
+        <span className="text-fg-3">{label}</span>
         <span className="text-primary font-mono bg-primary/10 px-1.5 py-0.5 rounded">{currentValue}</span>
       </div>
       <input
@@ -36,7 +36,7 @@ export default function RangeSlider({ label, min, max, step, defaultValue, value
         }}
         className="w-full accent-primary h-1 rounded-lg appearance-none cursor-pointer"
         style={{
-          background: `linear-gradient(to right, #c59aff ${percentage}%, rgba(255,255,255,0.1) ${percentage}%)`
+          background: `linear-gradient(to right, var(--color-primary) ${percentage}%, var(--color-line-strong) ${percentage}%)`
         }}
       />
     </div>

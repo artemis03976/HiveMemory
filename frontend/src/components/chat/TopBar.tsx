@@ -4,8 +4,8 @@ import { useChatStore } from '@/stores';
 export default function TopBar() {
   const { sessions, currentSessionId } = useChatStore();
   const session = sessions.find(item => item.session_id === currentSessionId);
-  return <div className="h-14 flex items-center px-8 border-b border-white/5 justify-between bg-surface-dim shrink-0">
+  return <div className="h-14 flex items-center px-8 border-b border-line justify-between bg-surface-dim shrink-0">
     <h2 className="font-manrope font-semibold text-lg truncate">{session?.title || '新会话'}</h2>
-    <span className="text-xs text-slate-500">{session?.turn_count ?? 0} 轮</span>
+    <span className="text-xs text-fg-3">{session?.turn_count ?? 0} 轮</span>
   </div>;
 }

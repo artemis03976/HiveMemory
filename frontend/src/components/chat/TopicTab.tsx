@@ -19,7 +19,7 @@ export default function TopicTab({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
+      <div className="flex items-center justify-center py-12 text-fg-3 text-sm">
         <span className="animate-pulse">加载话题中...</span>
       </div>
     );
@@ -27,7 +27,7 @@ export default function TopicTab({
 
   if (topics.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
+      <div className="flex flex-col items-center justify-center py-12 gap-3 text-fg-3">
         <MessageSquare className="w-8 h-8 opacity-30" />
         <p className="text-sm">暂无活跃话题</p>
         <p className="text-xs opacity-60">开始对话后，话题将自动出现</p>

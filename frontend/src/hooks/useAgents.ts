@@ -30,11 +30,11 @@ export interface BackendAgent {
 const ICON_MAP: Record<string, { icon: LucideIcon; colorClass: string }> = {
   omni_doll:     { icon: Bot,         colorClass: 'text-primary'     },
   coder_doll:    { icon: Code2,       colorClass: 'text-blue-400'    },
-  reviewer_doll: { icon: CheckCircle, colorClass: 'text-emerald-400' },
+  reviewer_doll: { icon: CheckCircle, colorClass: 'text-magic-wood' },
   designer_doll: { icon: Palette,     colorClass: 'text-pink-400'    },
 };
 
-const DEFAULT_ICON = { icon: Bot, colorClass: 'text-slate-400' };
+const DEFAULT_ICON = { icon: Bot, colorClass: 'text-fg-3' };
 
 function toAgentProfile(b: BackendAgent): AgentProfile {
   const { icon, colorClass } = ICON_MAP[b.alias] ?? DEFAULT_ICON;

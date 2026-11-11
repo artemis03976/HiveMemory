@@ -6,25 +6,29 @@ import { useChatUiStore } from '@/stores';
 interface ContextSidebarProps {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  /** 展开时作为抽屉覆盖在中间栏上，而不是占用行内宽度。 */
+  overlay?: boolean;
 }
 
 export default function ContextSidebar({
   isCollapsed,
-  onToggleCollapse
+  onToggleCollapse,
+  overlay = false,
 }: ContextSidebarProps) {
   const { contextSidebarTab: activeTab, setContextSidebarTab: setActiveTab } = useChatUiStore();
 
   if (isCollapsed) {
     return (
-      <aside className="w-12 glass-panel border-r border-white/5 flex flex-col h-full items-center py-4 transition-all duration-300">
+      <aside className="w-12 shrink-0 bg-surface-container-low border-r border-line flex flex-col h-full items-center py-4 transition-all duration-300">
         <button
           onClick={onToggleCollapse}
-          className="p-2 text-slate-400 hover:text-primary transition-colors hover:bg-white/5 rounded-lg"
+          aria-label="展开侧边栏"
+          className="p-2 text-fg-3 hover:text-primary transition-colors hover:bg-ink/5 rounded-lg"
         >
           <ChevronRight className="w-5 h-5" />
         </button>
         <div className="mt-8 flex flex-col gap-8 items-center">
-          <div className="[writing-mode:vertical-lr] text-[10px] font-bold tracking-[0.2em] uppercase text-slate-500 select-none">
+          <div className="[writing-mode:vertical-lr] text-xs font-bold text-fg-3 select-none">
             侧边栏
           </div>
         </div>
@@ -33,23 +37,26 @@ export default function ContextSidebar({
   }
 
   return (
-    <aside className="w-72 glass-panel border-r border-white/5 flex flex-col h-full transition-all duration-300">
-      <header className="flex items-center justify-between px-6 w-full h-14 bg-surface/10 border-b border-white/5 font-manrope text-sm font-medium tracking-wide">
-        <span className="font-black text-lg tracking-tighter text-primary drop-shadow-[0_0_8px_rgba(197,154,255,0.4)]">HiveMemory</span>
-        <div className="flex gap-3 text-slate-400">
-          <Columns
-            onClick={onToggleCollapse}
-            className="w-4 h-4 cursor-pointer hover:text-white transition-colors"
-          />
-        </div>
+    <aside className={`w-72 shrink-0 bg-surface-container-low border-r border-line flex flex-col h-full ${
+      overlay ? 'absolute left-0 top-0 z-40 shadow-pop' : ''
+    }`}>
+      <header className="flex items-center justify-between px-6 w-full h-14 bg-surface/10 border-b border-line font-manrope text-sm font-medium tracking-wide">
+        <span className="font-black text-lg tracking-tighter text-primary">HiveMemory</span>
+        <button
+          onClick={onToggleCollapse}
+          aria-label="收起侧边栏"
+          className="rounded-md p-1 text-fg-3 transition-colors hover:bg-ink/5 hover:text-fg"
+        >
+          <Columns className="w-4 h-4" />
+        </button>
       </header>
 
       {/* Tabs Header */}
       <div className="px-4 mt-6">
-        <div className="flex w-full bg-white/5 p-1 rounded-full ghost-border backdrop-blur-md relative">
+        <div className="flex w-full bg-ink/5 p-1 rounded-full border border-line backdrop-blur-md relative">
           {/* 滑动背景指示器 */}
           <div
-            className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-primary/20 rounded-full shadow-[0_0_10px_rgba(197,154,255,0.2)] transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
+            className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-primary/20 rounded-full transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
             style={{
               left: activeTab === 'sessions' ? '4px' : 'calc(50% + 0px)'
             }}
@@ -58,7 +65,7 @@ export default function ContextSidebar({
           <button 
             onClick={() => setActiveTab('sessions')}
             className={`relative z-10 flex-1 py-1.5 px-3 text-[12px] font-bold tracking-widest rounded-full transition-all duration-300 ${
-              activeTab === 'sessions' ? 'text-primary' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'sessions' ? 'text-primary' : 'text-fg-3 hover:text-fg'
             }`}
           >
             会话
@@ -66,7 +73,7 @@ export default function ContextSidebar({
           <button 
             onClick={() => setActiveTab('config')}
             className={`relative z-10 flex-1 py-1.5 px-3 text-[12px] font-bold tracking-widest rounded-full transition-all duration-300 ${
-              activeTab === 'config' ? 'text-primary' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'config' ? 'text-primary' : 'text-fg-3 hover:text-fg'
             }`}
           >
             模型配置

@@ -76,11 +76,11 @@ export default function AgentManagement() {
                 onChange={tags => updateDraft({ tags })}
               />
 
-              <div className="w-full h-px bg-white/5" />
+              <div className="w-full h-px bg-ink/5" />
 
               {/* System Instructions — payload.content */}
               <section className="space-y-3">
-                <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <label className="text-sm font-bold text-fg flex items-center gap-2">
                   <Terminal className="w-4 h-4 text-primary" />
                   系统指令
                 </label>
@@ -89,21 +89,21 @@ export default function AgentManagement() {
                     value={draft.systemPrompt}
                     onChange={e => updateDraft({ systemPrompt: e.target.value })}
                     rows={8}
-                    className="w-full bg-black/20 border border-white/10 rounded-2xl p-4 text-sm text-slate-300 font-mono resize-y focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all leading-relaxed shadow-inner"
+                    className="w-full bg-field border border-line rounded-2xl p-4 text-sm text-fg-2 font-mono resize-y focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all leading-relaxed shadow-inner"
                     placeholder="输入定义该 Agent 人设与行为的核心系统提示词..."
                   />
                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-xs text-slate-500 font-mono">{draft.systemPrompt.length} 字符</span>
+                    <span className="text-xs text-fg-3 font-mono">{draft.systemPrompt.length} 字符</span>
                   </div>
                 </div>
               </section>
 
-              <div className="w-full h-px bg-white/5" />
+              <div className="w-full h-px bg-ink/5" />
 
               {/* 模型与温度 — payload.agent_config */}
               <section className="grid grid-cols-2 gap-6">
                 <div className="space-y-3">
-                  <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <label className="text-sm font-bold text-fg flex items-center gap-2">
                     <Zap className="w-4 h-4 text-primary" />
                     模型
                   </label>
@@ -118,11 +118,11 @@ export default function AgentManagement() {
                       });
                     }}
                     placeholder="例如：deepseek/deepseek-chat, gpt-4o"
-                    className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-mono"
+                    className="w-full bg-field border border-line rounded-xl px-4 py-3 text-sm text-fg focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-mono"
                   />
                 </div>
                 <div className="space-y-3">
-                  <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                  <label className="text-sm font-bold text-fg flex items-center gap-2">
                     <Thermometer className="w-4 h-4 text-primary" />
                     模型温度
                   </label>
@@ -141,7 +141,7 @@ export default function AgentManagement() {
                       }}
                       className="flex-1 accent-primary"
                     />
-                    <span className="text-sm text-white font-mono w-8 text-right">
+                    <span className="text-sm text-fg font-mono w-8 text-right">
                       {draft.config.temperature.toFixed(1)}
                     </span>
                   </div>
@@ -151,7 +151,7 @@ export default function AgentManagement() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center bg-surface-container-lowest text-slate-500">
+        <div className="flex-1 flex flex-col items-center justify-center bg-surface-container-lowest text-fg-3">
           <Bot className="w-16 h-16 mb-4 opacity-20" />
           <p>{loadError ?? '从列表中选择一个 Agent 以查看详情'}</p>
         </div>

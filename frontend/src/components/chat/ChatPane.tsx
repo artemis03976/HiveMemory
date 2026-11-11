@@ -66,7 +66,7 @@ export default function ChatPane() {
           </Fragment>
         ))}
         {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+          <div className="flex items-center justify-center h-full text-fg-3 text-sm">
             少女祈祷中...
           </div>
         )}

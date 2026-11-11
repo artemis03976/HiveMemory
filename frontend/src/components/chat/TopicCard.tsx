@@ -26,12 +26,12 @@ export default function TopicCard({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={`group px-4 py-3 rounded-xl cursor-pointer transition-all relative overflow-hidden ${
-        isActive ? 'bg-white/5 ghost-border shadow-[0_4px_20px_rgba(139,92,246,0.1)]' : 'hover:bg-white/5 border border-transparent'
+        isActive ? 'bg-ink/5 border border-line' : 'hover:bg-ink/5 border border-transparent'
       }`}
     >
       {/* 活跃状态指示灯条 */}
       {/* {isActive && (
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 h-4/5 w-[3px] rounded-r-full bg-primary shadow-[0_0_10px_rgba(139,92,246,0.9)]" />
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 h-4/5 w-[3px] rounded-r-full bg-primary" />
       )} */}
       
       <div className="flex flex-col relative z-10">
@@ -42,13 +42,13 @@ export default function TopicCard({
               {/* 状态指示灯 */}
               <div className={`w-2 h-2 rounded-full transition-all duration-500 shrink-0 ${
                 isActive
-                  ? 'bg-magic-wood shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse'
+                  ? 'bg-magic-wood animate-pulse'
                   : 'bg-magic-metal'
               }`} />
               
               {/* 标题 */}
               <h3 className={`text-sm font-semibold truncate transition-colors ${
-                isActive ? 'text-white' : 'text-slate-300 group-hover:text-white/95'
+                isActive ? 'text-fg' : 'text-fg-2 group-hover:text-fg-2'
               }`}>
                 {topic.title}
               </h3>
@@ -61,7 +61,7 @@ export default function TopicCard({
           }`}>
             {/* 话题结算按钮 */}
             <button
-              className="p-1.5 rounded-md hover:bg-white/10 hover:text-white text-slate-500 transition-colors"
+              className="p-1.5 rounded-md hover:bg-ink/10 hover:text-fg text-fg-3 transition-colors"
               aria-label="Settle topic"
               onClick={(e) => { 
                 e.stopPropagation(); 
@@ -73,7 +73,7 @@ export default function TopicCard({
 
             {/* 话题删除按钮 */}
             <button
-              className="p-1.5 rounded-md hover:bg-magic-fire/20 text-slate-500 hover:text-magic-fire transition-colors"
+              className="p-1.5 rounded-md hover:bg-magic-fire/20 text-fg-3 hover:text-magic-fire transition-colors"
               aria-label="Delete topic"
               onClick={(e) => { 
                 e.stopPropagation(); 
@@ -88,15 +88,15 @@ export default function TopicCard({
         {/* 话题内容摘要 - 现在占满全宽 */}
         {topic.summary && (
           <p className={`text-xs line-clamp-2 leading-relaxed transition-colors w-full mt-1 ${
-            isActive ? 'text-white/70' : 'text-slate-500/80'
+            isActive ? 'text-fg-2' : 'text-fg-3/80'
           }`}>
             {topic.summary}
           </p>
         )}
         
         {/* Meta 信息 */}
-        <div className={`flex items-center gap-2 mt-2.5 text-[10px] font-medium transition-colors uppercase tracking-tighter ${
-          isActive ? 'text-white/40' : 'text-slate-500'
+        <div className={`flex items-center gap-2 mt-2.5 text-xs font-medium transition-colors ${
+          isActive ? 'text-fg-3' : 'text-fg-3'
         }`}>
           <span>{topic.messageCount || 0} msgs</span>
           <span>•</span>

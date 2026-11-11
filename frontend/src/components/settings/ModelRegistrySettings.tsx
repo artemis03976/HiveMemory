@@ -59,10 +59,10 @@ function ModelEditor({
   onCancel: () => void;
 }) {
   const rowCls = 'flex items-center justify-between gap-4 py-2';
-  const labelCls = 'text-sm text-slate-300 shrink-0 w-28';
+  const labelCls = 'text-sm text-fg-2 shrink-0 w-28';
 
   return (
-    <div className="bg-black/20 border border-primary/20 rounded-2xl p-5 space-y-1 ghost-border">
+    <div className="bg-field border border-primary/20 rounded-2xl p-5 space-y-1 border border-line">
       <div className="text-sm font-bold text-primary mb-3">
         {isNew ? '添加模型' : `编辑模型: ${draft.id}`}
       </div>
@@ -112,7 +112,7 @@ function ModelEditor({
           <select
             value={draft.provider}
             onChange={(e) => onChange({ provider: e.target.value })}
-            className="w-64 h-9 px-3 bg-white/5 border border-white/10 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30"
+            className="w-64 h-9 px-3 bg-ink/5 border border-line rounded-lg text-sm text-fg focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30"
           >
             <option value="">-- 选择提供商（或输入自定义）--</option>
             {providers.map((p) => (
@@ -130,7 +130,7 @@ function ModelEditor({
               placeholder="如 deepseek（留空自动推导）"
               className="flex-1"
             />
-            <span className="text-xs text-amber-400 shrink-0">暂无提供商</span>
+            <span className="text-xs text-magic-metal shrink-0">暂无提供商</span>
           </div>
         )}
       </div>
@@ -152,9 +152,9 @@ function ModelEditor({
         <span className={labelCls}>设为默认</span>
         <button
           onClick={() => onChange({ is_default: !draft.is_default })}
-          className={`relative w-11 h-6 rounded-full transition-colors ${draft.is_default ? 'bg-primary' : 'bg-white/10'}`}
+          className={`relative w-11 h-6 rounded-full transition-colors ${draft.is_default ? 'bg-primary' : 'bg-ink/10'}`}
         >
-          <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-[#ffffff] transition-transform ${draft.is_default ? 'translate-x-5' : 'translate-x-0'}`} />
+          <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${draft.is_default ? 'translate-x-5' : 'translate-x-0'}`} />
         </button>
       </div>
 
@@ -162,7 +162,7 @@ function ModelEditor({
         <button
           onClick={onCancel}
           disabled={saving}
-          className="px-4 py-1.5 text-sm text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+          className="px-4 py-1.5 text-sm text-fg-3 hover:text-fg transition-colors disabled:opacity-50"
         >
           取消
         </button>
@@ -189,33 +189,33 @@ function ModelRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between p-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+    <div className="flex items-center justify-between p-4 border-b border-line last:border-0 hover:bg-ink/2 transition-colors">
       <div className="flex items-center gap-3 min-w-0">
         {model.is_default ? (
           <Star className="w-4 h-4 text-primary fill-primary shrink-0" />
         ) : (
-          <Star className="w-4 h-4 text-slate-600 shrink-0" />
+          <Star className="w-4 h-4 text-fg-3 shrink-0" />
         )}
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-200 truncate">{model.display_name}</span>
+            <span className="text-sm font-medium text-fg truncate">{model.display_name}</span>
             {model.is_default && (
-              <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded uppercase tracking-wide">默认</span>
+              <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded tracking-wide">默认</span>
             )}
             {model.provider && (
-              <span className="text-[10px] font-medium text-slate-500 bg-white/5 px-1.5 py-0.5 rounded font-mono">{model.provider}</span>
+              <span className="text-xs font-medium text-fg-3 bg-ink/5 px-1.5 py-0.5 rounded font-mono">{model.provider}</span>
             )}
           </div>
-          <div className="text-xs text-slate-500 mt-0.5 font-mono truncate">
+          <div className="text-xs text-fg-3 mt-0.5 font-mono truncate">
             {model.litellm_model}
           </div>
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <button onClick={onEdit} className="p-2 text-slate-400 hover:text-primary hover:bg-white/5 rounded-lg transition-all" title="编辑">
+        <button onClick={onEdit} className="p-2 text-fg-3 hover:text-primary hover:bg-ink/5 rounded-lg transition-all" title="编辑">
           <Pencil className="w-4 h-4" />
         </button>
-        <button onClick={onDelete} className="p-2 text-slate-400 hover:text-red-400 hover:bg-white/5 rounded-lg transition-all" title="删除">
+        <button onClick={onDelete} className="p-2 text-fg-3 hover:text-magic-fire hover:bg-ink/5 rounded-lg transition-all" title="删除">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
@@ -332,7 +332,7 @@ export function ModelRegistrySettings() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <section className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">模型注册表</h2>
+          <h2 className="text-lg font-bold text-fg flex items-center gap-2">模型注册表</h2>
           <button
             onClick={startCreate}
             disabled={draft !== null}
@@ -357,13 +357,13 @@ export function ModelRegistrySettings() {
           </div>
         )}
 
-        <div className="bg-surface-container-low border border-white/5 rounded-2xl overflow-hidden ghost-border">
+        <div className="bg-surface-container-low border border-line rounded-2xl overflow-hidden border border-line">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-primary">
               <RefreshCw className="w-6 h-6 animate-spin" />
             </div>
           ) : models.length === 0 ? (
-            <div className="py-12 text-center text-sm text-slate-500">
+            <div className="py-12 text-center text-sm text-fg-3">
               注册表为空。请先在"提供商凭证"中配置 API Key，再添加模型。
             </div>
           ) : (
@@ -373,9 +373,9 @@ export function ModelRegistrySettings() {
           )}
         </div>
 
-        <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+        <p className="text-xs text-fg-3 mt-3 leading-relaxed">
           模型注册表是系统可用 LLM 的单一数据源。添加模型前请先在"
-          <span className="text-slate-400">提供商凭证</span>"中配置对应 Provider 的 API Key，
+          <span className="text-fg-3">提供商凭证</span>"中配置对应 Provider 的 API Key，
           然后在此处选择 Provider 挂载即可，无需重复填写密钥。
         </p>
       </section>

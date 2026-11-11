@@ -30,7 +30,7 @@ export function TagsSection({ tags, onChange }: TagsSectionProps) {
 
   return (
     <section className="space-y-3">
-      <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
+      <label className="text-sm font-bold text-fg flex items-center gap-2">
         <Tag className="w-4 h-4 text-primary" />
         标签
       </label>
@@ -44,26 +44,26 @@ export function TagsSection({ tags, onChange }: TagsSectionProps) {
             {tag}
             <button
               onClick={() => removeTag(tag)}
-              className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400"
+              className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-magic-fire"
             >
               <X className="w-3 h-3" />
             </button>
           </span>
         ))}
 
-        <div className="inline-flex items-center gap-1 bg-black/20 border border-white/10 rounded-lg px-2 py-1 focus-within:border-primary/50 transition-colors">
+        <div className="inline-flex items-center gap-1 bg-field border border-line rounded-lg px-2 py-1 focus-within:border-primary/50 transition-colors">
           <input
             type="text"
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="添加标签..."
-            className="bg-transparent border-none text-xs text-white placeholder-slate-500 focus:outline-none w-20 font-mono"
+            className="bg-transparent border-none text-xs text-fg placeholder-fg-3 focus:outline-none w-20 font-mono"
           />
           <button
             onClick={addTag}
             disabled={!input.trim()}
-            className="text-slate-500 hover:text-primary disabled:opacity-30 transition-colors"
+            className="text-fg-3 hover:text-primary disabled:opacity-30 transition-colors"
           >
             <Plus className="w-3 h-3" />
           </button>

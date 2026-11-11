@@ -29,7 +29,7 @@ export function EngineSettings({ config, updateConfig, getFieldError }: Settings
         <select
           value={value ?? ''}
           onChange={(e) => updateConfig(path, e.target.value || null)}
-          className="bg-black/20 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all cursor-pointer font-mono outline-none w-64 appearance-none"
+          className="bg-field border border-line rounded-lg px-3 py-1.5 text-sm text-fg focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all cursor-pointer font-mono outline-none w-64 appearance-none"
         >
           <option value="" className="bg-surface-container">注册表默认模型</option>
           {models.map((m) => (
@@ -38,7 +38,7 @@ export function EngineSettings({ config, updateConfig, getFieldError }: Settings
             </option>
           ))}
         </select>
-        <ChevronRight className="w-3.5 h-3.5 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none rotate-90" />
+        <ChevronRight className="w-3.5 h-3.5 text-fg-3 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none rotate-90" />
       </div>
     ) : (
       <Input
@@ -56,7 +56,7 @@ export function EngineSettings({ config, updateConfig, getFieldError }: Settings
   ) => {
     if (selection === null) {
       return (
-        <p className="text-sm text-slate-400 py-2">
+        <p className="text-sm text-fg-3 py-2">
           已配置为不使用 LLM。需要启用时，在 <code className="font-mono">configs/config.yaml</code> 中设置{' '}
           <code className="font-mono">{prefix}</code> 并重启服务。
         </p>
@@ -116,11 +116,11 @@ export function EngineSettings({ config, updateConfig, getFieldError }: Settings
 
       <SettingSection title="Embedding: 默认 embedding 模型">
         <SettingRow label="模型" description="存储层的嵌入模型固定为 BGE-M3，不可更换。">
-          <span className="text-sm text-slate-400">Xenova/bge-m3</span>
+          <span className="text-sm text-fg-3">Xenova/bge-m3</span>
         </SettingRow>
       </SettingSection>
 
-      <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+      <p className="text-xs text-fg-3 mt-2 leading-relaxed">
         模型选择从注册表动态加载。在
         <span className="text-primary font-medium">「模型注册表」</span>
         页管理可用模型后，此处选项自动更新。凭证由 provider 表统一管理，无需在此单独设置。

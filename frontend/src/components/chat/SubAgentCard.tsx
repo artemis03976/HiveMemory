@@ -64,27 +64,27 @@ export default function SubAgentCard({ block }: SubAgentCardProps) {
             <AgentIcon className={`w-4 h-4 ${agentColor}`} />
           </div>
           <div className="flex flex-col">
-            <span className="text-sm font-semibold text-slate-200 font-manrope">
+            <span className="text-sm font-semibold text-fg font-manrope">
               {agentName}
             </span>
             <div className="flex items-center gap-1.5 mt-0.5">
               <StatusIcon className={`w-3 h-3 ${config.colorClass} ${config.iconClass}`} />
-              <span className={`text-[10px] font-medium uppercase tracking-wider ${config.colorClass}`}>
+              <span className={`text-xs font-medium ${config.colorClass}`}>
                 {config.text}
               </span>
             </div>
           </div>
         </div>
 
-        <button className={`transition-transform duration-200 text-slate-400 opacity-60 ${isExpanded ? 'rotate-180' : ''}`}>
+        <button className={`transition-transform duration-200 text-fg-3 opacity-60 ${isExpanded ? 'rotate-180' : ''}`}>
           <ChevronDown className="w-4 h-4" />
         </button>
       </div>
 
       {/* Task description */}
       <div className="px-4 pb-2.5">
-        <p className="text-xs text-slate-400/80 line-clamp-2 leading-relaxed">
-          <span className="text-slate-500 font-medium">Task: </span>
+        <p className="text-xs text-fg-3/80 line-clamp-2 leading-relaxed">
+          <span className="text-fg-3 font-medium">Task: </span>
           {block.task}
         </p>
       </div>
@@ -97,7 +97,7 @@ export default function SubAgentCard({ block }: SubAgentCardProps) {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: 'easeInOut' }}
-            className="overflow-hidden border-t border-white/5"
+            className="overflow-hidden border-t border-line"
           >
             <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto scrollbar-thin">
               {block.contentBlocks.length === 0 && block.status === 'running' && (

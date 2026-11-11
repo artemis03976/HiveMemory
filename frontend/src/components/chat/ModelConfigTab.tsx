@@ -22,7 +22,7 @@ export default function ModelConfigTab() {
     <div className="px-2 space-y-6 mt-2">
       {/* 基础模型设置 */}
       <div className="space-y-3">
-        <div className="flex items-center gap-2 text-slate-300 font-bold text-[13px]">
+        <div className="flex items-center gap-2 text-fg-2 font-bold text-[13px]">
           <Cpu className="w-4 h-4 text-primary" />模型引擎
         </div>
 
@@ -30,7 +30,7 @@ export default function ModelConfigTab() {
           <select
             value={modelSelection.model_id}
             onChange={(e) => updateModelSelection({ model_id: e.target.value })}
-            className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-slate-300 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all appearance-none cursor-pointer ghost-border"
+            className="w-full bg-field border border-line rounded-xl p-3 text-sm text-fg-2 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all appearance-none cursor-pointer border border-line"
           >
             {/* 空值 = 跟随 Agent Profile 的默认模型 */}
             <option value="" className="bg-surface-container">跟随 Agent 默认</option>
@@ -40,14 +40,14 @@ export default function ModelConfigTab() {
               </option>
             ))}
           </select>
-          <ChevronRight className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none rotate-90" />
+          <ChevronRight className="w-4 h-4 text-fg-3 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none rotate-90" />
         </div>
       </div>
 
       {/* 参数调节 */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-slate-300 font-bold text-[13px]">
+          <div className="flex items-center gap-2 text-fg-2 font-bold text-[13px]">
             <SlidersHorizontal className="w-4 h-4 text-primary" />生成参数
           </div>
           {/* 总开关：关闭时跟随 profile/模型定义默认，不下发这些参数 */}
@@ -55,13 +55,13 @@ export default function ModelConfigTab() {
         </div>
 
         {!overrideParams && (
-          <p className="text-[11px] text-slate-500 leading-relaxed">
+          <p className="text-xs text-fg-3 leading-relaxed">
             当前跟随 Agent / 模型默认参数。打开开关可为本次会话自定义覆盖。
           </p>
         )}
 
         <div
-          className={`space-y-5 p-4 rounded-xl bg-black/20 border border-white/5 ghost-border transition-opacity ${
+          className={`space-y-5 p-4 rounded-xl bg-field border border-line border border-line transition-opacity ${
             overrideParams ? '' : 'opacity-40 pointer-events-none select-none'
           }`}
         >

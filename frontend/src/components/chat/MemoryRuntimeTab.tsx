@@ -31,10 +31,10 @@ const EVENT_CONNECTION_LABEL: Record<RuntimeEventConnectionStatus, string> = {
 };
 
 const EVENT_CONNECTION_DOT: Record<RuntimeEventConnectionStatus, string> = {
-  disconnected: 'bg-slate-500',
+  disconnected: 'bg-fg-3',
   connecting: 'bg-magic-metal animate-pulse',
   connected: 'bg-magic-wood',
-  disabled: 'bg-slate-600',
+  disabled: 'bg-fg-3',
   error: 'bg-magic-fire',
 };
 
@@ -72,9 +72,9 @@ const STATUS_CONFIG: Record<
   cancelled: {
     label: '已取消',
     icon: Ban,
-    iconClass: 'text-slate-400',
-    dotClass: 'bg-slate-500',
-    textClass: 'text-slate-400',
+    iconClass: 'text-fg-3',
+    dotClass: 'bg-fg-3',
+    textClass: 'text-fg-3',
   },
   failed: {
     label: '失败',
@@ -112,9 +112,9 @@ function isCancellingTask(task: MemoryGenerationTask): boolean {
 
 function DetailRow({ label, value, danger = false }: { label: string; value: string | null | undefined; danger?: boolean }) {
   return (
-    <div className="grid grid-cols-[104px_1fr] gap-3 text-[11px] leading-relaxed">
-      <span className="text-slate-500 select-none">{label}</span>
-      <span className={`min-w-0 break-all font-mono ${danger ? 'text-magic-fire/90' : 'text-slate-300/85'}`}>
+    <div className="grid grid-cols-[104px_1fr] gap-3 text-xs leading-relaxed">
+      <span className="text-fg-3 select-none">{label}</span>
+      <span className={`min-w-0 break-all font-mono ${danger ? 'text-magic-fire/90' : 'text-fg-2/85'}`}>
         {value || '—'}
       </span>
     </div>
@@ -140,7 +140,7 @@ function TaskItem({
   return (
     <motion.div
       layout
-      className="overflow-hidden rounded-lg border border-white/10 bg-surface-container-high/80 hover:bg-surface-container-highest transition-colors"
+      className="overflow-hidden rounded-lg border border-line bg-surface-container-high/80 hover:bg-surface-container-highest transition-colors"
     >
       <button
         type="button"
@@ -151,26 +151,26 @@ function TaskItem({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
             <span className={`h-2 w-2 rounded-full shrink-0 ${config.dotClass}`} />
-            <span className="truncate text-[13px] font-semibold text-slate-200">
+            <span className="truncate text-[13px] font-semibold text-fg">
               {task.label || alias}
             </span>
           </div>
 
-          <div className="mt-2 flex min-w-0 flex-col gap-1 text-[10px] text-slate-500">
+          <div className="mt-2 flex min-w-0 flex-col gap-1 text-xs text-fg-3">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 font-mono text-slate-400">{task.source}</span>
-              <span className="min-w-0 truncate font-mono text-slate-400">{alias}</span>
+              <span className="shrink-0 rounded bg-ink/5 px-1.5 py-0.5 font-mono text-fg-3">{task.source}</span>
+              <span className="min-w-0 truncate font-mono text-fg-3">{alias}</span>
             </div>
             <span>{formatTime(task.created_at)}</span>
           </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <span className={`flex items-center gap-1 text-[10px] font-semibold ${config.textClass}`}>
+          <span className={`flex items-center gap-1 text-xs font-semibold ${config.textClass}`}>
             <StatusIcon className={`h-3.5 w-3.5 ${config.iconClass}`} />
             {isCancelling ? '取消中' : config.label}
           </span>
-          <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`h-4 w-4 text-fg-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
         </div>
       </button>
 
@@ -181,7 +181,7 @@ function TaskItem({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="overflow-hidden border-t border-white/5 bg-black/20"
+            className="overflow-hidden border-t border-line bg-field"
           >
             <div className="space-y-2.5 p-3">
               <DetailRow label="task_id" value={task.task_id} />
@@ -205,7 +205,7 @@ function TaskItem({
                       onCancel();
                     }}
                     disabled={isCancelling}
-                    className="inline-flex h-8 items-center gap-2 rounded-md border border-magic-fire/30 bg-magic-fire/10 px-3 text-[11px] font-semibold text-magic-fire hover:bg-magic-fire/15 focus:outline-none focus:ring-1 focus:ring-magic-fire/50 disabled:cursor-wait disabled:opacity-60"
+                    className="inline-flex h-8 items-center gap-2 rounded-md border border-magic-fire/30 bg-magic-fire/10 px-3 text-xs font-semibold text-magic-fire hover:bg-magic-fire/15 focus:outline-none focus:ring-1 focus:ring-magic-fire/50 disabled:cursor-wait disabled:opacity-60"
                   >
                     {isCancelling ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -255,13 +255,13 @@ export default function MemoryRuntimeTab() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h4 className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          <h4 className="text-xs font-semibold text-fg-3">
             Memory Tasks
           </h4>
-          <p className="mt-1 text-[11px] text-slate-500">
+          <p className="mt-1 text-xs text-fg-3">
             {activeCount} 个活跃任务 · {tasks.length} 个总任务
           </p>
-          <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-500">
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-fg-3">
             <span className={`h-1.5 w-1.5 rounded-full ${EVENT_CONNECTION_DOT[runtimeEventConnection.status]}`} />
             <span>{EVENT_CONNECTION_LABEL[runtimeEventConnection.status]}</span>
           </div>
@@ -271,7 +271,7 @@ export default function MemoryRuntimeTab() {
           type="button"
           onClick={() => void fetchTasks()}
           disabled={isLoading}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-white/10 bg-white/5 text-slate-400 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:cursor-wait disabled:opacity-60"
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-line bg-ink/5 text-fg-3 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:cursor-wait disabled:opacity-60"
           title="刷新任务"
           aria-label="刷新任务"
         >
@@ -279,7 +279,7 @@ export default function MemoryRuntimeTab() {
         </button>
       </div>
 
-      <label className="mb-3 flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-slate-300">
+      <label className="mb-3 flex items-center justify-between rounded-lg border border-line bg-ink/5 px-3 py-2 text-[12px] text-fg-2">
         <span>显示已结束任务</span>
         <input
           type="checkbox"
@@ -301,15 +301,15 @@ export default function MemoryRuntimeTab() {
 
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-hide">
         {isLoading && tasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-14 text-slate-500">
+          <div className="flex flex-col items-center justify-center py-14 text-fg-3">
             <Loader2 className="mb-3 h-7 w-7 animate-spin text-primary/70" />
             <p className="text-sm">正在加载记忆任务</p>
           </div>
         ) : isEmpty ? (
-          <div className="flex flex-col items-center justify-center py-14 text-center text-slate-500">
+          <div className="flex flex-col items-center justify-center py-14 text-center text-fg-3">
             <Clock3 className="mb-3 h-8 w-8 opacity-40" />
             <p className="text-sm">暂无记忆任务</p>
-            <p className="mt-1 max-w-[260px] text-xs leading-relaxed text-slate-600">
+            <p className="mt-1 max-w-[260px] text-xs leading-relaxed text-fg-3">
               发送消息后，记忆生成、更新和归档任务会显示在这里。
             </p>
           </div>

@@ -17,9 +17,9 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   return (
-    <header className="px-8 py-6 border-b border-white/5 flex items-center justify-between shrink-0 z-10 backdrop-blur-md">
+    <header className="px-8 py-6 border-b border-line flex items-center justify-between shrink-0 z-10 backdrop-blur-md">
       <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-2xl bg-surface-container-high border border-white/10 flex items-center justify-center shadow-lg">
+        <div className="w-12 h-12 rounded-2xl bg-surface-container-high border border-line flex items-center justify-center shadow-lg">
           <Bot className="w-6 h-6 text-primary" />
         </div>
         <div className="space-y-0.5">
@@ -28,18 +28,18 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
             type="text"
             value={agent.name}
             onChange={e => onUpdate({ name: e.target.value })}
-            className="bg-transparent border-none text-2xl font-black tracking-tighter text-white focus:outline-none focus:ring-0 p-0 m-0"
+            className="bg-transparent border-none text-2xl font-black tracking-tighter text-fg focus:outline-none focus:ring-0 p-0 m-0"
             placeholder="Agent 名称"
           />
           {/* Alias — index.alias */}
           <div className="flex items-center gap-1.5">
-            <Hash className="w-3 h-3 text-slate-500" />
+            <Hash className="w-3 h-3 text-fg-3" />
             <input
               type="text"
               value={agent.alias}
               onChange={e => onUpdate({ alias: e.target.value })}
               placeholder="别名标识_如_omni_doll"
-              className="bg-transparent border-none text-xs text-slate-500 font-mono focus:outline-none focus:ring-0 p-0 w-48"
+              className="bg-transparent border-none text-xs text-fg-3 font-mono focus:outline-none focus:ring-0 p-0 w-48"
             />
           </div>
           {/* Summary — index.summary */}
@@ -56,7 +56,7 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
       <div className="flex items-center gap-3">
         <button
           onClick={() => setShowDeleteConfirm(true)}
-          className="flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition-all border border-transparent hover:border-red-400/20"
+          className="flex items-center justify-center p-1.5 rounded-lg text-fg-3 hover:text-magic-fire hover:bg-magic-fire/10 transition-all border border-transparent hover:border-magic-fire/20"
           title="删除 Agent"
         >
           <Trash2 className="w-4 h-4" />
@@ -75,8 +75,8 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
           onClick={() => onUpdate({ status: agent.status === 'Active' ? 'Inactive' : 'Active' })}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
             agent.status === 'Active'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-              : 'bg-white/5 border-white/10 text-slate-400'
+              ? 'bg-magic-wood/10 border-magic-wood/30 text-magic-wood'
+              : 'bg-ink/5 border-line text-fg-3'
           }`}
         >
           <Power className="w-3.5 h-3.5" />
@@ -86,7 +86,7 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
         {isDirty && onReset && (
           <button
             onClick={onReset}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-slate-400 hover:text-slate-200 transition-colors text-sm font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-fg-3 hover:text-fg transition-colors text-sm font-medium"
             title="撤销更改"
           >
             <RotateCcw className="w-4 h-4" />
@@ -99,8 +99,8 @@ export function AgentEditorHeader({ agent, onUpdate, onSave, onDelete, isDirty, 
           disabled={!isDirty || isSaving}
           className={`flex items-center gap-2 px-4 py-1.5 rounded-xl border transition-all ${
             isDirty
-              ? 'bg-primary/20 hover:bg-primary/30 text-primary border-primary/30 shadow-[0_0_15px_rgba(197,154,255,0.2)]'
-              : 'bg-white/5 text-slate-500 border-white/5 cursor-not-allowed'
+              ? 'bg-primary/20 hover:bg-primary/30 text-primary border-primary/30'
+              : 'bg-ink/5 text-fg-3 border-line cursor-not-allowed'
           }`}
         >
           {isSaving ? (

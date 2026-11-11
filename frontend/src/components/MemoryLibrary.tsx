@@ -106,36 +106,36 @@ export default function MemoryLibrary() {
 
       {/* Atom Cards Area */}
       <div className="flex-1 overflow-y-auto p-8 scrollbar-hide">
-        <details className="mb-8 rounded-xl border border-white/10 p-4">
+        <details className="mb-8 rounded-xl border border-line p-4">
           <summary className="cursor-pointer text-sm text-primary">短期话题池 · {topics.length}</summary>
-          <button onClick={() => void fetchTopics()} className="text-xs text-slate-400 my-3">刷新话题</button>
+          <button onClick={() => void fetchTopics()} className="text-xs text-fg-3 my-3">刷新话题</button>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <TopicTab topics={topics} activeTopicId={selectedTopic} onTopicSelect={setSelectedTopic} />
           </div>
         </details>
         {semanticStatus === 'done' && memories.length > 0 && (
-          <p className="mb-4 text-xs text-slate-500">
+          <p className="mb-4 text-xs text-fg-3">
             语义检索：{memories.length} 条结果，按相关度排列（排序选项对检索结果不生效）
           </p>
         )}
         {loading ? (
-          <div className="flex items-center justify-center h-full text-slate-500">
+          <div className="flex items-center justify-center h-full text-fg-3">
             <span className="animate-pulse">加载记忆中...</span>
           </div>
         ) : error ? (
-          <div className="flex items-center justify-center h-full text-red-400">
+          <div className="flex items-center justify-center h-full text-magic-fire">
             {error}
           </div>
         ) : semanticStatus === 'loading' ? (
-          <div className="flex items-center justify-center h-full text-slate-500">
+          <div className="flex items-center justify-center h-full text-fg-3">
             <span className="animate-pulse">语义检索中...</span>
           </div>
         ) : semanticStatus === 'error' ? (
-          <div className="flex items-center justify-center h-full text-red-400">
+          <div className="flex items-center justify-center h-full text-magic-fire">
             语义检索失败：{semanticError}
           </div>
         ) : memories.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-slate-500">
+          <div className="flex items-center justify-center h-full text-fg-3">
             {semanticStatus === 'done' ? '没有找到语义相关的记忆。' : '未找到记忆数据。'}
           </div>
         ) : (

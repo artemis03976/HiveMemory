@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # HiveMemory 开发路线图
@@ -130,6 +130,7 @@ last_reviewed: 2026-11-09
 | 外部 harness 的 controller 模式 | Candidate / 不绑定版本（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | 第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md) |
 | 记忆价值体系重新设计 | Candidate / 不绑定版本 | owner 重新设计价值体系，不在现有信号上增补 | 第 4.7 节 |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 随受影响的 API 并行；[Frontend](./frontend/README.md)与第 4.8 节 Todo |
+| 前端 UI 优化与空入口接线 | Active（2026-11-11 开始实施，样稿已通过）/ v1.0 范围（候选清单 D-05、D-07、D-13、D-15）；保留东方/魔法命名与紫色霓虹，加入樱花粉点缀，先出样稿、owner 定稿后实施（owner，2026-11-11） | 浅色主题独立配色、设计令牌与随包字体、三栏断点与全局连接状态条、各页排版与文案、设置页分常用与高级两层、空入口逐项接线 | [计划](./plans/frontend-ui-and-entry-wiring.md) |
 | Electron 桌面客户端 | Completed（2026-11-10 收尾）/ v1.0 范围；不签名、不自动升级、提供二次确认的删除记忆数据入口、不做备份（owner，2026-11-10）；随包发布与版本号随 v1.0 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 第 5.1 节；[桌面客户端](./frontend/desktop-client.md)、[使用桌面客户端](./help/desktop-client.md)、[归档计划](./archive/plans/desktop-client.md) |
 
 ### 4.3 v0.7.3：主动写入与被动提取的收敛
