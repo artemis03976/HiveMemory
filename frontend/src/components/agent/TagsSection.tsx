@@ -63,6 +63,7 @@ export function TagsSection({ tags, onChange }: TagsSectionProps) {
           <button
             onClick={addTag}
             disabled={!input.trim()}
+            aria-label="添加标签"
             className="text-fg-3 hover:text-primary disabled:opacity-30 transition-colors"
           >
             <Plus className="w-3 h-3" />

@@ -10,6 +10,7 @@ import { createChatSSECallbacks } from './streamHandlers';
 import { applyDone, applyStreamError } from './messageReducers';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
 import type { Message, ChatConnectionState, ChatRequestParams, ChatRunStatus, ContextCompactionEvent, MemoryAtom } from '@/types';
+import { localErrorText } from '@/transports/connectionStatus';
 
 interface ChatStore {
   messages: Message[];
@@ -88,7 +89,7 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
       // 多个刷新并发时，只接受最后一次请求，避免旧列表覆盖重命名或删除。
       if (get()._listRequest === request) set({ sessions });
     } catch (error) {
-      if (get()._listRequest === request) set({ sessionError: errorText(error) });
+      if (get()._listRequest === request) set({ sessionError: localErrorText(errorText(error)) });
     }
   },
   initializeSessions: async () => {
@@ -110,7 +111,7 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
         set({ currentSessionId: null, messages: [], retrievedMemories: [], compactionCheckpoint: null,
           sessionError: '会话已不存在，请新建或选择会话。' });
         await get().refreshSessions();
-      } else set({ sessionError: errorText(error) });
+      } else set({ sessionError: localErrorText(errorText(error)) });
     } finally { set({ isLoadingHistory: false }); }
   },
   newSession: async () => {

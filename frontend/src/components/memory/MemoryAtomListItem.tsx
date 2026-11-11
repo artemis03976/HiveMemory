@@ -4,6 +4,7 @@ import { memoryTypeLabels } from '../../types/memory';
 import { formatVitalityScore } from '../../utils/memoryScores';
 import { formatFullDateTime, formatListTime } from '../../utils/dateTime';
 import MemoryTypeTile from './MemoryTypeTile';
+import { activateOnKey } from '@/utils/activateOnKey';
 
 interface MemoryAtomListItemProps {
   atom: MemoryAtom;
@@ -17,13 +18,18 @@ interface MemoryAtomListItemProps {
 export default function MemoryAtomListItem({ atom, onClick, onView, onEdit, onDelete }: MemoryAtomListItemProps) {
   const typeLabel = memoryTypeLabels[atom.memory_type] || atom.memory_type;
   const updatedMs = Date.parse(atom.updated_at || atom.created_at);
+  const open = () => {
+    if (onClick) onClick();
+    if (onView) onView(atom.id);
+  };
 
   return (
     <div
-      onClick={() => {
-        if (onClick) onClick();
-        if (onView) onView(atom.id);
-      }}
+      role="button"
+      tabIndex={0}
+      aria-label={atom.title}
+      onClick={open}
+      onKeyDown={activateOnKey(open)}
       className="group relative flex cursor-pointer items-center gap-4 border-b border-line px-4 py-3 transition-colors hover:bg-surface-container-high"
     >
       <MemoryTypeTile type={atom.memory_type} />

@@ -3,7 +3,7 @@ import { apiUrl } from '@/transports/backendUrl';
 import { EventSourceClient } from '@/transports/sse/eventSourceClient';
 import { markConnected, markConnecting, markDisabled, markError } from '@/transports/state';
 import type { WorkspaceStore, RuntimeEvent } from '@/types/workspace';
-import { backendFetch } from '@/transports/connectionStatus';
+import { backendFetch, localErrorText } from '@/transports/connectionStatus';
 
 type WorkspaceSet = (partial: Partial<WorkspaceStore>) => void;
 type WorkspaceGet = () => WorkspaceStore;
@@ -49,7 +49,7 @@ async function fetchRuntimeEventStatus(): Promise<{ enabled?: boolean; buffer_si
 }
 
 function statusErrorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : '事件流连接失败';
+  return localErrorText(error instanceof ApiError ? error.message : '事件流连接失败');
 }
 
 /**
@@ -116,7 +116,7 @@ function openRuntimeEventSource(
         if (status === 'error') {
           // 浏览器仍在自动重连；原因拿不到，界面只说连接失败。
           set({
-            runtimeEventConnection: markError(get().runtimeEventConnection, '事件流连接失败'),
+            runtimeEventConnection: markError(get().runtimeEventConnection, localErrorText('事件流连接失败')),
           });
         }
       },

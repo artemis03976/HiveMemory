@@ -30,9 +30,9 @@ export const STATUS_META: Record<RunStatus, { label: string; text: string; dot: 
 
 /** 时间线上的事件色调：`key` 用 primary 标出运行的起点，其余与状态色一致。 */
 export const TONE_META: Record<EventTone, { dot: string; text: string; row: string }> = {
-  normal: { dot: 'bg-fg-3', text: 'text-on-surface', row: '' },
-  key: { dot: 'bg-primary', text: 'text-on-surface', row: '' },
-  ok: { dot: 'bg-magic-wood', text: 'text-on-surface', row: '' },
+  normal: { dot: 'bg-fg-3', text: 'text-fg', row: '' },
+  key: { dot: 'bg-primary', text: 'text-fg', row: '' },
+  ok: { dot: 'bg-magic-wood', text: 'text-fg', row: '' },
   warn: { dot: 'bg-magic-metal', text: 'text-magic-metal', row: 'bg-magic-metal/5' },
   error: { dot: 'bg-magic-fire', text: 'text-magic-fire', row: 'bg-magic-fire/5' },
 };

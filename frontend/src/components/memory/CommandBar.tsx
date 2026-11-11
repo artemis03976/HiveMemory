@@ -59,21 +59,25 @@ export default function CommandBar({
           {selectedType ? memoryTypeLabels[selectedType as MemoryType] : '类型筛选'}
         </button>
         {/* 类型筛选下拉框 */}
-        <div className="absolute top-full mt-2 left-0 w-40 bg-surface-container-high border border-line rounded-xl shadow-xl opacity-0 invisible group-hover/filter:opacity-100 group-hover/filter:visible transition-all z-50 overflow-hidden">
-          <div
+        <div className="absolute top-full mt-2 left-0 w-40 bg-surface-container-high border border-line rounded-xl shadow-xl opacity-0 invisible group-hover/filter:opacity-100 group-hover/filter:visible group-focus-within/filter:opacity-100 group-focus-within/filter:visible transition-all z-50 overflow-hidden">
+          <button
+            type="button"
+            aria-pressed={!selectedType}
             onClick={() => onSelectedTypeChange(null)}
-            className={`px-4 py-2 text-sm cursor-pointer hover:bg-ink/5 transition-colors ${!selectedType ? 'text-primary bg-primary/10' : 'text-fg-2'}`}
+            className={`block w-full px-4 py-2 text-left text-sm cursor-pointer hover:bg-ink/5 transition-colors ${!selectedType ? 'text-primary bg-primary/10' : 'text-fg-2'}`}
           >
             全部类型
-          </div>
+          </button>
           {Object.entries(memoryTypeLabels).map(([type, label]) => (
-            <div 
+            <button
+              type="button"
               key={type}
+              aria-pressed={selectedType === type}
               onClick={() => onSelectedTypeChange(type)}
-              className={`px-4 py-2 text-sm cursor-pointer hover:bg-ink/5 transition-colors ${selectedType === type ? 'text-primary bg-primary/10' : 'text-fg-2'}`}
+              className={`block w-full px-4 py-2 text-left text-sm cursor-pointer hover:bg-ink/5 transition-colors ${selectedType === type ? 'text-primary bg-primary/10' : 'text-fg-2'}`}
             >
               {label}
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -95,12 +99,14 @@ export default function CommandBar({
           </span>
         </button>
         {/* 排序下拉框 */}
-        <div className="absolute top-full mt-2 right-0 w-40 bg-surface-container-high border border-line rounded-xl shadow-xl opacity-0 invisible group-hover/sort:opacity-100 group-hover/sort:visible transition-all z-50 overflow-hidden">
+        <div className="absolute top-full mt-2 right-0 w-40 bg-surface-container-high border border-line rounded-xl shadow-xl opacity-0 invisible group-hover/sort:opacity-100 group-hover/sort:visible group-focus-within/sort:opacity-100 group-focus-within/sort:visible transition-all z-50 overflow-hidden">
           {(['created_desc', 'created_asc', 'accessed', 'count', 'confidence'] as SortOption[]).map((option) => (
-            <div 
+            <button
+              type="button"
               key={option}
+              aria-pressed={sortBy === option}
               onClick={() => onSortByChange(option)}
-              className={`px-4 py-2 text-sm cursor-pointer hover:bg-ink/5 transition-colors capitalize ${sortBy === option ? 'text-primary bg-primary/10' : 'text-fg-2'}`}
+              className={`block w-full px-4 py-2 text-left text-sm cursor-pointer hover:bg-ink/5 transition-colors capitalize ${sortBy === option ? 'text-primary bg-primary/10' : 'text-fg-2'}`}
             >
               {{
                 created_desc: '最新创建',
@@ -109,7 +115,7 @@ export default function CommandBar({
                 count: '访问次数最多',
                 confidence: '置信度最高'
               }[option]}
-            </div>
+            </button>
           ))}
         </div>
       </div>

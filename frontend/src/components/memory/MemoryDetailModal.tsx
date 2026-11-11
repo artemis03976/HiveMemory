@@ -7,6 +7,7 @@ import { memoryTypeLabels } from '../../types/memory';
 import MemoryTypeTile from './MemoryTypeTile';
 import { formatDateTime, formatFullDateTime } from '../../utils/dateTime';
 import { useDraft } from '../../hooks/useDraft';
+import { useDialog } from '../../hooks/useDialog';
 import { formatVitalityScore } from '../../utils/memoryScores';
 
 interface MemoryDetailModalProps {
@@ -55,6 +56,12 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete }: M
     },
     onSuccess: () => setEditing(false),
   });
+  // Esc 等同于当前可见的关闭操作：编辑时是“取消”，否则关闭对话框
+  const { panelRef, onKeyDown } = useDialog<HTMLDivElement>(atom !== null, () => {
+    if (!editing) return onClose();
+    setEditing(false);
+    reset();
+  });
 
   if (!atom) return null;
 
@@ -87,7 +94,13 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete }: M
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className={`relative w-full max-w-4xl max-h-[90vh] flex flex-col bg-surface-container-lowest border border-line rounded-2xl shadow-pop overflow-hidden ${editing ? 'h-[85vh]' : ''}`}
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={atom.title}
+          tabIndex={-1}
+          onKeyDown={onKeyDown}
+          className={`relative w-full max-w-4xl max-h-[90vh] flex flex-col bg-surface-container-lowest border border-line rounded-2xl shadow-pop overflow-hidden outline-none ${editing ? 'h-[85vh]' : ''}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -176,6 +189,7 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete }: M
                       onClick={reset}
                       className="px-3 py-1.5 rounded-lg hover:bg-ink/5 text-fg-3 hover:text-fg text-sm font-medium transition-colors"
                       title="重置修改"
+                      aria-label="重置修改"
                     >
                       <RotateCcw className="w-4 h-4" />
                     </button>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BookmarkCheck, Trash2 } from 'lucide-react';
 import type { Topic } from '@/types';
 import { formatTimeAgo } from '@/utils/timeAgo';
+import { activateOnKey } from '@/utils/activateOnKey';
 
 interface TopicCardProps {
   topic: Topic;
@@ -22,7 +23,11 @@ export default function TopicCard({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-current={isActive ? 'true' : undefined}
       onClick={onClick}
+      onKeyDown={activateOnKey(onClick)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={`group px-4 py-3 rounded-xl cursor-pointer transition-all relative overflow-hidden ${

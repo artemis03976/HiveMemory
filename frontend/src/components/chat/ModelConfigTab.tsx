@@ -57,7 +57,7 @@ export default function ModelConfigTab() {
             <SlidersHorizontal className="w-4 h-4 text-primary" />生成参数
           </div>
           {/* 总开关：关闭时跟随 profile/模型定义默认，不下发这些参数 */}
-          <Toggle checked={overrideParams} onChange={setOverrideParams} />
+          <Toggle checked={overrideParams} onChange={setOverrideParams} label="覆盖生成参数" />
         </div>
 
         {!overrideParams && (

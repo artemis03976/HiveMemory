@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle } from 'lucide-react';
 import { createPortal } from 'react-dom';
+import { useDialog } from '@/hooks/useDialog';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ export function ConfirmDialog({
   onCancel,
   isDestructive = true,
 }: ConfirmDialogProps) {
+  const { panelRef, onKeyDown } = useDialog<HTMLDivElement>(isOpen, onCancel);
   if (typeof document === 'undefined') return null;
 
   return createPortal(
@@ -40,13 +42,19 @@ export function ConfirmDialog({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-md bg-surface-container-lowest border border-line rounded-2xl shadow-pop overflow-hidden"
+            ref={panelRef}
+            role="alertdialog"
+            aria-modal="true"
+            aria-label={title}
+            tabIndex={-1}
+            onKeyDown={onKeyDown}
+            className="relative w-full max-w-md bg-surface-container-lowest border border-line rounded-2xl shadow-pop overflow-hidden outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-6">
               <div className="flex items-start gap-4">
                 <div className={`p-3 rounded-full shrink-0 ${isDestructive ? 'bg-magic-fire/10 text-magic-fire' : 'bg-primary/10 text-primary'}`}>
-                  <AlertTriangle className="w-6 h-6" />
+                  <AlertTriangle className="w-6 h-6" aria-hidden="true" />
                 </div>
                 <div className="flex-1 min-w-0 mt-1">
                   <h3 className="text-lg font-bold text-fg mb-2">

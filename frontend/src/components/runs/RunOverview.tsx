@@ -13,25 +13,25 @@ export default function RunOverview({ runs, now, onSelect }: { runs: Run[]; now:
   return (
     <div className="flex flex-col gap-6 overflow-y-auto px-7 py-7">
       <div>
-        <h2 className="font-manrope text-[18px] font-bold text-on-surface">最近一小时</h2>
+        <h2 className="font-manrope text-[18px] font-bold text-fg">最近一小时</h2>
         <p className="mt-1 text-[12px] text-fg-3">选中左侧的一次运行查看它的事件时间线</p>
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2.5">
+      <dl className="flex flex-wrap items-center gap-y-2 rounded-xl border border-line bg-surface-container-low px-1.5 py-2.5">
         {KIND_ORDER.map((kind) => {
           const Icon = KIND_META[kind].icon;
           return (
-            <div key={kind} className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface-container-low p-3.5">
-              <span className="flex items-center gap-1.5 text-[12px] text-fg-3">
+            <div key={kind} className="flex items-center gap-2 border-r border-line px-3.5 last:border-r-0">
+              <dt className="flex items-center gap-1.5 text-[12px] text-fg-3">
                 <Icon className="h-3.5 w-3.5" aria-hidden="true" />
                 {KIND_META[kind].label}
-              </span>
-              <span className="font-manrope text-[24px] font-extrabold text-on-surface">
+              </dt>
+              <dd className="font-manrope text-[17px] font-extrabold tabular-nums text-fg">
                 {recent.filter((run) => run.kind === kind).length}
-              </span>
+              </dd>
             </div>
           );
         })}
-      </div>
+      </dl>
       <div className="flex flex-col gap-2">
         <h3 className="text-[13px] font-semibold text-fg">需要注意</h3>
         {issues.length === 0 && <p className="text-[12px] text-fg-3">缓冲内没有失败、推迟或未见终态的运行</p>}
@@ -45,7 +45,7 @@ export default function RunOverview({ runs, now, onSelect }: { runs: Run[]; now:
               className="flex items-center gap-2.5 rounded-lg border border-line bg-surface-container-low px-3 py-2.5 text-left hover:bg-surface-container"
             >
               <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden="true" />
-              <span className="text-[13px] font-semibold text-on-surface">{run.title}</span>
+              <span className="text-[13px] font-semibold text-fg">{run.title}</span>
               <span className={`text-[12px] ${status.text}`}>{status.label}</span>
               {run.reason && <span className="truncate font-mono text-xs text-fg-3">{run.reason}</span>}
               <span className="flex-1" />

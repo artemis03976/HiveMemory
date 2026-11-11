@@ -4,6 +4,7 @@ import { memoryTypeLabels } from '../../types/memory';
 import { formatVitalityScore } from '../../utils/memoryScores';
 import { formatFullDateTime, formatListTime } from '../../utils/dateTime';
 import MemoryTypeTile from './MemoryTypeTile';
+import { activateOnKey } from '@/utils/activateOnKey';
 
 interface MemoryAtomCardProps {
   atom: MemoryAtom;
@@ -17,13 +18,18 @@ interface MemoryAtomCardProps {
 export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onDelete }: MemoryAtomCardProps) {
   const typeLabel = memoryTypeLabels[atom.memory_type] || atom.memory_type;
   const updatedMs = Date.parse(atom.updated_at || atom.created_at);
+  const open = () => {
+    if (onClick) onClick();
+    if (onView) onView(atom.id);
+  };
 
   return (
     <div
-      onClick={() => {
-        if (onClick) onClick();
-        if (onView) onView(atom.id);
-      }}
+      role="button"
+      tabIndex={0}
+      aria-label={atom.title}
+      onClick={open}
+      onKeyDown={activateOnKey(open)}
       className="group relative flex min-w-0 cursor-pointer flex-col gap-2.5 rounded-2xl border border-line bg-surface-container p-4 transition-all duration-200 hover:-translate-y-px hover:border-primary/40"
     >
       <div className="flex min-w-0 items-center gap-2.5 pr-20">

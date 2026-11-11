@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import type { SubAgentBlock } from '@/types';
 import type { AgentProfile } from '@/hooks/useAgents';
 import InlineBlockList from './InlineBlockList';
+import { activateOnKey } from '@/utils/activateOnKey';
 
 interface SubAgentCardProps {
   block: SubAgentBlock;
@@ -57,8 +58,12 @@ export default function SubAgentCard({ block, agent }: SubAgentCardProps) {
     >
       {/* Header */}
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
         className="flex items-center justify-between px-4 py-3 cursor-pointer select-none"
         onClick={() => setIsExpanded(!isExpanded)}
+        onKeyDown={activateOnKey(() => setIsExpanded(!isExpanded))}
       >
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-primary/10 border border-primary/20">
@@ -77,9 +82,9 @@ export default function SubAgentCard({ block, agent }: SubAgentCardProps) {
           </div>
         </div>
 
-        <button className={`transition-transform duration-200 text-fg-3 opacity-60 ${isExpanded ? 'rotate-180' : ''}`}>
+        <span aria-hidden="true" className={`transition-transform duration-200 text-fg-3 opacity-60 ${isExpanded ? 'rotate-180' : ''}`}>
           <ChevronDown className="w-4 h-4" />
-        </button>
+        </span>
       </div>
 
       {/* Task description */}
@@ -110,12 +115,12 @@ export default function SubAgentCard({ block, agent }: SubAgentCardProps) {
 
               <InlineBlockList
                 blocks={block.contentBlocks}
-                textClassName="text-sm leading-relaxed text-on-surface/80"
+                textClassName="text-sm leading-relaxed text-fg-2"
               />
 
               {/* 恢复历史只有根帧回填结果，保留原文显示，不能伪造子帧流。 */}
               {block.contentBlocks.length === 0 && block.finalText && (
-                <div className="text-sm text-on-surface/80 whitespace-pre-wrap break-words">{block.finalText}</div>
+                <div className="text-sm text-fg-2 whitespace-pre-wrap break-words">{block.finalText}</div>
               )}
               {block.contentBlocks.length === 0 && !block.finalText && block.status === 'error' && (
                 <div className="flex items-center gap-2 text-magic-fire/70 text-sm">

@@ -498,3 +498,8 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 - 第 3 步（2026-11-11）：滚动跟随、空会话、消息样式、MTP 卡片文案、话题标题、复制/反馈/重新生成、引用记忆面板（类型图标块）、模型配置的当前生效值；`#` 话题引用的后端部分：`ChatRequest.topic_id` 经任务进程交给 Gateway 的 `designated_topic_id`，在候选话题中时直接取用，不在时抛出 `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，Workspace 领域错误，不进入续接上一轮的兜底）。
 - 第 4 步（2026-11-11）：记忆卡片与列表项改用类型图标块、写明生命力与置信度、高度随内容；记忆详情保持两栏并统一元数据栏；Pin 一律禁用并提示“尚未提供”；时间统一为 `formatDateTime` / `formatListTime`；Agent 页的模型从注册表选择（注册表读不到时保留当前值）。Agent 的启用：`AgentProfile.enabled`（缺省为启用），Profile 解析遇到停用时抛出 `ProfileResolutionError(reason="profile_disabled")`，CALL 到停用的子 Agent 映射为“当前不可用”；Agent 管理接口原样透传 `agent_config`，前端写入 `enabled`，对话的选择与 @ 提及只列出启用的 Agent。
 - 第 5 步（2026-11-11）：设置页改为常用、高级两层与管理三类（提供商凭证、模型注册表、接入与权限）；字段表在 `frontend/src/constants/settingsSchema.ts`，每项绑定主配置的字段路径，生效标记取配置接口的 `immediate_fields`，保存后 `pending_restart` 中的项显示“等待重启”并在页顶汇总；有改动时底部出现保存栏，离开设置页或关闭窗口前提醒；“恢复本节默认值”只作用于本节并需确认；外观一节放主题选择。原来的通用设置、内部引擎与 7 个未对齐分类的表单删除，持久化的旧分类迁移为常用。后端 `tests/unit/server/routers/test_config.py` 校验字段表中的每条路径都存在于主配置。
+- 第 6 步（2026-11-11）：
+  - 运行页：概览“最近一小时”改为一行统计条；运行页与聊天页残留的 `on-surface` 别名换成 `fg` 令牌，别名删除。
+  - 局部错误：读取失败在捕获时经 `localErrorText` 处理，顶部状态条正在说明连不上后端或凭据失效时，局部只写“数据暂不可用”；覆盖会话列表与历史、Agent 列表、记忆库读取与语义检索、记忆任务、运行时事件流，以及提供商与模型注册表的加载提示。停止、重命名等操作失败仍给出原因。
+  - 可用性：对话框（确认框、注入记忆、记忆详情）打开时焦点移入并在其中循环，Esc 关闭最上层，关闭后焦点回到原处；记忆详情编辑中按 Esc 等同“取消”。记忆卡片、Agent 列表项、话题卡片与子 Agent 卡片可用 Tab 到达，Enter 或空格打开；记忆库的类型筛选与排序菜单在键盘聚焦时展开；图标按钮补齐 `aria-label`，开关带 `role="switch"`。
+  - 桌面端：启动页换成新配色与品牌标记，Manrope 打包时从前端依赖复制到程序内（从源码目录运行时直接取前端依赖中的文件）；窗口最小尺寸 1024×640。以 `npm run package:dir` 打包确认字体进入程序包并能加载。

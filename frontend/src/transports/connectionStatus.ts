@@ -36,6 +36,14 @@ export function getConnectionState(): ConnectionState {
   return current;
 }
 
+/**
+ * 页面局部读取失败时显示的文字。连不上后端或管理凭据失效时，顶部的状态条已经写明原因与办法，
+ * 局部只说数据暂不可用；其他失败照常显示各自的原因。在捕获错误时调用：连接状况在请求抛出之前已经更新。
+ */
+export function localErrorText(reason: string): string {
+  return current.unreachable || current.credentialInvalid ? '数据暂不可用' : reason;
+}
+
 export function subscribeConnection(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

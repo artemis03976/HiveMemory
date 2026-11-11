@@ -9,6 +9,7 @@ import {
   deleteProvider,
 } from '@/services/providerRegistryApi';
 import type { RegisteredProvider, ProviderUpsertPayload } from '@/types/provider';
+import { localErrorText } from '@/transports/connectionStatus';
 
 /** 编辑器草稿：新增与编辑共用 */
 interface ProviderDraft {
@@ -138,6 +139,7 @@ function ProviderRow({
           disabled={provider.is_from_env}
           className="p-2 text-fg-3 hover:text-primary hover:bg-ink/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           title={provider.is_from_env ? '来自环境变量，请直接修改 .env 文件' : '编辑'}
+          aria-label="编辑"
         >
           <Pencil className="w-4 h-4" />
         </button>
@@ -146,6 +148,7 @@ function ProviderRow({
           disabled={provider.is_from_env}
           className="p-2 text-fg-3 hover:text-magic-fire hover:bg-ink/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           title={provider.is_from_env ? '来自环境变量，无法通过 UI 删除' : '删除'}
+          aria-label="删除"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -168,7 +171,7 @@ export function ProviderSettings() {
     try {
       setProviders(await fetchProviders());
     } catch (err) {
-      addToast('加载提供商列表失败: ' + (err instanceof Error ? err.message : '未知错误'), 'error');
+      addToast('加载提供商列表失败：' + localErrorText(err instanceof Error ? err.message : '未知错误'), 'error');
     } finally {
       setLoading(false);
     }

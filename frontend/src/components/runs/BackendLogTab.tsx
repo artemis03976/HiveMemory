@@ -70,7 +70,7 @@ export default function BackendLogTab({ traceId, onClearTrace }: BackendLogTabPr
                 onClick={() => setLogLevel(level)}
                 className={`rounded-md border px-2.5 py-1 text-xs font-semibold ${
                   active
-                    ? 'border-primary/50 bg-primary/15 text-on-surface'
+                    ? 'border-primary/50 bg-primary/15 text-fg'
                     : 'border-line bg-surface-container text-fg-2 hover:bg-surface-container-high'
                 }`}
               >
@@ -86,7 +86,7 @@ export default function BackendLogTab({ traceId, onClearTrace }: BackendLogTabPr
             value={filters.loggerNamespace}
             onChange={(event) => setLoggerNamespace(event.target.value)}
             placeholder="hivememory.patchouli"
-            className="w-44 rounded-md border border-line bg-surface-container-lowest px-2 py-1 font-mono text-[12px] text-on-surface placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
+            className="w-44 rounded-md border border-line bg-surface-container-lowest px-2 py-1 font-mono text-[12px] text-fg placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
           />
         </label>
         <label className="flex min-w-[180px] flex-1 items-center gap-1.5 text-[12px] text-fg-3">
@@ -96,7 +96,7 @@ export default function BackendLogTab({ traceId, onClearTrace }: BackendLogTabPr
             value={filters.searchText}
             onChange={(event) => setSearchText(event.target.value)}
             placeholder="在消息与 logger 中查找"
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface-container-lowest px-2 py-1 text-[12px] text-on-surface placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
+            className="min-w-0 flex-1 rounded-md border border-line bg-surface-container-lowest px-2 py-1 text-[12px] text-fg placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
           />
         </label>
         {traceId && (

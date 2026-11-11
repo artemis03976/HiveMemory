@@ -416,7 +416,7 @@ export default function OmniInput() {
                 记忆预检索
               </span>
               <div className="scale-[0.65] origin-left flex items-center" onClick={(e) => e.stopPropagation()}>
-                <Toggle checked={enableMemory} onChange={setEnableMemory} disabled={isStreaming} />
+                <Toggle checked={enableMemory} onChange={setEnableMemory} disabled={isStreaming} label="记忆预检索" />
               </div>
             </div>
           </div>
@@ -440,6 +440,7 @@ export default function OmniInput() {
             <button
               disabled={!message.trim() || isLoadingHistory || (!!currentSessionId && !historyReady)}
               onClick={handleSend}
+              aria-label="发送"
               className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
                 message.trim()
                   ? 'bg-primary-dim text-on-primary-container hover:bg-primary/90'

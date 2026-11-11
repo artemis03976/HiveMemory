@@ -43,7 +43,6 @@
   --color-line: rgb(226 214 255 / 0.08);
   --color-line-strong: rgb(226 214 255 / 0.16);
 
-  --color-on-surface: #efebf8;
   --color-fg: #efebf8;
   --color-fg-2: #b9b2cc;
   --color-fg-3: #8d86a3;
@@ -112,7 +111,6 @@
   --color-line: #e6e0f2;
   --color-line-strong: #d4cae8;
 
-  --color-on-surface: #1e1930;
   --color-fg: #1e1930;
   --color-fg-2: #4d4664;
   --color-fg-3: #6f6888;

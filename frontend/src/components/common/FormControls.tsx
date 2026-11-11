@@ -1,8 +1,12 @@
 import type { InputHTMLAttributes } from 'react';
 
-export function Toggle({ checked, onChange, disabled }: { checked: boolean, onChange?: (c: boolean) => void, disabled?: boolean }) {
+export function Toggle({ checked, onChange, disabled, label }: { checked: boolean, onChange?: (c: boolean) => void, disabled?: boolean, label?: string }) {
   return (
-    <button 
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
       disabled={disabled}
       onClick={() => onChange?.(!checked)}
       className={`relative w-11 h-6 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-ink/10'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}

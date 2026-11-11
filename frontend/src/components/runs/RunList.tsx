@@ -67,7 +67,7 @@ export default function RunList({ runs, allRuns, filters, onFiltersChange, selec
         onClick={() => onFiltersChange({ kind: key })}
         className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
           active
-            ? 'border-primary/50 bg-primary/15 text-on-surface'
+            ? 'border-primary/50 bg-primary/15 text-fg'
             : 'border-line bg-surface-container text-fg-2 hover:bg-surface-container-high'
         }`}
       >
@@ -115,7 +115,7 @@ export default function RunList({ runs, allRuns, filters, onFiltersChange, selec
             value={filters.query}
             onChange={(event) => onFiltersChange({ query: event.target.value })}
             placeholder="按 trace、task、话题或 agent 筛选"
-            className="w-full rounded-lg border border-line bg-surface-container-lowest py-1.5 pl-8 pr-2 text-[12px] text-on-surface placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
+            className="w-full rounded-lg border border-line bg-surface-container-lowest py-1.5 pl-8 pr-2 text-[12px] text-fg placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
           />
         </label>
       </div>
@@ -188,7 +188,7 @@ function RunRow({ run, selected, onSelect, now }: { run: Run; selected: boolean;
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-semibold text-on-surface">{run.title}</span>
+          <span className="truncate text-[13px] font-semibold text-fg">{run.title}</span>
           <span className="flex-1" />
           <span className={`flex shrink-0 items-center gap-1.5 text-xs font-semibold ${status.text}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden="true" />

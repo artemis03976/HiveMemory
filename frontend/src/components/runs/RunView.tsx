@@ -43,7 +43,7 @@ export default function RunView() {
   };
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-background font-inter text-on-surface">
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-background font-inter text-fg">
       <RunViewHeader tab={tab} onTabChange={setTab} />
       {tab === 'runs' ? (
         <RunsTab onOpenLogs={openRunLogs} />
@@ -77,7 +77,7 @@ function RunViewHeader({ tab, onTabChange }: { tab: RunViewTab; onTabChange: (ta
       aria-selected={tab === value}
       onClick={() => onTabChange(value)}
       className={`rounded-md px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
-        tab === value ? 'bg-primary/20 text-on-surface' : 'text-fg-3 hover:text-fg'
+        tab === value ? 'bg-primary/20 text-fg' : 'text-fg-3 hover:text-fg'
       }`}
     >
       {label}

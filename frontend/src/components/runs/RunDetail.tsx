@@ -45,7 +45,7 @@ export default function RunDetail({ run, runsByKey, now, onSelectRun, onFilterTo
         <button
           type="button"
           onClick={onBack}
-          className="flex w-fit items-center gap-1 text-[12px] text-fg-3 hover:text-on-surface min-[900px]:hidden"
+          className="flex w-fit items-center gap-1 text-[12px] text-fg-3 hover:text-fg min-[900px]:hidden"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> 返回列表
         </button>
@@ -54,7 +54,7 @@ export default function RunDetail({ run, runsByKey, now, onSelectRun, onFilterTo
             <KindIcon className="h-3 w-3" aria-hidden="true" />
             {kind.label}
           </span>
-          <h2 className="font-manrope text-[18px] font-bold text-on-surface">{run.title}</h2>
+          <h2 className="font-manrope text-[18px] font-bold text-fg">{run.title}</h2>
           <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${status.text} ${status.badge}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden="true" />
             {status.label}
@@ -78,16 +78,16 @@ export default function RunDetail({ run, runsByKey, now, onSelectRun, onFilterTo
           </span>
           {run.agentId && (
             <span>
-              Agent <span className="text-on-surface">{run.agentId}</span>
+              Agent <span className="text-fg">{run.agentId}</span>
             </span>
           )}
           {run.workspaceId && (
             <span>
-              Workspace <span className="text-on-surface">{run.workspaceId}</span>
+              Workspace <span className="text-fg">{run.workspaceId}</span>
             </span>
           )}
           <span>
-            开始 <span className="font-mono text-on-surface" title={formatFullTime(run.startedAt)}>{formatClock(run.startedAt, true)}</span>
+            开始 <span className="font-mono text-fg" title={formatFullTime(run.startedAt)}>{formatClock(run.startedAt, true)}</span>
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -203,7 +203,7 @@ function GatewaySteps({ event }: { event: RuntimeEvent }) {
         const highlighted = step.durationMs === slowest && slowest > 10;
         return (
           <div key={step.stepId} className="flex items-center gap-2.5 text-[12px]">
-            <span className={`w-24 shrink-0 ${highlighted ? 'text-on-surface' : 'text-fg-3'}`} title={step.stepId}>
+            <span className={`w-24 shrink-0 ${highlighted ? 'text-fg' : 'text-fg-3'}`} title={step.stepId}>
               {step.label}
             </span>
             <span className="h-2 flex-1 overflow-hidden rounded bg-ink/5">
@@ -212,7 +212,7 @@ function GatewaySteps({ event }: { event: RuntimeEvent }) {
                 style={{ width: `${Math.max(2, Math.round((step.durationMs / slowest) * 100))}%` }}
               />
             </span>
-            <span className={`w-16 shrink-0 text-right font-mono ${highlighted ? 'text-on-surface' : 'text-fg-3'}`}>
+            <span className={`w-16 shrink-0 text-right font-mono ${highlighted ? 'text-fg' : 'text-fg-3'}`}>
               {formatDuration(step.durationMs)}
             </span>
           </div>

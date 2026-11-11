@@ -16,6 +16,7 @@ import type {
   ModelUpdatePayload,
 } from '@/types/model';
 import type { RegisteredProvider } from '@/types/provider';
+import { localErrorText } from '@/transports/connectionStatus';
 
 /** 编辑器草稿：新增与编辑共用的表单状态 */
 interface ModelDraft {
@@ -212,10 +213,10 @@ function ModelRow({
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <button onClick={onEdit} className="p-2 text-fg-3 hover:text-primary hover:bg-ink/5 rounded-lg transition-all" title="编辑">
+        <button onClick={onEdit} className="p-2 text-fg-3 hover:text-primary hover:bg-ink/5 rounded-lg transition-all" title="编辑" aria-label="编辑">
           <Pencil className="w-4 h-4" />
         </button>
-        <button onClick={onDelete} className="p-2 text-fg-3 hover:text-magic-fire hover:bg-ink/5 rounded-lg transition-all" title="删除">
+        <button onClick={onDelete} className="p-2 text-fg-3 hover:text-magic-fire hover:bg-ink/5 rounded-lg transition-all" title="删除" aria-label="删除">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
@@ -242,7 +243,7 @@ export function ModelRegistrySettings() {
       setModels(modelList);
       setProviders(providerList);
     } catch (err) {
-      addToast('加载数据失败: ' + (err instanceof Error ? err.message : '未知错误'), 'error');
+      addToast('加载数据失败：' + localErrorText(err instanceof Error ? err.message : '未知错误'), 'error');
     } finally {
       setLoading(false);
     }

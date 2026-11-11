@@ -28,7 +28,7 @@ function FieldControl({ field, value, models, onChange }: {
   onChange: (value: unknown) => void;
 }) {
   if (field.kind === 'switch') {
-    return <Toggle checked={value === true} onChange={onChange} />;
+    return <Toggle checked={value === true} onChange={onChange} label={field.label} />;
   }
   if (field.kind === 'readonly') {
     return <span className="rounded-lg bg-surface-container-high px-2.5 py-1.5 font-mono text-[13px] text-fg-2">{String(value ?? '—')}</span>;

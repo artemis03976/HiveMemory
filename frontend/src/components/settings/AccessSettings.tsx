@@ -80,7 +80,7 @@ function CredentialNotice({ result, onClose }: { result: PrincipalCredential; on
         <div className="font-bold text-magic-metal">
           {result.principal.principal_id} 的新凭据：只显示这一次
         </div>
-        <button onClick={onClose} className={iconButtonCls} title="关闭">
+        <button onClick={onClose} className={iconButtonCls} title="关闭" aria-label="关闭">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -88,7 +88,7 @@ function CredentialNotice({ result, onClose }: { result: PrincipalCredential; on
         <code className="flex-1 break-all rounded-lg bg-field px-3 py-2 font-mono text-xs text-fg">
           {result.credential}
         </code>
-        <button onClick={copy} className={iconButtonCls} title="复制">
+        <button onClick={copy} className={iconButtonCls} title="复制" aria-label="复制">
           <Copy className="w-4 h-4" />
         </button>
       </div>
@@ -257,8 +257,8 @@ function PrincipalRow({
       </div>
       {external && (
         <div className="flex items-center gap-1 shrink-0">
-          <Toggle checked={principal.enabled} onChange={onToggle} disabled={busy} />
-          <button onClick={onEdit} disabled={busy} className={iconButtonCls} title="修改">
+          <Toggle checked={principal.enabled} onChange={onToggle} disabled={busy} label="允许接入" />
+          <button onClick={onEdit} disabled={busy} className={iconButtonCls} title="修改" aria-label="修改">
             <Pencil className="w-4 h-4" />
           </button>
           <button
@@ -266,10 +266,11 @@ function PrincipalRow({
             disabled={busy || principal.credential_source === 'env'}
             className={iconButtonCls}
             title={principal.credential_source === 'env' ? '凭据来自环境变量，请修改 .env' : '轮换凭据'}
+            aria-label="轮换凭据"
           >
             <RotateCw className="w-4 h-4" />
           </button>
-          <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-magic-fire`} title="删除">
+          <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-magic-fire`} title="删除" aria-label="删除">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -318,11 +319,12 @@ function ActorRecordRow({
           <Toggle
             checked={record.enabled}
             disabled={busy}
+            label="允许进入"
             // 禁用的记录不能带白名单：关闭准入时一并清空操作。
             onChange={(enabled) => onSave(enabled, enabled ? record.allowed_operations : [])}
           />
         </span>
-        <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-magic-fire`} title="删除记录">
+        <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-magic-fire`} title="删除记录" aria-label="删除记录">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>

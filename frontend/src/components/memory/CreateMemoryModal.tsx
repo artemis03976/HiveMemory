@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useToastStore } from '@/stores';
 import { createMemory } from '@/services/memoryApi';
 import { useDraft } from '@/hooks/useDraft';
+import { useDialog } from '@/hooks/useDialog';
 import { memoryTypeLabels, type MemoryType } from '@/types/memory';
 
 interface CreateMemoryModalProps {
@@ -121,6 +122,8 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
     await submit({ force: true });
   };
 
+  const { panelRef, onKeyDown } = useDialog<HTMLDivElement>(isOpen, handleClose);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -136,7 +139,13 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-surface-container-lowest border border-line rounded-2xl shadow-pop overflow-hidden"
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="注入新记忆"
+            tabIndex={-1}
+            onKeyDown={onKeyDown}
+            className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-surface-container-lowest border border-line rounded-2xl shadow-pop overflow-hidden outline-none"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -145,7 +154,7 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
                 <Plus className="w-5 h-5 text-primary" />
                 注入新记忆
               </h2>
-              <button onClick={handleClose} className="p-2 rounded-lg hover:bg-ink/5 text-fg-3 hover:text-fg transition-colors">
+              <button onClick={handleClose} aria-label="关闭" className="p-2 rounded-lg hover:bg-ink/5 text-fg-3 hover:text-fg transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>

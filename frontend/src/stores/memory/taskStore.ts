@@ -13,6 +13,7 @@ import type {
   MemoryTaskConnectionState,
   RuntimeEvent,
 } from '@/types';
+import { localErrorText } from '@/transports/connectionStatus';
 
 const TERMINAL_STATUSES = new Set<MemoryGenerationTaskStatus>([
   'completed',
@@ -76,7 +77,7 @@ export const useMemoryTaskStore = create<MemoryTaskStore>()(
               },
             });
           } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to fetch memory tasks';
+            const message = localErrorText(error instanceof Error ? error.message : '记忆任务读取失败');
             set((state) => ({
               connection: {
                 ...state.connection,
@@ -100,7 +101,7 @@ export const useMemoryTaskStore = create<MemoryTaskStore>()(
               },
             }));
           } catch (error) {
-            const message = error instanceof Error ? error.message : `Failed to refresh memory task ${taskId}`;
+            const message = localErrorText(error instanceof Error ? error.message : '记忆任务读取失败');
             set((state) => ({
               connection: {
                 ...state.connection,

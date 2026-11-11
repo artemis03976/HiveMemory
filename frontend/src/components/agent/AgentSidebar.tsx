@@ -2,6 +2,7 @@ import { Plus, Search } from 'lucide-react';
 import { PageTitle } from '@/components/common/PageHeader';
 import { motion, AnimatePresence } from 'motion/react';
 import type { AgentData } from '@/types/agent';
+import { activateOnKey } from '@/utils/activateOnKey';
 
 interface AgentSidebarProps {
   agents: AgentData[];
@@ -22,6 +23,7 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
             onClick={onCreate}
             className="mt-1 p-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all group"
             title="新建 Agent"
+            aria-label="新建 Agent"
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -47,7 +49,11 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
+              role="button"
+              tabIndex={0}
+              aria-current={selectedId === agent.id ? 'true' : undefined}
               onClick={() => onSelect(agent.id)}
+              onKeyDown={activateOnKey(() => onSelect(agent.id))}
               className={`p-3 rounded-xl cursor-pointer border transition-all ${
                 selectedId === agent.id
                   ? 'bg-primary/10 border-primary/30'
