@@ -491,11 +491,18 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
         assert error.value.details["operation"] == operation.value
         assert error.value.details["reason"] == "operation_not_allowed"
         (event,) = _operation_events(harness)
-        assert (event.status, event.severity, event.reason, event.data["operation"]) == (
+        assert (
+            event.status,
+            event.severity,
+            event.reason,
+            event.data["operation"],
+            event.data["error_reason"],
+        ) == (
             "rejected",
             "warning",
             OperationDeniedError.code,
             operation.value,
+            "operation_not_allowed",
         )
         assert harness.registry.size == 1
         assert (

@@ -30,7 +30,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # 跨边界错误模型
@@ -301,7 +301,7 @@ Memory 领域模型的 `validate_assignment` 使构造与就地赋值执行同�
 
 存储适配器仅将已知 SDK/连接故障转换为 `StorageOfflineError`（`storage.offline`）、`StorageReadError`（`storage.read_failed`）或 `StorageWriteError`（`storage.write_failed`），保留操作上下文与 cause。检索故障不返回空成功；写入故障不证明副作用未发生。局部模型、payload 解码与程序异常不冒充离线，取消原样传播。
 
-Profile 缺失和不可见统一隐藏为 `ResourceNotFoundError`；已找到但类型/配置不适用时为 `ProfileResolutionError`，reason 仅为 `type_mismatch` / `invalid_config`，必须携带 `agent_alias`。CALL 在出口转为既有 MTP 类别，CPU 分配按失败收尾，两者都不回退默认 Profile。
+Profile 缺失和不可见统一隐藏为 `ResourceNotFoundError`；已找到但类型/配置不适用时为 `ProfileResolutionError`，reason 仅为 `type_mismatch` / `invalid_config`，必须携带 `agent_alias`。CALL 在出口转为既有 MTP 类别，CPU 分配按失败收尾，两者都不回退默认 Profile。`ProfileResolutionError` 是 Workspace 领域错误：chat 中 SSE `error` 事件的 `code` 与 `chat.run.failed` 的 `reason` 都是 `patchouli.profile.resolution_failed`，原因在事件的 `data.error_reason`，不按系统错误呈现。
 
 Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明确的容量/停止接纳使用 `TopicSettleAdmissionError`。任务进程的交互提交没有跨过成功边界时，进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败：`stage` 为 `interaction_admission` 时接纳被拒，`reason` 取 `capacity_rejected` / `queue_stopped`；为 `interaction_apply` 时接纳后没有应用成功，`reason` 为 `apply_failed`（异常类名放在诊断字段 `error_class`），不设时限的等待停在应用之前只会因队列停止，`reason` 为 `queue_stopped`。其他提交异常原样传播，不能据此声称没有副作用。交互没有应用成功时（含提交异常），会话仍保存这一轮，话题为空；进程按失败收口。这个错误是 `workspace.contracts.errors` 中的 Workspace 领域错误：`stage`、`reason` 与 `error_class` 在 `details` 中，`chat.run.failed` 的 `reason` 与 SSE `error` 事件的 `code` 都是 `patchouli.interaction.finalization_failed`，前端据此提示会话已保存这一轮、记忆没有提交成功。生成任务的明确拒绝仅覆盖接纳前 codec、lane、容量与停止错误；任意 TypeError/ValueError、重复任务或未知队列失败保留 UNKNOWN 与原句柄结算权。
 

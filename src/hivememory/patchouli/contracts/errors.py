@@ -2,11 +2,16 @@
 
 from typing import Literal
 
-from hivememory.core.errors import DomainError
+from hivememory.core.errors import DomainError, WorkspaceDomainError
 
 
-class ProfileResolutionError(DomainError):
-    """已找到的 Agent Profile 类型或配置不满足执行要求。"""
+class ProfileResolutionError(WorkspaceDomainError):
+    """已找到的 Agent Profile 类型或配置不满足执行要求。
+
+    这是对 Workspace 资源的受控拒绝，不是系统故障：任务进程按 Workspace 领域错误
+    收口，流式错误与失败事件都给出本错误码，失败事件另带受约束的原因，不报成通用的
+    系统错误。
+    """
 
     code = "patchouli.profile.resolution_failed"
 

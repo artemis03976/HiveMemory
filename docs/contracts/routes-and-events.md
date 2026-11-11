@@ -200,7 +200,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取交互的参与者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际所在的话题，`data` 另带 `outcome` 与 `is_new_topic`（写入时已确定话题的轮次取该话题是否为这一轮新建，其余取本次提交是否请求建立新话题）；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
 
-`actor.operation` 由操作入口在一次 actor 操作结束时发布，`subsystem=workspace`、`component=operation_entry`；`agent_id` 与 `workspace_id` 是工作 actor 的 Agent 与驻留 Workspace，只作标签，执行线程的提交另带 `process_id`，MCP 的请求级提交没有。`data` 带 `operation`（`WorkspaceOperation` 的值）、`entry`（`thread` 或 `request`）、`duration_ms` 与按操作的摘要：检索为 `result_count`；读取为 `requested_count` 与 `delivered_count`（解析为正式记忆或重定向的数量）；RUN 为 `resolution`（解析结果的 kind）；写入与更新为 `pending_alias`；CALL 为 `callee_agent_id`。`failed` 另带 `error_class`。事件不带检索文本、记忆正文或请求参数。
+`actor.operation` 由操作入口在一次 actor 操作结束时发布，`subsystem=workspace`、`component=operation_entry`；`agent_id` 与 `workspace_id` 是工作 actor 的 Agent 与驻留 Workspace，只作标签，执行线程的提交另带 `process_id`，MCP 的请求级提交没有。`data` 带 `operation`（`WorkspaceOperation` 的值）、`entry`（`thread` 或 `request`）、`duration_ms` 与按操作的摘要：检索为 `result_count`；读取为 `requested_count` 与 `delivered_count`（解析为正式记忆或重定向的数量）；RUN 为 `resolution`（解析结果的 kind）；写入与更新为 `pending_alias`；CALL 为 `callee_agent_id`。`rejected` 的领域错误带受约束的 `details.reason` 时另带 `error_reason`（如同为 `workspace.operation_denied` 的 `operation_not_allowed` 与 `root_required`），`details` 的其余字段不进入事件；`failed` 另带 `error_class`。事件不带检索文本、记忆正文或请求参数。
 
 `topic.*` 由 Patchouli 感知层发布，`subsystem=patchouli`、`component=perception`，信封带 `topic_id` 与 `workspace_id`。`topic.created` 的 `data.created_by` 为 `interaction`（应用交互时建立）或 `prepare`（为写入预先确定话题时建立）；`topic.settled` 的 `data` 带 `reason`（结算原因：`idle_timeout`、`manual_settle`、`shutdown`、`lru_eviction` 等）与 `generation_submitted`（没有可保存材料时为 false）；`topic.deleted` 是不经结算的删除，`data` 为空。
 
@@ -241,9 +241,9 @@ Alice CPU 端口的交互输出与 `/runtime-events/stream` 是两条独立通�
 | `maintenance.task.failed.reason` | `maintenance_task_failed`；`data.error_class` 为维护回调抛出的异常类名，堆栈由调度器写入日志 |
 | `system.start_failed.reason` / `system.stop_failed.reason` | `start_step_failed` / `stop_step_failed`；`data.failed_step` 为第一个未完成的步骤，`data.error_class` 为异常类名 |
 | `subsystem.operation.failed.reason` | `operation_failed`；`data.error_class` 为异常类名，异常由操作观测重新抛出 |
-| `actor.operation` 的 `reason` | `status=rejected`（`severity=warning`）时为领域错误码，如 `workspace.operation_denied`；`status=failed`（`severity=error`）时为 `actor_operation_failed`，`data.error_class` 为异常类名，异常原样抛给提交方 |
+| `actor.operation` 的 `reason` | `status=rejected`（`severity=warning`）时为领域错误码，如 `workspace.operation_denied`，错误带原因时 `data.error_reason` 为它；`status=failed`（`severity=error`）时为 `actor_operation_failed`，`data.error_class` 为异常类名，异常原样抛给提交方 |
 | `agent.run.failed.reason` | CPU 失败原因码（[错误模型](./error-model.md#22-agent-run)的四类预算原因），没有时为 `agent_run_failed`；帧执行失败或 run 抛出异常时 `data.error_class` 为异常类名 |
-| `chat.run.failed.reason` | Actor 上报的 CPU 失败原因码（没有时为 `agent_run_failed`）、Workspace 错误码或 `task_process_failed`；前两种的 `message` 同为该码（Actor 没有上报原因码时为空），`task_process_failed` 的 `message` 为固定说明、`data.error_class` 为异常类名 |
+| `chat.run.failed.reason` | Actor 上报的 CPU 失败原因码（没有时为 `agent_run_failed`）、Workspace 错误码或 `task_process_failed`；前两种的 `message` 同为该码（Actor 没有上报原因码时为空），Workspace 错误带原因时 `data.error_reason` 为它（如 Profile 解析失败的 `type_mismatch`）；`task_process_failed` 的 `message` 为固定说明、`data.error_class` 为异常类名 |
 
 `data.error_class` 只作 Python 类型诊断，不是稳定机器分类或重试依据；上述事件不包含异常正文。`WORK_REJECTED` 的未知原因只说明 enqueue 没有确认成功，不证明 work 没有入库；调用方仍以返回值、异常和 Store 记录为准。编码失败在接纳前，已接纳 payload 解码失败仍进入 dead letter，执行重试仅由 lane 的 classifier 决定。
 
