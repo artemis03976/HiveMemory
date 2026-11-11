@@ -12,6 +12,7 @@ import { ATTACHMENT_ACCEPT_ATTR } from '@/constants/attachments';
 import type { ChatModelSelection } from '@/types/chat';
 import { motion, AnimatePresence } from 'motion/react';
 import AttachmentQueue from './AttachmentQueue';
+import TopicPicker, { type DesignatedTopic } from './TopicPicker';
 
 export default function OmniInput() {
   const { draft: message, setDraft: setMessage, isLoadingHistory, historyReady, currentSessionId } = useChatStore();
@@ -20,6 +21,9 @@ export default function OmniInput() {
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  // 用户为这一轮指定的话题：发送时随请求带上，发出后清除
+  const [designatedTopic, setDesignatedTopic] = useState<DesignatedTopic | null>(null);
+  const [topicPickerOpen, setTopicPickerOpen] = useState(false);
 
   const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId } = useChatStore();
   const { enqueueFiles } = useAttachmentUpload();
@@ -81,10 +85,17 @@ export default function OmniInput() {
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
+    const cursorPos = e.target.selectionStart;
+
+    // 在词首输入 # 时打开话题选择，# 本身不留在消息里
+    if (val.length === message.length + 1 && val[cursorPos - 1] === '#' && (cursorPos === 1 || /\s/.test(val[cursorPos - 2]))) {
+      setMessage(val.slice(0, cursorPos - 1) + val.slice(cursorPos));
+      setTopicPickerOpen(true);
+      return;
+    }
     setMessage(val);
 
     // simple @ mention detection
-    const cursorPos = e.target.selectionStart;
     const textBeforeCursor = val.slice(0, cursorPos);
     const lastAtPos = textBeforeCursor.lastIndexOf('@');
     
@@ -144,8 +155,10 @@ export default function OmniInput() {
         enable_memory_retrieval: enableMemory,
         model_selection: selection,
         attachments,
+        topic_id: designatedTopic?.id,
       });
       setMessage('');
+      setDesignatedTopic(null);
       if (attachments.length > 0) {
         clearAttachmentSelection();
       }
@@ -160,7 +173,7 @@ export default function OmniInput() {
       ? '正在整理本轮结果...'
       : isStreaming
         ? '正在思考...'
-        : '向智能体提问... (输入 @ 呼叫特定角色)';
+        : '输入消息，@ 选择 Agent，# 引用话题';
   const stopTitle = isCancelling
     ? '正在请求停止'
     : isFinalizing
@@ -310,6 +323,36 @@ export default function OmniInput() {
           )}
         </AnimatePresence>
 
+        {topicPickerOpen && (
+          <TopicPicker
+            onPick={(topic) => {
+              setDesignatedTopic(topic);
+              setTopicPickerOpen(false);
+              textareaRef.current?.focus();
+            }}
+            onClose={() => {
+              setTopicPickerOpen(false);
+              textareaRef.current?.focus();
+            }}
+          />
+        )}
+
+        {designatedTopic && (
+          <div className="flex px-3 pt-1.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 py-0.5 pl-2.5 pr-1 text-xs font-semibold text-accent">
+              <Hash className="h-3 w-3" aria-hidden="true" />
+              {designatedTopic.title}
+              <button
+                onClick={() => setDesignatedTopic(null)}
+                aria-label="移除话题引用"
+                className="rounded-full px-1 leading-none hover:bg-accent/20"
+              >
+                ×
+              </button>
+            </span>
+          </div>
+        )}
+
         {/* 输入区 */}
         <textarea
           ref={textareaRef}
@@ -348,8 +391,14 @@ export default function OmniInput() {
                 e.target.value = '';
               }}
             />
-            <button className="p-2 text-fg-3 hover:text-fg hover:bg-ink/5 rounded-lg transition-all" title="话题引用">
+            <button
+              onClick={() => setTopicPickerOpen((open) => !open)}
+              aria-expanded={topicPickerOpen}
+              className="flex items-center gap-1 rounded-lg p-2 text-[13px] text-fg-3 transition-all hover:bg-ink/5 hover:text-fg"
+              title="为这一轮指定话题（也可以在消息中输入 #）"
+            >
               <Hash className="w-4 h-4" />
+              话题
             </button>
 
             <div className="w-px h-4 bg-ink/10 mx-2"></div>

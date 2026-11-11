@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Cpu, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import RangeSlider from '../common/RangeSlider';
 import { Toggle } from '../common/FormControls';
-import { useChatRuntimeConfigStore } from '@/stores';
+import { useChatRuntimeConfigStore, useChatStore } from '@/stores';
+import { useAgents } from '@/hooks/useAgents';
+import { effectiveModelParams } from '@/utils/effectiveModelParams';
 import { fetchModels } from '@/services/modelRegistryApi';
 import type { RegisteredModel } from '@/types/model';
 
@@ -10,6 +12,10 @@ export default function ModelConfigTab() {
   const { modelSelection, updateModelSelection, overrideParams, setOverrideParams } =
     useChatRuntimeConfigStore();
   const [models, setModels] = useState<RegisteredModel[]>([]);
+  const currentAgentId = useChatStore((s) => s.currentAgentId);
+  const { rawAgents } = useAgents();
+  const agentConfig = rawAgents.find((a) => a.alias === currentAgentId)?.agent_config;
+  const effective = effectiveModelParams(modelSelection.model_id, agentConfig, models);
 
   // 加载注册表模型列表，供会话级模型覆盖选择
   useEffect(() => {
@@ -55,16 +61,20 @@ export default function ModelConfigTab() {
         </div>
 
         {!overrideParams && (
-          <p className="text-xs text-fg-3 leading-relaxed">
-            当前跟随 Agent / 模型默认参数。打开开关可为本次会话自定义覆盖。
-          </p>
+          <div className="space-y-2.5 rounded-xl border border-line bg-field p-4">
+            <p className="text-xs text-fg-3">当前生效（打开开关可为本次会话单独设置）</p>
+            {effective.map((param) => (
+              <div key={param.label} className="flex items-baseline gap-2 text-[13px]">
+                <span className="w-16 shrink-0 text-fg-2">{param.label}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-fg">{param.value}</span>
+                <span className="shrink-0 text-xs text-fg-3">{param.source}</span>
+              </div>
+            ))}
+          </div>
         )}
 
-        <div
-          className={`space-y-5 p-4 rounded-xl bg-field border border-line border border-line transition-opacity ${
-            overrideParams ? '' : 'opacity-40 pointer-events-none select-none'
-          }`}
-        >
+        {overrideParams && (
+        <div className="space-y-5 rounded-xl border border-line bg-field p-4">
           <RangeSlider
             label="温度 (Temperature)"
             min={0}
@@ -93,6 +103,7 @@ export default function ModelConfigTab() {
             onChange={(value) => updateModelSelection({ max_tokens: value })}
           />
         </div>
+        )}
       </div>
     </div>
   );

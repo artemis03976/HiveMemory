@@ -47,6 +47,7 @@ export class ChatSSEClient {
       attachments: params.attachments && params.attachments.length > 0
         ? params.attachments
         : undefined,
+      topic_id: params.topic_id,
     };
 
     await this.client.connect(

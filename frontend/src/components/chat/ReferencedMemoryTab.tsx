@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useToastStore } from '@/stores';
 import { recordMemoryFeedback } from '@/services/memoryApi';
 import type { MemoryAtom } from '@/types';
+import MemoryTypeTile from '@/components/memory/MemoryTypeTile';
+import { memoryTypeLabels } from '@/types/memory';
 
 interface ReferencedMemoryTabProps {
   memories: MemoryAtom[];
@@ -32,9 +34,9 @@ export default function ReferencedMemoryTab({ memories }: ReferencedMemoryTabPro
 
   return (
     <div className="space-y-4">
-      <h4 className="text-xs font-semibold text-fg-3 px-1">
-        当前话题参考记忆 (Top {safeMemories.length})
-      </h4>
+      {safeMemories.length > 0 && (
+        <h4 className="px-1 text-xs text-fg-3">本轮预检索命中 {safeMemories.length} 条，悬停可逐条反馈</h4>
+      )}
 
       {safeMemories.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 gap-3 text-fg-3">
@@ -56,7 +58,7 @@ export default function ReferencedMemoryTab({ memories }: ReferencedMemoryTabPro
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
                 transition={{ duration: 0.4, type: 'spring', bounce: 0.2 }}
-                className="mb-4 p-4 rounded-xl bg-surface-container-high border border-line group hover:bg-surface-container-highest focus-within:bg-surface-container-highest transition-all duration-300 relative overflow-hidden"
+                className="group relative mb-3 overflow-hidden rounded-2xl border border-line bg-surface-container p-3 transition-colors duration-300 hover:border-line-strong focus-within:border-line-strong"
               >
                 <div className="absolute right-3 top-3 z-20 flex items-center gap-1 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 transition-all duration-200 ease-out">
                   <button
@@ -85,24 +87,26 @@ export default function ReferencedMemoryTab({ memories }: ReferencedMemoryTabPro
                   </button>
                 </div>
 
-                <div className="flex items-start justify-between gap-16 mb-3 relative z-10">
-                  <code className="text-xs font-bold text-primary font-mono px-1.5 py-0.5 bg-primary/10 rounded truncate max-w-[150px]">
-                    {memory.alias || memory.id.slice(0, 8)}
-                  </code>
-                  {memory.confidence_score && (
-                    <span className="text-xs text-tertiary font-mono shrink-0">
-                      {(memory.confidence_score * 100).toFixed(0)}%
-                    </span>
-                  )}
+                <div className="relative z-10 mb-2 flex items-center gap-2.5 pr-16">
+                  <MemoryTypeTile type={memory.memory_type} />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-xs font-semibold text-fg-2">{memoryTypeLabels[memory.memory_type] ?? memory.memory_type}</span>
+                    <span className="truncate font-mono text-xs text-fg-3">{memory.alias || memory.id.slice(0, 8)}</span>
+                  </span>
                 </div>
-                <p className="text-[12px] leading-relaxed text-fg-2 font-inter mb-3 relative z-10">
+                {memory.title && <p className="relative z-10 mb-1 text-sm font-semibold leading-snug text-fg">{memory.title}</p>}
+                <p className="relative z-10 mb-2.5 line-clamp-3 text-[13px] leading-relaxed text-fg-2">
                   {memory.summary}
                 </p>
-                <div className="flex flex-wrap gap-1.5 relative z-10">
-                  {(Array.isArray(memory.tags) ? memory.tags : []).map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 rounded-md bg-ink/5 text-fg-3 text-xs border border-line">
-                      #{tag}
-                    </span>
+                <div className="relative z-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-3">
+                  {memory.confidence_score > 0 && (
+                    <span title="生成时对内容可靠程度的判断">置信度 <b className="font-semibold text-fg-2">{(memory.confidence_score * 100).toFixed(0)}%</b></span>
+                  )}
+                  {memory.vitality_score > 0 && (
+                    <span title="被使用越多越高，长期不用会衰减">生命力 <b className="font-semibold text-fg-2">{Math.round(memory.vitality_score)}</b></span>
+                  )}
+                  {(Array.isArray(memory.tags) ? memory.tags : []).slice(0, 3).map((tag) => (
+                    <span key={tag} className="rounded-full bg-surface-container-high px-2 py-0.5 text-fg-2">#{tag}</span>
                   ))}
                 </div>
               </motion.div>
