@@ -147,6 +147,11 @@ def test_preparation_storage_failure_keeps_storage_wire_category():
             "mtp.call.profile_type_mismatch",
         ),
         (
+            ProfileResolutionError(agent_alias="helper", reason="profile_disabled"),
+            "mtp.permission.denied",
+            "mtp.call.agent_unavailable",
+        ),
+        (
             ProfileResolutionError(agent_alias="helper", reason="invalid_config"),
             "mtp.argument.invalid",
             "mtp.call.profile_invalid",

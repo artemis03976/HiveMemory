@@ -15,6 +15,7 @@ import { useWorkspaceStore, useMemoryTaskStore } from '@/stores';
 import { sortTasks } from '@/stores/memory/taskReducers';
 import type { MemoryGenerationTask, MemoryGenerationTaskStatus } from '@/types';
 import type { RuntimeEventConnectionStatus } from '@/types/workspace';
+import { formatDateTime } from '@/utils/dateTime';
 
 const TERMINAL_STATUSES = new Set<MemoryGenerationTaskStatus>([
   'completed',
@@ -89,13 +90,7 @@ function formatTime(value: string | null): string {
   if (!value) return '未记录';
   const time = new Date(value);
   if (Number.isNaN(time.getTime())) return value;
-  return time.toLocaleString(undefined, {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
+  return formatDateTime(time.getTime());
 }
 
 function getTaskAlias(task: MemoryGenerationTask): string {

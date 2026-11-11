@@ -24,7 +24,7 @@ function backendToAgentData(b: BackendAgent): AgentData {
     tags: b.tags ?? [],
     systemPrompt: b.content ?? '',
     model: cfg?.model_name ?? 'default',
-    status: 'Active',
+    status: cfg?.enabled === false ? 'Inactive' : 'Active',
     config: {
       model_name: cfg?.model_name ?? 'default',
       temperature: cfg?.temperature ?? 0.7,
@@ -84,7 +84,7 @@ export function useAgentManagement() {
       tags: [],
       systemPrompt: '',
       model: 'default',
-      status: 'Inactive',
+      status: 'Active',
       config: { ...DEFAULT_CONFIG },
     };
     setAgents(prev => [newAgent, ...prev]);

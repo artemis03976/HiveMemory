@@ -61,7 +61,6 @@ export default function MemoryLibrary() {
       addToast('更新失败，请重试', 'error');
     }
   };
-  const handlePin = () => addToast('Pin 功能施工中', 'info');
   const confirmDelete = (id: string) => {
     setDeleteId(id);
   };
@@ -171,7 +170,6 @@ export default function MemoryLibrary() {
                       atom={atom}
                       onView={() => handleView(atom.id)}
                       onEdit={handleEdit}
-                      onPin={handlePin}
                       onDelete={confirmDelete}
                     />
                   ) : (
@@ -179,7 +177,6 @@ export default function MemoryLibrary() {
                       atom={atom}
                       onView={() => handleView(atom.id)}
                       onEdit={handleEdit}
-                      onPin={handlePin}
                       onDelete={confirmDelete}
                     />
                   )}
@@ -195,7 +192,6 @@ export default function MemoryLibrary() {
           atom={selectedAtom}
           onClose={() => setSelectedAtom(null)}
           onEdit={handleModalEdit}
-          onPin={handlePin}
           onDelete={confirmDelete}
         />
       )}

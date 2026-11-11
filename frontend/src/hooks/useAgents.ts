@@ -11,6 +11,8 @@ export interface AgentProfile {
   name: string;     // title from backend
   description: string;
   avatarIcon: LucideIcon;
+  /** 停用的 Agent 不出现在对话的选择与 @ 提及中，消息里仍能显示它的名称。 */
+  enabled: boolean;
 }
 
 export interface BackendAgent {
@@ -24,6 +26,7 @@ export interface BackendAgent {
     model_name?: string;
     temperature?: number;
     language?: string;
+    enabled?: boolean;
   } | null;
 }
 
@@ -36,7 +39,13 @@ const ICON_MAP: Record<string, LucideIcon> = {
 };
 
 function toAgentProfile(b: BackendAgent): AgentProfile {
-  return { id: b.alias, name: b.title, description: b.summary, avatarIcon: ICON_MAP[b.alias] ?? Bot };
+  return {
+    id: b.alias,
+    name: b.title,
+    description: b.summary,
+    avatarIcon: ICON_MAP[b.alias] ?? Bot,
+    enabled: b.agent_config?.enabled !== false,
+  };
 }
 
 /** 消息与选择器中的 Agent：取自 Profile 列表，不在列表中的显示默认图标与 agent_id。 */
@@ -44,7 +53,7 @@ export function resolveChatAgent(agents: AgentProfile[], agentId: string | undef
   const found = agents.find((a) => a.id === agentId);
   if (found) return found;
   const id = agentId || DEFAULT_AGENT_ID;
-  return { id, name: id, description: '', avatarIcon: Bot };
+  return { id, name: id, description: '', avatarIcon: Bot, enabled: true };
 }
 
 /**
@@ -56,6 +65,7 @@ const BUILTIN_AGENT: AgentProfile = {
   name: '默认全能助手人偶',
   description: '内置的通用助手，无特定人设',
   avatarIcon: Bot,
+  enabled: true,
 };
 
 /** 聊天可选的 Agent：内置图纸固定在首位，后端已有同名图纸时以后端为准。 */

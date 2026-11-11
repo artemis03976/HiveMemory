@@ -34,7 +34,9 @@ export default function OmniInput() {
 
   const modelSelection = useChatRuntimeConfigStore((state) => state.modelSelection);
   const overrideParams = useChatRuntimeConfigStore((state) => state.overrideParams);
-  const { agents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
+  const { agents: allAgents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
+  // 停用的 Agent 不出现在选择与 @ 提及中
+  const agents = allAgents.filter((a) => a.enabled);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);

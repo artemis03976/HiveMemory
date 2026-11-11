@@ -20,11 +20,12 @@ def test_omni_doll_profile_uses_default_model_parameters_without_permissions() -
         "temperature": None,
         "top_p": None,
         "language": "zh",
+        "enabled": True,
     }
 
 
 def test_profile_parsing_ignores_legacy_permission_keys() -> None:
-    """旧键即使含非列表值也应忽略，真实配置和 alias 身份仍正常解析。"""
+    """旧键即使含非列表值也应忽略，真实配置和 alias 身份仍正常解析；没有启用字段的存量配置读作启用。"""
     atom = MemoryAtom(
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
@@ -51,4 +52,5 @@ def test_profile_parsing_ignores_legacy_permission_keys() -> None:
         "temperature": None,
         "top_p": None,
         "language": "en",
+        "enabled": True,
     }

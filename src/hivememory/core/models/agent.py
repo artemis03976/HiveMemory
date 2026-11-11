@@ -44,6 +44,10 @@ class AgentProfile(BaseModel):
     )
 
     language: str = Field(default="zh", description="提示词语言 (zh/en)")
+    enabled: bool = Field(
+        default=True,
+        description="是否可以用于执行；停用的 Profile 在解析时被拒绝。这不是操作权限，权限只由访问登记表达",
+    )
 
     @classmethod
     def from_atom(cls, atom: "MemoryAtom") -> Optional["AgentProfile"]:

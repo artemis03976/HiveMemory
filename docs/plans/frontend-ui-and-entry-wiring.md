@@ -496,3 +496,4 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 - 2026-11-11 在分支 `feat/frontend-ui-and-entry-wiring` 开始实施。
 - 第 2 步完成（2026-11-11）：令牌与主题、随包字体、导航与头像菜单、提示去重、三栏断点、连接状态条与统一的页面头部。访问后端的请求统一经 `backendFetch`，网络层失败与凭据失效都在这里汇总给状态条。
 - 第 3 步（2026-11-11）：滚动跟随、空会话、消息样式、MTP 卡片文案、话题标题、复制/反馈/重新生成、引用记忆面板（类型图标块）、模型配置的当前生效值；`#` 话题引用的后端部分：`ChatRequest.topic_id` 经任务进程交给 Gateway 的 `designated_topic_id`，在候选话题中时直接取用，不在时抛出 `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，Workspace 领域错误，不进入续接上一轮的兜底）。
+- 第 4 步（2026-11-11）：记忆卡片与列表项改用类型图标块、写明生命力与置信度、高度随内容；记忆详情保持两栏并统一元数据栏；Pin 一律禁用并提示“尚未提供”；时间统一为 `formatDateTime` / `formatListTime`；Agent 页的模型从注册表选择（注册表读不到时保留当前值）。Agent 的启用：`AgentProfile.enabled`（缺省为启用），Profile 解析遇到停用时抛出 `ProfileResolutionError(reason="profile_disabled")`，CALL 到停用的子 Agent 映射为“当前不可用”；Agent 管理接口原样透传 `agent_config`，前端写入 `enabled`，对话的选择与 @ 提及只列出启用的 Agent。

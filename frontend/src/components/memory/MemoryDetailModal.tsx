@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Code2, Wrench, Link as LinkIcon, User, Check, RotateCcw } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Check, RotateCcw } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { motion, AnimatePresence } from 'motion/react';
-import { memoryTypeColors } from '../../types/memory';
+import { memoryTypeLabels } from '../../types/memory';
+import MemoryTypeTile from './MemoryTypeTile';
+import { formatDateTime, formatFullDateTime } from '../../utils/dateTime';
 import { useDraft } from '../../hooks/useDraft';
 import { formatVitalityScore } from '../../utils/memoryScores';
 
@@ -12,21 +13,25 @@ interface MemoryDetailModalProps {
   atom: MemoryAtom | null;
   onClose: () => void;
   onEdit: (id: string, patch: Partial<Pick<MemoryAtom, 'title' | 'summary' | 'content' | 'alias' | 'tags'>>) => Promise<void>;
-  onPin: (id: string) => void;
   onDelete: (id: string) => void;
 }
 
-const typeIcons: Record<string, LucideIcon> = {
-  CODE_SNIPPET: Code2,
-  FACT: FileText,
-  TOOL: Wrench,
-  URL_RESOURCE: LinkIcon,
-  REFLECTION: FileText,
-  USER_PROFILE: User,
-  WORK_IN_PROGRESS: Code2,
-};
+/** 元数据栏里的一行：名称、可选的短条与数值，悬停说明含义。 */
+function MetaRow({ label, value, ratio, hint }: { label: string; value: string; ratio?: number; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[13px]" title={hint}>
+      <span className="flex-1 text-fg-2">{label}</span>
+      {ratio !== undefined && (
+        <span aria-hidden="true" className="h-[5px] w-[70px] overflow-hidden rounded-full bg-surface-container-high">
+          <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(1, ratio)) * 100}%` }} />
+        </span>
+      )}
+      <span className="min-w-9 text-right font-mono text-xs text-fg">{value}</span>
+    </div>
+  );
+}
 
-export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDelete }: MemoryDetailModalProps) {
+export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete }: MemoryDetailModalProps) {
   const [editing, setEditing] = useState(false);
   const initialDraftData = useMemo(() => ({
     title: atom?.title || '',
@@ -53,8 +58,6 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
 
   if (!atom) return null;
 
-  const typeConfig = memoryTypeColors[atom.memory_type] || { color: 'hsl(220, 10%, 50%)', name: 'unknown' };
-  const TypeIcon = typeIcons[atom.memory_type] || FileText;
 
   const startEdit = () => {
     reset(); // 确保每次进入编辑模式时，草稿数据是最新的
@@ -91,15 +94,8 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
           <div className="flex items-start justify-between p-6 border-b border-line bg-surface-dim shrink-0">
             <div className="flex-1 basis-0 min-w-0 pr-6">
               <div className={`flex ${editing ? 'items-start' : 'items-center'} gap-3 mb-1`}>
-                <div
-                  className={`flex items-center justify-center p-2 rounded-lg border ${editing ? 'mt-6' : ''}`}
-                  style={{
-                    color: typeConfig.color,
-                    borderColor: typeConfig.color.replace('hsl', 'hsla').replace(')', ', 0.4)'),
-                    backgroundColor: typeConfig.color.replace('hsl', 'hsla').replace(')', ', 0.2)')
-                  }}
-                >
-                  <TypeIcon className="w-5 h-5" />
+                <div className={editing ? 'mt-6' : ''} title={memoryTypeLabels[atom.memory_type] ?? atom.memory_type}>
+                  <MemoryTypeTile type={atom.memory_type} size="lg" />
                 </div>
                 {editing ? (
                   <div className="flex-1 min-w-0 flex flex-col gap-1.5 w-full">
@@ -206,17 +202,18 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                 </div>
               ) : (
                 <>
-                  <button onClick={() => onPin(atom.id)} className={`p-2 rounded-lg hover:bg-ink/10 transition-colors ${atom.isPinned ? 'text-primary' : 'text-fg-3'}`} title="固定/取消固定">
-                    <Pin className="w-4 h-4" />
-                  </button>
-                  <button onClick={startEdit} className="p-2 rounded-lg hover:bg-ink/10 text-fg-3 hover:text-fg transition-colors" title="编辑">
+                  <button onClick={startEdit} className="p-2 rounded-lg hover:bg-ink/10 text-fg-3 hover:text-fg transition-colors" title="编辑" aria-label="编辑">
                     <Edit2 className="w-4 h-4" />
                   </button>
-                  <button onClick={() => onDelete(atom.id)} className="p-2 rounded-lg hover:bg-magic-fire/20 text-fg-3 hover:text-magic-fire transition-colors" title="删除">
+                  <button disabled className="cursor-not-allowed rounded-lg p-2 text-fg-3 opacity-45" title="Pin 尚未提供" aria-label="Pin 尚未提供">
+                    <Pin className="w-4 h-4" />
+                  </button>
+                  <div className="w-px h-6 bg-ink/10 mx-1 mt-2" />
+                  <button onClick={() => onDelete(atom.id)} className="p-2 rounded-lg hover:bg-magic-fire/20 text-fg-3 hover:text-magic-fire transition-colors" title="删除这条记忆" aria-label="删除这条记忆">
                     <Trash2 className="w-4 h-4" />
                   </button>
                   <div className="w-px h-6 bg-ink/10 mx-1 mt-2" />
-                  <button onClick={onClose} className="p-2 rounded-lg hover:bg-ink/10 text-fg-3 hover:text-fg transition-colors">
+                  <button onClick={onClose} className="p-2 rounded-lg hover:bg-ink/10 text-fg-3 hover:text-fg transition-colors" title="关闭" aria-label="关闭">
                     <X className="w-5 h-5" />
                   </button>
                 </>
@@ -267,23 +264,22 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                     <Database className="w-3.5 h-3.5" />
                     元数据
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-fg-3">ID</span>
-                      <span className="text-fg font-mono text-xs">{atom.id.substring(0, 8)}...</span>
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2 text-[13px]">
+                      <span className="flex-1 text-fg-2">ID</span>
+                      <button
+                        onClick={() => navigator.clipboard.writeText(atom.id)}
+                        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-xs text-fg-2 hover:bg-ink/5"
+                        title="复制完整 ID"
+                        aria-label="复制完整 ID"
+                      >
+                        {atom.id.substring(0, 8)}…
+                        <Copy className="h-3 w-3" />
+                      </button>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-fg-3">置信度</span>
-                      <span className="text-primary font-mono">{atom.confidence_score.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-fg-3">生命力分数</span>
-                      <span className="text-magic-metal font-mono">{formatVitalityScore(atom.vitality_score)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-fg-3">访问次数</span>
-                      <span className="text-fg font-mono">{atom.access_count}</span>
-                    </div>
+                    <MetaRow label="置信度" value={`${Math.round(atom.confidence_score * 100)}%`} ratio={atom.confidence_score} hint="生成时对内容可靠程度的判断" />
+                    <MetaRow label="生命力" value={formatVitalityScore(atom.vitality_score)} ratio={atom.vitality_score / 100} hint="被使用越多越高，长期不用会衰减；低于阈值时自动归档" />
+                    <MetaRow label="被引用" value={`${atom.access_count} 次`} />
                   </div>
                 </div>
 
@@ -292,14 +288,14 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onPin, onDele
                     <Clock className="w-3.5 h-3.5" />
                     时间线
                   </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between items-center">
-                      <span className="text-fg-3">创建于</span>
-                      <span className="text-fg">{new Date(atom.created_at).toLocaleString()}</span>
+                  <div className="space-y-2.5 text-[13px]">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-fg-2">创建于</span>
+                      <span className="text-fg" title={formatFullDateTime(Date.parse(atom.created_at))}>{formatDateTime(Date.parse(atom.created_at))}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-fg-3">最后更新</span>
-                      <span className="text-fg">{new Date(atom.updated_at).toLocaleString()}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-fg-2">最近更新</span>
+                      <span className="text-fg" title={formatFullDateTime(Date.parse(atom.updated_at))}>{formatDateTime(Date.parse(atom.updated_at))}</span>
                     </div>
                   </div>
                 </div>

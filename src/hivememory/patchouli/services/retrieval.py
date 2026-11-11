@@ -233,6 +233,8 @@ class RetrievalFamiliar:
         profile = AgentProfile.from_atom(atom)
         if profile is None:
             raise ProfileResolutionError(agent_alias=normalized_alias, reason="invalid_config")
+        if not profile.enabled:
+            raise ProfileResolutionError(agent_alias=normalized_alias, reason="profile_disabled")
         return ResolvedAgentProfile(
             profile=profile.model_copy(deep=True),
             access_policy=atom.meta.access_policy.model_copy(deep=True),
