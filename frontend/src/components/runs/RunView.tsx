@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Pause, Play, Trash2 } from 'lucide-react';
 import { PageTitle } from '@/components/common/PageHeader';
+import { useNow } from '@/hooks/useNow';
 import { useChatUiStore, useWorkspaceStore } from '@/stores';
 import { filterRuns, groupRuns } from '@/stores/runs';
 import type { RuntimeEvent } from '@/types/workspace';
@@ -14,15 +15,6 @@ type RunViewTab = 'runs' | 'logs';
 
 /** 进行中的耗时与"未见终态"的判定随时间变化，页面按这个间隔重算。 */
 const CLOCK_TICK_MS = 15_000;
-
-function useNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [intervalMs]);
-  return now;
-}
 
 /** 全局运行页：主视图把运行时事件按一次运行展示，第二个标签是后端日志。 */
 export default function RunView() {

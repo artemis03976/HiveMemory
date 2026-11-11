@@ -53,7 +53,14 @@ function EmptySession({ agents }: { agents: AgentProfile[] }) {
   );
 }
 
-export default function ChatPane() {
+interface ChatPaneProps {
+  /** 会话栏收为抽屉时，头部给出打开它的按钮。 */
+  onOpenSessions?: () => void;
+  /** 右栏收为抽屉时，头部给出打开它的按钮。 */
+  onOpenVision?: () => void;
+}
+
+export default function ChatPane({ onOpenSessions, onOpenVision }: ChatPaneProps) {
   const { messages, compactionCheckpoint, compactionProgress, runStatus, isLoadingHistory, currentSessionId, isStreaming, retrievedMemories, retryMessage } = useChatStore();
   const addToast = useToastStore((s) => s.addToast);
   const { agents } = useAgents();
@@ -161,7 +168,7 @@ export default function ChatPane() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <TopBar />
+      <TopBar onOpenSessions={onOpenSessions} onOpenVision={onOpenVision} referenceCount={retrievedMemories.length} />
 
       {messages.length === 0 ? (
         <div className="flex-1 overflow-y-auto">

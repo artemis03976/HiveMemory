@@ -23,3 +23,15 @@ export function formatFullDateTime(timestampMs: number): string {
 export function formatListTime(timestampMs: number, nowMs: number = Date.now()): string {
   return nowMs - timestampMs < WEEK_MS ? formatTimeAgo(timestampMs, nowMs) : formatDateTime(timestampMs, nowMs);
 }
+
+export type DayGroup = '今天' | '昨天' | '更早';
+
+/** 会话列表的日期分组，按本地日历日划分。 */
+export function dayGroup(timestampMs: number, nowMs: number = Date.now()): DayGroup {
+  const startOfToday = new Date(nowMs);
+  startOfToday.setHours(0, 0, 0, 0);
+  const today = startOfToday.getTime();
+  if (timestampMs >= today) return '今天';
+  startOfToday.setDate(startOfToday.getDate() - 1);
+  return timestampMs >= startOfToday.getTime() ? '昨天' : '更早';
+}

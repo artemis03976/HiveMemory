@@ -5,8 +5,7 @@ import type { RunFilters } from '@/stores/runs';
 import { CHAT_UI_STORE_VERSION, migrateChatUiState } from '@/stores/ui/chatUiMigration';
 import type { ThemeMode } from '@/stores/ui/theme';
 
-type ContextSidebarTab = 'sessions' | 'config';
-type WorkspaceVisionTab = 'context' | 'memory-runtime';
+export type WorkspaceVisionTab = 'context' | 'memory-runtime' | 'model';
 
 interface ChatUiStore {
   // Global navigation
@@ -17,19 +16,7 @@ interface ChatUiStore {
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
 
-  // Chat layout panels
-  isContextSidebarCollapsed: boolean;
-  setContextSidebarCollapsed: (collapsed: boolean) => void;
-  toggleContextSidebar: () => void;
-
-  isWorkspaceVisionCollapsed: boolean;
-  setWorkspaceVisionCollapsed: (collapsed: boolean) => void;
-  toggleWorkspaceVision: () => void;
-
-  // Sidebar tabs
-  contextSidebarTab: ContextSidebarTab;
-  setContextSidebarTab: (tab: ContextSidebarTab) => void;
-
+  // 聊天页右栏的标签
   workspaceVisionTab: WorkspaceVisionTab;
   setWorkspaceVisionTab: (tab: WorkspaceVisionTab) => void;
 
@@ -55,17 +42,6 @@ export const useChatUiStore = create<ChatUiStore>()(
 
         theme: 'system',
         setTheme: (theme) => set({ theme }),
-
-        isContextSidebarCollapsed: false,
-        setContextSidebarCollapsed: (collapsed) => set({ isContextSidebarCollapsed: collapsed }),
-        toggleContextSidebar: () => set((s) => ({ isContextSidebarCollapsed: !s.isContextSidebarCollapsed })),
-
-        isWorkspaceVisionCollapsed: false,
-        setWorkspaceVisionCollapsed: (collapsed) => set({ isWorkspaceVisionCollapsed: collapsed }),
-        toggleWorkspaceVision: () => set((s) => ({ isWorkspaceVisionCollapsed: !s.isWorkspaceVisionCollapsed })),
-
-        contextSidebarTab: 'sessions',
-        setContextSidebarTab: (tab) => set({ contextSidebarTab: tab }),
 
         workspaceVisionTab: 'context',
         setWorkspaceVisionTab: (tab) => set({ workspaceVisionTab: tab }),
