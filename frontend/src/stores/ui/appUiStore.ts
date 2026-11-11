@@ -16,6 +16,12 @@ interface ChatUiStore {
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
 
+  // 聊天页两栏的收起状态：只在窗口放得下该栏时生效，放不下时两栏改为抽屉
+  isContextSidebarCollapsed: boolean;
+  toggleContextSidebar: () => void;
+  isWorkspaceVisionCollapsed: boolean;
+  toggleWorkspaceVision: () => void;
+
   // 聊天页右栏的标签
   workspaceVisionTab: WorkspaceVisionTab;
   setWorkspaceVisionTab: (tab: WorkspaceVisionTab) => void;
@@ -42,6 +48,11 @@ export const useChatUiStore = create<ChatUiStore>()(
 
         theme: 'system',
         setTheme: (theme) => set({ theme }),
+
+        isContextSidebarCollapsed: false,
+        toggleContextSidebar: () => set((s) => ({ isContextSidebarCollapsed: !s.isContextSidebarCollapsed })),
+        isWorkspaceVisionCollapsed: false,
+        toggleWorkspaceVision: () => set((s) => ({ isWorkspaceVisionCollapsed: !s.isWorkspaceVisionCollapsed })),
 
         workspaceVisionTab: 'context',
         setWorkspaceVisionTab: (tab) => set({ workspaceVisionTab: tab }),

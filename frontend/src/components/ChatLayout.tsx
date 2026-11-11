@@ -2,17 +2,19 @@ import { useEffect, useState } from 'react';
 import ContextSidebar from './chat/ContextSidebar';
 import ChatPane from './chat/ChatPane';
 import WorkspaceVision from './chat/WorkspaceVision';
-import { useChatStore, useWorkspaceStore } from '@/stores';
+import { useChatStore, useChatUiStore, useWorkspaceStore } from '@/stores';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 type Drawer = 'sessions' | 'vision';
 
 /**
- * 三栏：窗口放得下时左右两栏都在行内；放不下右栏时，它改由中间栏头部的按钮打开，作为抽屉覆盖在中间栏上；
- * 再窄时会话栏也这样处理。点遮罩或按 Esc 关闭抽屉。
+ * 三栏：窗口放得下时左右两栏都在行内，各自可以收起，收起后由中间栏头部的按钮展开；
+ * 放不下右栏时，它改由同一个按钮打开，作为抽屉覆盖在中间栏上，再窄时会话栏也这样处理。
+ * 点遮罩或按 Esc 关闭抽屉。收起状态只在行内生效，抽屉的开合不改动它。
  */
 export default function ChatLayout() {
   const { retrievedMemories, initializeSessions } = useChatStore();
+  const { isContextSidebarCollapsed, toggleContextSidebar, isWorkspaceVisionCollapsed, toggleWorkspaceVision } = useChatUiStore();
   const connectRuntimeEvents = useWorkspaceStore((state) => state.connectRuntimeEvents);
   const visionInline = useMediaQuery('(min-width: 1280px)');
   const sidebarInline = useMediaQuery('(min-width: 1024px)');
@@ -23,6 +25,8 @@ export default function ChatLayout() {
 
   const sessionsDrawer = !sidebarInline && drawer === 'sessions';
   const visionDrawer = !visionInline && drawer === 'vision';
+  const sessionsShown = sidebarInline ? !isContextSidebarCollapsed : sessionsDrawer;
+  const visionShown = visionInline ? !isWorkspaceVisionCollapsed : visionDrawer;
   const closeDrawer = () => setDrawer(null);
 
   useEffect(() => {
@@ -35,13 +39,13 @@ export default function ChatLayout() {
   }, [sessionsDrawer, visionDrawer]);
 
   return <>
-    {(sidebarInline || sessionsDrawer) && <ContextSidebar onClose={sessionsDrawer ? closeDrawer : undefined} />}
+    {sessionsShown && <ContextSidebar overlay={sessionsDrawer} onHide={sessionsDrawer ? closeDrawer : toggleContextSidebar} />}
     <ChatPane
-      onOpenSessions={sidebarInline ? undefined : () => setDrawer('sessions')}
-      onOpenVision={visionInline ? undefined : () => setDrawer('vision')}
+      onOpenSessions={sessionsShown ? undefined : sidebarInline ? toggleContextSidebar : () => setDrawer('sessions')}
+      onOpenVision={visionShown ? undefined : visionInline ? toggleWorkspaceVision : () => setDrawer('vision')}
     />
-    {(visionInline || visionDrawer) && (
-      <WorkspaceVision memories={retrievedMemories} onClose={visionDrawer ? closeDrawer : undefined} />
+    {visionShown && (
+      <WorkspaceVision memories={retrievedMemories} overlay={visionDrawer} onHide={visionDrawer ? closeDrawer : toggleWorkspaceVision} />
     )}
     {(sessionsDrawer || visionDrawer) && <div aria-hidden="true" onClick={closeDrawer} className="absolute inset-0 z-30 bg-scrim" />}
   </>;

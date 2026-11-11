@@ -7,7 +7,6 @@ interface PersistedChatUiState {
   isKernelVisionCollapsed?: boolean;
   kernelVisionTab?: string;
   isWorkspaceVisionCollapsed?: boolean;
-  isContextSidebarCollapsed?: boolean;
   workspaceVisionTab?: string;
   settingsActiveCategory?: string;
 }
@@ -38,12 +37,10 @@ export function migrateChatUiState(persisted: unknown, version: number): unknown
   if (version < 6 && !['providers', 'models', 'access'].includes(state.settingsActiveCategory ?? '')) {
     state.settingsActiveCategory = 'common';
   }
-  // v7: 聊天页两栏不再折叠，模型配置从左栏移到右栏；原来选中左栏模型配置的，改为选中右栏的模型配置
+  // v7: 模型配置从左栏移到右栏，左栏不再分标签；原来选中左栏模型配置的，改为选中右栏的模型配置
   if (version < 7) {
     if (state.contextSidebarTab === 'config') state.workspaceVisionTab = 'model';
     delete state.contextSidebarTab;
-    delete state.isContextSidebarCollapsed;
-    delete state.isWorkspaceVisionCollapsed;
   }
   return persisted;
 }

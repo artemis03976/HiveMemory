@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, PanelLeftClose, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useChatStore } from '@/stores';
 import type { SessionSummary } from '@/services/sessionApi';
 import { dayGroup, formatListTime, type DayGroup } from '@/utils/dateTime';
@@ -7,8 +7,10 @@ import { useNow } from '@/hooks/useNow';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 
 interface ContextSidebarProps {
-  /** 窗口放不下会话栏时，它作为抽屉覆盖在中间栏上，并带关闭按钮。 */
-  onClose?: () => void;
+  /** 窗口放不下会话栏时，它作为抽屉覆盖在中间栏上。 */
+  overlay: boolean;
+  /** 行内时收起会话栏，抽屉时关闭抽屉。 */
+  onHide: () => void;
 }
 
 const DAY_GROUPS: DayGroup[] = ['今天', '昨天', '更早'];
@@ -97,7 +99,7 @@ function RenameRow({ initial, busy, onSave, onCancel }: {
 }
 
 /** 左栏：按日期分组的会话列表。运行和历史读取期间锁定选择，避免消息串入其他会话。 */
-export default function ContextSidebar({ onClose }: ContextSidebarProps) {
+export default function ContextSidebar({ overlay, onHide }: ContextSidebarProps) {
   const { sessions, currentSessionId, isStreaming, isLoadingHistory, sessionError,
     newSession, renameSession, deleteSession } = useChatStore();
   const [editing, setEditing] = useState<string | null>(null);
@@ -112,7 +114,7 @@ export default function ContextSidebar({ onClose }: ContextSidebarProps) {
     <aside
       aria-label="会话"
       className={`flex h-full w-[264px] shrink-0 flex-col border-r border-line bg-surface-container-low ${
-        onClose ? 'absolute left-0 top-0 z-40 shadow-pop' : ''
+        overlay ? 'absolute left-0 top-0 z-40 shadow-pop' : ''
       }`}
     >
       <div className="flex items-center gap-2 pb-2.5 pl-[18px] pr-3.5 pt-4">
@@ -125,11 +127,9 @@ export default function ContextSidebar({ onClose }: ContextSidebarProps) {
           <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
           新会话
         </button>
-        {onClose && (
-          <button onClick={onClose} aria-label="关闭会话栏" className={iconButtonCls}>
-            <X className="h-4 w-4" />
-          </button>
-        )}
+        <button onClick={onHide} aria-label={overlay ? '关闭会话栏' : '收起会话栏'} title={overlay ? '关闭会话栏' : '收起会话栏'} className={`${iconButtonCls} h-8 w-8`}>
+          {overlay ? <X className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </button>
       </div>
 
       <div className="scrollbar-thin flex-1 overflow-y-auto px-2 pb-4 pt-1">

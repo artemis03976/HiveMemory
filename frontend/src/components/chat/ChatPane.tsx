@@ -54,9 +54,9 @@ function EmptySession({ agents }: { agents: AgentProfile[] }) {
 }
 
 interface ChatPaneProps {
-  /** 会话栏收为抽屉时，头部给出打开它的按钮。 */
+  /** 会话栏收起或收为抽屉时，头部给出展开它的按钮。 */
   onOpenSessions?: () => void;
-  /** 右栏收为抽屉时，头部给出打开它的按钮。 */
+  /** 右栏收起或收为抽屉时，头部给出展开它的按钮。 */
   onOpenVision?: () => void;
 }
 

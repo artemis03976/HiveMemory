@@ -1,29 +1,25 @@
-import { useEffect } from 'react';
-import { X } from 'lucide-react';
+import { PanelRightClose, X } from 'lucide-react';
 import type { MemoryAtom } from '@/types';
 import MemoryRuntimeTab from './MemoryRuntimeTab';
 import ModelConfigTab from './ModelConfigTab';
 import ReferencedMemoryTab from './ReferencedMemoryTab';
-import { useChatUiStore, useWorkspaceStore, useMemoryTaskStore } from '@/stores';
+import { useChatUiStore, useMemoryTaskStore } from '@/stores';
 import type { WorkspaceVisionTab } from '@/stores/ui/appUiStore';
 
 interface WorkspaceVisionProps {
   memories: MemoryAtom[];
-  /** 窗口放不下右栏时，它作为抽屉覆盖在中间栏上，并带关闭按钮。 */
-  onClose?: () => void;
+  /** 窗口放不下右栏时，它作为抽屉覆盖在中间栏上。 */
+  overlay: boolean;
+  /** 行内时收起右栏，抽屉时关闭抽屉。 */
+  onHide: () => void;
 }
 
 /** 右栏：本轮引用的记忆、记忆生成任务与本会话的模型配置。 */
-export default function WorkspaceVision({ memories, onClose }: WorkspaceVisionProps) {
+export default function WorkspaceVision({ memories, overlay, onHide }: WorkspaceVisionProps) {
   const { workspaceVisionTab: activeTab, setWorkspaceVisionTab: setActiveTab } = useChatUiStore();
-  const connectRuntimeEvents = useWorkspaceStore((state) => state.connectRuntimeEvents);
   const activeTaskCount = useMemoryTaskStore((state) =>
     state.tasks.filter((task) => task.status === 'pending' || task.status === 'running').length,
   );
-
-  useEffect(() => {
-    connectRuntimeEvents();
-  }, [connectRuntimeEvents]);
 
   const tabs: { id: WorkspaceVisionTab; label: string }[] = [
     { id: 'context', label: memories.length > 0 ? `引用记忆 · ${memories.length}` : '引用记忆' },
@@ -35,7 +31,7 @@ export default function WorkspaceVision({ memories, onClose }: WorkspaceVisionPr
     <aside
       aria-label="本轮上下文"
       className={`flex h-full w-[360px] shrink-0 flex-col border-l border-line bg-surface-container-low ${
-        onClose ? 'absolute right-0 top-0 z-40 shadow-pop' : ''
+        overlay ? 'absolute right-0 top-0 z-40 shadow-pop' : ''
       }`}
     >
       <div className="flex items-center gap-2 px-3.5 pb-2.5 pt-3.5">
@@ -54,15 +50,14 @@ export default function WorkspaceVision({ memories, onClose }: WorkspaceVisionPr
             </button>
           ))}
         </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            aria-label="关闭右栏"
-            className="flex h-8 w-8 items-center justify-center rounded-[9px] text-fg-3 transition-colors hover:bg-surface-container-high hover:text-fg"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+        <button
+          onClick={onHide}
+          aria-label={overlay ? '关闭右栏' : '收起右栏'}
+          title={overlay ? '关闭右栏' : '收起右栏'}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-fg-3 transition-colors hover:bg-surface-container-high hover:text-fg"
+        >
+          {overlay ? <X className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+        </button>
       </div>
 
       <div className="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto px-3.5 pb-[18px] pt-1">

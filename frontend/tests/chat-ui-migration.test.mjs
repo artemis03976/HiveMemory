@@ -21,8 +21,8 @@ test('原来的通用设置与各子系统分类并入常用，管理类分类�
   assert.equal(migrateChatUiState({ settingsActiveCategory: 'access' }, 5).settingsActiveCategory, 'access');
 });
 
-test('聊天页两栏不再折叠，左栏停在模型配置时改为打开右栏的模型配置', () => {
-  const state = migrateChatUiState({ contextSidebarTab: 'config', isContextSidebarCollapsed: true, isWorkspaceVisionCollapsed: true, workspaceVisionTab: 'context' }, 6);
-  assert.deepEqual(state, { workspaceVisionTab: 'model' });
+test('左栏停在模型配置时改为打开右栏的模型配置，左栏标签不再保存', () => {
+  const state = migrateChatUiState({ contextSidebarTab: 'config', isWorkspaceVisionCollapsed: true, workspaceVisionTab: 'context' }, 6);
+  assert.deepEqual(state, { isWorkspaceVisionCollapsed: true, workspaceVisionTab: 'model' });
   assert.equal(migrateChatUiState({ contextSidebarTab: 'sessions', workspaceVisionTab: 'memory-runtime' }, 6).workspaceVisionTab, 'memory-runtime');
 });
