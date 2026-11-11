@@ -4,7 +4,7 @@ import TopBar from './TopBar';
 import ChatMessage from './ChatMessage';
 import OmniInput from './OmniInput';
 import SessionCompactionBoundary from './SessionCompactionBoundary';
-import { useChatStore, useChatUiStore, useToastStore } from '@/stores';
+import { useChatStore, useChatUiStore, useMemoryViewStore, useToastStore, useTopicStore } from '@/stores';
 import { useAgents, type AgentProfile } from '@/hooks/useAgents';
 import { useTopicTitles } from '@/hooks/useTopicTitles';
 import { recordMemoryFeedback } from '@/services/memoryApi';
@@ -65,6 +65,14 @@ export default function ChatPane({ onOpenSessions, onOpenVision }: ChatPaneProps
   const addToast = useToastStore((s) => s.addToast);
   const { agents } = useAgents();
   const topicTitles = useTopicTitles(messages);
+  const selectTopic = useTopicStore((s) => s.selectTopic);
+  const setLibraryTab = useMemoryViewStore((s) => s.setLibraryTab);
+  const setActiveNavTab = useChatUiStore((s) => s.setActiveNavTab);
+  const openTopic = (topicId: string) => {
+    selectTopic(topicId);
+    setLibraryTab('topics');
+    setActiveNavTab('database');
+  };
   const lastReplyId = [...messages].reverse().find((m) => m.role === 'agent' || m.role === 'assistant')?.id;
 
   const copyReply = (text: string) => {
@@ -187,6 +195,7 @@ export default function ChatPane({ onOpenSessions, onOpenVision }: ChatPaneProps
                   message={msg}
                   agents={agents}
                   topicTitle={msg.topicId ? topicTitles[msg.topicId] : undefined}
+                  onOpenTopic={openTopic}
                   onCopy={copyReply}
                   onRegenerate={msg.id === lastReplyId && !isStreaming ? () => void retryMessage(msg.id) : undefined}
                   onFeedback={msg.id === lastReplyId && !isStreaming && retrievedMemories.length > 0 ? feedbackOnTurn : undefined}

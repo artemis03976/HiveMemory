@@ -16,7 +16,6 @@ import { backendFetch } from '@/transports/connectionStatus';
 export interface ApiTopicSnapshot {
   topic_id: string;
   topic_title?: string;
-  title?: string;
   topic_summary?: string;
   state_summary?: string;
   last_turn?: { user: string; assistant: string } | null;
@@ -32,16 +31,15 @@ interface ActiveTopicListResponse {
 }
 
 export function mapTopic(raw: ApiTopicSnapshot): Topic {
-  const title = raw.topic_title || raw.title || raw.topic_id;
-
   return {
     id: raw.topic_id,
-    title,
-    summary: raw.state_summary || raw.topic_summary || undefined,
-    // 从后端 model_used 字段读取真实使用的模型名，未设置时回落到默认文本
-    model: raw.model_used || 'Unknown',
+    title: raw.topic_title ?? '',
+    topicSummary: raw.topic_summary || undefined,
+    stateSummary: raw.state_summary || undefined,
+    lastTurn: raw.last_turn ?? undefined,
+    model: raw.model_used || undefined,
     lastActive: raw.last_update * 1000,
-    messageCount: raw.block_count ?? 0,
+    blockCount: raw.block_count ?? 0,
     totalTokens: raw.total_tokens ?? 0,
   };
 }

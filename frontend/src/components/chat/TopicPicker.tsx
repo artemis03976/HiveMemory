@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Hash } from 'lucide-react';
 import { fetchTopics } from '@/services/topicApi';
-import type { Topic } from '@/types';
-
-export interface DesignatedTopic {
-  id: string;
-  title: string;
-}
+import type { DesignatedTopic, Topic } from '@/types';
 
 interface TopicPickerProps {
   onPick: (topic: DesignatedTopic) => void;
@@ -28,7 +23,7 @@ export default function TopicPicker({ onPick, onClose }: TopicPickerProps) {
   }, []);
 
   const shown = (topics ?? []).filter((t) => t.title.toLowerCase().includes(query.trim().toLowerCase()));
-  const pick = (topic: Topic) => onPick({ id: topic.id, title: topic.title === topic.id ? '未命名话题' : topic.title });
+  const pick = (topic: Topic) => onPick({ id: topic.id, title: topic.title || '未命名话题' });
 
   return (
     <div
@@ -69,9 +64,11 @@ export default function TopicPicker({ onPick, onClose }: TopicPickerProps) {
           >
             <span className="flex items-center gap-1.5 text-[13px] font-semibold text-fg">
               <Hash className="h-3 w-3 text-accent" aria-hidden="true" />
-              {topic.title === topic.id ? '未命名话题' : topic.title}
+              {topic.title || '未命名话题'}
             </span>
-            {topic.summary && <span className="line-clamp-1 text-xs text-fg-3">{topic.summary}</span>}
+            {(topic.stateSummary || topic.topicSummary) && (
+              <span className="line-clamp-1 text-xs text-fg-3">{topic.stateSummary || topic.topicSummary}</span>
+            )}
           </button>
         ))}
       </div>

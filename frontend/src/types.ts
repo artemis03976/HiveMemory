@@ -11,15 +11,27 @@ import type { MTPVerb } from './types/mtp';
 
 export type NavTab = 'chat' | 'database' | 'agents' | 'theme' | 'terminal' | 'settings';
 
+/** 短期话题池中的一个话题；没有标题时 `title` 为空字符串。 */
 export interface Topic {
   id: string;
   title: string;
-  summary?: string;
-  model: string;
-  messageCount?: number;
+  /** 话题在聊什么。 */
+  topicSummary?: string;
+  /** 话题目前的进展。 */
+  stateSummary?: string;
+  lastTurn?: { user: string; assistant: string };
+  /** 最近一轮使用的模型；尚未运行过时缺省。 */
+  model?: string;
+  blockCount: number;
   /** 最近一次写入的毫秒时间戳，由后端的写入时间换算。 */
   lastActive: number;
-  totalTokens?: number;
+  totalTokens: number;
+}
+
+/** 用户为一轮对话指定的话题，随发送请求带上。 */
+export interface DesignatedTopic {
+  id: string;
+  title: string;
 }
 
 export interface MtpAction {

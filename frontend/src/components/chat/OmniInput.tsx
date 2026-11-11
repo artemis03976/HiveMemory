@@ -12,7 +12,7 @@ import { ATTACHMENT_ACCEPT_ATTR } from '@/constants/attachments';
 import type { ChatModelSelection } from '@/types/chat';
 import { motion, AnimatePresence } from 'motion/react';
 import AttachmentQueue from './AttachmentQueue';
-import TopicPicker, { type DesignatedTopic } from './TopicPicker';
+import TopicPicker from './TopicPicker';
 
 export default function OmniInput() {
   const { draft: message, setDraft: setMessage, isLoadingHistory, historyReady, currentSessionId } = useChatStore();
@@ -21,11 +21,9 @@ export default function OmniInput() {
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  // 用户为这一轮指定的话题：发送时随请求带上，发出后清除
-  const [designatedTopic, setDesignatedTopic] = useState<DesignatedTopic | null>(null);
   const [topicPickerOpen, setTopicPickerOpen] = useState(false);
 
-  const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId } = useChatStore();
+  const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId, designatedTopic, setDesignatedTopic } = useChatStore();
   const { enqueueFiles } = useAttachmentUpload();
   const attachmentItems = useAttachmentStore((state) => state.items);
   const selectedAttachmentIds = useAttachmentStore((state) => state.selectedIds);

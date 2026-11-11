@@ -9,7 +9,7 @@ import { chatFailureMessage } from './failureMessage';
 import { createChatSSECallbacks } from './streamHandlers';
 import { applyDone, applyStreamError } from './messageReducers';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
-import type { Message, ChatConnectionState, ChatRequestParams, ChatRunStatus, ContextCompactionEvent, MemoryAtom } from '@/types';
+import type { Message, ChatConnectionState, ChatRequestParams, ChatRunStatus, ContextCompactionEvent, DesignatedTopic, MemoryAtom } from '@/types';
 import { localErrorText } from '@/transports/connectionStatus';
 
 interface ChatStore {
@@ -29,6 +29,9 @@ interface ChatStore {
   historyReady: boolean;
   draft: string;
   setDraft: (text: string) => void;
+  /** 用户为下一轮指定的话题：发送时随请求带上，发出后清除；记忆图书馆的“在对话中引用”也设定它。 */
+  designatedTopic: DesignatedTopic | null;
+  setDesignatedTopic: (topic: DesignatedTopic | null) => void;
   initializeSessions: () => Promise<void>;
   refreshSessions: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
@@ -75,10 +78,11 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
   isStreaming: false, runStatus: 'idle', lastRunReason: null,
   compactionProgress: null, compactionCheckpoint: null,
   currentSessionId: null, currentAgentId: DEFAULT_AGENT_ID, retrievedMemories: [],
-  sessions: [], sessionError: null, isLoadingHistory: false, historyReady: false, draft: '',
+  sessions: [], sessionError: null, isLoadingHistory: false, historyReady: false, draft: '', designatedTopic: null,
   _sseClient: null, _currentStreamingMessageId: null, _currentProcessId: null, _listRequest: 0,
   _historyRevision: 0,
   setDraft: (draft) => set({ draft }),
+  setDesignatedTopic: (designatedTopic) => set({ designatedTopic }),
   setCurrentAgentId: (currentAgentId) => set({ currentAgentId }),
 
   refreshSessions: async () => {

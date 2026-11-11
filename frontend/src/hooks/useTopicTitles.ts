@@ -18,8 +18,7 @@ export function useTopicTitles(messages: Message[]): Record<string, string> {
     missing.forEach((id) => requested.current.add(id));
     fetchTopics()
       .then((topics) => {
-        // 话题列表在没有标题时以 topic_id 充当标题，这里不把它当成标题
-        const named = topics.filter((t) => t.title !== t.id);
+        const named = topics.filter((t) => t.title);
         setTitles((prev) => ({ ...prev, ...Object.fromEntries(named.map((t) => [t.id, t.title])) }));
       })
       .catch(() => {

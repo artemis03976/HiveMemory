@@ -11,8 +11,10 @@ interface ChatMessageProps {
   message: Message;
   /** Profile 列表，用来取回复者与子 Agent 的名称和图标。 */
   agents: AgentProfile[];
-  /** 消息所在话题的标题；取不到时显示“未命名话题”。 */
+  /** 消息所在话题的标题，取自短期话题池；取不到时显示“未命名话题”。 */
   topicTitle?: string;
+  /** 话题还在短期话题池中时，点话题跳到记忆图书馆的话题池并选中它。 */
+  onOpenTopic?: (topicId: string) => void;
   /** 最后一条回复才能重新生成。 */
   onRegenerate?: () => void;
   /** 本页知道这一轮预检索命中了哪些记忆时，可以对它们统一反馈。 */
@@ -63,7 +65,8 @@ function buildMessageSegments(blocks: ContentBlock[]): MessageSegment[] {
   return segments;
 }
 
-export default function ChatMessage({ message, agents, topicTitle, onRegenerate, onFeedback, onCopy }: ChatMessageProps) {
+export default function ChatMessage({ message, agents, topicTitle, onOpenTopic, onRegenerate, onFeedback, onCopy }: ChatMessageProps) {
+  const topicId = message.topicId;
   const isAgent = message.role === 'agent' || message.role === 'assistant';
   const isUser = message.role === 'user';
   const [feedback, setFeedback] = useState<boolean | null>(null);
@@ -137,12 +140,21 @@ export default function ChatMessage({ message, agents, topicTitle, onRegenerate,
 
       {!message.isStreaming && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-fg-3">
-          {message.topicId && (
-            <span className="flex items-center gap-1" title={topicTitle ? undefined : message.topicId}>
+          {topicId && (topicTitle && onOpenTopic ? (
+            <button
+              onClick={() => onOpenTopic(topicId)}
+              title="在短期话题池中查看"
+              className="flex items-center gap-1 rounded-md transition-colors hover:text-primary"
+            >
+              <Hash className="h-3 w-3" aria-hidden="true" />
+              {topicTitle}
+            </button>
+          ) : (
+            <span className="flex items-center gap-1" title={topicTitle ? undefined : topicId}>
               <Hash className="h-3 w-3" aria-hidden="true" />
               {topicTitle ?? '未命名话题'}
             </span>
-          )}
+          ))}
           {message.outcome === 'cancelled' && <span className="text-magic-metal">已中断 · 回复未完成</span>}
           {message.outcome === 'failed' && <span className="text-magic-fire">{chatFailureMessage(message.failureReason)} · 回复可能不完整</span>}
           <span

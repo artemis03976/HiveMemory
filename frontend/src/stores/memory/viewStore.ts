@@ -2,7 +2,13 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { SearchMode, SortOption, ViewMode } from '@/types/memory';
 
+export type LibraryTab = 'memories' | 'topics';
+
 interface MemoryViewStore {
+  /** 记忆图书馆当前的标签：长期记忆或短期话题池。 */
+  libraryTab: LibraryTab;
+  setLibraryTab: (tab: LibraryTab) => void;
+
   searchQuery: string;
   setSearchQuery: (query: string) => void;
 
@@ -26,6 +32,9 @@ export const useMemoryViewStore = create<MemoryViewStore>()(
   devtools(
     persist(
       (set) => ({
+        libraryTab: 'memories',
+        setLibraryTab: (tab) => set({ libraryTab: tab }),
+
         searchQuery: '',
         setSearchQuery: (query) => set({ searchQuery: query }),
 
@@ -48,6 +57,7 @@ export const useMemoryViewStore = create<MemoryViewStore>()(
         name: 'memory-view-store',
         version: 1,
         partialize: (state) => ({
+          libraryTab: state.libraryTab,
           searchMode: state.searchMode,
           selectedType: state.selectedType,
           sortBy: state.sortBy,

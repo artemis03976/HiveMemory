@@ -1,8 +1,11 @@
+import type { ReactNode } from 'react';
 import { Search, Filter, SortDesc, LayoutGrid, List } from 'lucide-react';
 import type { SearchMode, SortOption, MemoryType } from '@/types/memory';
 import { memoryTypeLabels } from '@/types/memory';
 
 interface CommandBarProps {
+  /** 排在最前面的内容：记忆图书馆的标签。 */
+  leading?: ReactNode;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   searchMode: SearchMode;
@@ -16,6 +19,7 @@ interface CommandBarProps {
 }
 
 export default function CommandBar({
+  leading,
   searchQuery,
   onSearchChange,
   searchMode,
@@ -28,7 +32,8 @@ export default function CommandBar({
   onSelectedTypeChange
 }: CommandBarProps) {
   return (
-    <div className="px-8 py-4 flex items-center gap-4 border-b border-line bg-surface-container-low/50">
+    <div className="px-8 py-4 flex flex-wrap items-center gap-4 border-b border-line bg-surface-container-low/50">
+      {leading}
       {/* 搜索：语义检索请求后端覆盖整个记忆库，本地过滤只匹配已加载的记忆 */}
       <div className="flex bg-field p-1 rounded-lg border border-line shrink-0">
         {([['semantic', '语义检索'], ['exact', '本地过滤']] as [SearchMode, string][]).map(([mode, label]) => (

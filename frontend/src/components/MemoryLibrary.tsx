@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { useToastStore, useTopicStore } from '@/stores';
+import { useMemoryViewStore, useToastStore, useTopicStore } from '@/stores';
+import type { LibraryTab } from '@/stores/memory/viewStore';
 import { useMemories } from '@/hooks/useMemories';
 import type { MemoryAtom } from '@/types/memory';
-import TopicTab from './chat/TopicTab';
+import TopicPool from './memory/TopicPool';
 import MemoryAtomCard from './memory/MemoryAtomCard';
 import MemoryAtomListItem from './memory/MemoryAtomListItem';
 import MemoryHeader from './memory/MemoryHeader';
@@ -12,10 +13,36 @@ import MemoryDetailModal from './memory/MemoryDetailModal';
 import CreateMemoryModal from './memory/CreateMemoryModal';
 import { ConfirmDialog } from './common/ConfirmDialog';
 
+function LibraryTabs({ tab, onChange, memoryCount, topicCount }: {
+  tab: LibraryTab;
+  onChange: (tab: LibraryTab) => void;
+  memoryCount: number;
+  topicCount: number;
+}) {
+  const items: [LibraryTab, string][] = [['memories', `长期记忆 · ${memoryCount}`], ['topics', `短期话题池 · ${topicCount}`]];
+  return (
+    <div role="tablist" aria-label="记忆种类" className="flex shrink-0 gap-0.5 rounded-[11px] border border-line bg-field p-[3px]">
+      {items.map(([id, label]) => (
+        <button
+          key={id}
+          role="tab"
+          aria-selected={tab === id}
+          onClick={() => onChange(id)}
+          className={`h-8 whitespace-nowrap rounded-lg px-3.5 text-[13px] font-semibold transition-colors ${
+            tab === id ? 'bg-surface-container-high text-fg' : 'text-fg-3 hover:text-fg'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function MemoryLibrary() {
   const { addToast } = useToastStore();
   const { topics, fetchTopics } = useTopicStore();
-  const [selectedTopic, setSelectedTopic] = useState('');
+  const { libraryTab, setLibraryTab } = useMemoryViewStore();
   useEffect(() => { void fetchTopics(); }, [fetchTopics]);
   const [selectedAtom, setSelectedAtom] = useState<MemoryAtom | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -79,6 +106,8 @@ export default function MemoryLibrary() {
     }
   };
 
+  const tabs = <LibraryTabs tab={libraryTab} onChange={setLibraryTab} memoryCount={total} topicCount={topics.length} />;
+
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-hidden">
       {/* Header & Stats */}
@@ -89,8 +118,12 @@ export default function MemoryLibrary() {
         onNewMemory={() => setShowCreateModal(true)}
       />
 
+      {libraryTab === 'topics' ? (
+        <TopicPool tabs={tabs} />
+      ) : (<>
       {/* Command Bar */}
-      <CommandBar 
+      <CommandBar
+        leading={tabs}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         searchMode={searchMode}
@@ -105,13 +138,6 @@ export default function MemoryLibrary() {
 
       {/* Atom Cards Area */}
       <div className="flex-1 overflow-y-auto p-8 scrollbar-hide">
-        <details className="mb-8 rounded-xl border border-line p-4">
-          <summary className="cursor-pointer text-sm text-primary">短期话题池 · {topics.length}</summary>
-          <button onClick={() => void fetchTopics()} className="text-xs text-fg-3 my-3">刷新话题</button>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <TopicTab topics={topics} activeTopicId={selectedTopic} onTopicSelect={setSelectedTopic} />
-          </div>
-        </details>
         {semanticStatus === 'done' && memories.length > 0 && (
           <p className="mb-4 text-xs text-fg-3">
             语义检索：{memories.length} 条结果，按相关度排列（排序选项对检索结果不生效）
@@ -185,6 +211,7 @@ export default function MemoryLibrary() {
           </motion.div>
         )}
       </div>
+      </>)}
 
       {/* Detail Modal */}
       {selectedAtom && (
