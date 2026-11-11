@@ -133,8 +133,8 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 1. 已完成（2026-10-07）：PendingAtom registry 与引用解析归 workspace，按 Workspace 硬边界回读，不再按整个执行 scope 相等判断。Pending 第一版在全 Workspace 开放（UPDATE 意图跟随基础原子的可读性，2026-10-09），canonical redirect 重新校验资源 policy；旧 scope 校验背景见 [MTP cache scope revalidation 历史记录](../../archive/todo/mtp-cache-scope-revalidation.md)；
 2. 已完成（2026-10-07）：workspace 原子和 Profile 派生缓存按源坐标分区、命中重验、保存/读取副本，canonical 变更事件失效派生项并推进 Workspace 代次；CALL 目标 Profile 于 2026-10-09 纳入同一读取视图与 canonical 失效链。编译上下文等其余共享组件不因 Workspace 自动拆分；
 3. 已完成（身份第二批）：MemoryLibrary、Artifact 与 lifecycle 内部按归属传递，涉及 actor 可见性的读取另外接收发起者；后台任务独立保存归属与发起者，架构测试限制 Patchouli 内部和五个引擎包使用 `IdentityScope`。跨重启恢复仍由可靠性治理处理，资产 Store 与端口的归属拆分已于 2026-11-06 完成（[归档计划](../../archive/plans/workspace-asset-ownership-split.md)）；
-4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
-5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。
+4. 已完成（2026-11-10）：显式选择的自定义 Profile 缺失或不可见统一为 `ResourceNotFoundError`，已找到但类型或配置不适用为 `ProfileResolutionError`，都不回退 Omni-Doll；只有未指定 alias 或明确选择内置图纸时使用 Omni-Doll，chat 必须给出具体 Agent。权限拒绝统一为 `OperationDeniedError`，以受约束的 reason 区分。CALL 把这几类失败转为各自的 MTP 类别，chat 按 Workspace 领域错误收口并给出稳定错误码（[错误模型](../../contracts/error-model.md)）。证据见 [Profile 解析测试](../../../tests/unit/patchouli/services/test_profile_resolution.py)、[CALL 响应测试](../../../tests/unit/alice/orchestration/call/test_response.py)与[任务进程事件测试](../../../tests/unit/workspace/process/test_process_events.py)；
+5. 已完成（2026-11-10）：`actor.operation` 的拒绝与 `chat.run.failed` 以错误码为原因，错误带受约束的 reason 时另带 `data.error_reason`；事件不带异常正文、请求内容与错误 details 的其余字段（[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)第 4.4 节）。证据见[操作请求集成测试](../../../tests/integration/workspace/test_operation_requests.py)与[任务进程事件测试](../../../tests/unit/workspace/process/test_process_events.py)。
 
 Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集成测试](../../../tests/integration/workspace/test_operation_requests.py)、[CALL Profile 集成测试](../../../tests/integration/alice/orchestration/call/test_profile_requests.py)、[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)与 [HTTP 系统 E2E](../../../tests/e2e/system/)。实施历史保留于 [v0.7.0 Alice 能力迁移归档计划](../../archive/plans/v0.7.0-alice-capability-migration.md)。
 

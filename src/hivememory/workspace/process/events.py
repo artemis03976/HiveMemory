@@ -163,6 +163,8 @@ class BoundProcessEvents:
 
         原因码按失败来源取：Actor 上报的 CPU 失败原因码（没有时为 ``agent_run_failed``）、
         Workspace 错误码或 ``task_process_failed``；未预期的异常只带类名，不写入正文。
+        Workspace 错误带受约束的 ``details["reason"]`` 时，它进入 ``data.error_reason``，
+        用来区分同一错误码下的拒绝原因；``details`` 的其余字段不进入事件。
         """
         data: dict[str, object] | None = None
         if error is None:
@@ -170,6 +172,8 @@ class BoundProcessEvents:
             reason = message or "agent_run_failed"
         elif isinstance(error, WorkspaceDomainError):
             message = reason = error.code
+            if (error_reason := error.details.get("reason")) is not None:
+                data = {"error_reason": error_reason}
         else:
             message = "Task process failed."
             reason = "task_process_failed"

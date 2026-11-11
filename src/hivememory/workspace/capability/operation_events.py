@@ -63,8 +63,11 @@ class ActorOperationEventEmitter:
     """包住一次 actor 操作的分派，在它结束时发出结局事件。
 
     结局放在 ``status``：返回为 ``completed``；领域错误为 ``rejected``，``reason`` 是
-    错误码；其他异常为 ``failed``，``data.error_class`` 是异常类名。异常与取消都
-    原样传播，取消不发事件。事件只是旁路观测，发布失败由 publisher 吞下。
+    错误码，错误带受约束的 ``details["reason"]`` 时另放进 ``data.error_reason``（如
+    ``operation_not_allowed`` 与 ``root_required`` 同为 ``workspace.operation_denied``），
+    ``details`` 的其余字段不进入事件；其他异常为 ``failed``，``data.error_class`` 是
+    异常类名。异常与取消都原样传播，取消不发事件。事件只是旁路观测，发布失败由
+    publisher 吞下。
     """
 
     def __init__(self, publisher: RuntimeEventPublisher | None = None) -> None:
@@ -93,6 +96,8 @@ class ActorOperationEventEmitter:
             result = await run()
         except DomainError as exc:
             data["duration_ms"] = _elapsed_ms(started)
+            if (error_reason := exc.details.get("reason")) is not None:
+                data["error_reason"] = error_reason
             events.emit(
                 RuntimeEventType.ACTOR_OPERATION,
                 status="rejected",

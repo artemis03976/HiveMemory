@@ -33,6 +33,7 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts.errors import ProfileResolutionError
 from hivememory.workspace.contracts import CPUFailureReason
 from hivememory.workspace.process import TaskProcessService
 from hivememory.workspace.process.service import ProcessHandle
@@ -42,6 +43,7 @@ from tests.helpers.process import (
     PatchouliTurnStub,
     collect_events,
     done_data,
+    error_code,
     make_task_process_service,
     wait_for_process_exit,
 )
@@ -94,8 +96,8 @@ async def _profile(agent_id, *, identity_scope, **_kwargs):
     return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
 
-def _turn_bus(target_topic_id: str = _TOPIC_ID) -> GlobalSystemBus:
-    """Gateway 指向给定话题、Profile 返回内置图纸、Patchouli 一轮的路由由替身回答的总线。
+def _turn_bus(target_topic_id: str = _TOPIC_ID, *, profile=_profile) -> GlobalSystemBus:
+    """Gateway 指向给定话题、Profile 默认返回内置图纸、Patchouli 一轮的路由由替身回答的总线。
 
     交互应用时新话题建立为 ``_CREATED_TOPIC_ID``。
     """
@@ -103,7 +105,7 @@ def _turn_bus(target_topic_id: str = _TOPIC_ID) -> GlobalSystemBus:
     bus.register(
         GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome(target_topic_id))
     )
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)
     PatchouliTurnStub(new_topic_id=_CREATED_TOPIC_ID).install(bus)
     return bus
 
@@ -300,6 +302,34 @@ async def test_failed_event_carries_domain_error_code() -> None:
         "workspace.asset.not_ready",
         "workspace.asset.not_ready",
         _TOPIC_ID,
+    )
+
+
+@pytest.mark.asyncio
+async def test_unusable_profile_fails_as_domain_error_with_reason() -> None:
+    """已找到但不能执行的 Profile 按 Workspace 领域错误收口，不报成系统错误。
+
+    流式错误带稳定错误码；失败事件的原因是错误码，拒绝原因进入 ``data.error_reason``，
+    错误 details 中的 Profile alias 不进入事件。
+    """
+
+    async def unusable_profile(agent_id, **_kwargs):
+        raise ProfileResolutionError(agent_alias=agent_id, reason="type_mismatch")
+
+    sink = RecordingRuntimeEventSink()
+    service, composition = await _service(
+        _turn_bus(profile=unusable_profile), RuntimeEventPublisher(sink), cpu=ScriptedCPU()
+    )
+    handle = await _register(composition, service, "问题", process_id="p-profile")
+
+    events = await collect_events(service, handle)
+
+    assert error_code(events) == "patchouli.profile.resolution_failed"
+    failed = _chat_events(sink)[-1]
+    assert (failed.event_type, failed.reason, failed.data) == (
+        RuntimeEventType.CHAT_RUN_FAILED,
+        "patchouli.profile.resolution_failed",
+        {"error_reason": "type_mismatch"},
     )
 
 
