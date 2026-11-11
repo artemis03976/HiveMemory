@@ -15,6 +15,7 @@ import type {
   WorkspaceAssetRef,
 } from '@/types/attachment';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch } from '@/transports/connectionStatus';
 
 interface ApiAttachmentUploadResponse {
   asset_ref: WorkspaceAssetRef;
@@ -73,7 +74,7 @@ export async function uploadAttachment(
 
   let res: Response;
   try {
-    res = await fetch(apiUrl('/api/v1/workspace/assets'), {
+    res = await backendFetch(apiUrl('/api/v1/workspace/assets'), {
       method: 'POST',
       headers: {
         ...identityHeaders(),

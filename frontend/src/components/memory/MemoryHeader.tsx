@@ -1,4 +1,5 @@
-import { Database, Plus, AlertCircle } from 'lucide-react';
+import { Plus, AlertCircle } from 'lucide-react';
+import PageHeader from '@/components/common/PageHeader';
 
 interface MemoryHeaderProps {
   totalMemories: number;
@@ -10,14 +11,7 @@ interface MemoryHeaderProps {
 
 export default function MemoryHeader({ totalMemories, loadedMemories, warnings, onNewMemory }: MemoryHeaderProps) {
   return (
-    <header className="flex items-center justify-between px-8 py-6 border-b border-line bg-surface/30 backdrop-blur-md z-10 shrink-0">
-      <div>
-        <h1 className="text-2xl font-black tracking-tighter text-primary flex items-center gap-3">
-          <Database className="w-6 h-6" />
-          记忆图书馆
-        </h1>
-        <p className="text-sm text-fg-3 mt-1 font-medium">系统记忆库管理终端</p>
-      </div>
+    <PageHeader title="记忆图书馆" description="帕秋莉保管的长期记忆，以及对话中尚未结算的短期话题">
 
       {/* Garden Stats */}
       <div className="flex items-center gap-6 text-xs font-mono text-fg-3 bg-field px-4 py-2 rounded-xl border border-line">
@@ -37,11 +31,11 @@ export default function MemoryHeader({ totalMemories, loadedMemories, warnings, 
 
       <button 
         onClick={onNewMemory}
-        className="flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all group"
+        className="flex h-9 items-center gap-1.5 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-glow transition-transform active:scale-95"
       >
-        <Plus className="w-4 h-4 transition-transform group-hover:rotate-90 duration-300" />
-        <span className="text-sm font-bold tracking-wide">注入记忆</span>
+        <Plus className="h-4 w-4" />
+        注入记忆
       </button>
-    </header>
+    </PageHeader>
   );
 }

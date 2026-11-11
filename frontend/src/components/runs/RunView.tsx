@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Pause, Play, Terminal, Trash2 } from 'lucide-react';
+import { AlertTriangle, Pause, Play, Trash2 } from 'lucide-react';
+import { PageTitle } from '@/components/common/PageHeader';
 import { useChatUiStore, useWorkspaceStore } from '@/stores';
 import { filterRuns, groupRuns } from '@/stores/runs';
 import type { RuntimeEvent } from '@/types/workspace';
@@ -85,10 +86,7 @@ function RunViewHeader({ tab, onTabChange }: { tab: RunViewTab; onTabChange: (ta
 
   return (
     <header className="flex flex-wrap items-center gap-4 border-b border-line bg-surface-container-low px-6 py-3.5">
-      <h1 className="flex items-center gap-3 text-2xl font-black tracking-tighter text-primary">
-        <Terminal className="h-6 w-6" aria-hidden="true" />
-        运行
-      </h1>
+      <PageTitle title="运行" size="section" />
       <div role="tablist" aria-label="运行页标签" className="flex gap-0.5 rounded-lg border border-line bg-background p-0.5">
         {tabButton('runs', '运行')}
         {tabButton('logs', '后端日志')}

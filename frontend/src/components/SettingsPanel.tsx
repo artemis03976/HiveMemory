@@ -1,5 +1,6 @@
 import { Settings as SettingsIcon, Cpu, Database, Network, Activity, Save, RefreshCw, Undo2, TerminalSquare, Search, Eye, Sparkles, Boxes, KeyRound, ShieldCheck } from 'lucide-react';
 import { useSettings } from '../hooks/useSettings';
+import PageHeader from './common/PageHeader';
 import { useChatUiStore, useToastStore } from '@/stores';
 import { GeneralSettings } from './settings/GeneralSettings';
 import { ModelRegistrySettings } from './settings/ModelRegistrySettings';
@@ -94,14 +95,7 @@ export default function Settings() {
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-hidden">
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-6 border-b border-line bg-surface/30 backdrop-blur-md z-10 shrink-0">
-        <div>
-          <h1 className="text-2xl font-black tracking-tighter text-primary flex items-center gap-3">
-            <SettingsIcon className="w-6 h-6" />
-            系统设置
-          </h1>
-          <p className="text-sm text-fg-3 mt-1 font-medium">配置 HiveMemory 核心参数</p>
-        </div>
+      <PageHeader title="系统设置" description="配置 HiveMemory 的核心参数">
         <div className="flex items-center gap-3">
           <button 
             onClick={resetToDefaults}
@@ -136,7 +130,7 @@ export default function Settings() {
             <span className="text-sm font-bold tracking-wide">{isSaving ? '保存中...' : '保存更改'}</span>
           </button>
         </div>
-      </header>
+      </PageHeader>
 
       {/* 侧边栏 */}
       <div className="flex flex-1 overflow-hidden">

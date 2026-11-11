@@ -4,6 +4,7 @@ import type { MemoryGenerationTask, MemoryTaskListResponse } from '@/types/memor
 import { MOCK_MEMORY_TASKS } from '@/constants/memoryTasks';
 import { isDebugMode } from '@/utils/debugMode';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch } from '@/transports/connectionStatus';
 
 function shouldUseMockMemoryTasks(): boolean {
   return isDebugMode();
@@ -15,7 +16,7 @@ function getMockMemoryTask(taskId: string): MemoryGenerationTask | null {
 
 export async function fetchMemoryTasks(): Promise<MemoryTaskListResponse> {
   try {
-    const response = await fetch(apiUrl('/api/v1/memory-tasks'), { headers: identityHeaders() });
+    const response = await backendFetch(apiUrl('/api/v1/memory-tasks'), { headers: identityHeaders() });
 
     if (!response.ok) {
       throw new Error(await apiErrorMessage(response, 'Failed to fetch memory tasks'));
@@ -33,7 +34,7 @@ export async function fetchMemoryTasks(): Promise<MemoryTaskListResponse> {
 
 export async function fetchMemoryTask(taskId: string): Promise<MemoryGenerationTask> {
   try {
-    const response = await fetch(apiUrl(`/api/v1/memory-tasks/${encodeURIComponent(taskId)}`), {
+    const response = await backendFetch(apiUrl(`/api/v1/memory-tasks/${encodeURIComponent(taskId)}`), {
       headers: identityHeaders(),
     });
 
@@ -54,7 +55,7 @@ export async function fetchMemoryTask(taskId: string): Promise<MemoryGenerationT
 
 export async function cancelMemoryTask(taskId: string): Promise<MemoryGenerationTask> {
   try {
-    const response = await fetch(apiUrl(`/api/v1/memory-tasks/${encodeURIComponent(taskId)}/cancel`), {
+    const response = await backendFetch(apiUrl(`/api/v1/memory-tasks/${encodeURIComponent(taskId)}/cancel`), {
       method: 'POST',
       headers: identityHeaders(),
     });

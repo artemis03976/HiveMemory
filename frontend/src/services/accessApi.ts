@@ -15,6 +15,7 @@ import type {
   PrincipalCredential,
   PrincipalSettingsPayload,
 } from '@/types/access';
+import { backendFetch } from '@/transports/connectionStatus';
 
 const BASE = '/api/v1/access';
 
@@ -48,12 +49,12 @@ const principalUrl = (principalId: string) =>
   apiUrl(`${BASE}/principals/${encodeURIComponent(principalId)}`);
 
 export async function fetchPrincipals(): Promise<AccessPrincipal[]> {
-  return json(await fetch(apiUrl(`${BASE}/principals`)), '读取接入登记失败');
+  return json(await backendFetch(apiUrl(`${BASE}/principals`)), '读取接入登记失败');
 }
 
 export async function registerPrincipal(payload: PrincipalCreatePayload): Promise<PrincipalCredential> {
   return json(
-    await fetch(apiUrl(`${BASE}/principals`), {
+    await backendFetch(apiUrl(`${BASE}/principals`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -67,7 +68,7 @@ export async function updatePrincipal(
   payload: PrincipalSettingsPayload,
 ): Promise<AccessPrincipal> {
   return json(
-    await fetch(principalUrl(principalId), {
+    await backendFetch(principalUrl(principalId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -78,13 +79,13 @@ export async function updatePrincipal(
 
 export async function rotatePrincipalCredential(principalId: string): Promise<PrincipalCredential> {
   return json(
-    await fetch(`${principalUrl(principalId)}/credential`, { method: 'POST' }),
+    await backendFetch(`${principalUrl(principalId)}/credential`, { method: 'POST' }),
     '轮换凭据失败',
   );
 }
 
 export async function deletePrincipal(principalId: string): Promise<void> {
-  return noContent(await fetch(principalUrl(principalId), { method: 'DELETE' }), '删除接入来源失败');
+  return noContent(await backendFetch(principalUrl(principalId), { method: 'DELETE' }), '删除接入来源失败');
 }
 
 /** 用户级记录与精确记录各有路径：用户级记录没有 agent_id。 */
@@ -95,7 +96,7 @@ const recordUrl = (agentId: string | null) =>
 
 export async function fetchActorRecords(): Promise<ActorRecord[]> {
   return json(
-    await fetch(apiUrl(`${BASE}/actors`), { headers: identityHeaders() }),
+    await backendFetch(apiUrl(`${BASE}/actors`), { headers: identityHeaders() }),
     '读取访问记录失败',
   );
 }
@@ -105,7 +106,7 @@ export async function putActorRecord(
   payload: ActorRecordPayload,
 ): Promise<ActorRecord> {
   return json(
-    await fetch(recordUrl(agentId), {
+    await backendFetch(recordUrl(agentId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...identityHeaders() },
       body: JSON.stringify(payload),
@@ -116,7 +117,7 @@ export async function putActorRecord(
 
 export async function deleteActorRecord(agentId: string | null): Promise<void> {
   return noContent(
-    await fetch(recordUrl(agentId), { method: 'DELETE', headers: identityHeaders() }),
+    await backendFetch(recordUrl(agentId), { method: 'DELETE', headers: identityHeaders() }),
     '删除访问记录失败',
   );
 }

@@ -1,4 +1,5 @@
-import { Bot, Plus, Search } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
+import { PageTitle } from '@/components/common/PageHeader';
 import { motion, AnimatePresence } from 'motion/react';
 import type { AgentData } from '@/types/agent';
 
@@ -16,10 +17,7 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
     <div className="w-80 flex flex-col border-r border-line bg-surface-dim/40 backdrop-blur-xl shrink-0">
       <div className="p-6 border-b border-line space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-black tracking-tighter text-primary flex items-center gap-3">
-            <Bot className="w-6 h-6" />
-            Agent 列表
-          </h2>
+          <PageTitle title="Agent" description="人偶们的名称、模型与系统指令" size="section" />
           <button
             onClick={onCreate}
             className="mt-1 p-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all group"

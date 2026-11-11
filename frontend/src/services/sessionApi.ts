@@ -2,6 +2,7 @@
 import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch } from '@/transports/connectionStatus';
 
 export type TurnOutcome = 'completed' | 'cancelled' | 'failed';
 export interface SessionSummary {
@@ -57,7 +58,7 @@ export class SessionApiError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 async function request<T>(path = '', method = 'GET', title?: string): Promise<T> {
-  const response = await fetch(apiUrl(`/api/v1/sessions${path}`), {
+  const response = await backendFetch(apiUrl(`/api/v1/sessions${path}`), {
     method,
     headers: { ...identityHeaders(), 'Content-Type': 'application/json' },
     ...(title !== undefined ? { body: JSON.stringify({ title }) } : {}),

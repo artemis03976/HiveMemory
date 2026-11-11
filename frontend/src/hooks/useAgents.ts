@@ -4,6 +4,7 @@ import { DEFAULT_AGENT_ID } from '@/constants/identity';
 import { ApiError, readApiError } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch } from '@/transports/connectionStatus';
 
 export interface AgentProfile {
   id: string;       // alias (used as agent_id in chat)
@@ -66,7 +67,7 @@ export function useAgents() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(apiUrl('/api/v1/agents'), { headers: identityHeaders() })
+    backendFetch(apiUrl('/api/v1/agents'), { headers: identityHeaders() })
       .then(async (r) => {
         if (!r.ok) throw await readApiError(r, 'Agent 列表读取失败');
         return r.json();

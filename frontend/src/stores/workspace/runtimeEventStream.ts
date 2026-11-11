@@ -3,6 +3,7 @@ import { apiUrl } from '@/transports/backendUrl';
 import { EventSourceClient } from '@/transports/sse/eventSourceClient';
 import { markConnected, markConnecting, markDisabled, markError } from '@/transports/state';
 import type { WorkspaceStore, RuntimeEvent } from '@/types/workspace';
+import { backendFetch } from '@/transports/connectionStatus';
 
 type WorkspaceSet = (partial: Partial<WorkspaceStore>) => void;
 type WorkspaceGet = () => WorkspaceStore;
@@ -42,7 +43,7 @@ export function initializeRuntimeEventStream(set: WorkspaceSet, get: WorkspaceGe
 
 /** 状态接口被后端拒绝时如实报错，不能当成事件流未启用。 */
 async function fetchRuntimeEventStatus(): Promise<{ enabled?: boolean; buffer_size?: number }> {
-  const response = await fetch(apiUrl('/api/v1/runtime-events/status'));
+  const response = await backendFetch(apiUrl('/api/v1/runtime-events/status'));
   if (!response.ok) throw await readApiError(response, '事件流状态读取失败');
   return response.json();
 }

@@ -11,6 +11,7 @@ import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import type { Topic } from '@/types';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch } from '@/transports/connectionStatus';
 
 export interface ApiTopicSnapshot {
   topic_id: string;
@@ -46,7 +47,7 @@ export function mapTopic(raw: ApiTopicSnapshot): Topic {
 }
 
 export async function fetchTopics(): Promise<Topic[]> {
-  const res = await fetch(apiUrl('/api/v1/topics'), {
+  const res = await backendFetch(apiUrl('/api/v1/topics'), {
     headers: identityHeaders(),
   });
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'fetchTopics failed'));
@@ -55,7 +56,7 @@ export async function fetchTopics(): Promise<Topic[]> {
 }
 
 export async function settleTopic(topicId: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/v1/topics/${encodeURIComponent(topicId)}/settle`), {
+  const res = await backendFetch(apiUrl(`/api/v1/topics/${encodeURIComponent(topicId)}/settle`), {
     method: 'POST',
     headers: identityHeaders(),
   });
@@ -63,7 +64,7 @@ export async function settleTopic(topicId: string): Promise<void> {
 }
 
 export async function deleteTopic(topicId: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/v1/topics/${encodeURIComponent(topicId)}`), {
+  const res = await backendFetch(apiUrl(`/api/v1/topics/${encodeURIComponent(topicId)}`), {
     method: 'DELETE',
     headers: identityHeaders(),
   });

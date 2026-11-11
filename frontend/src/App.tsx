@@ -11,6 +11,7 @@ import SettingsPanel from './components/SettingsPanel';
 import AgentManagement from './components/AgentManagement';
 import RunView from './components/runs/RunView';
 import DynamicToast from './components/common/DynamicToast';
+import ConnectionBanner from './components/common/ConnectionBanner';
 import { useChatUiStore } from '@/stores';
 import { resolveTheme } from '@/stores/ui/theme';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -29,7 +30,9 @@ export default function App() {
     <div className="flex h-screen w-full overflow-hidden bg-background">
       <DynamicToast />
       <GlobalNavBar activeTab={activeNavTab} onTabChange={setActiveNavTab} resolvedTheme={resolvedTheme} />
-      <div className="relative flex flex-1 ml-16 h-full min-w-0 overflow-hidden">
+      <div className="flex flex-1 flex-col ml-16 h-full min-w-0 overflow-hidden">
+        <ConnectionBanner />
+        <div className="relative flex flex-1 min-h-0 min-w-0">
         {activeNavTab === 'chat' && (
           <ChatLayout />
         )}
@@ -45,6 +48,7 @@ export default function App() {
         {activeNavTab === 'settings' && (
           <SettingsPanel />
         )}
+        </div>
       </div>
     </div>
   );

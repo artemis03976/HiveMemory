@@ -1,3 +1,5 @@
+import { reportConnection } from '@/transports/connectionStatus';
+
 /**
  * 后端以错误响应拒绝了请求：请求已经到达后端，`message` 是可以直接展示的安全文案。
  * 网络失败与流中断不是这个类型，调用方据此区分“后端拒绝”与“连不上后端”。
@@ -74,7 +76,10 @@ export async function readApiError(response: Response, fallback = '请求失败'
   }
   const code = typeof body.error === 'string' ? body.error : undefined;
   const reason = typeof body.reason === 'string' ? body.reason : undefined;
-  if (code === MANAGEMENT_CREDENTIAL_INVALID) message = MANAGEMENT_CREDENTIAL_MESSAGE;
+  if (code === MANAGEMENT_CREDENTIAL_INVALID) {
+    message = MANAGEMENT_CREDENTIAL_MESSAGE;
+    reportConnection('credential-invalid');
+  }
   return new ApiError(response.status, message, code, reason);
 }
 
