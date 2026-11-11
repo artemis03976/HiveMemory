@@ -70,7 +70,7 @@ export const useChatUiStore = create<ChatUiStore>()(
         workspaceVisionTab: 'context',
         setWorkspaceVisionTab: (tab) => set({ workspaceVisionTab: tab }),
 
-        settingsActiveCategory: 'general',
+        settingsActiveCategory: 'common',
         setSettingsActiveCategory: (category) => set({ settingsActiveCategory: category }),
 
         enableMemory: true,

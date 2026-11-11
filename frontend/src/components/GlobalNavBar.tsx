@@ -161,7 +161,7 @@ export default function GlobalNavBar({ activeTab, onTabChange, resolvedTheme }: 
         </button>
         <AvatarMenu
           onOpenAppearance={() => {
-            setSettingsActiveCategory('general');
+            setSettingsActiveCategory('common');
             onTabChange('settings');
           }}
         />

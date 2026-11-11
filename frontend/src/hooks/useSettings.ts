@@ -3,14 +3,20 @@ import type { HiveMemoryConfig, ValidationError } from '../types/config';
 import { validateConfig } from '../utils/configValidation';
 import { fetchConfig, updateConfig as updateConfigApi, fetchDefaultConfig } from '../services/configApi';
 import { useDraft } from './useDraft';
+import { readPath } from '@/constants/settingsSchema';
 
 // debug 模式下后端不可用时使用的 mock 配置
 import { MOCK_CONFIG } from '@/constants/settings';
-import { useToastStore } from '@/stores';
 import { isDebugMode } from '@/utils/debugMode';
 
 interface UseSettingsReturn {
   config: HiveMemoryConfig | null;
+  /** 最近一次读取或保存成功的配置，保存栏据此找出未保存的更改。 */
+  savedConfig: HiveMemoryConfig | null;
+  /** 保存后立即生效的字段路径；不在其中的字段重启后生效。 */
+  immediateFields: string[];
+  /** 已保存、但要重启才按新值运行的字段路径。 */
+  pendingRestart: string[];
   loading: boolean;
   error: string | null;
   validationErrors: ValidationError[];
@@ -19,11 +25,28 @@ interface UseSettingsReturn {
   updateConfig: (path: string, value: unknown) => void;
   saveConfig: () => Promise<void>;
   resetConfig: () => void;
-  resetToDefaults: () => Promise<void>;
+  /** 把给出的字段恢复为默认值（不含个人覆盖）；只改草稿，仍需保存。 */
+  restoreDefaults: (paths: string[]) => Promise<void>;
+}
+
+function setPath(config: HiveMemoryConfig, path: string, value: unknown): HiveMemoryConfig {
+  const next = JSON.parse(JSON.stringify(config)) as HiveMemoryConfig;
+  const keys = path.split('.');
+  let current = next as unknown as Record<string, unknown>;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const node = current[keys[i]];
+    if (typeof node !== 'object' || node === null) current[keys[i]] = {};
+    current = current[keys[i]] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]] = value;
+  return next;
 }
 
 export const useSettings = (): UseSettingsReturn => {
   const [originalConfig, setOriginalConfig] = useState<HiveMemoryConfig | null>(null);
+  const [immediateFields, setImmediateFields] = useState<string[]>([]);
+  const [pendingRestart, setPendingRestart] = useState<string[]>([]);
+  const [defaults, setDefaults] = useState<HiveMemoryConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
@@ -33,24 +56,24 @@ export const useSettings = (): UseSettingsReturn => {
     onSave: async (draftData) => {
       if (!draftData) return;
       const errors = validateConfig(draftData);
-      const criticalErrors = errors.filter((e) => e.severity === 'error');
-      
-      if (criticalErrors.length > 0) {
+      if (errors.some((e) => e.severity === 'error')) {
         throw new Error('Cannot save configuration with validation errors');
       }
-
-      await updateConfigApi(draftData);
-      setOriginalConfig(JSON.parse(JSON.stringify(draftData)));
+      const saved = await updateConfigApi(draftData);
+      setOriginalConfig(JSON.parse(JSON.stringify(saved.config)));
+      setImmediateFields(saved.immediate_fields);
+      setPendingRestart(saved.pending_restart);
     },
   });
 
-  // Load configuration from backend
   useEffect(() => {
     const loadConfig = async () => {
       try {
         setLoading(true);
-        const { config: data } = await fetchConfig();
+        const { config: data, immediate_fields, pending_restart } = await fetchConfig();
         setOriginalConfig(JSON.parse(JSON.stringify(data)));
+        setImmediateFields(immediate_fields);
+        setPendingRestart(pending_restart);
         setValidationErrors(validateConfig(data));
       } catch (err) {
         // 非 debug 模式不换用 mock：配置保持为空，页面显示加载失败。
@@ -68,57 +91,29 @@ export const useSettings = (): UseSettingsReturn => {
     loadConfig();
   }, []);
 
-  // 监听 config 变化更新校验错误
   useEffect(() => {
     if (config) {
       setValidationErrors(validateConfig(config));
     }
   }, [config]);
 
-  // Update a specific configuration value
   const updateConfig = (path: string, value: unknown) => {
     if (!config) return;
-
-    const newConfig = JSON.parse(JSON.stringify(config)) as HiveMemoryConfig;
-    const keys = path.split('.');
-    let current: Record<string, unknown> = newConfig as unknown as Record<string, unknown>;
-
-    for (let i = 0; i < keys.length - 1; i++) {
-      const key = keys[i];
-      const next = current[key];
-      if (typeof next !== 'object' || next === null) {
-        current[key] = {};
-      }
-      current = current[key] as Record<string, unknown>;
-    }
-
-    current[keys[keys.length - 1]] = value;
-
-    updateDraft(newConfig);
+    updateDraft(setPath(config, path, value));
   };
 
-  // Reset to default configuration
-  const resetToDefaults = async () => {
-    try {
-      setLoading(true);
-      const data = await fetchDefaultConfig();
-      updateDraft(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      if (isDebugMode()) {
-        console.warn('Failed to load defaults from backend, using mock data:', err);
-        updateDraft(MOCK_CONFIG);
-      } else {
-        useToastStore.getState().addToast('恢复默认设置失败: ' + message, 'error');
-      }
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+  const restoreDefaults = async (paths: string[]) => {
+    if (!config) return;
+    const source = defaults ?? (isDebugMode() ? await fetchDefaultConfig().catch(() => MOCK_CONFIG) : await fetchDefaultConfig());
+    if (!defaults) setDefaults(source);
+    updateDraft(paths.reduce((next, path) => setPath(next, path, readPath(source, path)), config));
   };
 
   return {
     config,
+    savedConfig: originalConfig,
+    immediateFields,
+    pendingRestart,
     loading,
     error,
     validationErrors,
@@ -127,6 +122,6 @@ export const useSettings = (): UseSettingsReturn => {
     updateConfig,
     saveConfig: saveConfigDraft,
     resetConfig: reset,
-    resetToDefaults,
+    restoreDefaults,
   };
 };

@@ -14,3 +14,9 @@ test('持久化的终端标签迁移为引用记忆，记忆任务标签不变',
   assert.equal(migrateChatUiState({ workspaceVisionTab: 'terminal' }, 4).workspaceVisionTab, 'context');
   assert.equal(migrateChatUiState({ workspaceVisionTab: 'memory-runtime' }, 4).workspaceVisionTab, 'memory-runtime');
 });
+
+test('原来的通用设置与各子系统分类并入常用，管理类分类保持原样', () => {
+  assert.equal(migrateChatUiState({ settingsActiveCategory: 'engines' }, 5).settingsActiveCategory, 'common');
+  assert.equal(migrateChatUiState({ settingsActiveCategory: 'general' }, 5).settingsActiveCategory, 'common');
+  assert.equal(migrateChatUiState({ settingsActiveCategory: 'access' }, 5).settingsActiveCategory, 'access');
+});
