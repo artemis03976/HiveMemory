@@ -82,7 +82,7 @@ function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
     <button
       onClick={onSelect}
       aria-current={selected ? 'true' : undefined}
-      className={`relative flex items-start gap-3 rounded-[14px] border p-3.5 pl-4 text-left transition-colors ${
+      className={`relative flex items-start gap-3 rounded-[14px] border p-3.5 pl-4 text-left wrap-break-word transition-colors ${
         selected ? 'border-primary/40 bg-primary/15' : 'border-line bg-surface-container hover:border-line-strong'
       }`}
     >
@@ -124,7 +124,7 @@ function TopicDetail({ topic, settings, settleMinutes, now, onReference, onSettl
   const hasContent = topic.topicSummary || topic.stateSummary || topic.lastTurn;
 
   return (
-    <section aria-label={topicTitle(topic)} className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] border border-line bg-surface-container shadow-pop">
+    <section aria-label={topicTitle(topic)} className="flex min-w-0 flex-1 flex-col overflow-hidden wrap-break-word rounded-[18px] border border-line bg-surface-container shadow-pop">
       <div className="flex flex-wrap items-start gap-3.5 border-b border-line px-5.5 pb-4 pt-5">
         <TopicIcon size="lg" />
         <div className="flex min-w-[200px] flex-1 flex-col gap-2">

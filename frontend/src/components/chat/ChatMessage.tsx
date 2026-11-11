@@ -83,7 +83,7 @@ export default function ChatMessage({ message, agents, topicTitle, onOpenTopic, 
   if (isUser) {
     return (
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end">
-        <div className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-md border border-line bg-bubble px-3.5 py-2.5 text-sm leading-relaxed text-fg">
+        <div className="max-w-[78%] whitespace-pre-wrap wrap-break-word rounded-2xl rounded-br-md border border-line bg-bubble px-3.5 py-2.5 text-sm leading-relaxed text-fg">
           {message.content}
         </div>
       </motion.div>
