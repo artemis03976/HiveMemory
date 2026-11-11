@@ -215,7 +215,7 @@ export default function OmniInput() {
           className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-high border border-line hover:border-primary/50 hover:bg-ink/5 transition-all text-xs font-medium text-fg-2 shadow-lg"
         >
           <span className="text-fg-3">当前对话:</span>
-          {currentAgent && <currentAgent.avatarIcon className={`w-3.5 h-3.5 ${currentAgent.colorClass}`} />}
+          {currentAgent && <currentAgent.avatarIcon className={`w-3.5 h-3.5 text-primary`} />}
           <span>{currentAgent?.name ?? '...'}</span>
           <ChevronDown className={`w-3 h-3 text-fg-3 transition-transform ${isAgentMenuOpen ? 'rotate-180' : ''}`} />
         </button>
@@ -243,7 +243,7 @@ export default function OmniInput() {
                       }`}
                     >
                       <div className={`p-1.5 rounded-md ${currentAgentId === agent.id ? 'bg-primary/20' : 'bg-ink/5'}`}>
-                        <agent.avatarIcon className={`w-4 h-4 ${agent.colorClass}`} />
+                        <agent.avatarIcon className={`w-4 h-4 text-primary`} />
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <div className="text-sm font-medium truncate">{agent.name}</div>
@@ -292,7 +292,7 @@ export default function OmniInput() {
                       }`}
                     >
                       <div className={`p-1.5 rounded-md ${mentionIndex === idx ? 'bg-primary/20' : 'bg-ink/5'}`}>
-                        <agent.avatarIcon className={`w-4 h-4 ${agent.colorClass}`} />
+                        <agent.avatarIcon className={`w-4 h-4 text-primary`} />
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <div className="text-sm font-medium truncate">{agent.name}</div>

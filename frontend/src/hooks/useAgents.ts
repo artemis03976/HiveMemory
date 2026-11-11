@@ -11,7 +11,6 @@ export interface AgentProfile {
   name: string;     // title from backend
   description: string;
   avatarIcon: LucideIcon;
-  colorClass: string;
 }
 
 export interface BackendAgent {
@@ -28,18 +27,24 @@ export interface BackendAgent {
   } | null;
 }
 
-const ICON_MAP: Record<string, { icon: LucideIcon; colorClass: string }> = {
-  omni_doll:     { icon: Bot,         colorClass: 'text-primary'     },
-  coder_doll:    { icon: Code2,       colorClass: 'text-blue-400'    },
-  reviewer_doll: { icon: CheckCircle, colorClass: 'text-magic-wood' },
-  designer_doll: { icon: Palette,     colorClass: 'text-pink-400'    },
+/** 内置人偶的图标；颜色只表示状态，Agent 图标一律用主色。 */
+const ICON_MAP: Record<string, LucideIcon> = {
+  omni_doll: Bot,
+  coder_doll: Code2,
+  reviewer_doll: CheckCircle,
+  designer_doll: Palette,
 };
 
-const DEFAULT_ICON = { icon: Bot, colorClass: 'text-fg-3' };
-
 function toAgentProfile(b: BackendAgent): AgentProfile {
-  const { icon, colorClass } = ICON_MAP[b.alias] ?? DEFAULT_ICON;
-  return { id: b.alias, name: b.title, description: b.summary, avatarIcon: icon, colorClass };
+  return { id: b.alias, name: b.title, description: b.summary, avatarIcon: ICON_MAP[b.alias] ?? Bot };
+}
+
+/** 消息与选择器中的 Agent：取自 Profile 列表，不在列表中的显示默认图标与 agent_id。 */
+export function resolveChatAgent(agents: AgentProfile[], agentId: string | undefined): AgentProfile {
+  const found = agents.find((a) => a.id === agentId);
+  if (found) return found;
+  const id = agentId || DEFAULT_AGENT_ID;
+  return { id, name: id, description: '', avatarIcon: Bot };
 }
 
 /**
@@ -51,7 +56,6 @@ const BUILTIN_AGENT: AgentProfile = {
   name: '默认全能助手人偶',
   description: '内置的通用助手，无特定人设',
   avatarIcon: Bot,
-  colorClass: 'text-primary',
 };
 
 /** 聊天可选的 Agent：内置图纸固定在首位，后端已有同名图纸时以后端为准。 */

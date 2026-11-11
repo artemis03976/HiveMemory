@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import {
-  ChevronDown, CheckCircle2, Loader2, XCircle, Bot,
+  ChevronDown, CheckCircle2, Loader2, XCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { SubAgentBlock } from '@/types';
-import { MOCK_AGENTS } from '@/constants/agents';
+import type { AgentProfile } from '@/hooks/useAgents';
 import InlineBlockList from './InlineBlockList';
 
 interface SubAgentCardProps {
   block: SubAgentBlock;
+  /** 被调用的 Agent，名称与图标取自 Profile 列表。 */
+  agent: AgentProfile;
 }
 
 const STATUS_CONFIG = {
@@ -38,13 +40,12 @@ const STATUS_CONFIG = {
   },
 };
 
-export default function SubAgentCard({ block }: SubAgentCardProps) {
+export default function SubAgentCard({ block, agent }: SubAgentCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const agent = MOCK_AGENTS.find((a) => a.id === block.agentId);
-  const AgentIcon = agent?.avatarIcon || Bot;
-  const agentName = agent?.name || block.agentId;
-  const agentColor = agent?.colorClass || 'text-primary';
+  const AgentIcon = agent.avatarIcon;
+  const agentName = agent.name;
+  const agentColor = 'text-primary';
 
   const config = STATUS_CONFIG[block.status];
   const StatusIcon = config.icon;
