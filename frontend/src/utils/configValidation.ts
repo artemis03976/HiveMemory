@@ -1,15 +1,13 @@
 import type { HiveMemoryConfig, ValidationError } from '../types/config';
+import { readPath } from '@/constants/settingsSchema';
 
-/**
- * 只校验与后端配置结构一致的字段：读取后端配置中不存在的段会抛出，
- * 由设置页记录为加载错误；只有 debug 模式会改用 mock 数据。
- */
+/** 保存前的本地校验，按字段路径读取；其余取值由后端在保存时校验。 */
 export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
   const errors: ValidationError[] = [];
 
   // Validate logging level
   const validLogLevels = ['DEBUG', 'INFO', 'WARNING', 'ERROR'];
-  if (!validLogLevels.includes(config.logging.level)) {
+  if (!validLogLevels.includes(readPath(config, 'logging.level') as string)) {
     errors.push({
       field: 'logging.level',
       message: `Log level must be one of: ${validLogLevels.join(', ')}`,
@@ -18,8 +16,9 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
   }
 
   // Validate LLM temperatures (0-2); null 表示沿用模型定义的默认值
-  const validateTemperature = (temp: number | null | undefined, field: string) => {
-    if (temp != null && (temp < 0 || temp > 2)) {
+  const validateTemperature = (field: string) => {
+    const temp = readPath(config, field);
+    if (typeof temp === 'number' && (temp < 0 || temp > 2)) {
       errors.push({
         field,
         message: 'Temperature must be between 0 and 2',
@@ -28,8 +27,8 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
     }
   };
 
-  validateTemperature(config.gateway.llm?.temperature, 'gateway.llm.temperature');
-  validateTemperature(config.patchouli.llm?.temperature, 'patchouli.llm.temperature');
+  validateTemperature('gateway.llm.temperature');
+  validateTemperature('patchouli.llm.temperature');
 
   return errors;
 };
