@@ -22,6 +22,7 @@ from pathlib import Path
 
 import yaml
 
+from hivememory.config.files import personal_configs_dir
 from hivememory.config.shared import ProviderCredentials
 
 logger = logging.getLogger(__name__)
@@ -73,10 +74,8 @@ class ProviderRegistry:
 
     @staticmethod
     def _default_path() -> Path:
-        """解析默认凭证文件路径（configs/providers.secrets.yaml）"""
-        # provider_registry.py 位于 src/hivememory/system/，向上三级到达项目根目录
-        project_root = Path(__file__).parent.parent.parent.parent
-        return project_root / "configs" / "providers.secrets.yaml"
+        """默认凭证文件：个人配置目录中的 providers.secrets.yaml。"""
+        return personal_configs_dir() / "providers.secrets.yaml"
 
     # ------------------------------------------------------------------
     # 加载 & 持久化

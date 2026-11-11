@@ -8,6 +8,7 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.infrastructure.model_service import ModelLoadState
 from hivememory.memory_library.models import (
     StorageHealthComponent,
     StorageHealthReport,
@@ -296,6 +297,13 @@ class TestRuntimeModelReadiness:
         runtime.reranker_service = self._model_service(ready=reranker_ready)
 
         assert runtime.is_models_ready() is False
+
+    def test_failed_models_lists_only_models_whose_last_load_failed(self):
+        runtime = _create_runtime()
+        runtime.storage.embedding_service = Mock(model_name="embed", state=ModelLoadState.FAILED)
+        runtime.reranker_service = Mock(model_name="rerank", state=ModelLoadState.LOADING)
+
+        assert runtime.failed_models() == ["embed"]
 
     def test_disabled_reranker_does_not_block_readiness(self):
         runtime = _create_runtime()

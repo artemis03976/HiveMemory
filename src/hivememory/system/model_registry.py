@@ -2,8 +2,8 @@
 HiveMemory 模型注册表服务
 
 ModelRegistry 是管理所有可用 LLM 模型的单一数据源（SSOT）。
-持久化存储在 configs/models.yaml，支持运行时 CRUD 操作。该文件是本机的个人配置，
-不受版本控制；仓库只发布同目录的模板 models.example.yaml，默认路径的文件不存在时
+持久化存储在个人配置目录的 models.yaml，支持运行时 CRUD 操作。该文件是本机的个人
+配置，不受版本控制；程序只发布模板 models.example.yaml，默认路径的文件不存在时
 从模板复制一份。
 
 使用方式：
@@ -19,7 +19,12 @@ from typing import TYPE_CHECKING, Optional
 
 import yaml
 
-from hivememory.config.files import seed_from_template, write_atomically
+from hivememory.config.files import (
+    SHIPPED_CONFIGS_DIR,
+    personal_configs_dir,
+    seed_from_template,
+    write_atomically,
+)
 from hivememory.config.shared import ProviderCredentials
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition, ModelSelection
@@ -29,9 +34,6 @@ if TYPE_CHECKING:
     from hivememory.system.provider_registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
-
-# model_registry.py 位于 src/hivememory/system/，向上四级到达项目根目录
-_CONFIGS_DIR = Path(__file__).resolve().parents[3] / "configs"
 
 
 class DuplicateModelIdError(Exception):
@@ -61,8 +63,8 @@ class ModelRegistry:
     ):
         """
         Args:
-            registry_path: models.yaml 的路径。None 时使用项目默认路径
-                           (configs/models.yaml，相对项目根目录)，不存在时从模板生成
+            registry_path: models.yaml 的路径。None 时使用个人配置目录中的
+                           models.yaml，不存在时从模板生成
             provider_registry: ProviderRegistry 实例，优先使用（支持运行时 CRUD）。
                            若提供，_resolve_credentials 将动态查询，修改立即生效。
             provider_credentials: 静态 provider 凭证字典（兜底，主要供测试使用）。
@@ -91,13 +93,13 @@ class ModelRegistry:
 
     @staticmethod
     def _default_path() -> Path:
-        """解析默认注册表文件路径（configs/models.yaml）"""
-        return _CONFIGS_DIR / "models.yaml"
+        """默认注册表文件：个人配置目录中的 models.yaml。"""
+        return personal_configs_dir() / "models.yaml"
 
     @staticmethod
     def _template_path() -> Path:
-        """随仓库发布的模板（configs/models.example.yaml）。"""
-        return _CONFIGS_DIR / "models.example.yaml"
+        """随程序发布的模板 models.example.yaml。"""
+        return SHIPPED_CONFIGS_DIR / "models.example.yaml"
 
     # ------------------------------------------------------------------
     # 加载 & 持久化

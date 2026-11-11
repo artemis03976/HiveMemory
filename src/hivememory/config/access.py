@@ -7,7 +7,7 @@
 - ``configs/workspace_actors.yaml``：Workspace Actor 的准入与行为白名单
   （workspace 所有）。
 
-这两个生效文件是本机的个人配置，不受版本控制；仓库只发布同目录的
+这两个生效文件是本机的个人配置，不受版本控制，默认在个人配置目录；程序只发布
 ``*.example.yaml`` 模板。默认路径的生效文件不存在时，装载前从模板复制一份，
 此后运行时编辑只写生效文件，模板保持原样。环境变量指定的路径不从模板生成：
 它缺失时显式失败，避免路径写错时悄悄生成一份默认登记。拒绝未知字段
@@ -30,7 +30,12 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.config.files import seed_from_template, write_atomically
+from hivememory.config.files import (
+    SHIPPED_CONFIGS_DIR,
+    personal_configs_dir,
+    seed_from_template,
+    write_atomically,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,32 +55,27 @@ __all__ = [
     "load_principal_credentials",
 ]
 
-# 登记文件路径可用环境变量覆盖；缺省使用仓库 configs 目录下的生效文件。
+# 登记文件路径可用环境变量覆盖；缺省使用个人配置目录下的生效文件。
 PRINCIPALS_FILE_ENV = "HIVEMEMORY_PRINCIPALS_PATH"
 WORKSPACE_ACTORS_FILE_ENV = "HIVEMEMORY_WORKSPACE_ACTORS_PATH"
 PRINCIPALS_TEMPLATE = "system_principals.example.yaml"
 WORKSPACE_ACTORS_TEMPLATE = "workspace_actors.example.yaml"
 
 
-def _repo_configs_dir() -> Path:
-    # src/hivememory/config/access.py → 仓库根目录 / configs
-    return Path(__file__).resolve().parents[3] / "configs"
-
-
 def get_system_principals_file_path() -> Path:
-    """System 接入登记生效文件的路径（环境变量优先，缺省仓库 configs 目录）。"""
+    """System 接入登记生效文件的路径（环境变量优先，缺省个人配置目录）。"""
     configured = os.getenv(PRINCIPALS_FILE_ENV)
     if configured:
         return Path(configured)
-    return _repo_configs_dir() / "system_principals.yaml"
+    return personal_configs_dir() / "system_principals.yaml"
 
 
 def get_workspace_actors_file_path() -> Path:
-    """Workspace Actor 访问登记生效文件的路径（环境变量优先，缺省仓库 configs 目录）。"""
+    """Workspace Actor 访问登记生效文件的路径（环境变量优先，缺省个人配置目录）。"""
     configured = os.getenv(WORKSPACE_ACTORS_FILE_ENV)
     if configured:
         return Path(configured)
-    return _repo_configs_dir() / "workspace_actors.yaml"
+    return personal_configs_dir() / "workspace_actors.yaml"
 
 
 def get_principal_credentials_file_path() -> Path:
@@ -224,13 +224,13 @@ def _load_registration_file[ModelT: BaseModel](
 ) -> tuple[ModelT, str]:
     """读取并校验一个登记文件，同时返回这次读取的内容摘要。
 
-    默认路径的生效文件不存在时，先从仓库模板复制一份；显式指定的路径缺失时
+    默认路径的生效文件不存在时，先从随程序发布的模板复制一份；显式指定的路径缺失时
     抛出 ``FileNotFoundError``。YAML/模型校验失败一律显式抛出，不静默降级。
     """
     if not path.exists():
         if os.getenv(env_var):
             raise FileNotFoundError(f"访问登记文件不存在: {path}")
-        seed_from_template(path, _repo_configs_dir() / template)
+        seed_from_template(path, SHIPPED_CONFIGS_DIR / template)
     raw = path.read_bytes()
     content = yaml.safe_load(raw.decode("utf-8")) or {}
     return model_type.model_validate(content), _digest(raw)

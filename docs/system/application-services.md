@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/capability.md
   - docs/architecture/boundaries.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # 应用服务
@@ -69,7 +69,9 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 `ImportBusService` 是 `POST /api/v1/import/turns` 背后的用例入口，也为 MCP 写入与更新确定话题。导入与确定话题是系统级操作：入口认证得到的工作 actor 只证明来源与参与的 Agent，服务以组合根注入的系统自身的 principal 认证参与者驻留 Workspace 的 `system`，把系统的 root 工作 actor 连同目标 Workspace、参与者与 principal 标识交给 `system.services.import_bus` 的编排器 `ImportBusIngestor`；服务本身只认证、不授权。编排器按外部会话串行，以与任务进程共用的封口函数组装交互记录，再以系统的 root 工作 actor 调用 root API：导入一轮经 `RootInteractionService.submit_interaction` 一次完成查重、Gateway `PASSIVE_MEMORY` 话题路由、提交与等待应用，写入时确定话题经 `RootTopicService.determine_topic` 一次完成查重、路由与确认或建立话题；每次调用在方法入口 root 授权一次（不检查 actor 操作白名单，目标只能是参与者驻留的 Workspace，不符时在入口拒绝），应用完成后才确认。它不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不经任务进程的注册入口，不持有 Patchouli 的提交队列，也不向调度器注册维护任务。链路、失败分类与 Claude Code 连接器见 [Import Bus](./import-bus.md)，导入在访问模型中的位置见[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)。
 
-`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，经 Patchouli readiness routes 取得状态，不参与 Workspace 资源授权。ready 表示每个启用的推理模型自进程启动后至少成功加载过一次，且当前不处于加载失败状态：启动预热完成之前为 `warming_up`；空闲卸载不改变 ready，ready 也不表示模型此刻在内存中；重新加载失败时回到 `warming_up`，直到下一次加载成功。驻留与卸载见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
+`SystemReadinessService` 提供模型 warmup、ready 查询和就绪摘要，经 Patchouli readiness routes 取得状态，不参与 Workspace 资源授权。ready 表示每个启用的推理模型自进程启动后至少成功加载过一次，且当前不处于加载失败状态；空闲卸载不改变 ready，ready 也不表示模型此刻在内存中。未就绪时，摘要按 `patchouli.public.models.failed` 区分两种状态：有模型最近一次加载失败时为 `model_load_failed` 并带 `failed_models`（模型名），否则为 `warming_up`（预热中或重新加载中）。失败的模型在下一次使用或预取时重新加载，开始加载后不再列为失败。`/health/ready` 未就绪时以 503 返回这份摘要，桌面客户端据此提示失败而不是一直等待。
+
+初次部署的预设 Agent 由门面的 `seed_preset_agent_profiles` 写入：server 的 lifespan 在模型预热之后、模型就绪时调用，目标是不带身份声明的请求所在的 Workspace。数据根中没有标记文件（`system.preset_agent_profiles_marker`）时，门面经 `patchouli.public.agent_profile.seed_presets` 写入缺少的预设，成功后写下标记，之后不再写入；它不认证、不授权。写入失败只记录日志、不留标记，下次启动重试（[桌面客户端](../frontend/desktop-client.md#7-推理模型与首次部署)）。驻留与卸载见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
 
 ## 4. 错误、观测与收尾
 

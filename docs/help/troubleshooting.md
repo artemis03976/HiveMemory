@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # HiveMemory 故障排查
@@ -54,7 +54,7 @@ docker compose -f docker/docker-compose.yml logs qdrant
 
 ## 3. `/health/ready` 长时间 503
 
-`/health` 成功而 `/health/ready` 返回 `warming_up`，表示服务已经接受 HTTP，但 Embedding 或启用的 Reranker 尚未成功加载过，或空闲卸载之后的重新加载失败了。模型空闲卸载本身不会让它变为 `warming_up`。
+`/health` 成功而 `/health/ready` 返回 `warming_up`，表示服务已经接受 HTTP，但 Embedding 或启用的 Reranker 尚未成功加载过，或正在重新加载。返回 `model_load_failed` 时，`failed_models` 中的模型最近一次加载失败，下一次使用时重新加载。模型空闲卸载本身不会让它变为未就绪。
 
 检查：
 

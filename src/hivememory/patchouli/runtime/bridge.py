@@ -130,6 +130,10 @@ class PatchouliBridge:
                 self._public_api.agent_profiles.create_agent_profile,
             ),
             RouteBinding.of(
+                PatchouliRoutes.AGENT_PROFILE_SEED_PRESETS,
+                self._public_api.agent_profiles.seed_preset_agent_profiles,
+            ),
+            RouteBinding.of(
                 PatchouliRoutes.AGENT_PROFILE_LIST,
                 self._public_api.agent_profiles.list_agent_profiles,
             ),
@@ -208,6 +212,10 @@ class PatchouliBridge:
             RouteBinding.of(
                 PatchouliRoutes.MODELS_READY,
                 self._public_api.readiness.is_models_ready,
+            ),
+            RouteBinding.of(
+                PatchouliRoutes.MODELS_FAILED,
+                self._public_api.readiness.failed_models,
             ),
         ]
 

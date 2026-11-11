@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/execution-threads.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/attachments.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # 能力层
@@ -74,7 +74,7 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 附件上传同样遵守这一边界：`upload_asset()` 只是用例入口，文件名规则、受限读取和 SHA-256 计算由附件接收函数实现，解析接纳、来源校验和失败/取消收尾由 `AttachmentParseService` 实现。用例层决定上传串行门覆盖整个请求，并保留 Store 返回的 `created` 标记；它不实现解析算法，也不维护另一份资产状态。
 
-Profile 注入脚本（`scripts/inject_profiles.py`）以登记的本地来源 `hivememory:profile-injector` 和 `system` 声明经认证网关得到工作 actor，再调用同一 root API。
+初次部署写入预设 Agent 不经能力层：System 在模型预热之后经 Patchouli 的预设写入路由，以所属 Workspace 的 `system` 直接写入，不认证、不授权（[桌面客户端](../frontend/desktop-client.md#7-推理模型与首次部署)）。
 
 **System 层面的 API**：模型、Provider、配置、运行时事件与日志与 Workspace 资源无关，HTTP 路由直接经门面调用 System 的注册表与服务，不经认证网关、root API 或操作授权。workspace 只负责与 Workspace 资源相关的请求。
 
@@ -137,4 +137,4 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 - [`workspace/capability/root/`](../../src/hivememory/workspace/capability/root/)（root API）、[`workspace/capability/actor/`](../../src/hivememory/workspace/capability/actor/)（actor API）、[`WorkspaceOperationEntry`](../../src/hivememory/workspace/capability/operations.py)、[`backing.py`](../../src/hivememory/workspace/capability/backing.py)；
 - 公共契约：[`workspace/contracts/operations.py`](../../src/hivememory/workspace/contracts/operations.py)；操作目录：[`core/access.py`](../../src/hivememory/core/access.py)；
-- 测试：`tests/unit/workspace/capability/root/`（含 [`test_interaction.py`](../../tests/unit/workspace/capability/root/test_interaction.py)：提交交互的发起者是参与者，话题来源决定请求的话题与新话题字段，已应用与仍在应用的轮次不再路由与提交，应用失败的重新路由，上一轮的话题按进度续接；[`test_topic.py`](../../tests/unit/workspace/capability/root/test_topic.py)：Gateway 决定不经路由直接确认或建立话题，已应用的轮次返回实际所在的话题，仍在应用的不返回话题）、`tests/unit/workspace/capability/actor/`（含 [`test_memory.py`](../../tests/unit/workspace/capability/actor/test_memory.py)：检索为交付的记忆整批记录命中、scope 来自操作授权，没有结果时不记录，记录失败不改变检索结果）、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权，含提交交互与确定话题：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用，目标不是驻留 Workspace 时先于任何路由拒绝）、[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（含请求级的检索、读取、写入与更新，回调与请求类型不符时的拒绝，更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`test_profile_injection_script.py`](../../tests/integration/workspace/test_profile_injection_script.py)、[`test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（只有 SEARCH 的 Agent 完成 chat，预检索按执行者过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）。
+- 测试：`tests/unit/workspace/capability/root/`（含 [`test_interaction.py`](../../tests/unit/workspace/capability/root/test_interaction.py)：提交交互的发起者是参与者，话题来源决定请求的话题与新话题字段，已应用与仍在应用的轮次不再路由与提交，应用失败的重新路由，上一轮的话题按进度续接；[`test_topic.py`](../../tests/unit/workspace/capability/root/test_topic.py)：Gateway 决定不经路由直接确认或建立话题，已应用的轮次返回实际所在的话题，仍在应用的不返回话题）、`tests/unit/workspace/capability/actor/`（含 [`test_memory.py`](../../tests/unit/workspace/capability/actor/test_memory.py)：检索为交付的记忆整批记录命中、scope 来自操作授权，没有结果时不记录，记录失败不改变检索结果）、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权，含提交交互与确定话题：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用，目标不是驻留 Workspace 时先于任何路由拒绝）、[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（含请求级的检索、读取、写入与更新，回调与请求类型不符时的拒绝，更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（只有 SEARCH 的 Agent 完成 chat，预检索按执行者过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）。

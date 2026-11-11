@@ -43,6 +43,7 @@ from hivememory.components.work_queue import (
 )
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.shared import SharedConfig
+from hivememory.infrastructure.model_service import ModelLoadState
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
 from hivememory.patchouli.control.memory_generation.saved_work import (
@@ -248,6 +249,17 @@ class PatchouliRuntime:
             True 如果所有启用的模型都就绪，否则 False
         """
         return all(service.is_ready() for service in self._model_services())
+
+    def failed_models(self) -> list[str]:
+        """最近一次加载失败的推理模型名。
+
+        失败的模型保持未就绪，下一次使用或预取时重新加载；重新开始加载后不再列出。
+        """
+        return [
+            service.model_name
+            for service in self._model_services()
+            if service.state is ModelLoadState.FAILED
+        ]
 
     async def unload_idle_models(self) -> list[str]:
         """卸载空闲超过各自时限的 ``idle_unload`` 模型，返回本次卸载的模型名。

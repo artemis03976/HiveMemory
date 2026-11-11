@@ -130,7 +130,7 @@ last_reviewed: 2026-11-09
 | 外部 harness 的 controller 模式 | Candidate / 不绑定版本（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | 第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md) |
 | 记忆价值体系重新设计 | Candidate / 不绑定版本 | owner 重新设计价值体系，不在现有信号上增补 | 第 4.7 节 |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 随受影响的 API 并行；[Frontend](./frontend/README.md)与第 4.8 节 Todo |
-| Electron 桌面客户端 | Candidate / 不绑定版本 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 第 5.1 节；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md) |
+| Electron 桌面客户端 | Completed（2026-11-10 收尾）/ v1.0 范围；不签名、不自动升级、提供二次确认的删除记忆数据入口、不做备份（owner，2026-11-10）；随包发布与版本号随 v1.0 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 第 5.1 节；[桌面客户端](./frontend/desktop-client.md)、[使用桌面客户端](./help/desktop-client.md)、[归档计划](./archive/plans/desktop-client.md) |
 
 ### 4.3 v0.7.3：主动写入与被动提取的收敛
 
@@ -237,7 +237,7 @@ v0.7.0 A2-P 完整记忆历史 + 文档来源 / 版本 -> MTP READ 专项编译
 
 ### 5.1 Electron 桌面客户端
 
-状态：Candidate，不绑定版本（2026-10-30 撤销原 `v0.8.x` 产品化窗口），正式 Plan 待建立；不是 Deep Research 或 Alice 高级编排的强制下游。完整发布之前可以做有限启动/连接原型，完整发布以资源生命周期、前端传输和数据管理稳定为门槛。
+状态：Completed（2026-11-10 收尾，[归档计划](./archive/plans/desktop-client.md)），v1.0 范围，当前事实见[桌面客户端](./frontend/desktop-client.md)；安装包随 v1.0 发布；2026-10-30 撤销原 `v0.8.x` 产品化窗口；不是 Deep Research 或 Alice 高级编排的强制下游。完整发布之前可以做有限启动/连接原型，完整发布以资源生命周期、前端传输和数据管理稳定为门槛。
 
 桌面化覆盖的工作多于 Web 页面外壳：本地 Python 服务及存储依赖的分发/连接、启动就绪、端口冲突、关闭 drain、数据目录、备份与升级、凭据、日志与崩溃诊断。HTTP 管理凭据的防刻意随桌面客户端完成：主进程在内存中持有凭据，不落盘（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节）。HTTP、SSE、WebSocket 的连接目标已经统一配置（2026-11-07），直连时的管理凭据与 CORS 由桌面客户端处理。平台先选实际使用的一种完成闭环，再扩展安装包和签名发布。
 

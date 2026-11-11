@@ -21,7 +21,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # HiveMemory 配置指南
@@ -38,6 +38,7 @@ HiveMemory 把配置分为三类：主配置描述系统如何装配，Model Reg
 | `configs/config.local.yaml` | 主配置的个人覆盖：设置页保存的改动，只含与默认值不同的字段 | 不提交，已 gitignore |
 | `configs/models.yaml` | 模型 ID、展示名、LiteLLM model、Provider 引用和默认采样参数；本机的个人配置，首次启动时从 `models.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布；不要写密钥 |
 | 根 `.env` 或 `configs/.env` | 环境覆盖与 Provider 密钥 | 不提交 |
+| 环境变量 `HIVEMEMORY_DATA_ROOT` | 数据根：设置后，上面各个本机的个人配置文件都改在 `<数据根>/configs`，`.env` 与相对路径的数据目录按工作目录解析；桌面客户端设为用户选择的数据目录，开发方式不设置 | —— |
 | `configs/providers.secrets.yaml` | 由 UI/API 管理的 Provider 凭证 | 不提交，已 gitignore |
 | `configs/system_principals.yaml` | 访问登记：允许接入的调用来源（server 自身作为 `hivememory:http-server` 登记）；本机的个人配置，首次启动时从 `system_principals.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布 |
 | `configs/workspace_actors.yaml` | 访问登记：哪个用户/Agent 可以进入哪个 Workspace、能执行哪些操作；本机的个人配置，首次启动时从 `workspace_actors.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布 |
@@ -149,7 +150,7 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 - 登记模板包含 HiveMemory 自己的来源 `hivememory:system`。更早生成或自定义过的生效登记缺少它时要补上这一条（`kind: local-process`、`adapters: [local]`、`allow_system_actor: true`，不写 `credential_env`），否则 Chat、对话导入与外部工具的记忆写入、更新都返回 403（`reason=unknown_principal`）；这个原因与外部工具自己的 principal 未登记相同，排查时两条登记都要核对；
 - 外部 harness 的接入凭据可以在设置页生成与轮换，保存在登记文件同目录的 `principals.secrets.yaml`（不受版本控制），立即生效；也可以沿用登记中 `credential_env` 指向的环境变量，写在 `.env` 或环境变量中，它有值时优先于生成的凭据，修改后重启服务；
 - 从模板生成的登记中，每个 harness 的登记限定了它能声明的 Agent（`allowed_agent_ids`），改用其他 Agent 时先在设置页把它加入，否则请求返回 403（`reason=agent_not_allowed_for_principal`）；
-- 前端使用的接口在经过认证网关之前，另要求后端首次启动时生成的管理凭据 `configs/management.token`；它不需要配置，前端自动带上，终端调用的写法见[安装与启动](./setup.md#43-启动后端)；
+- 前端使用的接口在经过认证网关之前，另要求后端首次启动时生成的管理凭据 `configs/management.token`；它不需要配置，前端自动带上，终端调用的写法见[安装与启动](./setup.md#43-启动后端)。桌面客户端不使用这个文件，凭据只在内存中（[使用桌面客户端](./desktop-client.md)）；
 - 请求头中的用户身份不做证明，管理凭据也只防误用，两者都只适用于本地单用户部署。
 
 字段说明与规则见 [System 配置](../system/configuration.md)第 1.1 节与 [认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节。

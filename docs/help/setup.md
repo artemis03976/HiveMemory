@@ -26,6 +26,8 @@ last_reviewed: 2026-11-10
 
 # 安装与启动 HiveMemory
 
+只想使用 HiveMemory、不做开发时，在 Windows 上安装桌面客户端即可，见[使用桌面客户端](./desktop-client.md)。以下是从源码运行的方式。
+
 HiveMemory 当前提供两条明确运行路径：Docker 将前端、后端与 Qdrant 组合为一套本地服务；开发模式则分别运行 Qdrant、Python 后端和 Vite 前端。在 WSL/Linux 上，开发模式也可以交给脚本管理，脚本另有不需要 Docker 的长期运行模式（第 4.5 节）。请先选择一条路径，不要把两套端口和启动命令混用。服务运行起来之后，可以按第 9 节把 Claude Code、DeepSeek Harness 等外部 harness 接入 HiveMemory：对话回流与记忆访问。
 
 ## 1. 前置条件
@@ -148,7 +150,7 @@ curl http://localhost:8769/health
 curl http://localhost:8769/health/ready
 ```
 
-`/health/ready` 在模型尚未完成后台预热时返回 HTTP 503 与 `warming_up`，这是可预期状态。若服务进程退出或长时间无法 ready，再进入排障。
+`/health/ready` 在模型尚未完成后台预热时返回 HTTP 503 与 `warming_up`，这是可预期状态；模型加载失败时返回 503 与 `model_load_failed`，并在 `failed_models` 中列出失败的模型。若服务进程退出、长时间无法 ready 或报告加载失败，再进入排障。
 
 ready 表示嵌入与重排模型都至少成功加载过一次，不表示模型此刻在内存中。默认配置下模型空闲一段时间后卸载、归还内存（嵌入模型 30 分钟、重排模型 10 分钟），`/health/ready` 仍为 ready；卸载后的首次使用要重新加载模型，单个模型约需 1～3 秒，首次检索可能跳过重排。需要模型一直驻留时，把 `shared.embedding.default.residency` 与 `patchouli.retrieval.reranker.residency` 设为 `resident`（[配置](../system/configuration.md)）。
 

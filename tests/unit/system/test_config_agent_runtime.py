@@ -12,6 +12,7 @@ from hivememory.config.app import (
     load_default_config,
     provider_credentials_from_env,
 )
+from hivememory.config.files import DATA_ROOT_ENV
 from hivememory.config.memory_compiler import CascadeContextStrategyConfig
 from hivememory.config.patchouli import MemoryRetrievalConfig
 from hivememory.config.shared import ProviderCredentials, SharedConfig
@@ -114,6 +115,19 @@ def test_local_overrides_merge_between_config_file_and_environment(tmp_path, mon
     assert config.alice.runtime.default_context_window == 20000
     assert config.logging.level == "WARNING"
     assert load_default_config().alice.runtime.max_loop_iterations == 4
+
+
+def test_local_overrides_are_read_from_the_data_root(tmp_path, monkeypatch):
+    """指定数据根时，个人覆盖文件在数据根的 configs 下，默认值仍取随程序发布的 config.yaml。"""
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "config.local.yaml").write_text(
+        "alice:\n  runtime:\n    max_loop_iterations: 7\n", encoding="utf-8"
+    )
+    monkeypatch.setenv(DATA_ROOT_ENV, str(tmp_path))
+    monkeypatch.delenv("HIVEMEMORY_CONFIG_PATH", raising=False)
+
+    assert HiveMemoryConfig().alice.runtime.max_loop_iterations == 7
+    assert load_default_config().alice.runtime.max_loop_iterations != 7
 
 
 def test_config_differences_write_a_switched_strategy_whole():

@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/mtp.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-10
 ---
 
 # HiveMemory Frontend
@@ -82,6 +82,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - [Chat 视图](./chat-view.md)：会话管理与历史恢复、对话主流程、SSE 事件、Topic 标注、MTP、子 Agent 与 Workspace Vision；
 - [管理页面](./management-views.md)：Memory Library、Agent Management、Settings 与人工干预边界；
 - [全局运行页](./run-view.md)：Terminal 入口的运行列表、事件时间线、后端日志与有限历史；
+- [桌面客户端](./desktop-client.md)：Windows 安装版的托盘常驻、管理凭据、数据根、首次部署、删除记忆数据与打包升级；
 - [状态、持久化与传输](./state-and-transports.md)：状态所有权、本地持久化矩阵、HTTP/SSE/WebSocket 和 mock 降级。
 
 旧的 `FrontendDesign.md`、`MemoryGardenUI.md` 与 `frontend-state-persistence-research.md` 已移入 Archive，不再作为当前依据；它们保留设计演进和调研过程，当前事实均以本组文档为准。

@@ -35,6 +35,10 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 - **Sessions**: create, resume, rename, and delete conversation sessions. Alice trims old tool results and writes relay summaries within the model budget while the original conversation is kept in full, and the summary and compaction boundary can be inspected; cancelled and failed turns that produced output keep their outcome. Sessions and checkpoints live only in the backend process and disappear on restart; topics remain separate memory material.
 - **System commands**: Gateway only parses commands. A message recognized as a command ends with a command terminal state and does not enter normal chat; this version does not execute built-in commands.
 
+### Desktop Client
+
+- **Windows desktop client** (`desktop/`, Electron): stays in the system tray and starts and owns the local backend and Qdrant, so external harness memory tools keep working after the window is closed. The management credential lives only in memory, so only the desktop window can manage HiveMemory. The first start picks a data directory, downloads the inference models, and writes the preset agents; the tray offers a memory-data deletion that asks for confirmation twice. The installer is built with `npm run package` in `desktop`, bundles the Python runtime, dependencies, and Qdrant, and has no code signing or auto-update. See [the desktop client guide](docs/help/desktop-client.md) (Chinese) and [the design](docs/frontend/desktop-client.md) (Chinese)
+
 ### Workspaces and Access
 
 - Two access registrations (`configs/system_principals.yaml` and `configs/workspace_actors.yaml`) and two-phase authentication decide who may enter which Workspace as which agent. An agent's operation permissions come only from the actor-operation allowlist in the access registration; Agent Profiles carry no permissions.

@@ -1,0 +1,5 @@
+node_modules
+# 打包时生成的随包后端、安装包与随包 CPython 的缓存
+build
+dist
+.cache

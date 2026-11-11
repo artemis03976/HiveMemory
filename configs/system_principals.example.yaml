@@ -39,14 +39,6 @@ principals:
       - "local"
     allow_system_actor: true
 
-  # Profile 注入脚本的独立本地来源；Workspace 管理仍需 system 准入与 root 授权。
-  - principal_id: "hivememory:profile-injector"
-    kind: "local-process"
-    enabled: true
-    adapters:
-      - "local"
-    allow_system_actor: true
-
   # Claude Code（插件中的连接器与 MCP server 共用）：经 import 导入已结束的
   # 交互，经 mcp 检索与读取记忆，两者都以同一凭据认证；只能声明 Agent claude_code，
   # 不能声明 system。

@@ -293,6 +293,11 @@ class PatchouliLocalRoutes:
         """检查推理模型是否就绪：每个启用的模型至少成功加载过一次，且当前不处于加载失败状态"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
+    @route("runtime.models.failed")
+    async def RUNTIME_MODELS_FAILED() -> list[str]:
+        """列出最近一次加载失败的推理模型名；重新开始加载后不再列出"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
     @route("runtime.storage_health")
     async def RUNTIME_STORAGE_HEALTH() -> bool:
         """存储层健康检查"""
@@ -332,5 +337,6 @@ class PatchouliLocalRoutes:
         RUNTIME_MODELS_WARMUP,
         RUNTIME_MODELS_PREFETCH,
         RUNTIME_MODELS_READY,
+        RUNTIME_MODELS_FAILED,
         RUNTIME_STORAGE_HEALTH,
     )
