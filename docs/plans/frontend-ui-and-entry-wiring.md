@@ -517,6 +517,6 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 - Agent 页补齐样稿（owner 2026-11-11）：
   - 左栏 300 宽：标题与说明、搜索与新建，列表行写图标、名称、别名与状态（启用、已停用、草稿）。
   - 右侧按卡片排列：名称与描述、启用开关与保存；停用时的说明条；模型（注册表选择、温度、Top P）；系统指令（字数）；标签；“操作权限不在这里设置”并可跳到接入与权限；底部写创建与最近保存的时间，删除放在最后。
-  - 别名只在新建的草稿中可以修改，保存后只读（对话与访问登记以别名指代 Agent）。
+  - 别名只在新建的草稿中可以修改，保存后只读（对话与访问登记以别名指代 Agent）；owner 决定保存后也要能改名并实时更新引用，登记为 [Todo](../todo/agent-alias-rename.md)。
   - Top P 进入编辑与保存（`agent_config.top_p`，为空时沿用模型定义），原来保存时不提交它；对话页“当前生效”把为空的 Top P 视为模型默认。
   - 后端 `AgentProfileResponse` 增加 `created_at`、`updated_at`（取自记忆的元数据）。样稿中的“内置”标记没有做：内置的默认 Agent 由后端代码提供，不在列表接口中。

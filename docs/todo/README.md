@@ -12,6 +12,7 @@ last_reviewed: 2026-11-11
 
 当前事项：
 
+- [保存后修改 Agent 别名，并实时更新所有引用](./agent-alias-rename.md)（2026-11-11 由前端 UI 优化计划登记：别名同时是 Profile 解析、访问登记、接入声明、对话与 CALL 中 Agent 的标识，改名时这些引用不会随之更新，Agent 页暂时只允许在草稿中修改别名；owner 决定改名时引用要实时更新，未排期）；
 - [引用记忆面板的“相关度”](./referenced-memory-relevance.md)（2026-11-11 由前端 UI 优化计划登记：样稿中的相关度条没有数据来源，预检索结果经操作入口交出时已经只剩记忆本身、不带分数；owner 决定之后结合后端一起加回，未排期）；
 - [WorkspaceAsset Store 中没有生产调用方的方法](./workspace-asset-store-unused-methods.md)（2026-11-06 由 WorkspaceAsset 归属拆分计划的评审登记：`resolve_asset`、`list_workspace_assets`、`create_asset`、`register_raw_representation`、`remove_asset` 只在测试中调用，REMOVED 状态因此没有生产来源；owner 决定保留，逐个检查是补上使用方还是删除，未排期）；
 - [并发合并同一条记忆时，后写回的合并失败并留下重复](./merge-version-conflict.md)（2026-11-04 随 v0.7.3 收尾由收敛 Idea 第 4.4 节移入：同一次结算的两条草稿命中同一条记忆时，后写回的合并以版本冲突放弃，留下重复；话题内主动写入优先之后仍出现一次；是否重做等以原因码记录的真实失败再判断，未排期）；
