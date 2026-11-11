@@ -5,6 +5,10 @@
 思考或工具的正文，
 可以在真实会话记录上运行。Claude Code 升级后重新运行，与读取器的假设对照。
 
+``user_message_tags`` 列出导入为用户消息的条目中出现过的行首标签名，并标出导入时
+是否被去掉（按 ``connector.core.user_message`` 处理后是否还在）。宿主新附加的块会在这里以
+``kept`` 出现，确认后再加入表中；用户自己在行首写的标签名也会出现在这里。
+
 用法::
 
     python3 transcript_stats.py [会话记录目录或文件 ...]
@@ -20,7 +24,12 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+# 以脚本运行时取同一插件中的连接器模块，与读取器使用同一张表。
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from connector.core.user_message import strip_injected  # noqa: E402
+
 INTERRUPT_MARKER = re.compile(r"^\[Request interrupted by user[^\]]*\]$")
+LINE_START_TAG = re.compile(r"(?m)^<([A-Za-z][\w.-]*)(?=[\s>/])")
 
 # 只统计取值的元数据字段：都是 Claude Code 写入的枚举，不含对话内容。
 ENUM_FIELDS = (
@@ -87,6 +96,7 @@ def main(arguments: list[str]) -> int:
             "tool_result",
             "system_subtype",
             "interrupt_markers",
+            "user_message_tags",
             "enum_values",
             "assistant_entries_per_message",
         )
@@ -120,6 +130,21 @@ def main(arguments: list[str]) -> int:
                     counters["user_flags"]["has_promptId"] += 1
                 counters["turn_origin"][str(entry.get("turnOrigin", "<absent>"))] += 1
                 counters["user_content_blocks"].update(_block_types(content))
+                origin = entry.get("turnOrigin")
+                # 只看读取器取为用户消息的条目：由人发出的消息与派生会话的交接说明
+                imported = (
+                    not entry.get("isCompactSummary")
+                    and not entry.get("isSidechain")
+                    and (origin == "human" or (origin == "sdk" and entry.get("parentUuid") is None))
+                )
+                if imported:
+                    for text in _text_blocks(content):
+                        remaining = set(LINE_START_TAG.findall(strip_injected(text)))
+                        for tag in set(LINE_START_TAG.findall(text)):
+                            handling = "kept" if tag in remaining else "removed"
+                            counters["user_message_tags"][
+                                f"{tag} ({handling}, turnOrigin={origin})"
+                            ] += 1
                 for text in _text_blocks(content):
                     if INTERRUPT_MARKER.match(text.strip()):
                         origin = entry.get("turnOrigin", "<absent>")

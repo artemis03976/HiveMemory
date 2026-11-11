@@ -340,6 +340,20 @@ def test_spawned_session_brief_is_the_first_user_message(tmp_path):
     assert (turn.turn_id, turn.user_message) == ("brief", "修好登录页的报错")
 
 
+def test_host_blocks_are_removed_from_human_messages(tmp_path):
+    """由人发出的消息去掉宿主附加的块，只留下用户说的话。"""
+    log = TranscriptWriter(tmp_path / "s.jsonl")
+    log.prompt(
+        "p1",
+        '<artifact-view-context artifact="a1">\n{"context":{}}\n</artifact-view-context>\n\n看看话题池',
+    )
+    log.assistant(text("好的"), message_id="m1")
+
+    [turn] = reader.read(str(log.path), 0)
+
+    assert turn.user_message == "看看话题池"
+
+
 def test_messages_arriving_mid_run_join_the_running_turn(tmp_path):
     """agent 工作时插入的消息不带 turnOrigin：并入进行中的一轮，子 Agent 的报告写为事件。"""
     log = TranscriptWriter(tmp_path / "s.jsonl")

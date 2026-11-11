@@ -521,3 +521,8 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
   - 别名只在新建的草稿中可以修改，保存后只读（对话与访问登记以别名指代 Agent）；owner 决定保存后也要能改名并实时更新引用，登记为 [Todo](../todo/agent-alias-rename.md)。
   - Top P 进入编辑与保存（`agent_config.top_p`，为空时沿用模型定义），原来保存时不提交它；对话页“当前生效”把为空的 Top P 视为模型默认。
   - 后端 `AgentProfileResponse` 增加 `created_at`、`updated_at`（取自记忆的元数据）。样稿中的“内置”标记没有做：内置的默认 Agent 由后端代码提供，不在列表接口中。
+- 导入的用户消息去掉宿主附加的块（owner 2026-11-11 选定做法：连接器中一张共用的表）：
+  - 起因：话题池中导入的一轮带着 Claude 桌面端附加在用户消息开头的 `<artifact-view-context>`。统计本机会话记录，导入为用户消息的条目中，宿主附加的块有 `<system-reminder>`（关联会话状态、未选项目文件夹等提示）、`<artifact-view-context>` 与 `<recent-project-folders>`；Codex 只读取 turn item 中用户本人的输入，没有混入；pi 没有；dsh 读取会话服务给出的结构化消息，没有统计。
+  - `integrations/hivememory/connector/core/user_message.py` 列出这三种块，Claude Code（由人发出的消息与派生会话的交接说明）与 Codex 的用户消息都经它去掉；只去掉从行首开始的完整块，代码块与 `<pasted_content>` 中的内容原样保留，`<pasted_content>` 保留标签以区分粘贴与本人的话。Codex 的 `<send_user_message_question_reply>` 是对提问工具的回答（JSON），保留原样。
+  - `scripts/transcript_stats.py` 列出导入为用户消息的条目中的行首标签，标出是否被去掉，宿主新附加的块以 `kept` 出现，确认后再加入表中。
+  - 在本机全部 703 轮 Claude Code 会话上核对，导入的用户消息中不再有这三种块。已经导入的轮次不改写。收尾时同步 Import Bus 文档中 Claude Code 读取用户消息的描述。

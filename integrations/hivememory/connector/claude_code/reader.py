@@ -18,9 +18,10 @@
   轮次标识取开启它的条目的 ``uuid``，外部会话标识取它的 ``sessionId``（缺失时
   取会话记录文件名，Claude Code 以会话标识命名会话记录）。
 - 用户消息：由人发出的消息取正文；派生会话的第一条交接说明（``sdk`` 条目，
-  没有 ``parentUuid``）去掉 ``<system-reminder>`` 之后作为用户消息，它就是这个
-  会话要做的事；其他唤醒没有用户消息。子 Agent 交回的报告（``peer``，不论
-  是否开启新轮）在出现位置写为子 Agent 消息事件，正文取 ``origin`` 中的报告
+  没有 ``parentUuid``）作为用户消息，它就是这个会话要做的事；两者都去掉宿主
+  附加的块（``connector.core.user_message``）。其他唤醒没有用户消息。
+  子 Agent 交回的报告（``peer``，不论是否开启新轮）在出现位置写为子 Agent
+  消息事件，正文取 ``origin`` 中的报告
   原文；它不并入用户消息，因为话题路由读取用户消息全文，而报告可能很长。
   后台通知与宿主事件只是状态提示，不读取。
 - Claude Code 在用户中断时写入 ``[Request interrupted by user...]`` 文本的用户
@@ -63,6 +64,7 @@ from typing import Any
 from connector.core.config import Harness
 from connector.core.memory_tools import MEMORY_TOOLS, tool_call_fields
 from connector.core.transcript import TranscriptTurn, complete_size, read_entries
+from connector.core.user_message import strip_injected
 
 HARNESS = Harness(
     source="claude-code",
@@ -73,7 +75,6 @@ HARNESS = Harness(
 )
 
 _INTERRUPT_MARKER = re.compile(r"^\[Request interrupted by user[^\]]*\]$")
-_SYSTEM_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 
 # 在 agent 空闲时开启一次模型运行、但不是由人发出的用户条目的 ``turnOrigin``。
 _WAKE_ORIGINS = frozenset({"task_notification", "peer", "sdk"})
@@ -255,10 +256,8 @@ def _blocks(entry: dict[str, Any]) -> list[dict[str, Any]]:
 def _opening_message(entry: dict[str, Any]) -> str:
     """开启一轮的条目给出的用户消息；唤醒没有用户消息，派生会话的交接说明除外。"""
     origin = entry.get("turnOrigin")
-    if origin == "human":
-        return _prompt_text(entry)
-    if origin == "sdk" and entry.get("parentUuid") is None:
-        return _SYSTEM_REMINDER.sub("", _prompt_text(entry)).strip()
+    if origin == "human" or (origin == "sdk" and entry.get("parentUuid") is None):
+        return strip_injected(_prompt_text(entry))
     return ""
 
 
