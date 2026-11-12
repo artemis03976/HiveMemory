@@ -39,7 +39,7 @@ last_reviewed: 2026-11-12
 
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
-| `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`、预设 Agent 写入标记的路径 `preset_agent_profiles_marker`（默认 `.hivememory/preset_agent_profiles_seeded`，相对工作目录）、插件服务记下各 harness 安装版本的文件 `plugin_install_record`（默认 `.hivememory/plugin_installs.json`，相对工作目录）；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
+| `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`、预设 Agent 写入标记的路径 `preset_agent_profiles_marker`（默认 `.hivememory/preset_agent_profiles_seeded`，相对工作目录）、插件服务记下各 harness 安装版本的文件 `plugin_install_record`（默认 `.hivememory/plugin_installs.json`，相对工作目录）、是否代为安装插件 `plugin_installation_enabled`（默认关闭，只有桌面安装版以环境变量打开）；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
 | `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，perception idle flush、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | 默认 embedding 模型 | 共享模型能力 |
 | `gateway` | `config.gateway` | 模型选择与生成参数（`llm`）、interceptor、commands、workflow、topic router、query analysis | Gateway |

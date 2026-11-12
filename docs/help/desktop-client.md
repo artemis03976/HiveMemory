@@ -24,7 +24,7 @@ last_reviewed: 2026-11-12
 
 1. **选择数据目录**：配置、记忆库、模型缓存与日志都放在这里，卸载时保留。
    - 默认位置是 `%LOCALAPPDATA%\HiveMemory`。
-   - 已经有 HiveMemory 的数据（例如仓库的 checkout）时，可以直接选择那个目录，不需要搬动文件。
+   - 已经有 HiveMemory 的数据时，可以直接选择那个目录，不需要搬动文件。开发 HiveMemory 时不要选择仓库的 checkout：checkout 是开发实例的数据（[安装与启动](./setup.md#47-与桌面安装版同时开发)）。
    - 路径不能超过 100 个字符，否则会提示重新选择。
 2. **等待推理模型下载**：启动页显示已下载的大小，首次共约 1.6 GB。下载完成后自动打开界面，并写入两个预设 Agent（coder_doll、reviewer_doll）。
 3. **配置模型提供商**：在 Provider 页面保存 API key，与开发方式相同（[配置指南](./configuration.md)）。
@@ -66,10 +66,10 @@ last_reviewed: 2026-11-12
 
 | 现象 | 原因与处理 |
 |:---|:---|
-| 启动时提示端口 8769、6333 或 6334 已被占用 | 开发用的 `ps1 serve`、Qdrant 或另一个 HiveMemory 正在运行。先停止它们，例如执行 `powershell -File scripts\hivememory-dev.ps1 stop-qdrant`，再打开 HiveMemory |
+| 启动时提示端口 8769、6333 或 6334 已被占用 | 开发用的 `ps1 serve`、Qdrant 或另一个 HiveMemory 正在运行。先停止它们，例如执行 `powershell -File scripts\hivememory-dev.ps1 stop-qdrant`，再打开 HiveMemory。开发实例可以在 `.hivememory\dev.env` 中换一组端口，与安装版同时运行（[安装与启动](./setup.md#47-与桌面安装版同时开发)） |
 | 启动页提示推理模型下载或加载失败 | 检查网络是否能访问 HuggingFace，从托盘退出后重新打开即重试；详细原因在日志目录的 `backend.log` |
 | 启动时提示后端没有启动成功 | 错误框中是后端最后的输出；完整日志在数据目录的 `.hivememory\logs` |
 | 选择数据目录时提示路径太长 | 记忆库的文件放得很深，换一个更短的目录 |
-| 安装版与开发环境用同一份数据（数据目录指向 checkout） | 两者不能同时运行：用 `ps1 serve` 之前先从托盘退出 HiveMemory |
+| 数据目录指向仓库的 checkout | 安装版与开发实例会读写同一个记忆库，不能同时运行。把日常数据复制到另一个数据目录（默认 `%LOCALAPPDATA%\HiveMemory`），从托盘改过去，checkout 只作开发实例（[安装与启动](./setup.md#47-与桌面安装版同时开发)） |
 
 日志都在数据目录的 `.hivememory\logs`：`desktop.log` 是桌面端，`backend.log` 是后端，`qdrant.log` 是记忆库。更多排查见[故障排查](./troubleshooting.md)。

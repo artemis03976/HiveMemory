@@ -49,7 +49,9 @@ def test_thread_exception_hook_tolerates_missing_thread(caplog):
     assert any("未捕获线程异常" in record.message for record in caplog.records)
 
 
-def test_main_runs_uvicorn_with_expected_args(monkeypatch):
+@pytest.mark.parametrize(("port_env", "expected_port"), [(None, 8769), ("8779", 8779)])
+def test_main_runs_uvicorn_with_expected_args(monkeypatch, port_env, expected_port):
+    """缺省监听 8769；与安装版同时运行的开发实例以 HIVEMEMORY_BACKEND_PORT 换用另一个端口。"""
     calls = []
 
     def fake_run(*args, **kwargs):
@@ -58,6 +60,10 @@ def test_main_runs_uvicorn_with_expected_args(monkeypatch):
     monkeypatch.setattr("hivememory.server.__main__.uvicorn.run", fake_run)
     monkeypatch.setattr("hivememory.server.__main__._install_thread_exception_hook", lambda: None)
     monkeypatch.delenv("HIVEMEMORY_BACKEND_HOST", raising=False)
+    if port_env is None:
+        monkeypatch.delenv("HIVEMEMORY_BACKEND_PORT", raising=False)
+    else:
+        monkeypatch.setenv("HIVEMEMORY_BACKEND_PORT", port_env)
 
     server_main.main([])
 
@@ -65,7 +71,7 @@ def test_main_runs_uvicorn_with_expected_args(monkeypatch):
     args, kwargs = calls[0]
     assert args[0] == "hivememory.server.app:app"
     assert kwargs["host"] == "127.0.0.1"
-    assert kwargs["port"] == 8769
+    assert kwargs["port"] == expected_port
     assert kwargs["log_level"] == "info"
 
 

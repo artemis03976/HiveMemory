@@ -143,7 +143,7 @@ python -c "import hivememory; print(hivememory.__version__)"
 hivememory-server
 ```
 
-包脚本调用 `hivememory.server.__main__`，默认只监听本机地址 `127.0.0.1:8769`；需要对外监听时，以环境变量 `HIVEMEMORY_BACKEND_HOST` 显式指定（例如 `0.0.0.0`）。启动后检查：
+包脚本调用 `hivememory.server.__main__`，默认只监听本机地址 `127.0.0.1:8769`；需要对外监听时，以环境变量 `HIVEMEMORY_BACKEND_HOST` 显式指定（例如 `0.0.0.0`）；端口以 `HIVEMEMORY_BACKEND_PORT` 指定。启动后检查：
 
 ```text
 curl http://localhost:8769/health
@@ -173,7 +173,7 @@ npm ci
 npm run dev
 ```
 
-打开 `http://127.0.0.1:5173`。Vite 将相对 `/api` 请求和 WebSocket 代理到 `http://localhost:8769`，转发时从 `configs/management.token` 读出管理凭据并附上；Vite 先于后端启动时，后端生成凭据之后的请求即可通过。
+打开 `http://127.0.0.1:5173`。Vite 将相对 `/api` 请求和 WebSocket 代理到本机的后端，端口取 `.hivememory/dev.env` 中的 `HIVEMEMORY_BACKEND_PORT`，缺省 `8769`；转发时从 `configs/management.token` 读出管理凭据并附上；Vite 先于后端启动时，后端生成凭据之后的请求即可通过。
 
 ### 4.5 用脚本管理本机服务（WSL/Linux）
 
@@ -201,6 +201,54 @@ cp scripts/hivememory-dev.env.example .hivememory/dev.env
 - 同一时间只运行一个后端：后端已以另一种模式运行时，脚本拒绝启动并提示先执行 `stop backend`；`8769` 上已有不由脚本启动的后端时同样拒绝。启动失败时只停止本次启动的服务，之前已在运行的服务不受影响。
 - 脚本只停止自己启动的进程；它发现 Qdrant 已在脚本之外运行时直接复用，`stop` 不会停止它。
 
+### 4.6 用脚本管理本机服务（Windows）
+
+`scripts\hivememory-dev.ps1` 在 Windows 上管理 Qdrant 与后端，不需要 Docker 或 WSL。首次使用前同样复制配置模板，把 `QDRANT_BIN` 设为 `qdrant.exe` 的绝对路径；Windows 脚本不展开 `$HOME` 之类的变量：
+
+```text
+Copy-Item scripts\hivememory-dev.env.example .hivememory\dev.env
+```
+
+以 `powershell -File scripts\hivememory-dev.ps1 <命令>` 运行：
+
+| 命令 | 作用 |
+|:---|:---|
+| `serve [-Build]` | Qdrant 在后台运行，后端在前台运行：不重载，由后端提供 `frontend\dist`；`-Build` 先构建前端 |
+| `dev` | 同上，但后端随代码改动重载；另开终端运行 `cd frontend; npm run dev` |
+| `status` | Qdrant、后端与 Vite 是否就绪 |
+| `stop-qdrant` | 结束本脚本启动的 Qdrant |
+
+- 后端在前台运行，按 Ctrl+C 停止，等它结算完内存中的话题后自己退出。Windows 上不能向另一个进程发送正常关闭的信号，所以脚本从不结束后端。
+- Qdrant 在隐藏的控制台中运行，后端停止后仍在运行。`stop-qdrant` 直接结束它；Qdrant 先写 WAL 再确认写入，下次启动能够恢复。
+- 端口读自 `.hivememory\dev.env` 的 `HIVEMEMORY_BACKEND_PORT`、`QDRANT_HTTP_PORT` 与 `QDRANT_GRPC_PORT`，缺省 `8769`、`6333`、`6334`；脚本把 Qdrant 的端口以环境变量交给后端。日志在 `.hivememory\logs`。
+
+### 4.7 与桌面安装版同时开发
+
+日常使用 HiveMemory 的是[桌面安装版](./desktop-client.md)：日常数据在安装版的数据根中，外部 harness 的插件都连它的 `8769`。checkout 只作开发实例，用自己的端口与数据，两者可以同时运行，开发时日常记忆照常回流。新代码要进入日常使用时，打包后覆盖安装（[桌面客户端](../frontend/desktop-client.md#8-打包与升级)）。
+
+1. 在 `.hivememory\dev.env` 中给开发实例另一组端口。Windows 开发脚本、Vite 与用 checkout 运行的桌面端（`desktop` 目录的 `npm start`）都读这三个值：
+
+   ```text
+   HIVEMEMORY_BACKEND_PORT="8779"
+   QDRANT_HTTP_PORT="6343"
+   QDRANT_GRPC_PORT="6344"
+   ```
+
+2. 开发实例的数据在 checkout，可以随时清空。需要日常的数据时，先从托盘退出安装版，让它的 Qdrant 停下，再把安装版数据根中的 `.hivememory\qdrant` 复制到 checkout 的同一位置。
+3. 开发实例不代为安装插件，插件页显示“不能代为安装”：代为安装会把 harness 改指到 checkout，并用开发实例的凭据覆盖用户环境变量中日常的凭据。开发实例的外部接入写在 checkout 的个人登记文件 `configs\system_principals.yaml` 中，以 `credential_env` 声明凭据所在的环境变量，凭据的值写在 checkout 的 `.env`（[认证与访问登记](../workspace/authentication.md)）。
+
+让单个 harness 连开发实例，不动日常的绑定：
+
+- **测后端的改动**：用日常已经安装的插件，只在这个 harness 进程的环境中设置 `HIVEMEMORY_URL`（例如 `http://127.0.0.1:8779`）与 `HIVEMEMORY_<HARNESS>_TOKEN`，例如在 PowerShell 中先 `$env:HIVEMEMORY_URL = "http://127.0.0.1:8779"`，再从这个终端启动 harness。不要写用户环境变量。
+- **测插件代码本身**：加载 checkout 中的插件，地址与凭据同样只设在进程环境中。pi 与 dsh 的做法按它们命令行的说明整理，没有逐一实测。
+
+  | harness | 做法 |
+  |:---|:---|
+  | Claude Code | `claude --plugin-dir <checkout>\integrations\hivememory`：只在这次会话加载，替换已安装的同名插件 |
+  | Codex | 把 `CODEX_HOME` 设为一个单独的目录，在其中添加本地 marketplace 并安装插件。这个目录里没有日常的登录信息，要重新登录或复制 `auth.json`；hook 也要在其中重新信任 |
+  | pi | `pi -ne -e <checkout>\integrations\hivememory\node\pi\index.js`：不加载已安装的扩展，只加载 checkout 中的这一个 |
+  | dsh | 用单独的 profile：`dsh <profile> --from-default-profile tui` 建立，`dsh plugin --profile <profile> add <checkout>\integrations\hivememory` 安装插件，再以 `dsh <profile>` 启动 |
+
 ## 5. 端口与进程对照
 
 | 端口 | 开发模式 | 脚本的 `serve` 模式 | Docker 模式 |
@@ -210,6 +258,8 @@ cp scripts/hivememory-dev.env.example .hivememory/dev.env
 | `8000` | 未使用 | 未使用 | FastAPI + 构建后的前端 |
 | `6333` | Qdrant HTTP | Qdrant HTTP | Qdrant HTTP |
 | `6334` | Qdrant gRPC | Qdrant gRPC | Qdrant gRPC |
+
+桌面安装版固定使用 `8769`、`6333`、`6334`。开发实例与它同时运行时，按第 4.7 节在 `dev.env` 中换用另一组，例如 `8779`、`6343`、`6344`。
 
 ## 6. 健康检查的含义
 

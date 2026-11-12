@@ -1,4 +1,6 @@
-"""组合根的装配：进程默认语言，以及共享 LLM 服务与各组件独立的请求参数。"""
+"""组合根的装配：进程默认语言，共享 LLM 服务与各组件独立的请求参数，以及插件代为安装的开关。"""
+
+import pytest
 
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.models.model_definition import ModelSelection
@@ -59,3 +61,16 @@ def test_component_without_model_gets_no_request_params():
 
     assert llm.gateway_params is None
     assert llm.librarian_params is not None
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_plugin_installation_follows_the_switch(monkeypatch, enabled):
+    """只有打开开关时插件服务才能代为安装：开发实例代为安装会改写日常实例的 harness 绑定与凭据。"""
+    monkeypatch.setattr("hivememory.system.assembler.sys.platform", "win32")
+    config = HiveMemoryConfig(
+        runtime_events={"enabled": False}, system={"plugin_installation_enabled": enabled}
+    )
+
+    system = SystemAssembler(config).assemble()
+
+    assert {status.available for status in system.plugin_service.statuses()} == {enabled}

@@ -23,6 +23,23 @@ function attachManagementCredential(proxyReq: ClientRequest): void {
   proxyReq.setHeader('Authorization', `Bearer ${credential}`)
 }
 
+// The backend port of this checkout, from .hivememory/dev.env like the dev scripts:
+// a development instance running next to the installed desktop app sets another
+// HIVEMEMORY_BACKEND_PORT there. Without the file or the key the backend is on 8769.
+function backendPort(): string {
+  let content: string
+  try {
+    content = fs.readFileSync(path.resolve(__dirname, '../.hivememory/dev.env'), 'utf8')
+  } catch {
+    return '8769'
+  }
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^\s*HIVEMEMORY_BACKEND_PORT\s*=\s*["']?(\d+)["']?\s*$/.exec(line)
+    if (match) return match[1]
+  }
+  return '8769'
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -36,7 +53,7 @@ export default defineConfig({
     port: 5173, // Custom port to avoid Windows reserved ranges
     proxy: {
       '/api': {
-        target: 'http://localhost:8769', // Custom port to avoid Windows reserved ranges
+        target: `http://localhost:${backendPort()}`,
         changeOrigin: true,
         ws: true, // Enable WebSocket proxying
         configure: (proxy) => {

@@ -15,7 +15,7 @@ from hivememory.config.app import HiveMemoryConfig, load_app_config
 logger = logging.getLogger("hivememory.server")
 
 # 自定义端口，避开 Windows 保留端口段；外部 harness 的插件都连这个端口。
-BACKEND_PORT = 8769
+DEFAULT_BACKEND_PORT = 8769
 
 
 def _install_thread_exception_hook() -> None:
@@ -39,6 +39,11 @@ def _backend_host() -> str:
     return os.getenv("HIVEMEMORY_BACKEND_HOST", "127.0.0.1")
 
 
+def _backend_port() -> int:
+    # 开发实例与安装版同时运行时换用另一个端口；变量与开发脚本同名。
+    return int(os.getenv("HIVEMEMORY_BACKEND_PORT", str(DEFAULT_BACKEND_PORT)))
+
+
 def _run_desktop() -> None:
     """桌面模式：由桌面客户端的主进程启动，经 stdin 交来管理凭据，stdin 结束时正常关闭。
 
@@ -56,7 +61,7 @@ def _run_desktop() -> None:
 
     use_desktop_credential(app, credential)
     server = uvicorn.Server(
-        uvicorn.Config(app, host=_backend_host(), port=BACKEND_PORT, log_level="info")
+        uvicorn.Config(app, host=_backend_host(), port=_backend_port(), log_level="info")
     )
     threading.Thread(
         target=_shutdown_when_stdin_closes, args=(server,), name="desktop-stdin", daemon=True
@@ -126,7 +131,7 @@ def main(argv: list[str] | None = None) -> None:
     uvicorn.run(
         "hivememory.server.app:app",
         host=_backend_host(),
-        port=BACKEND_PORT,
+        port=_backend_port(),
         log_level="info",
     )
 

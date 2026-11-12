@@ -207,6 +207,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [前端细节优化](./todo/frontend-ui-polish.md) | 未排期（owner，2026-11-11） | 动效、响应速度与自适应布局；验收在打包后的桌面端中进行 |
 | [自定义背景与界面偏好持久化](./todo/custom-background-and-preference-persistence.md) | 未排期；主题持久化与自定义背景一起做（owner，2026-11-11） | 偏好跨桌面客户端重启保留，管理凭据不落盘；背景透出用毛玻璃表面令牌 |
 | [桌面端安装插件（归档）](./archive/plans/desktop-plugin-installation.md) | Completed / Archived（2026-11-12），v1.0 范围；owner 决定先做：安装包没有插件、桌面端没有安装入口；新用户安装后没有任何连接，主动安装插件后才有连接；由系统代为安装，Claude Code 与 Codex 的 hook 用安装版自带的 Python（owner，2026-11-12） | 安装包带上插件目录；设置页的插件页为四个 harness 代为安装与卸载，失败时给出命令；模板不再预先登记外部接入，“接入与权限”页不再自由登记；升级后插件自动跟上 |
+| [日常实例与开发实例分开](./plans/daily-and-dev-instance-separation.md) | Active（2026-11-12 起草并开始实施），版本之外的工作；owner 决定日常使用与开发分成两个互不相干的实例（2026-11-12） | 安装版与开发方式可以同时运行，端口、数据根与 harness 的绑定各归一方；只有安装版代为安装插件；开发实例从日常记忆库的一份副本起步 |
 | [统一语言设置与外部 Agent 文字的英文版（Idea）](./ideas/language-setting-unification.md) | Candidate，v1.0 范围；2026-11-12 起草为计划，owner 决定先做桌面端安装插件后退回 Idea；只有一个语言设置 `i18n.language`，先做进入外部 Agent 上下文的文字，界面不在内（owner，2026-11-12） | 提示词、MCP 文字、HTTP 错误说明与插件 skill 都由同一个语言设置决定，Agent Profile 不再携带语言；skill 在后端启动时按语言设置写入插件目录 |
 | [管理页修改记忆可见性（归档）](./archive/plans/memory-visibility-management.md) | Completed / Archived（2026-11-11），版本之外的工作；原 Memory 可见性策略前端组件 Todo 并入 | UI 编辑策略不能替代后端授权；只有管理页能改策略，其他路径仍生成 PUBLIC |
 | [会话 /compact 指令](./todo/conversation-compact-command.md) | 会话与 Alice 自动压缩已完成，仍依赖命令运行位置与命令系统接回 | compact 只作用于 CPU 的会话上下文，不改写 Session 记录与 Topic；后台 Topic 的 page folding 是另一个问题 |

@@ -22,7 +22,7 @@ last_reviewed: 2026-11-12
 
 # 日常实例与开发实例分开
 
-**文档状态**：Idea（候选）。第 2 节是 owner 2026-11-12 的决定，其余是候选设计，可在计划评审时调整。[桌面端安装插件](../archive/plans/desktop-plugin-installation.md)合并之后，按本 Idea 编写下一份计划。
+**文档状态**：Idea（候选）。第 2 节是 owner 2026-11-12 的决定，其余是候选设计，可在计划评审时调整。2026-11-12 已按本 Idea 写成计划[日常实例与开发实例分开](../plans/daily-and-dev-instance-separation.md)，设计以计划为准，与第 3 节不同的几处在计划第 4 节注明。
 
 ## 1. 问题
 
