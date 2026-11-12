@@ -15,6 +15,7 @@ from hivememory.components.cancellation import join_shielded
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     MemoryMergeAbortedError,
+    ResourceNotFoundError,
     WorkspaceDomainError,
     WorkspaceMismatchError,
 )
@@ -249,13 +250,15 @@ class MemoryGenerationFamiliar:
         tags: list[str] | None = None,
         alias: str | None = None,
         agent_config: dict[str, Any] | None = None,
+        access_policy: MemoryAccessPolicy | None = None,
     ) -> MemoryAtom:
         """以外部提交的材料创建记忆原子并持久化。
 
-        原子的身份、时间戳、来源记录、默认访问策略与生命周期都在这里确定：
-        创建时点取提交边界的同一时刻（created/updated/decay 同值），来源记录
-        取本次发起者，只作展示、不参与可见性授权；没有给出别名时以
-        ``mem_<memory id>`` 命名（Agent Profile 除外）。字段非法以 ``InvalidMemoryFieldError`` 拒绝。
+        原子的身份、时间戳、来源记录与生命周期都在这里确定：创建时点取提交
+        边界的同一时刻（created/updated/decay 同值），来源记录取本次发起者，
+        只作展示、不参与可见性授权；没有给出读取策略时为 PUBLIC；没有给出
+        别名时以 ``mem_<memory id>`` 命名（Agent Profile 除外）。字段非法以
+        ``InvalidMemoryFieldError`` 拒绝。
         """
         try:
             index = IndexLayer(
@@ -276,7 +279,9 @@ class MemoryGenerationFamiliar:
                     source_agent_id=from_actor.agent_id,
                     source_team_id=from_actor.team_id,
                 ),
-                access_policy=MemoryAccessPolicy.public(),
+                access_policy=(
+                    access_policy if access_policy is not None else MemoryAccessPolicy.public()
+                ),
                 created_at=commit_now,
                 updated_at=commit_now,
                 lifecycle=MemoryLifecycleState(decay_anchor_at=commit_now),
@@ -312,15 +317,22 @@ class MemoryGenerationFamiliar:
         alias: str | None = None,
         tags: list[str] | None = None,
         agent_config: dict | None = None,
+        access_policy: MemoryAccessPolicy | None = None,
     ) -> MemoryAtom | None:
+        """对外部手动的记忆编辑进行持久化处理。
+
+        内容字段有变化时提交新版本；读取策略有变化时随后单独替换，不推进版本、
+        不写版本记录。策略必须在内容之后写：内容提交写回的是本次开始时读到的
+        整条原子，先写的策略会被它改回旧值。两步之间没有原子保证，策略写入
+        失败时内容已经提交，重新提交同一份编辑只会补上策略。
         """
-        对外部手动的记忆编辑进行持久化处理。
-        """
-        atom = await self._mid_term.get_by_key(
-            WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
-        )
+        key = WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
+        atom = await self._mid_term.get_by_key(key)
         if atom is None:
             return None
+        if access_policy is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
+            # Profile 的策略决定 CALL 能否看到这个 Agent，不经记忆编辑修改。
+            raise InvalidMemoryFieldError("AGENT_PROFILE 的 access_policy 不能经记忆编辑修改")
 
         commit_now = require_utc(self._now())
         # 修改前的完整原子：版本记录的 snapshot_before 与向量输入比较都以它为准。
@@ -334,10 +346,24 @@ class MemoryGenerationFamiliar:
             tags=tags,
             agent_config=agent_config,
         )
-        if not changed_fields:
+        if changed_fields:
+            await self._commit_external_edit(atom, before_snapshot, changed_fields, commit_now)
+        else:
             # 实际内容相同的重复更新不创建新版本。
             logger.debug("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
+
+        if access_policy is None or access_policy == atom.meta.access_policy:
             return atom
+        return await self._mid_term.patch_payload(key, {"meta.access_policy": access_policy})
+
+    async def _commit_external_edit(
+        self,
+        atom: MemoryAtom,
+        before_snapshot: MemoryAtom,
+        changed_fields: list[str],
+        commit_now: datetime,
+    ) -> None:
+        """提交一次外部内容编辑：分配版本与内容时间，写版本记录后写回原子。"""
         # 提交边界分配内容时间/版本/衰减基准/置信度（UPDATE 时置信度重置为 1.0）。
         atom.meta.version += 1
         atom.meta.updated_at = commit_now
@@ -357,7 +383,6 @@ class MemoryGenerationFamiliar:
         )
         recompute = embedding_inputs_changed(before_snapshot, atom)
         await self._mid_term.upsert(atom, recompute_vectors=recompute)
-        return atom
 
     @staticmethod
     def _apply_external_update(
@@ -420,10 +445,34 @@ class MemoryGenerationFamiliar:
             from_actor=spec.from_actor,
             now=commit_now,
         )
+        for outcome in outcomes:
+            if outcome.action == GenerationAction.UPDATE and outcome.atom is not None:
+                await self._adopt_current_policy(spec, outcome.atom)
         return await self._commit_uninterrupted(
             self._commit_generation(spec, outcomes, commit_now, interaction_ref),
             on_commit_started,
         )
+
+    async def _adopt_current_policy(
+        self, spec: MemoryGenerationTaskSpec, revised: MemoryAtom
+    ) -> None:
+        """修订以任务构建时读到的基础记忆为底；写回前重读，沿用此刻的读取策略。
+
+        任务可能排队很久，期间用户在管理页修改的策略不能被整条写回改回去。
+        基础记忆已被删除或对发起者不可读时不写回：发起者不能修订它读不到的
+        记忆，写回也会让已删除的记忆重新出现。缺失与不可读同样按不存在处理。
+        """
+        current = await self._mid_term.get_by_key(
+            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=revised.id)
+        )
+        if current is None or not memory_is_readable(
+            current, workspace_identity=spec.belong_to, actor_identity=spec.from_actor
+        ):
+            raise ResourceNotFoundError(
+                "修订的基础记忆已不存在或不可读",
+                details={"memory_id": str(revised.id)},
+            )
+        revised.meta.access_policy = current.meta.access_policy.model_copy(deep=True)
 
     async def _commit_generation(
         self,

@@ -39,6 +39,7 @@ async def create_memory(
         memory_type=MemoryType(body.memory_type),
         tags=body.tags,
         alias=body.alias,
+        access_policy=body.access_policy,
         actor=actor,
     )
     return MemoryResponse.from_atom(atom)
@@ -115,6 +116,7 @@ async def update_memory(
         alias=body.alias,
         tags=body.tags,
         agent_config=body.agent_config,
+        access_policy=body.access_policy,
         actor=actor,
     )
     return MemoryResponse.from_atom(atom)

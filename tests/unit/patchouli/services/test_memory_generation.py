@@ -22,7 +22,11 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.errors import MemoryMergeAbortedError, ModelProviderError
+from hivememory.core.errors import (
+    MemoryMergeAbortedError,
+    ModelProviderError,
+    ResourceNotFoundError,
+)
 from hivememory.core.memory_access import memory_is_readable
 from hivememory.core.models import (
     IndexLayer,
@@ -471,6 +475,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
+        # 修订的基础记忆仍在库中：写回前的重读得到它。
+        mid_term.get_by_key = AsyncMock(return_value=atom.model_copy(deep=True))
 
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
@@ -514,6 +520,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
+        # 修订的基础记忆仍在库中：写回前的重读得到它。
+        mid_term.get_by_key = AsyncMock(return_value=atom.model_copy(deep=True))
 
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
@@ -635,6 +643,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
+        # 修订的基础记忆仍在库中：写回前的重读得到它。
+        mid_term.get_by_key = AsyncMock(return_value=atom.model_copy(deep=True))
 
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
@@ -808,6 +818,8 @@ class TestMemoryGenerationFamiliarRunGeneration:
         )
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
+        # 修订的基础记忆仍在库中：写回前的重读得到它。
+        mid_term.get_by_key = AsyncMock(return_value=atom.model_copy(deep=True))
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
         results = await familiar._run_generation(
@@ -1542,3 +1554,51 @@ async def test_merge_failure_never_deletes_unmerged_content(failure):
     else:
         assert store.memories[retained.id] == retained
         assert store.operations == []
+
+
+def _update_case():
+    """真实 Familiar 写回一次修订；引擎结果以任务构建时读到的基础记忆为底。"""
+    base = _make_memory_atom("base")
+    revised = base.model_copy(deep=True)
+    revised.payload.content = "revised content"
+    outcome = _make_outcome(GenerationAction.UPDATE, revised, "修订", base.model_copy(deep=True))
+    store = _MergeStore(base)
+    familiar = MemoryGenerationFamiliar(
+        generation_engine=Mock(process=AsyncMock(return_value=[outcome])),
+        memory_library=Mock(mid_term=store),
+        artifact_engine=_memory_artifact_engine(),
+        now=lambda: FIXED_NOW,
+    )
+    spec = _make_spec(source=MemoryGenerationSource.UPDATE, include_interaction_input=False)
+    return familiar, store, spec, base
+
+
+@pytest.mark.asyncio
+async def test_update_write_back_keeps_policy_changed_after_task_was_built():
+    """任务构建之后用户改了策略：修订照常写回，策略取写回时的值而不是任务里的快照。"""
+    familiar, store, spec, base = _update_case()
+    changed = MemoryAccessPolicy(visibility="PRIVATE", target_agent_id=spec.from_actor.agent_id)
+    store.memories[base.id].meta.access_policy = changed
+
+    await familiar.execute(spec, on_commit_started=_ignore_commit_start)
+
+    assert store.memories[base.id].payload.content == "revised content"
+    assert store.memories[base.id].meta.access_policy == changed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["deleted", "invisible"])
+async def test_update_write_back_skips_missing_or_unreadable_base(change):
+    """基础记忆已删除或对发起者不可读时不写回：不让已删除的记忆重新出现，也不改写读不到的记忆。"""
+    familiar, store, spec, base = _update_case()
+    if change == "deleted":
+        store.memories.pop(base.id)
+    else:
+        store.memories[base.id].meta.access_policy = MemoryAccessPolicy(
+            visibility="PRIVATE", target_agent_id="other"
+        )
+
+    with pytest.raises(ResourceNotFoundError):
+        await familiar.execute(spec, on_commit_started=_ignore_commit_start)
+
+    assert store.operations == []

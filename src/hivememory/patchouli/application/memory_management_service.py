@@ -60,6 +60,7 @@ class MemoryManagementService:
             content=creation.content,
             tags=list(creation.tags),
             alias=creation.alias,
+            access_policy=creation.access_policy,
         )
 
     async def list_memories(
@@ -131,6 +132,7 @@ class MemoryManagementService:
             alias=edit.alias,
             tags=list(edit.tags) if edit.tags is not None else None,
             agent_config=edit.agent_config,
+            access_policy=edit.access_policy,
         )
 
     async def delete_memory(

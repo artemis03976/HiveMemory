@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAccessPolicy, MemoryAtom, MemoryVisibility
 
 _ALLOWED_MEMORY_TYPES = {
     "CODE_SNIPPET",
@@ -15,6 +15,17 @@ _ALLOWED_MEMORY_TYPES = {
     "USER_PROFILE",
     "WORK_IN_PROGRESS",
 }
+
+
+def _reject_team_policy(policy: MemoryAccessPolicy | None) -> MemoryAccessPolicy | None:
+    """管理接口只开放 PUBLIC 与 PRIVATE。
+
+    生产中没有 Team 归属的来源（执行者的 ``team_id`` 从不赋值），TEAM 记忆因此
+    对任何 Agent 都不可见；在入口拒绝，避免用户把记忆设成谁都读不到的状态。
+    """
+    if policy is not None and policy.visibility == MemoryVisibility.TEAM:
+        raise ValueError("管理接口不接受 TEAM 可见性")
+    return policy
 
 
 class MemoryResponse(BaseModel):
@@ -33,6 +44,7 @@ class MemoryResponse(BaseModel):
     vitality_score: float
     user_id: str
     access_count: int = 0
+    access_policy: MemoryAccessPolicy
 
     @classmethod
     def from_atom(cls, atom: MemoryAtom) -> "MemoryResponse":
@@ -50,6 +62,7 @@ class MemoryResponse(BaseModel):
             vitality_score=atom.meta.lifecycle.vitality_score,
             user_id=atom.workspace_identity.owner_user_id,
             access_count=atom.meta.lifecycle.access_count,
+            access_policy=atom.meta.access_policy,
         )
 
 
@@ -60,6 +73,14 @@ class MemoryUpdateRequest(BaseModel):
     alias: str | None = None
     tags: list[str] | None = None
     agent_config: dict[str, Any] | None = None
+    access_policy: MemoryAccessPolicy | None = Field(
+        default=None, description="新的 Agent 读取策略；省略表示不修改"
+    )
+
+    @field_validator("access_policy")
+    @classmethod
+    def validate_access_policy(cls, v: MemoryAccessPolicy | None) -> MemoryAccessPolicy | None:
+        return _reject_team_policy(v)
 
 
 class MemoryFeedbackRequest(BaseModel):
@@ -91,6 +112,14 @@ class MemoryCreateRequest(BaseModel):
     memory_type: str
     tags: list[str] = []
     alias: str | None = Field(default=None, max_length=60)
+    access_policy: MemoryAccessPolicy | None = Field(
+        default=None, description="Agent 读取策略；省略时为 PUBLIC"
+    )
+
+    @field_validator("access_policy")
+    @classmethod
+    def validate_access_policy(cls, v: MemoryAccessPolicy | None) -> MemoryAccessPolicy | None:
+        return _reject_team_policy(v)
 
     @field_validator("memory_type")
     @classmethod

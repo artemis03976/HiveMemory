@@ -23,7 +23,15 @@ from hivememory.core.errors import (
     InvalidMemoryFieldError,
     ScopeRequiredError,
 )
-from hivememory.core.models import IdentityScope, IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.core.models import (
+    IdentityScope,
+    IndexLayer,
+    MemoryAccessPolicy,
+    MemoryAtom,
+    MemoryType,
+    MemoryVisibility,
+    PayloadLayer,
+)
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -84,16 +92,21 @@ def test_identity_scope_wrong_type_rejected_as_scope_required():
 
 
 def test_create_memory_passes_materials_and_actor_to_creation_primitive():
-    """材料与本次发起者原样交给 MEMORY_CREATE，归属取自 scope。"""
+    """材料（含读取策略）与本次发起者原样交给 MEMORY_CREATE，归属取自 scope。"""
     bus = RecordingBus()
     service = MemoryManagementService(bus=bus)
     scope = _scope()
+    policy = MemoryAccessPolicy(visibility=MemoryVisibility.PRIVATE, target_agent_id="a2")
 
     _run(
         service.create_memory(
             scope,
             MemoryCreation(
-                title="API", content="Use /api", memory_type=MemoryType.FACT, tags=("api",)
+                title="API",
+                content="Use /api",
+                memory_type=MemoryType.FACT,
+                tags=("api",),
+                access_policy=policy,
             ),
         )
     )
@@ -110,6 +123,7 @@ def test_create_memory_passes_materials_and_actor_to_creation_primitive():
                 "content": "Use /api",
                 "tags": ["api"],
                 "alias": None,
+                "access_policy": policy,
             },
         )
     ]
