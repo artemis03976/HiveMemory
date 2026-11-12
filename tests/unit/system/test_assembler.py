@@ -1,5 +1,7 @@
 """组合根的装配：进程默认语言，共享 LLM 服务与各组件独立的请求参数，以及插件代为安装的开关。"""
 
+from types import SimpleNamespace
+
 import pytest
 
 from hivememory.config.app import HiveMemoryConfig
@@ -66,7 +68,8 @@ def test_component_without_model_gets_no_request_params():
 @pytest.mark.parametrize("enabled", [True, False])
 def test_plugin_installation_follows_the_switch(monkeypatch, enabled):
     """只有打开开关时插件服务才能代为安装：开发实例代为安装会改写日常实例的 harness 绑定与凭据。"""
-    monkeypatch.setattr("hivememory.system.assembler.sys.platform", "win32")
+    # 只替换组合根模块中的 sys：改全局的 sys.platform 会让 shutil.which 在 Linux 上走 Windows 分支。
+    monkeypatch.setattr("hivememory.system.assembler.sys", SimpleNamespace(platform="win32"))
     config = HiveMemoryConfig(
         runtime_events={"enabled": False}, system={"plugin_installation_enabled": enabled}
     )
