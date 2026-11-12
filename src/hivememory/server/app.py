@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from hivememory import __version__
 from hivememory.config.app import load_app_config
@@ -57,8 +58,6 @@ logger = logging.getLogger(__name__)
 
 # MCP 入口：外部 harness 经插件声明的 MCP server 检索、读取、写入与更新记忆。
 # 门面在每次工具调用时取得，因此可以在模块导入时先于系统装配构造。
-mcp_server = create_mcp_server(get_system)
-mcp_app = create_http_app(mcp_server)
 
 
 async def _warm_up_and_seed_presets(system: "HiveMemorySystem") -> None:
@@ -112,10 +111,16 @@ async def lifespan(app: FastAPI):
     # MCP 会话管理器在装配系统之前进入、在系统停止之后退出：挂进宿主后 SDK
     # 自己的 lifespan 不会执行。系统停止时先关闭认证网关，此后的工具调用得到
     # “服务不可用”的工具结果。
+    # MCP 服务的说明与工具描述随语言设置，读取配置之后才能构造；/mcp 路由在导入时已经
+    # 登记，请求转交给这里构造的应用。
+    mcp_server = create_mcp_server(get_system, config.i18n.language)
+    _mcp_endpoint.app = create_http_app(mcp_server)
     async with mcp_server.session_manager.run():
         logger.info("正在初始化 HiveMemorySystem...")
         system = init_system(config)
         await system.start()
+        # 插件 skill 按语言设置写入插件目录，先于下面复制安装插件的自动更新。
+        system.plugin_service.write_skill(config.i18n.language)
 
         # 初始化 WebSocket 日志广播
         ws_manager = init_websocket_log_broadcasting(system.config)
@@ -217,10 +222,27 @@ app.include_router(runtime_events_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")
 app.include_router(workspace_assets_router, prefix="/api/v1")
 
+
+class _MCPEndpoint:
+    """/mcp 的 ASGI 端点：路由在导入时登记，MCP 应用在 lifespan 中按语言设置构造后交给它。
+
+    实例不是函数，Starlette 的路由把它当作 ASGI 应用，不限定方法，原样交给它处理。
+    """
+
+    def __init__(self) -> None:
+        self.app: ASGIApp | None = None
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if self.app is None:
+            raise RuntimeError("MCP 应用尚未构造：lifespan 还没有开始")
+        await self.app(scope, receive, send)
+
+
+_mcp_endpoint = _MCPEndpoint()
+
 # MCP 端点必须在 SPA 兜底路由之前登记。以路由而不是挂载接入：挂载在 /mcp
-# 的子应用只匹配 /mcp/ 下的路径，插件声明的 /mcp 会被重定向。端点是 ASGI
-# 应用，路由不限定方法，原样交给它处理。
-app.router.routes.append(Route("/mcp", endpoint=mcp_app))
+# 的子应用只匹配 /mcp/ 下的路径，插件声明的 /mcp 会被重定向。
+app.router.routes.append(Route("/mcp", endpoint=_mcp_endpoint))
 
 # ==========================================
 # 前后端整合与静态资源挂载 (生产环境与开发环境切换)

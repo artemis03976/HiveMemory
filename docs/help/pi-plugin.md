@@ -22,7 +22,7 @@ last_reviewed: 2026-11-12
 
 - **记忆工具**：扩展自己注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：扩展在调用时自动补上，模型看不到这个参数。工具只交给模型直接调用，codemode 中的脚本不能调用它们。
 - **对话回流**：pi 中每一轮结束后，扩展在会话记录中写一条结束标记（不进入模型上下文），再把这一轮（用户的原始输入、回复、思考、工具调用及结果）导入 HiveMemory。网络提交在后台进行，HiveMemory 未运行时 pi 照常工作，未导入的轮次在下次打开 pi 时补发。工作原理见 [Import Bus](../system/import-bus.md#11-pi-扩展)第 11 节。
-- **使用手册 skill**：`skills/hivememory/SKILL.md` 随包加载，引导 agent 何时检索、写入与修正记忆；也可以用 `/skill:hivememory` 展开它。
+- **使用手册 skill**：`skills/hivememory/SKILL.md` 随包加载，引导 agent 何时检索、写入与修正记忆；也可以用 `/skill:hivememory` 展开它。skill 的语言随 HiveMemory 的语言设置：后端每次启动时从插件目录的 `skill-languages/<语言>/SKILL.md` 写入 `skills/hivememory/SKILL.md`（[配置指南](./configuration.md#54-语言)）。pi 原地读取插件目录，改语言并重启后端之后重新打开 pi 即可。
 
 三部分都以 pi 自己的接入来源 `harness:pi` 认证，以 Agent `pi` 访问。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。扩展只用 Node 标准库，不需要安装依赖。
 

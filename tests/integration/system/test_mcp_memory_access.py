@@ -40,6 +40,7 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.i18n import Language
 from hivememory.mcp_server import create_mcp_server
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.interaction_submission import (
@@ -281,7 +282,7 @@ async def test_search_then_read_delivers_committed_memory_and_records_one_citati
     """检索得到 alias，再按 alias 读到全文；只有读取记录引用。"""
     system, patchouli, _ = _compose(_READ_AND_SEARCH)
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         found = await session.call_tool("memory_search", {"query": "怎么部署"})
         read = await session.call_tool("memory_read", {"aliases": ["deploy_flow"]})
 
@@ -320,7 +321,7 @@ async def test_rejected_search_does_not_reach_patchouli(
     if close_gateway:
         system.access_gateway.close()
 
-    async with serve_mcp(create_mcp_server(lambda: system), headers) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), headers) as session:
         result = await session.call_tool("memory_search", {"query": "怎么部署"})
 
     assert tool_error(result)["reason"] == reason
@@ -373,7 +374,7 @@ async def test_written_memory_reads_back_redirects_after_settlement_and_turn_lan
     system, patchouli, gateway = _compose(_READ_AND_SEARCH | {WorkspaceOperation.MEMORY_WRITE})
     authentications = _record_authentications(system.access_gateway)
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         written = await session.call_tool(
             "memory_write", {"content": "部署改为手动执行。", "turn": _TURN}
         )
@@ -420,7 +421,7 @@ async def test_denied_write_never_determines_a_topic():
     system, patchouli, gateway = _compose(_READ_AND_SEARCH)
     authentications = _record_authentications(system.access_gateway)
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool(
             "memory_write", {"content": "部署改为手动执行。", "turn": _TURN}
         )
@@ -438,7 +439,7 @@ async def test_each_tool_call_runs_in_its_own_trace_shared_by_topic_routing():
     确定话题的 Gateway 路由继承同一个 trace。"""
     system, _patchouli, gateway = _compose(_READ_AND_SEARCH | {WorkspaceOperation.MEMORY_WRITE})
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         await session.call_tool("memory_search", {"query": "怎么部署"})
         await session.call_tool("memory_write", {"content": "部署改为手动执行。", "turn": _TURN})
 
@@ -482,7 +483,7 @@ async def test_runtime_registered_harness_searches_until_its_credential_rotates(
 
     async def search(credential: str):
         headers = {**_HEADERS, "Authorization": f"Bearer {credential}"}
-        async with serve_mcp(create_mcp_server(lambda: system), headers) as session:
+        async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), headers) as session:
             return await session.call_tool("memory_search", {"query": "怎么部署"})
 
     assert 'alias="deploy_flow"' in tool_text(await search(old))

@@ -28,7 +28,6 @@ from hivememory.config.alice import KoakumaConfig
 from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.models import MTPErrorSeverity
-from hivememory.i18n import resolve_language
 from hivememory.prompts.compilation import render_persona
 from hivememory.prompts.mtp import render_mtp_teaching
 
@@ -166,8 +165,9 @@ class CallCoordinator:
                 mtp_verbs_for_operations(thread.allowed_operations),
                 denied_verbs={"CALL"},
             )
-            # 子帧语言只解析一次：提示词与执行期的 MTP 回填使用同一值。
-            language = resolve_language(profile_language=sub_profile.language).value
+            # 子帧沿用调用方帧的语言：CPU 内部的语言只来自输入清单，子帧的提示词、执行期的
+            # MTP 回填与共享上下文因此和主帧是同一种语言。
+            language = caller_frame.language
             messages = self._build_callee_messages(
                 profile=sub_profile,
                 language=language,

@@ -108,3 +108,5 @@ Desktop.ini
 
 # project files
 .hivememory
+# Plugin skill: written from skill-languages/ by the backend at startup, per the language setting
+integrations/hivememory/skills/hivememory/SKILL.md

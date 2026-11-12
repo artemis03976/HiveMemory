@@ -27,7 +27,7 @@ related_docs:
   - docs/system/application-services.md
   - docs/system/attachments.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 任务进程
@@ -164,7 +164,7 @@ CPU 分配（Profile 解析、附件租借与编译、记忆与中立提示词�
 
 **Profile 解析**：Agent Profile 属于 CPU 分配，但在 PREPARE 开始时解析：主线程以这份图纸派生，预检索与已有话题的确认都由主线程执行，Profile 缺失或已停用（[检索](../patchouli/retrieval.md#22-中期记忆读取)）的请求因此在检索与刷新话题之前失败。加载哪份图纸取自注册时认证得到的执行者，不取自请求输入。Profile 经 root 授权后由组合根注入的读取视图（`ProfileResolver`）按管理语义解析，不经能力层：只检查 Workspace 归属，不按 Agent 的可见性裁剪，指向其他 Agent 的 PRIVATE 图纸也能被它自己的进程加载（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）；正式原子变更会失效解析缓存。
 
-**编译与清单**：CPU 分配接收预检索返回的未编译原子与经 root API 读取的存储健康。进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再由 `prompts.compilation.compile_prompt_input` 按 Profile 语言（缺省时使用进程默认值）定稿中立提示词：环境通知（存储不可用时的离线提示由存储健康决定）与人设组成 `instructions`，记忆与附件组成 `turn_context`。两段文本、解析好的 `language`、话题 `topic_id`、会话全量历史 `session_history` 与已有 `compaction_checkpoint` 一起组装为输入清单，经 CPU 端口交给 CPU。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)。
+**编译与清单**：CPU 分配接收预检索返回的未编译原子与经 root API 读取的存储健康。进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再由 `prompts.compilation.compile_prompt_input` 按语言设置定稿中立提示词：环境通知（存储不可用时的离线提示由存储健康决定）与人设组成 `instructions`，记忆与附件组成 `turn_context`。两段文本、解析好的 `language`、话题 `topic_id`、会话全量历史 `session_history` 与已有 `compaction_checkpoint` 一起组装为输入清单，经 CPU 端口交给 CPU。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)。
 
 已解析的 Profile 只在编译人设时使用，不进入清单：图纸与操作快照随主线程的线程描述交给 CPU。清单回答“处理什么”，线程描述回答“谁来处理”。
 

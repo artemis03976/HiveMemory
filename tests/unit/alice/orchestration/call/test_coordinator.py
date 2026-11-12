@@ -40,7 +40,7 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
     SystemFault,
 )
-from hivememory.i18n import get_default_language, set_default_language
+from hivememory.i18n import Language, set_language
 from tests.helpers.call import StubOperationSubmitter, make_call_context, make_callee
 from tests.helpers.outputs import NullAgentRunOutput, NullFrameOutputSink
 from tests.helpers.workspace import make_runtime_scope
@@ -126,9 +126,11 @@ async def _prepare_prompt_frame(
     config: KoakumaConfig,
     *,
     shared_context: str = "",
+    caller_language: str = "zh",
 ) -> ExecutionFrame:
     """从公共 CALL 入口取得真实子帧，只替代已授权的上下文解析端口。"""
     caller = _frame()
+    caller.language = caller_language
     context = replace(
         make_call_context(
             agent_profile=profile,
@@ -153,29 +155,24 @@ async def _prepare_prompt_frame(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("profile_language", "persona_header", "teaching_intro"),
+    ("language", "persona_header", "teaching_intro"),
     [
         ("zh", "### 角色设定 ###", "你是运行在 HiveMemory 上的智能 Agent"),
         ("en", "### PERSONA ###", "You are an intelligent Agent running on HiveMemory"),
-        ("", "### PERSONA ###", "You are an intelligent Agent running on HiveMemory"),
     ],
 )
-async def test_callee_prompt_uses_own_language_persona_and_policy(
-    profile_language: str, persona_header: str, teaching_intro: str
+async def test_callee_prompt_follows_caller_frame_language_persona_and_policy(
+    language: str, persona_header: str, teaching_intro: str
 ) -> None:
-    """子帧按自身 Profile 与操作快照组装，语言缺省时回退到进程默认值。"""
-    previous = get_default_language()
-    set_default_language("en")
-    try:
-        frame = await _prepare_prompt_frame(
-            AgentProfile(persona="  子 Agent 人设\n", language=profile_language),
-            KoakumaConfig(
-                mtp_prompt=MTPPromptConfig(include_demo=False, include_error_handling=False)
-            ),
-            shared_context="\n[共享上下文]\n原文  ",
-        )
-    finally:
-        set_default_language(previous)
+    """子帧沿用调用方帧的语言，不读进程的语言设置；按自身人设与操作快照组装。"""
+    # 语言设置与调用方帧不同：子帧仍是调用方帧的语言。
+    set_language(Language.EN if language == "zh" else Language.ZH)
+    frame = await _prepare_prompt_frame(
+        AgentProfile(persona="  子 Agent 人设\n"),
+        KoakumaConfig(mtp_prompt=MTPPromptConfig(include_demo=False, include_error_handling=False)),
+        shared_context="\n[共享上下文]\n原文  ",
+        caller_language=language,
+    )
 
     assert [message["role"] for message in frame.working_history] == ["system", "user"]
     system_prompt = frame.working_history[0]["content"]
@@ -185,7 +182,7 @@ async def test_callee_prompt_uses_own_language_persona_and_policy(
     )
     assert frame.execution_policy.permitted_verbs == frozenset({"WRITE", "RUN"})
     # 子帧执行期的 MTP 回填沿用提示词使用的同一语言。
-    assert frame.language == ("zh" if profile_language == "zh" else "en")
+    assert frame.language == language
     assert "- WRITE:" in system_prompt
     assert "- RUN:" in system_prompt
     assert "CALL" not in system_prompt
@@ -197,7 +194,7 @@ async def test_callee_prompt_uses_own_language_persona_and_policy(
 async def test_callee_prompt_without_teaching_keeps_persona_and_shared_context() -> None:
     """教学开关关闭时仍保留子帧人设、共享上下文与任务。"""
     frame = await _prepare_prompt_frame(
-        AgentProfile(persona="子 Agent", language="zh"),
+        AgentProfile(persona="子 Agent"),
         KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
         shared_context="[共享上下文]",
     )
@@ -212,7 +209,7 @@ async def test_callee_prompt_without_teaching_keeps_persona_and_shared_context()
 async def test_callee_prompt_omits_empty_system_message() -> None:
     """系统片段全部为空时只发送任务，不创建空系统消息。"""
     frame = await _prepare_prompt_frame(
-        AgentProfile(persona="", language="zh"),
+        AgentProfile(persona=""),
         KoakumaConfig(mtp_prompt=MTPPromptConfig(enabled=False)),
     )
 
@@ -268,8 +265,8 @@ def test_apply_call_response_is_exactly_once_and_completes_the_suspended_call():
         runtime.apply_call_response(frame, suspension, response)
 
 
-def test_apply_call_response_formats_with_frame_language_not_profile_language():
-    """CALL 响应按帧的已解析语言回填；Profile 的语言设置不再参与执行期渲染。"""
+def test_apply_call_response_formats_with_frame_language():
+    """CALL 响应按帧的已解析语言回填，执行期不重新读取语言设置。"""
     runtime = AgentRuntime(
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),
@@ -284,7 +281,6 @@ def test_apply_call_response_formats_with_frame_language_not_profile_language():
 
     runtime.apply_call_response(frame, _suspension(), response)
 
-    assert frame.agent_profile.language == "zh"
     assert "exhausted its iteration budget" in frame.working_history[-1]["content"]
 
 

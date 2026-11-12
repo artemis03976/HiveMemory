@@ -98,7 +98,8 @@ async def test_lifespan_in_desktop_mode_keeps_desktop_credential_and_writes_no_f
 
     with (
         patch.object(app_module, "MANAGEMENT_CREDENTIAL_PATH", credential_path),
-        patch.object(app_module, "mcp_server", idle_mcp),
+        patch.object(app_module, "create_mcp_server", return_value=idle_mcp),
+        patch.object(app_module, "create_http_app", return_value=object()),
         patch.object(app_module, "load_app_config", return_value=MagicMock()),
         patch.object(app_module, "configure_logging"),
         patch.object(app_module, "init_system", return_value=mock_system),

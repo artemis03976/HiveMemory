@@ -22,7 +22,7 @@ last_reviewed: 2026-11-12
 
 - **对话回流**：Claude Code 的每一轮对话结束后，插件把这一轮（用户消息、回复、Claude Code 本地记录的思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。它的 hook 只做本地记录，网络提交在后台进程中完成，HiveMemory 未运行时 Claude Code 照常工作，未导入的轮次在之后被唤醒时按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
 - **记忆访问**：插件声明了 HiveMemory 的 MCP server，Claude Code 的 agent 可以调用 `memory_search` 检索记忆、`memory_read` 按 alias 读取全文、`memory_write` 写入值得长期保存的内容、`memory_update` 修正检索到的已有记忆。插件不主动向 Claude Code 注入记忆，何时检索与写入由 agent 自己决定；写入与更新前，插件的 hook 在本地为调用补上当前一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题。契约见 [MCP 记忆访问](../contracts/mcp.md)。
-- **使用手册 skill**：插件附带 skill `hivememory`（`skills/hivememory/SKILL.md`），在 Claude Code 中名为 `hivememory-connector:hivememory`。它说明何时检索、怎样采信记忆、什么值得写入、怎样写才能被以后找到、何时修正已有记忆，以及怎样与 Claude Code 自己的记忆文件共存。Claude Code 按 skill 的描述在需要时加载，也可以输入 `/hivememory-connector:hivememory` 手动加载。skill 的内容不区分 harness，DeepSeek Harness 等其他 harness 复制这一份使用。
+- **使用手册 skill**：插件附带 skill `hivememory`（`skills/hivememory/SKILL.md`），在 Claude Code 中名为 `hivememory-connector:hivememory`。它说明何时检索、怎样采信记忆、什么值得写入、怎样写才能被以后找到、何时修正已有记忆，以及怎样与 Claude Code 自己的记忆文件共存。Claude Code 按 skill 的描述在需要时加载，也可以输入 `/hivememory-connector:hivememory` 手动加载。skill 的内容不区分 harness，DeepSeek Harness 等其他 harness 用的是同一份。skill 的语言随 HiveMemory 的语言设置：后端每次启动时从插件目录的 `skill-languages/<语言>/SKILL.md` 写入 `skills/hivememory/SKILL.md`（[配置指南](./configuration.md#54-语言)）。Claude Code 保存的是插件的副本，改语言后要在插件页重新安装一次。
 
 三部分都以 Claude Code 自己的接入来源 `harness:claude-code` 认证。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。
 

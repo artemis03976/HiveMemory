@@ -8,6 +8,7 @@ from hivememory.system.plugins.harnesses import (
     SupportedHarness,
 )
 from hivememory.system.plugins.service import (
+    SKILL_PATH,
     PluginActionResult,
     PluginFailure,
     PluginInstallationService,
@@ -17,6 +18,7 @@ from hivememory.system.plugins.service import (
 
 __all__ = [
     "INTEGRATIONS_DIR",
+    "SKILL_PATH",
     "SUPPORTED_HARNESSES",
     "HarnessId",
     "PluginActionResult",

@@ -94,7 +94,7 @@ async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode
         turn_context="\nCOMPILED MATERIAL\n ",
     )
     thread = make_thread_descriptor(
-        AgentProfile(persona="DO NOT RENDER", language="zh"), allowed_operations=frozenset()
+        AgentProfile(persona="DO NOT RENDER"), allowed_operations=frozenset()
     )
     result = await service.run_agent(
         manifest,

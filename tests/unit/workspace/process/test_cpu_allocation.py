@@ -278,7 +278,7 @@ async def test_main_thread_operations_follow_access_record_precedence():
 async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manifest() -> None:
     """主线程描述中的 Profile 来自 PATCHOULI_GET_AGENT_PROFILE；清单的话题取 PREPARE 已确认的
     派发话题，离线提示来自经 root API 读取的存储健康。"""
-    profile = AgentProfile(persona="allocated-persona", language="zh")
+    profile = AgentProfile(persona="allocated-persona")
     profile_calls: list = []
     bus, _stub = _turn_bus(
         PatchouliTurnStub(storage_available=False),
@@ -390,7 +390,7 @@ async def test_manifest_turn_context_is_empty_string_without_retrieval() -> None
 async def test_no_actor_operations_still_allocates_execution_profile() -> None:
     """没有 actor 操作仍能解析执行 Profile：Profile 由系统按管理语义读取，不需要执行者的许可。"""
     profile_calls: list = []
-    profile = AgentProfile(persona="阶段读取配置", language="zh")
+    profile = AgentProfile(persona="阶段读取配置")
     bus, _stub = _turn_bus(profile_route=_profile_route(profile=profile, calls=profile_calls))
     cpu = ScriptedCPU(result=make_cpu_result())
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))

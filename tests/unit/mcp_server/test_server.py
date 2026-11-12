@@ -30,6 +30,7 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.models.workspace import resolve_default_workspace_identity
+from hivememory.i18n import Language
 from hivememory.mcp_server import create_mcp_server
 from hivememory.system.services.import_bus import ImportBusUnavailableError, InFlightTurn
 from hivememory.workspace.contracts import (
@@ -142,7 +143,7 @@ async def test_search_authenticates_once_with_header_claims():
     system = _system(_Entry(result=[]))
     gateway = system.access_gateway
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool("memory_search", {"query": "部署流程"})
 
     assert tool_text(result) == "没有检索到相关记忆。"
@@ -162,7 +163,7 @@ async def test_missing_principal_declaration_is_rejected_before_authentication()
     system = _system(_Entry(result=[]))
     headers = {key: value for key, value in _HEADERS.items() if key != "X-Principal-ID"}
 
-    async with serve_mcp(create_mcp_server(lambda: system), headers) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), headers) as session:
         result = await session.call_tool("memory_search", {"query": "部署流程"})
 
     assert tool_error(result)["error"] == "request.principal_required"
@@ -177,7 +178,7 @@ async def test_denied_submission_is_projected():
     )
     system = _system(_Entry(error=denied))
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool("memory_search", {"query": "部署流程"})
 
     error = tool_error(result)
@@ -193,7 +194,7 @@ async def test_unexpected_error_becomes_internal_error_without_leaking_detail(ca
     system = _system(_Entry(error=RuntimeError("secret-internal-detail")))
 
     with caplog.at_level(logging.INFO, logger="hivememory.mcp_server"):
-        async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+        async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
             result = await session.call_tool("memory_search", {"query": "部署流程"})
 
     assert tool_error(result)["error"] == "server.internal_error"
@@ -208,7 +209,7 @@ async def test_search_result_omits_prompt_guidance():
     """检索结果带 alias，不带提示词中预检索上下文的头尾引导。"""
     system = _system(_Entry(result=[_atom("deploy_flow", "部署走 CI")]))
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool("memory_search", {"query": "部署流程"})
 
     text = tool_text(result)
@@ -233,7 +234,7 @@ async def test_read_delivers_in_order_and_lists_unresolved_last():
         )
     )
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool("memory_read", {"aliases": ["missing", "deploy_flow"]})
 
     text = tool_text(result)
@@ -245,13 +246,42 @@ async def test_read_delivers_in_order_and_lists_unresolved_last():
 
 
 @pytest.mark.asyncio
+async def test_english_setting_gives_english_instructions_descriptions_and_results():
+    """语言设置为英文时，服务说明、工具与参数描述和结果文本都是英文，工具名与参数名不变。"""
+    system = _system(
+        _Entry(
+            result=[
+                ReferenceResolution(kind="not_found", requested_alias="missing"),
+                ReferenceResolution(
+                    kind="atom",
+                    requested_alias="deploy_flow",
+                    atom=_atom("deploy_flow", "Deploy through CI"),
+                ),
+            ]
+        )
+    )
+    server = create_mcp_server(lambda: system, Language.EN)
+
+    async with serve_mcp(server, _HEADERS) as session:
+        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+        result = await session.call_tool("memory_read", {"aliases": ["missing", "deploy_flow"]})
+
+    assert server.instructions.startswith("HiveMemory keeps long-term memory")
+    assert set(tools) == {"memory_search", "memory_read", "memory_write", "memory_update"}
+    assert tools["memory_search"].description.startswith("Search long-term memory in HiveMemory")
+    query = tools["memory_search"].input_schema["properties"]["query"]
+    assert query["description"] == "What to find, described in natural language"
+    assert tool_text(result).endswith("Aliases not found: missing")
+
+
+@pytest.mark.asyncio
 async def test_read_rejects_when_no_alias_resolves():
     """全部 alias 都未解析时返回资源不存在的错误，而不是空结果。"""
     system = _system(
         _Entry(result=[ReferenceResolution(kind="not_found", requested_alias="missing")])
     )
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool("memory_read", {"aliases": ["missing"]})
 
     assert tool_error(result)["error"] == "workspace.resource.not_found"
@@ -265,7 +295,7 @@ async def test_subscriptions_listen_is_neither_advertised_nor_served():
     # 服务若接受订阅，这条流不会结束，以超时失败而不是挂住。
     async with (
         asyncio.timeout(5),
-        serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session,
+        serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session,
     ):
         # 测试连接以旧握手建立；按 Claude Code 使用的新协议重新协商。
         await session.discover()
@@ -306,7 +336,7 @@ async def test_intent_submits_with_a_callback_placing_the_turn_under_one_actor(
     system = _system(_Entry(result=pending))
     gateway = system.access_gateway
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool(tool, {**arguments, "turn": _TURN})
 
     assert pending.pending_alias in tool_text(result)
@@ -327,7 +357,7 @@ async def test_intent_without_turn_is_rejected_before_authentication():
     """连接器没有补上轮次信息时以 request.turn_required 拒绝：不认证、不确定话题、不登记意图。"""
     system = _system(_Entry(result=_pending()))
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool("memory_write", {"content": "部署走 CI"})
 
     assert tool_error(result)["error"] == "request.turn_required"
@@ -344,7 +374,7 @@ async def test_placement_failure_is_projected():
         import_bus=_ImportBus(error=ImportBusUnavailableError(reason="gateway_unavailable")),
     )
 
-    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
         result = await session.call_tool("memory_write", {"content": "部署走 CI", "turn": _TURN})
 
     error = tool_error(result)

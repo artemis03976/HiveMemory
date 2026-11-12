@@ -11,7 +11,6 @@ const DEFAULT_CONFIG: AgentProfileConfig = {
   model_name: 'default',
   temperature: 0.7,
   top_p: null,
-  language: 'zh',
 };
 
 /** 只读取编辑器支持的配置，存量图纸中的废弃字段不会进入草稿。 */
@@ -30,7 +29,6 @@ function backendToAgentData(b: BackendAgent): AgentData {
       model_name: cfg?.model_name ?? 'default',
       temperature: cfg?.temperature ?? 0.7,
       top_p: cfg?.top_p ?? null,
-      language: cfg?.language ?? 'zh',
     },
     createdAt: b.created_at,
     updatedAt: b.updated_at,

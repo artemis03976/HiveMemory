@@ -34,6 +34,7 @@ from hivememory.core.errors import (
     StorageWriteError,
     WorkspaceMismatchError,
 )
+from hivememory.i18n.http_errors import get_http_error_text
 from hivememory.infrastructure.attachments import UnsupportedAttachmentFormatError
 from hivememory.infrastructure.attachments.errors import (
     AttachmentTooLargeError,
@@ -82,33 +83,28 @@ type HTTPErrorCode = Literal[
     "request.management_credential_invalid",
 ]
 
-# 显式传输错误由调用点选择机器类别，不能根据异常 detail 反查分类。
-_HTTP_ERRORS: dict[HTTPErrorCode, tuple[int, str]] = {
-    "request.invalid_memory_id": (400, "无效的记忆 ID 格式"),
-    "request.identity_empty": (400, "身份字段不能为空"),
-    "request.principal_required": (400, "外部入口必须以 X-Principal-ID 声明调用来源"),
-    "request.agent_required": (400, "该操作必须显式提供 agent_id"),
-    "request.agent_reserved": (400, "不能使用保留的 system 作为 agent_id"),
-    "request.workspace_not_found": (404, "Workspace 不存在或未开放"),
-    "request.empty_update": (400, "请求体中没有需要更新的字段"),
-    "request.validation_failed": (400, "配置输入不符合要求"),
-    "request.multipart_invalid": (400, "multipart 表单解析失败"),
-    "request.file_required": (400, "缺少 file 文件字段"),
-    "request.single_file_required": (
-        400,
-        "一个上传请求只能包含一个 file 文件部分，多文件请逐个上传",
-    ),
-    "request.upload_fields_invalid": (400, "上传请求包含未知的业务字段"),
-    "request.file_content_required": (400, "file 字段必须携带文件内容"),
-    "request.idempotency_key_required": (
-        400,
-        "缺少 Idempotency-Key 请求头；同一文件重试必须沿用同一取值",
-    ),
-    "request.idempotency_key_too_long": (400, "Idempotency-Key 过长"),
-    "request.body_too_large": (413, "请求体超过允许的大小上限"),
-    "request.not_found": (404, "请求的资源不存在"),
-    "request.turn_required": (400, "写入与更新必须由连接器补上当前一轮的信息"),
-    "request.management_credential_invalid": (401, "管理接口需要管理凭据：缺少凭据或凭据不正确"),
+# 显式传输错误由调用点选择机器类别，不能根据异常 detail 反查分类；说明按错误码取自 i18n，
+# 随语言设置。
+_HTTP_ERRORS: dict[HTTPErrorCode, int] = {
+    "request.invalid_memory_id": 400,
+    "request.identity_empty": 400,
+    "request.principal_required": 400,
+    "request.agent_required": 400,
+    "request.agent_reserved": 400,
+    "request.workspace_not_found": 404,
+    "request.empty_update": 400,
+    "request.validation_failed": 400,
+    "request.multipart_invalid": 400,
+    "request.file_required": 400,
+    "request.single_file_required": 400,
+    "request.upload_fields_invalid": 400,
+    "request.file_content_required": 400,
+    "request.idempotency_key_required": 400,
+    "request.idempotency_key_too_long": 400,
+    "request.body_too_large": 413,
+    "request.not_found": 404,
+    "request.turn_required": 400,
+    "request.management_credential_invalid": 401,
 }
 
 
@@ -116,87 +112,52 @@ class APIError(HTTPException):
     """带具名类别的传输拒绝；安全呈现由本模块决定，不接受任意 detail。"""
 
     def __init__(self, code: HTTPErrorCode, *, issues: list[ValidationIssue] | None = None) -> None:
-        status, message = _HTTP_ERRORS[code]
+        status = _HTTP_ERRORS[code]
+        message = get_http_error_text(code)
         self.payload = ErrorResponse(error=code, detail=message, issues=issues)
         super().__init__(status_code=status, detail=message)
 
 
-# 映射只决定 HTTP 类别与安全呈现，不改变 owner 的判断与重试策略。
-_DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
-    OperationDeniedError: (403, "workspace.operation_denied", "当前身份无权执行该操作"),
-    AccessRegistrationNotFoundError: (404, "access.registration.not_found", "访问登记不存在"),
-    AccessRegistrationConflictError: (
-        409,
-        "access.registration.conflict",
-        "访问登记未修改：与现有登记冲突，或该登记只能经登记文件修改",
-    ),
-    ScopeRequiredError: (500, "workspace.scope_required", "请求处理失败，请联系服务维护者"),
-    WorkspaceMismatchError: (409, "workspace.mismatch", "请求与目标 Workspace 不一致"),
-    SessionNotFoundError: (404, "workspace.session.not_found", "会话不存在"),
-    SessionBusyError: (409, "workspace.session.busy", "会话正在处理，请稍后重试"),
-    SessionCapacityError: (409, "workspace.session.capacity_exceeded", "会话容量已满"),
-    SessionClosedError: (503, "workspace.session.closed", "会话服务已关闭"),
-    ResourceNotFoundError: (404, "workspace.resource.not_found", "资源不存在或不可访问"),
-    ResourceNotVisibleError: (404, "workspace.resource.not_found", "资源不存在或不可访问"),
-    ResourceUnavailableError: (503, "workspace.resource.unavailable", "服务当前不可用，请稍后重试"),
-    InvalidMemoryFieldError: (422, "memory.field.invalid", "记忆字段不符合要求，请检查输入"),
-    MemoryAliasConflictError: (409, "workspace.memory.alias_conflict", "记忆别名冲突，请更换别名"),
-    PendingUpdateNotAllowedError: (
-        409,
-        "workspace.memory.intent.pending_update_not_allowed",
-        "这条记忆仍在生成中，不能作为更新的对象，生成完成后请改用正式 alias",
-    ),
-    IntentDispatchRejectedError: (
-        503,
-        "workspace.memory.intent.dispatch_rejected",
-        "生成队列没有接纳这次提交，请稍后重新提交",
-    ),
-    IntentDispatchUnknownError: (
-        500,
-        "workspace.memory.intent.dispatch_unknown",
-        "无法确认这次提交是否已被接纳，请稍后检索核实，避免重复提交",
-    ),
-    ModelNotFoundError: (404, "model.not_found", "模型不存在"),
-    DuplicateModelIdError: (409, "model.duplicate_id", "模型 ID 已存在"),
-    ProviderNotFoundError: (404, "provider.not_found", "提供商不存在或不能删除"),
-    TopicBusyError: (409, "patchouli.topic.busy", "话题正在处理，请稍后重试"),
-    TopicSettleAdmissionError: (
-        503,
-        "patchouli.topic.settle_rejected",
-        "结算材料暂未被生成队列接纳，话题内容已保留，可重试",
-    ),
-    ImportBusUnavailableError: (
-        503,
-        "import_bus.unavailable",
-        "导入暂时无法完成，请保留该轮并稍后重发",
-    ),
-    ImportBusApplyFailedError: (
-        500,
-        "import_bus.apply_failed",
-        "导入的轮次在应用时失败，重发时会重新路由并再次提交",
-    ),
-    AssetNotFoundError: (404, "workspace.asset.not_found", "附件不存在或已失效"),
-    AssetExpiredError: (410, "workspace.asset.expired", "附件已失效，请重新上传"),
-    AssetNotReadyError: (409, "workspace.asset.not_ready", "附件尚未就绪"),
-    AssetFailedError: (409, "workspace.asset.failed", "附件处理失败，请重新上传"),
-    AssetRemovedError: (410, "workspace.asset.removed", "原上传操作对应的资产已被移除，请重新上传"),
-    StaleAssetResultError: (409, "workspace.asset.stale_result", "上传结果提交冲突，请重新上传"),
-    AssetOperationConflictError: (
-        409,
-        "workspace.asset.operation_conflict",
-        "同一 Idempotency-Key 携带了不一致的文件内容或元数据",
-    ),
-    EmptyAttachmentError: (400, "attachment.empty", "文件内容为空"),
-    InvalidAttachmentNameError: (400, "attachment.invalid_name", "文件名不符合要求"),
-    AttachmentTooLargeError: (413, "attachment.too_large", "附件超过允许的大小上限"),
-    UnsupportedAttachmentFormatError: (415, "attachment.unsupported_format", "不支持该附件格式"),
-    StorageOfflineError: (503, "storage.offline", "记忆存储当前不可用"),
-    StorageReadError: (500, "storage.read_failed", "记忆读取失败，请稍后再试"),
-    StorageWriteError: (
-        500,
-        "storage.write_failed",
-        "记忆修改未确认生效，请先核实结果，避免重复提交",
-    ),
+# 映射只决定 HTTP 类别与错误码，不改变 owner 的判断与重试策略；安全说明按错误码取自 i18n。
+_DOMAIN_ERRORS: dict[type[Exception], tuple[int, str]] = {
+    OperationDeniedError: (403, "workspace.operation_denied"),
+    AccessRegistrationNotFoundError: (404, "access.registration.not_found"),
+    AccessRegistrationConflictError: (409, "access.registration.conflict"),
+    ScopeRequiredError: (500, "workspace.scope_required"),
+    WorkspaceMismatchError: (409, "workspace.mismatch"),
+    SessionNotFoundError: (404, "workspace.session.not_found"),
+    SessionBusyError: (409, "workspace.session.busy"),
+    SessionCapacityError: (409, "workspace.session.capacity_exceeded"),
+    SessionClosedError: (503, "workspace.session.closed"),
+    ResourceNotFoundError: (404, "workspace.resource.not_found"),
+    ResourceNotVisibleError: (404, "workspace.resource.not_found"),
+    ResourceUnavailableError: (503, "workspace.resource.unavailable"),
+    InvalidMemoryFieldError: (422, "memory.field.invalid"),
+    MemoryAliasConflictError: (409, "workspace.memory.alias_conflict"),
+    PendingUpdateNotAllowedError: (409, "workspace.memory.intent.pending_update_not_allowed"),
+    IntentDispatchRejectedError: (503, "workspace.memory.intent.dispatch_rejected"),
+    IntentDispatchUnknownError: (500, "workspace.memory.intent.dispatch_unknown"),
+    ModelNotFoundError: (404, "model.not_found"),
+    DuplicateModelIdError: (409, "model.duplicate_id"),
+    ProviderNotFoundError: (404, "provider.not_found"),
+    TopicBusyError: (409, "patchouli.topic.busy"),
+    TopicSettleAdmissionError: (503, "patchouli.topic.settle_rejected"),
+    ImportBusUnavailableError: (503, "import_bus.unavailable"),
+    ImportBusApplyFailedError: (500, "import_bus.apply_failed"),
+    AssetNotFoundError: (404, "workspace.asset.not_found"),
+    AssetExpiredError: (410, "workspace.asset.expired"),
+    AssetNotReadyError: (409, "workspace.asset.not_ready"),
+    AssetFailedError: (409, "workspace.asset.failed"),
+    AssetRemovedError: (410, "workspace.asset.removed"),
+    StaleAssetResultError: (409, "workspace.asset.stale_result"),
+    AssetOperationConflictError: (409, "workspace.asset.operation_conflict"),
+    EmptyAttachmentError: (400, "attachment.empty"),
+    InvalidAttachmentNameError: (400, "attachment.invalid_name"),
+    AttachmentTooLargeError: (413, "attachment.too_large"),
+    UnsupportedAttachmentFormatError: (415, "attachment.unsupported_format"),
+    StorageOfflineError: (503, "storage.offline"),
+    StorageReadError: (500, "storage.read_failed"),
+    StorageWriteError: (500, "storage.write_failed"),
 }
 
 _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
@@ -237,41 +198,46 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
 }
 
 
+# 有专门说明的校验类别；其余类别都按 value_error 呈现。
+_VALIDATION_KINDS = frozenset(
+    {
+        "missing",
+        "extra_forbidden",
+        "string_type",
+        "int_type",
+        "int_parsing",
+        "float_type",
+        "float_parsing",
+        "bool_type",
+        "bool_parsing",
+        "list_type",
+        "dict_type",
+        "json_invalid",
+        "uuid_parsing",
+        "string_too_short",
+        "string_too_long",
+        "greater_than",
+        "greater_than_equal",
+        "less_than",
+        "less_than_equal",
+        "literal_error",
+        "enum",
+        "value_error",
+    }
+)
+
+
 def validation_issues(errors: Sequence[Mapping[str, Any]]) -> list[ValidationIssue]:
     """只投影字段位置与受控类别，忽略原始 msg、input 和 ctx。"""
-    messages = {
-        "missing": "缺少必填字段",
-        "extra_forbidden": "不允许此字段",
-        "string_type": "应提供字符串",
-        "int_type": "应提供整数",
-        "int_parsing": "应提供整数",
-        "float_type": "应提供数字",
-        "float_parsing": "应提供数字",
-        "bool_type": "应提供布尔值",
-        "bool_parsing": "应提供布尔值",
-        "list_type": "应提供列表",
-        "dict_type": "应提供对象",
-        "json_invalid": "JSON 格式不合法",
-        "uuid_parsing": "标识符格式不合法",
-        "string_too_short": "文本过短",
-        "string_too_long": "文本过长",
-        "greater_than": "数值超出允许范围",
-        "greater_than_equal": "数值超出允许范围",
-        "less_than": "数值超出允许范围",
-        "less_than_equal": "数值超出允许范围",
-        "literal_error": "取值不在允许范围内",
-        "enum": "取值不在允许范围内",
-        "value_error": "字段取值不合法",
-    }
     result = []
     for error in errors:
         kind = error.get("type", "value_error")
-        kind = kind if isinstance(kind, str) and kind in messages else "value_error"
+        kind = kind if isinstance(kind, str) and kind in _VALIDATION_KINDS else "value_error"
         result.append(
             ValidationIssue(
                 loc=[part for part in error.get("loc", ()) if isinstance(part, (str, int))],
                 type=kind,
-                message=messages[kind],
+                message=get_http_error_text(f"validation.{kind}"),
             )
         )
     return result
@@ -284,36 +250,44 @@ def project_error(error: Exception) -> tuple[int, ErrorResponse]:
     if isinstance(error, RequestValidationError):
         return 422, ErrorResponse(
             error="request.validation_failed",
-            detail="请求输入不符合要求",
+            detail=get_http_error_text("request.input_invalid"),
             issues=validation_issues(error.errors()),
         )
     if isinstance(error, UnsupportedAttachmentFormatError):
         # 格式 owner 的受控分类可以决定帮助文案，异常正文仍不直接公开。
-        message = {
-            "legacy_doc_format": "不支持 .doc 格式，请另存为 .docx 后重新上传",
-            "conflicting_media_type": "声明的文件类型与扩展名冲突，请确认文件格式后重新上传",
-        }.get(error.reason, "不支持该附件格式")
+        key = "attachment.unsupported_format"
+        if error.reason in ("legacy_doc_format", "conflicting_media_type"):
+            key = f"{key}.{error.reason}"
+        message = get_http_error_text(key)
         return 415, ErrorResponse(error="attachment.unsupported_format", detail=message)
     reason = error.details.get("reason") if isinstance(error, DomainError) else None
     allowed = _REASON_ALLOWLIST.get(type(error), frozenset())
     reason = reason if isinstance(reason, str) and reason in allowed else None
     if isinstance(error, AdmissionDeniedError):
         status = 503 if reason == "authentication_gateway_closed" else 403
-        message = "认证服务已关闭" if status == 503 else "当前身份未获准访问该 Workspace"
+        message = get_http_error_text(
+            "admission.gateway_closed" if status == 503 else "admission.denied"
+        )
         return status, ErrorResponse(error=error.code, detail=message, reason=reason)
     if isinstance(error, AssetOperationConflictError) and reason == "store_closed":
         return 503, ErrorResponse(
-            error=error.code, detail="附件存储当前不可用，请稍后重试", reason=reason
+            error=error.code,
+            detail=get_http_error_text("workspace.asset.store_closed"),
+            reason=reason,
         )
-    for error_type, (status, code, message) in _DOMAIN_ERRORS.items():
+    for error_type, (status, code) in _DOMAIN_ERRORS.items():
         if isinstance(error, error_type):
-            return status, ErrorResponse(error=code, detail=message, reason=reason)
+            return status, ErrorResponse(
+                error=code, detail=get_http_error_text(code), reason=reason
+            )
     if isinstance(error, HTTPException) and error.status_code < 500:
         return error.status_code, ErrorResponse(
-            error=f"http.{error.status_code}", detail="请求无法完成，请检查输入或访问权限"
+            error=f"http.{error.status_code}", detail=get_http_error_text("http.client_error")
         )
     status = error.status_code if isinstance(error, HTTPException) else 500
-    return status, ErrorResponse(error="server.internal_error", detail="服务器内部错误，请稍后再试")
+    return status, ErrorResponse(
+        error="server.internal_error", detail=get_http_error_text("server.internal_error")
+    )
 
 
 async def handle_error(request: Request, exc: Exception) -> JSONResponse:

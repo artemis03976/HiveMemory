@@ -8,8 +8,6 @@
 来源；连接器补上的轮次信息只用于确定话题。本入口也不组装 ``IdentityScope``。
 """
 
-from __future__ import annotations
-
 import logging
 import time
 from collections.abc import Callable, Iterator, Mapping
@@ -36,6 +34,8 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeTarget,
     readable_source,
 )
+from hivememory.i18n import Language
+from hivememory.i18n.mcp import get_mcp_text
 from hivememory.server.deps import (
     RequestIdentitySelection,
     authenticate_request_actor,
@@ -62,52 +62,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_INSTRUCTIONS = """\
-HiveMemory 保存此前的对话与工作沉淀下来的长期记忆，包括项目历史、做过的决定与用户偏好。
-- 回答涉及项目历史、此前的决定或用户偏好的问题之前，先用 memory_search 检索；
-- 检索结果是带存档日期的历史证据，可能已经过时，引用前先核实；
-- 仓库中的代码与文档、你自己的项目指令与记忆文件优先于检索结果；
-- 检索结果中的 alias 可以用 memory_read 读取全文；
-- 用户要求记住的事、做出的决定及理由、验证过的结论、偏好与经验，在成立时用 memory_write 写入；\
-已有记忆过时或有误时，用 memory_update 按检索得到的 alias 修正；
-- 写入与更新返回句柄 alias，表示已被接纳、正式记忆仍在后台生成；可以用 memory_read 读取句柄，\
-生成完成后读取会转到正式记忆。"""
-
-_SEARCH_DESCRIPTION = """\
-检索 HiveMemory 中的长期记忆（此前的对话与工作沉淀的项目历史、决定与用户偏好）。
-回答涉及项目历史、此前的决定或用户偏好的问题之前调用。结果是带存档日期的历史证据，\
-可能已经过时：仓库中的代码与文档、你自己的项目指令与记忆文件优先于检索结果，引用前先核实。
-结果中的 alias 可以交给 memory_read 读取全文。"""
-
-_READ_DESCRIPTION = """\
-按 alias 读取 HiveMemory 记忆的全文，alias 来自 memory_search 的结果，\
-或 memory_write、memory_update 返回的句柄。
-结果按请求顺序给出；找不到的 alias 列在末尾，全部找不到时返回错误。\
-读到的内容同样是带日期的历史证据，引用前先核实。"""
-
-_WRITE_DESCRIPTION = """\
-把值得以后找到的事写入 HiveMemory：用户要求记住的事、做出的决定及理由、验证过的结论、\
-偏好与禁忌、经验与教训。
-在这件事成立时写入，一次写一件事；写结果，不要把对话或工作的过程复述成记忆。
-content 写完整、可以独立理解的正文；title 写这件事本身，具体、可检索，正式记忆沿用它；\
-reason 说明为什么值得保存。
-返回句柄 alias（draft_ 开头）：写入已被接纳，正式记忆在后台生成、尚未保存；\
-可以用 memory_read 读取句柄，生成完成后读取会转到正式记忆。"""
-
-_UPDATE_DESCRIPTION = """\
-修正 HiveMemory 中一条已有的记忆。alias 是 memory_search 或 memory_read 得到的正式记忆 alias，\
-不能是 draft_ 或 rev_ 开头的句柄；instruction 说明要怎样修改；content 可以附上替换或补充的正文。
-返回句柄 alias（rev_ 开头）：更新已被接纳，新版本在后台生成、尚未保存；\
-可以用 memory_read 读取句柄，生成完成后读取会转到更新后的记忆。"""
-
-_TURN_DESCRIPTION = "当前一轮的标识与上文，由 HiveMemory 插件在调用前自动填写；不要自行填写"
-
-_NO_RESULTS = "没有检索到相关记忆。"
-_UNRESOLVED = "未找到以下 alias：{aliases}"
-_ACCEPTED = """\
-{operation}已登记并被生成队列接纳，句柄 alias 为 {alias}；正式记忆尚未保存，由后台生成。\
-可以用 memory_read 读取这个句柄，生成完成后读取会转到正式记忆。"""
-
 # 检索与读取只读取记忆；读取会记录引用，但不改变记忆内容。
 _READ_ONLY = ToolAnnotations(read_only_hint=True)
 # 写入只新增记忆，不改动已有内容；更新改写一条已有记忆的当前版本。
@@ -115,19 +69,28 @@ _WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
 _UPDATE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
 
 
-def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
-    """构造检索、读取、写入与更新四个工具的 MCP 服务；门面在每次调用时取得，服务可以先于系统装配。"""
-    server = _new_server()
+def create_mcp_server(
+    get_system: Callable[[], "HiveMemorySystem"], language: Language
+) -> MCPServer:
+    """构造检索、读取、写入与更新四个工具的 MCP 服务；门面在每次调用时取得，服务可以先于系统装配。
+
+    服务说明、工具与参数描述和结果文本按 ``language``（HiveMemory 的语言设置）给出，构造后不变。
+    """
+
+    def text(key: str) -> str:
+        return get_mcp_text(key, language)
+
+    server = _new_server(text("instructions"))
     compiler = MemoryCompiler()
 
     @server.tool(
         name="memory_search",
-        description=_SEARCH_DESCRIPTION,
+        description=text("search_description"),
         annotations=_READ_ONLY,
         structured_output=False,
     )
     async def memory_search(
-        query: Annotated[str, Field(min_length=1, description="用自然语言描述要找的内容")],
+        query: Annotated[str, Field(min_length=1, description=text("query_description"))],
         ctx: Context,
     ) -> CallToolResult:
         started = time.monotonic()
@@ -136,23 +99,26 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
             try:
                 system = get_system()
                 memories = await _submit(system, headers, RetrieveRequest(semantic_query=query))
-                text = _search_text(
-                    compiler, memories, system.config.memory_compiler.retrieval_context.strategy
+                result = _search_text(
+                    compiler,
+                    memories,
+                    system.config.memory_compiler.retrieval_context.strategy,
+                    language,
                 )
             except Exception as error:
                 return _failed("memory_search", headers, started, error)
             _log_call("memory_search", headers, started, f"results={len(memories)}")
-            return _text_result(text)
+            return _text_result(result)
 
     # Claude Code 连接器按参数名把 aliases 归一化为 READ 的作用对象，改名时同步修改它的识别表。
     @server.tool(
         name="memory_read",
-        description=_READ_DESCRIPTION,
+        description=text("read_description"),
         annotations=_READ_ONLY,
         structured_output=False,
     )
     async def memory_read(
-        aliases: Annotated[list[str], Field(min_length=1, description="要读取的记忆 alias")],
+        aliases: Annotated[list[str], Field(min_length=1, description=text("aliases_description"))],
         ctx: Context,
     ) -> CallToolResult:
         started = time.monotonic()
@@ -163,28 +129,26 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
                 results = await _submit(
                     system, headers, ResolveReferencesRequest(aliases=tuple(aliases))
                 )
-                text, unresolved = _read_text(compiler, aliases, results)
+                result, unresolved = _read_text(compiler, aliases, results, language)
             except Exception as error:
                 return _failed("memory_read", headers, started, error)
             _log_call("memory_read", headers, started, f"unresolved={len(unresolved)}")
-            return _text_result(text)
+            return _text_result(result)
 
     # Claude Code 连接器的 PreToolUse hook 按参数名填写 turn，回流时把它从参数中去掉；
     # 改名时同步修改连接器。
     @server.tool(
         name="memory_write",
-        description=_WRITE_DESCRIPTION,
+        description=text("write_description"),
         annotations=_WRITE,
         structured_output=False,
     )
     async def memory_write(
-        content: Annotated[str, Field(min_length=1, description="要保存的完整正文")],
+        content: Annotated[str, Field(min_length=1, description=text("write_content_description"))],
         ctx: Context,
-        title: Annotated[
-            str | None, Field(description="正式记忆沿用的标题：具体、可检索，带项目或组件名")
-        ] = None,
-        reason: Annotated[str | None, Field(description="为什么值得保存")] = None,
-        turn: Annotated[InFlightTurn | None, Field(description=_TURN_DESCRIPTION)] = None,
+        title: Annotated[str | None, Field(description=text("title_description"))] = None,
+        reason: Annotated[str | None, Field(description=text("reason_description"))] = None,
+        turn: Annotated[InFlightTurn | None, Field(description=text("turn_description"))] = None,
     ) -> CallToolResult:
         started = time.monotonic()
         headers = ctx.headers or {}
@@ -198,22 +162,26 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
             except Exception as error:
                 return _failed("memory_write", headers, started, error)
             _log_call("memory_write", headers, started, f"intent_id={pending.intent_id}")
-            return _text_result(_ACCEPTED.format(operation="写入", alias=pending.pending_alias))
+            return _text_result(text("write_accepted").format(alias=pending.pending_alias))
 
     # Claude Code 连接器按参数名把 alias 归一化为 UPDATE 的作用对象，turn 的处理与
     # memory_write 相同；改名时同步修改它的识别表。
     @server.tool(
         name="memory_update",
-        description=_UPDATE_DESCRIPTION,
+        description=text("update_description"),
         annotations=_UPDATE,
         structured_output=False,
     )
     async def memory_update(
-        alias: Annotated[str, Field(min_length=1, description="要修正的记忆的正式 alias")],
-        instruction: Annotated[str, Field(min_length=1, description="要怎样修改这条记忆")],
+        alias: Annotated[str, Field(min_length=1, description=text("update_alias_description"))],
+        instruction: Annotated[
+            str, Field(min_length=1, description=text("instruction_description"))
+        ],
         ctx: Context,
-        content: Annotated[str | None, Field(description="替换或补充的正文")] = None,
-        turn: Annotated[InFlightTurn | None, Field(description=_TURN_DESCRIPTION)] = None,
+        content: Annotated[
+            str | None, Field(description=text("update_content_description"))
+        ] = None,
+        turn: Annotated[InFlightTurn | None, Field(description=text("turn_description"))] = None,
     ) -> CallToolResult:
         started = time.monotonic()
         headers = ctx.headers or {}
@@ -227,12 +195,12 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
             except Exception as error:
                 return _failed("memory_update", headers, started, error)
             _log_call("memory_update", headers, started, f"intent_id={pending.intent_id}")
-            return _text_result(_ACCEPTED.format(operation="更新", alias=pending.pending_alias))
+            return _text_result(text("update_accepted").format(alias=pending.pending_alias))
 
     return server
 
 
-def create_http_app(server: MCPServer) -> Starlette:
+def create_http_app(server: MCPServer) -> "Starlette":
     """无状态、JSON 响应的 streamable HTTP 应用，端点路径为 ``/mcp``。
 
     每个 HTTP 请求独立处理，不保存 MCP 会话。保留 SDK 默认的 Host 与 Origin
@@ -243,28 +211,21 @@ def create_http_app(server: MCPServer) -> Starlette:
     return server.streamable_http_app(stateless_http=True, json_response=True)
 
 
-def _new_server() -> MCPServer:
+def _new_server(instructions: str) -> MCPServer:
     """SDK 构造时以 ``logging.basicConfig`` 给根 logger 装自己的输出。
 
-    根 logger 已有 handler 时 ``basicConfig`` 不生效。进程日志由 server 按配置
-    统一设置，而本服务在模块导入时构造、早于日志配置；构造期间挂一个占位
-    handler，否则此后每条日志都会多输出一份。
+    根 logger 已有 handler 时 ``basicConfig`` 不生效：server 在配置日志之后才构造本服务，
+    日志配置总会在根 logger 上装 handler，所以不会多出一份输出。
     """
-    root = logging.getLogger()
-    placeholder = logging.NullHandler()
-    root.addHandler(placeholder)
-    try:
-        # 不提供 subscriptions/listen：工具与资源在运行时不变，没有可推送的变更。该请求的
-        # 响应是一条一直打开的流，只在会话管理器退出时结束，而 uvicorn 要等所有连接结束后
-        # 才执行宿主的 lifespan 关闭，任何在线的客户端都会让服务停不下来。
-        return MCPServer(
-            name="hivememory",
-            instructions=_INSTRUCTIONS,
-            version=__version__,
-            subscriptions=False,
-        )
-    finally:
-        root.removeHandler(placeholder)
+    # 不提供 subscriptions/listen：工具与资源在运行时不变，没有可推送的变更。该请求的
+    # 响应是一条一直打开的流，只在会话管理器退出时结束，而 uvicorn 要等所有连接结束后
+    # 才执行宿主的 lifespan 关闭，任何在线的客户端都会让服务停不下来。
+    return MCPServer(
+        name="hivememory",
+        instructions=instructions,
+        version=__version__,
+        subscriptions=False,
+    )
 
 
 @contextmanager
@@ -281,7 +242,7 @@ def _call_trace(tool: str) -> Iterator[None]:
         reset_trace_context(tokens)
 
 
-async def _authenticate(system: HiveMemorySystem, headers: Mapping[str, str]) -> WorkingActor:
+async def _authenticate(system: "HiveMemorySystem", headers: Mapping[str, str]) -> WorkingActor:
     """以请求头的声明经统一认证网关认证一次，返回本次调用的工作 actor。
 
     principal 与凭据由网关核对，用户、Workspace 与 Agent 声明经 server 唯一的
@@ -305,7 +266,7 @@ async def _authenticate(system: HiveMemorySystem, headers: Mapping[str, str]) ->
 
 
 async def _submit[R](
-    system: HiveMemorySystem, headers: Mapping[str, str], request: OperationRequest[R]
+    system: "HiveMemorySystem", headers: Mapping[str, str], request: OperationRequest[R]
 ) -> R:
     """检索与读取：认证后经请求级提交分派。"""
     actor = await _authenticate(system, headers)
@@ -313,7 +274,7 @@ async def _submit[R](
 
 
 async def _submit_intent(
-    system: HiveMemorySystem,
+    system: "HiveMemorySystem",
     headers: Mapping[str, str],
     turn: InFlightTurn | None,
     request: OperationRequest[PendingAtom],
@@ -343,14 +304,15 @@ async def _submit_intent(
 def _search_text(
     compiler: MemoryCompiler,
     memories: list[MemoryAtom],
-    strategy: RetrievalContextStrategyConfig,
+    strategy: "RetrievalContextStrategyConfig",
+    language: Language,
 ) -> str:
     """与 Alice 的检索使用同一检索上下文信封与配置的策略。
 
     信封头尾是提示词中预检索上下文的引导，不适用于工具结果，因此关闭。
     """
     if not memories:
-        return _NO_RESULTS
+        return get_mcp_text("no_results", language)
     return compiler.compile(
         memories,
         MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
@@ -359,7 +321,10 @@ def _search_text(
 
 
 def _read_text(
-    compiler: MemoryCompiler, aliases: list[str], results: list[ReferenceResolution]
+    compiler: MemoryCompiler,
+    aliases: list[str],
+    results: list[ReferenceResolution],
+    language: Language,
 ) -> tuple[str, list[str]]:
     """按请求顺序逐项编译，未解析的 alias 列在末尾；全部未解析时以资源不存在拒绝。
 
@@ -379,7 +344,7 @@ def _read_text(
     if not blocks:
         raise ResourceNotFoundError(details={"aliases": unresolved})
     if unresolved:
-        blocks.append(_UNRESOLVED.format(aliases=", ".join(unresolved)))
+        blocks.append(get_mcp_text("unresolved", language).format(aliases=", ".join(unresolved)))
     return "\n".join(blocks), unresolved
 
 

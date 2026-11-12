@@ -14,6 +14,7 @@ import pytest
 from connector.claude_code.reader import PLUGIN_NAME
 from connector.codex.reader import HARNESS, MCP_SERVER_NAME, CodexReader, hook_tool_name
 
+from hivememory.system.plugins import SKILL_PATH
 from hivememory.system.plugins.harnesses import harness_by_id
 from hivememory.system.plugins.service import PYTHON_ENV
 from tests.unit.connectors.codex_rollouts import PLUGIN_ID, THREAD_ID, RolloutWriter
@@ -194,8 +195,10 @@ def test_codex_declarations_match_connector_and_registration():
     Agent 与凭据变量和插件服务安装时登记、交付的一致。"""
     manifest = json.loads((PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text("utf-8"))
     assert manifest["name"] == PLUGIN_NAME
-    for key in ("skills", "mcpServers", "hooks"):
+    for key in ("mcpServers", "hooks"):
         assert (PLUGIN_ROOT / manifest[key]).exists(), key
+    # skill 由后端启动时按语言设置写入，清单指向的就是写入的位置。
+    assert PLUGIN_ROOT / manifest["skills"] / "hivememory" / "SKILL.md" == PLUGIN_ROOT / SKILL_PATH
 
     servers = json.loads((PLUGIN_ROOT / manifest["mcpServers"]).read_text("utf-8"))["mcpServers"]
     server = servers[MCP_SERVER_NAME]

@@ -1,9 +1,9 @@
-"""中立提示词编译的人格、环境通知、空段与语言选择。"""
+"""中立提示词编译的人格、环境通知、空段，以及跟随语言设置。"""
 
 import pytest
 
 from hivememory.core.models import AgentProfile
-from hivememory.i18n import get_default_language, set_default_language
+from hivememory.i18n import Language, set_language
 from hivememory.prompts.compilation import compile_prompt_input
 
 
@@ -24,9 +24,10 @@ from hivememory.prompts.compilation import compile_prompt_input
     ],
 )
 def test_offline_notice_precedes_persona_without_cpu_configuration(language, expected):
-    """离线通知不依赖工具开关，先于人格且不承诺执行者的工具能力。"""
+    """离线通知不依赖工具开关，先于人格且不承诺执行者的工具能力；文字跟随语言设置。"""
+    set_language(Language(language))
     compiled = compile_prompt_input(
-        agent_profile=AgentProfile(persona="PERSONA", language=language),
+        agent_profile=AgentProfile(persona="PERSONA"),
         storage_available=False,
         memory_context="",
         attachment_context="",
@@ -44,23 +45,3 @@ def test_online_empty_persona_and_materials_produce_empty_blocks():
         attachment_context="",
     )
     assert (compiled.instructions, compiled.turn_context) == ("", "")
-
-
-@pytest.mark.parametrize("profile_language,expected", [("en-US", "en"), ("", "zh")])
-def test_compilation_resolves_profile_language_before_process_default(profile_language, expected):
-    """Profile 语言别名优先，未指定语言才使用进程默认值。"""
-    previous = get_default_language()
-    try:
-        set_default_language("zh")
-        compiled = compile_prompt_input(
-            agent_profile=AgentProfile(persona="PERSONA", language=profile_language),
-            storage_available=True,
-            memory_context="",
-            attachment_context="",
-        )
-    finally:
-        set_default_language(previous)
-    assert compiled.language == expected
-    assert compiled.instructions == (
-        "### PERSONA ###\n\nPERSONA" if expected == "en" else "### 角色设定 ###\n\nPERSONA"
-    )

@@ -13,7 +13,6 @@ class Language(StrEnum):
 
 
 DEFAULT_LANGUAGE = Language.ZH
-FALLBACK_LANGUAGE = Language.EN
 
 _LANGUAGE_ALIASES: dict[str, Language] = {
     "zh": Language.ZH,

@@ -7,7 +7,7 @@ code_paths:
   - integrations/hivememory/package.json
   - integrations/hivememory/node/dsh/
   - integrations/hivememory/node/core/
-  - integrations/hivememory/skills/hivememory/
+  - integrations/hivememory/skill-languages/
   - src/hivememory/system/plugins/
 related_contracts:
   - docs/contracts/mcp.md
@@ -25,7 +25,7 @@ last_reviewed: 2026-11-12
 - **记忆工具**：插件启动时从 HiveMemory 取得工具列表与服务说明，在 dsh 中注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具，服务说明作为系统提示词的一节交给 Agent。何时检索与写入由 Agent 自己决定。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件在调用时以 Agent 所在会话的当前一轮自动补上，Agent 看不到也不能填写这个参数。
 - **对话回流**：dsh 中每一轮对话结束后，插件把这一轮（用户消息、回复、思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。网络提交在后台进行，HiveMemory 未运行时 dsh 照常工作，未导入的轮次之后按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
 
-HiveMemory 的使用手册 skill 在同一个插件目录中维护（`integrations/hivememory/skills/hivememory/SKILL.md`），内容不区分 harness，安装插件后随插件提供给 dsh（第 4 节）。
+HiveMemory 的使用手册 skill 在同一个插件目录中维护，内容不区分 harness，安装插件后随插件提供给 dsh（第 4 节）。
 
 两部分都以 dsh 自己的接入来源 `harness:dsh` 认证，以 Agent `dsh` 访问。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。插件只用 Node 标准库，不需要安装依赖，也不需要安装 HiveMemory 包。
 
@@ -92,7 +92,7 @@ HiveMemory 不在 Windows 上运行时（例如 Docker 或 WSL），插件页不
 
 ## 4. 使用手册 skill
 
-skill `hivememory` 随插件提供，不需要另外复制：插件的配置层另外插入一个 skill 提供方，只扫描插件目录下的 `skills/`，不改动用户与各模式自己的 skill 配置。在加载 skill 的模式中（例如桌面端的标准模式；最小模式不加载任何 skill），它出现在会话的 skill 列表里：任务与它的描述相符时，Agent 用 `skill` 工具加载正文；也可以在消息中输入 `/hivememory` 直接加载。链接安装时 skill 随插件目录更新。
+skill `hivememory` 随插件提供，不需要另外复制：插件的配置层另外插入一个 skill 提供方，只扫描插件目录下的 `skills/`，不改动用户与各模式自己的 skill 配置。在加载 skill 的模式中（例如桌面端的标准模式；最小模式不加载任何 skill），它出现在会话的 skill 列表里：任务与它的描述相符时，Agent 用 `skill` 工具加载正文；也可以在消息中输入 `/hivememory` 直接加载。链接安装时 skill 随插件目录更新。skill 的语言随 HiveMemory 的语言设置：后端每次启动时从插件目录的 `skill-languages/<语言>/SKILL.md` 写入 `skills/hivememory/SKILL.md`（[配置指南](./configuration.md#54-语言)）。改语言并重启后端之后，重新打开 dsh 即读到另一种语言的正文。
 
 此前把 skill 手动复制到 `<DSH_HOME>/skills/hivememory`（Windows 上是 `%USERPROFILE%\.dsh\skills\hivememory`）或 `~/.agents/skills/hivememory` 的，安装新版插件后删除这份副本：同名 skill 由离 Agent 更近的来源胜出，桌面端的各模式自己扫描这两个目录，会一直使用旧副本。
 
@@ -130,12 +130,12 @@ skill `hivememory` 随插件提供，不需要另外复制：插件的配置层�
 |:---|:---|
 | 状态目录中没有 `connector.log` | 插件没有加载：确认安装命令成功、安装后重新打开了 dsh；dsh 版本不在支持范围内时安装与加载会被拒绝 |
 | 日志中有 `connect failed`，记忆工具不出现 | HiveMemory 未运行，或 `HIVEMEMORY_URL` 不对（桌面客户端与从仓库运行在 `8769`，Docker 在 `8000`）；可以用 `curl.exe http://127.0.0.1:8769/health` 确认后端可达。恢复后新建一个会话，或重新打开 dsh |
-| 工具返回 `HiveMemory 暂时无法访问` | 同上：调用时后端不可达 |
+| 工具返回 `HiveMemory is unreachable` | 同上：调用时后端不可达 |
 | 工具返回 `HiveMemory MCP 请求失败，HTTP 421` | `HIVEMEMORY_URL` 不是本机地址（例如填了 WSL 虚拟机的 IP），改用 `127.0.0.1` 或 `localhost` |
 | 工具返回 `invalid_credential`，日志的 `stopped` 行带 `status=403 reason=invalid_credential` | dsh 读到的凭据与 HiveMemory 登记的不一致：多半是安装之后没有从托盘退出 dsh 再打开。退出再打开；仍然不行时在插件页点“重新安装”，凭据会重新写入。积压的轮次随后补发 |
 | `stopped` 行带 `reason=unknown_principal` | 插件还装着，但 HiveMemory 一侧没有 `harness:dsh` 的登记（例如在插件页卸载过，或换了一个新的数据目录）：在插件页重新安装 |
 | 工具返回 `operation_not_allowed` | 该 Agent 的访问记录缺少对应的 `memory.*` 操作（第 5 节）：在设置页的“接入与权限”中勾选，立即生效 |
-| 工具返回 `当前没有进行中的一轮` | 写入与更新只能在一轮对话进行中调用 |
+| 工具返回 `No turn is in progress` | 写入与更新只能在一轮对话进行中调用 |
 | 日志中有 `stopped ... kind=retryable` | HiveMemory 暂时不可用或繁忙，进度已保留，之后自动补发 |
 | 日志中有 `rejected`，`rejections.jsonl` 有记录 | 这一轮被服务端拒绝（413、422，或连续三次 500）后跳过，记录中有会话、轮号、状态码与错误码 |
 

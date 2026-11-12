@@ -157,10 +157,10 @@ reason:  以后调整调度或排查汇总没有执行时，需要知道这个�
 | 现象 | 处理 |
 |:---|:---|
 | 没有这四个工具 | HiveMemory 没有连接。照常完成任务；用户要求记住某件事时，告诉用户记忆暂时不可用 |
-| "HiveMemory 暂时无法访问"、`import_bus.unavailable`、`workspace.memory.intent.dispatch_rejected` | 暂时不可用，稍后重试一次；仍然失败就继续任务，并告诉用户这件事没有记下 |
+| "HiveMemory is unreachable"、`import_bus.unavailable`、`workspace.memory.intent.dispatch_rejected` | 暂时不可用，稍后重试一次；仍然失败就继续任务，并告诉用户这件事没有记下 |
 | `workspace.resource.not_found` | alias 写错或记忆已不存在，重新检索 |
 | `workspace.memory.intent.pending_update_not_allowed` | 用句柄做了修正对象，见第 6 节 |
-| `request.turn_required`、"当前没有进行中的一轮" | 插件没能为这次写入补上这一轮的信息，重试无效。告诉用户，继续任务 |
+| `request.turn_required`、"No turn is in progress" | 插件没能为这次写入补上这一轮的信息，重试无效。告诉用户，继续任务 |
 | `workspace.admission_denied`、`workspace.operation_denied` | 接入或权限配置问题，重试无效。告诉用户，继续任务 |
 
 ## 8. 一次会话的节奏

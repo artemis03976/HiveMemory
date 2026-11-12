@@ -1,4 +1,4 @@
-"""Agent Profile 的默认模型参数与存量权限键兼容性单元测试。"""
+"""Agent Profile 的默认模型参数，以及存量图纸中已删除的键（权限、语言）在解析时被忽略。"""
 
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -19,13 +19,13 @@ def test_omni_doll_profile_uses_default_model_parameters_without_permissions() -
         "model_name": "default",
         "temperature": None,
         "top_p": None,
-        "language": "zh",
         "enabled": True,
     }
 
 
 def test_profile_parsing_ignores_legacy_permission_keys() -> None:
-    """旧键即使含非列表值也应忽略，真实配置和 alias 身份仍正常解析；没有启用字段的存量配置读作启用。"""
+    """权限旧键（即使含非列表值）与已删除的 language 键都被忽略，真实配置和 alias 身份仍正常解析；
+    没有启用字段的存量配置读作启用。"""
     atom = MemoryAtom(
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
@@ -51,6 +51,5 @@ def test_profile_parsing_ignores_legacy_permission_keys() -> None:
         "model_name": "legacy-model",
         "temperature": None,
         "top_p": None,
-        "language": "en",
         "enabled": True,
     }

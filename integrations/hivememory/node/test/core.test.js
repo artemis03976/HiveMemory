@@ -111,6 +111,6 @@ test('MCP failures are raised with a readable reason', async () => {
   const unreachable = fakeFetch(null)
   const failing = fakeFetch(200, { jsonrpc: '2.0', id: 1, error: { message: 'bad request' } })
 
-  await assert.rejects(new HiveMemoryClient(CONFIG, unreachable.fetchImpl).listTools(), /暂时无法访问/)
+  await assert.rejects(new HiveMemoryClient(CONFIG, unreachable.fetchImpl).listTools(), /is unreachable/)
   await assert.rejects(new HiveMemoryClient(CONFIG, failing.fetchImpl).listTools(), /bad request/)
 })

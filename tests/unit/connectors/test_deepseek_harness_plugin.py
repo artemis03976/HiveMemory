@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 from typing import get_args
 
+from hivememory.system.plugins import SKILL_PATH
 from hivememory.system.plugins.harnesses import harness_by_id
 from hivememory.system.services.import_bus.models import ImportedEventKind, InFlightTurn
 
@@ -68,4 +69,6 @@ def test_package_points_at_the_dsh_entry_and_bundle_patch():
     skill_root = re.search(r"resolve\('([^']+)/package\.json'\)\), '([^']+)'\)", patch)
     assert skill_root is not None
     assert skill_root.group(1) == manifest["name"]
-    assert (PACKAGE_ROOT / skill_root.group(2) / "hivememory" / "SKILL.md").is_file()
+    assert (
+        PACKAGE_ROOT / skill_root.group(2) / "hivememory" / "SKILL.md" == PACKAGE_ROOT / SKILL_PATH
+    )

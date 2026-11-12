@@ -16,12 +16,14 @@ from hivememory.config.access import SystemPrincipalsFile, WorkspaceActorsFile, 
 from hivememory.core.access import CallerPrincipal, WorkingActor, WorkspaceOperation
 from hivememory.core.models import ActorIdentity
 from hivememory.core.models.workspace import resolve_default_workspace_identity
+from hivememory.i18n import Language
 from hivememory.system.access import SystemActorAccessRegistry
 from hivememory.system.plugins import harnesses
 from hivememory.system.plugins.harnesses import CommandResult
 from hivememory.system.plugins.service import (
     PLUGIN_OPERATIONS,
     PYTHON_ENV,
+    SKILL_PATH,
     PluginInstallationService,
 )
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
@@ -288,3 +290,36 @@ async def test_install_without_user_environment_is_unavailable(setup):
     assert result.failure.reason == "unavailable"
     assert setup.principals.entry_for("harness:claude-code") is None
     assert setup.runner.calls == []
+
+
+def test_write_skill_follows_the_language_and_skips_unchanged_content(setup):
+    """启动时写入语言设置对应的 skill；改语言后改写，内容相同时不改写。"""
+    service = setup.make()
+    plugin_dir = service.integrations_dir / "hivememory"
+    for language, body in (("zh", "中文 skill"), ("en", "English skill")):
+        source = plugin_dir / "skill-languages" / language / "SKILL.md"
+        source.parent.mkdir(parents=True)
+        source.write_text(body, encoding="utf-8")
+
+    assert service.write_skill(Language.EN) is True
+    assert service.write_skill(Language.EN) is False
+    assert (plugin_dir / SKILL_PATH).read_text(encoding="utf-8") == "English skill"
+    assert service.write_skill(Language.ZH) is True
+    assert (plugin_dir / SKILL_PATH).read_text(encoding="utf-8") == "中文 skill"
+
+
+def test_write_skill_without_plugin_directory_writes_nothing(setup, tmp_path):
+    """插件目录不存在时（Docker 镜像中没有插件）不写入。"""
+    service = PluginInstallationService(
+        principal_registry=setup.principals,
+        root_access=setup.root_access,
+        integrations_dir=tmp_path / "missing",
+        install_record_path=setup.record,
+        version="0.7.3",
+        python_executable=_PYTHON,
+        user_environment=None,
+        run=setup.runner,
+    )
+
+    assert service.write_skill(Language.EN) is False
+    assert not (tmp_path / "missing").exists()

@@ -22,7 +22,7 @@ PRESET_AGENT_PROFILES: tuple[AgentProfileCreation, ...] = (
             "4. 复杂逻辑必须添加注释说明设计意图\n"
             "5. 优先使用标准库，避免不必要的第三方依赖"
         ),
-        agent_config={"model_name": "default", "temperature": 0.2, "language": "zh"},
+        agent_config={"model_name": "default", "temperature": 0.2},
     ),
     AgentProfileCreation(
         alias="reviewer_doll",
@@ -39,7 +39,7 @@ PRESET_AGENT_PROFILES: tuple[AgentProfileCreation, ...] = (
             "5. 专注于分析与建议，不代替用户修改代码\n"
             "审查时请给出具体的行号和修改建议。"
         ),
-        agent_config={"model_name": "default", "temperature": 0.3, "language": "zh"},
+        agent_config={"model_name": "default", "temperature": 0.3},
     ),
 )
 

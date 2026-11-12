@@ -7,7 +7,6 @@ import pytest
 from hivememory.agent_runtime.frame import FrameExecutionPolicy
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.core.models import AgentProfile
 from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
@@ -27,15 +26,12 @@ async def test_prompt_and_runtime_reject_verbs_outside_frame_without_submission(
         return await submit(request)
 
     policy = FrameExecutionPolicy.from_verbs({"READ", "SEARCH", "RUN"})
-    profile = AgentProfile(language="en")
-    prompt = MTPPromptBuilder(
-        language=profile.language, allowed_verbs=policy.permitted_verbs
-    ).build()
+    prompt = MTPPromptBuilder(language="en", allowed_verbs=policy.permitted_verbs).build()
     context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),
         execution_policy=policy,
         submit_operation=record_submission,
-        language=profile.language,
+        language="en",
     )
 
     result = await KoakumaRuntime().execute_mtp(command, context)

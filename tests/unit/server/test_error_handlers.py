@@ -32,6 +32,7 @@ from hivememory.core.errors import (
     StorageWriteError,
     WorkspaceMismatchError,
 )
+from hivememory.i18n import Language, set_language
 from hivememory.infrastructure.attachments import UnsupportedAttachmentFormatError
 from hivememory.infrastructure.attachments.errors import (
     AttachmentTooLargeError,
@@ -162,6 +163,19 @@ def test_only_declared_reasons_cross_http_boundary(error, status, reason):
     assert actual_status == status
     assert payload.reason == reason
     assert "secret" not in payload.model_dump_json()
+
+
+def test_safe_descriptions_follow_the_language_setting():
+    """语言设置为英文时安全说明是英文；错误码、状态与 reason 不变，MCP 工具的错误结果复用同一投影。"""
+    set_language(Language.EN)
+
+    status, payload = project_error(ResourceNotFoundError("secret-token"))
+    issue = project_error(RequestValidationError([{"loc": ("body", "x"), "type": "missing"}]))[1]
+
+    assert (status, payload.error) == (404, "workspace.resource.not_found")
+    assert payload.detail == "The resource does not exist or is not accessible"
+    assert issue.detail == "The request input is invalid"
+    assert issue.issues is not None and issue.issues[0].message == "Required field is missing"
 
 
 def test_request_validation_strips_input_context_and_custom_validator_text():

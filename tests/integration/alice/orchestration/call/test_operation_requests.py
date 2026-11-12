@@ -39,7 +39,7 @@ from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 async def test_callee_frame_uses_callee_verbs_without_call():
     """子帧按被调用方的操作快照翻译动词并去掉 CALL，不继承父帧 READ。"""
     harness = OperationsHarness(GlobalSystemBus())
-    profile = AgentProfile(agent_id="callee", persona="被调用人设", language="en")
+    profile = AgentProfile(agent_id="callee", persona="被调用人设")
 
     async def profile_route(_alias, **_kwargs):
         return ResolvedAgentProfile(profile=profile)

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from hivememory.core.models import AgentProfile
-from hivememory.i18n import get_system_prompt_text, resolve_language
+from hivememory.i18n import get_language, get_system_prompt_text
 
 
 @dataclass(frozen=True)
@@ -35,12 +35,12 @@ def compile_prompt_input(
     memory_context: str,
     attachment_context: str,
 ) -> CompiledPromptInput:
-    """一次解析语言并定稿两段文本，不读取 CPU 配置或裁剪执行者的上下文。
+    """取一次语言设置并定稿两段文本，不读取 CPU 配置或裁剪执行者的上下文。
 
     环境通知先于人格，记忆先于附件；空段省略。材料已由各自编译器处理，
     此处只连接，不解析、转义或清除空白，以保持材料边界与正文。
     """
-    language = resolve_language(profile_language=agent_profile.language).value
+    language = get_language().value
     notice = "" if storage_available else render_storage_offline_notice(language=language)
     persona = render_persona(agent_profile.persona, language=language)
     return CompiledPromptInput(

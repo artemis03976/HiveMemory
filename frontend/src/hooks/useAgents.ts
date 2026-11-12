@@ -26,7 +26,6 @@ export interface BackendAgent {
     model_name?: string;
     temperature?: number;
     top_p?: number | null;
-    language?: string;
     enabled?: boolean;
   } | null;
   created_at: string;

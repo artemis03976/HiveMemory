@@ -72,7 +72,8 @@ export class HiveMemoryClient {
       response = await this.post(MCP_PATH, body, headers, signal)
     } catch (error) {
       if (signal?.aborted) throw error
-      throw new Error(`HiveMemory 暂时无法访问（${this.config.url}）：${error.message}`)
+      // 连接器不知道 HiveMemory 的语言设置，进入 Agent 上下文的这条错误用英文。
+      throw new Error(`HiveMemory is unreachable (${this.config.url}): ${error.message}`)
     }
     const { status, payload } = response
     if (status < 200 || status >= 300) {

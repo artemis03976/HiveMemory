@@ -22,7 +22,7 @@ from hivememory.engines.memory_compiler.models import (
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
 )
-from hivememory.i18n.resolver import get_default_language
+from hivememory.i18n.resolver import get_language
 
 if TYPE_CHECKING:
     from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement
@@ -121,7 +121,7 @@ class MemoryCompiler:
         opts = options or MemoryCompileOptions()
 
         if opts.language is None:
-            opts = opts.model_copy(update={"language": get_default_language().value})
+            opts = opts.model_copy(update={"language": get_language().value})
 
         if (
             target == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT

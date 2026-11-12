@@ -15,7 +15,7 @@
 
 import { execFileSync, execSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 
 import builder from 'electron-builder'
 
@@ -86,10 +86,14 @@ function prepareBackend() {
     cpSync(join(REPO_ROOT, 'configs', name), join(target, 'configs', name))
   }
   // 外部 harness 的插件与本地 marketplace，与后端同版本；插件页从这里为 harness 安装，
-  // 覆盖安装时随程序换成新版本。插件自己的测试与 Python 缓存不随包。
-  cpSync(join(REPO_ROOT, 'integrations'), join(target, 'integrations'), {
+  // 覆盖安装时随程序换成新版本。插件自己的测试与 Python 缓存不随包；harness 读取的 skill
+  // 由后端启动时按语言设置写入，开发时生成的那一份也不随包。
+  const integrationsDir = join(REPO_ROOT, 'integrations')
+  const generatedSkill = join('hivememory', 'skills', 'hivememory', 'SKILL.md')
+  cpSync(integrationsDir, join(target, 'integrations'), {
     recursive: true,
-    filter: (source) => !['__pycache__', 'test'].includes(basename(source)),
+    filter: (source) =>
+      !['__pycache__', 'test'].includes(basename(source)) && relative(integrationsDir, source) !== generatedSkill,
   })
   console.log('> npm run build (frontend)')
   execSync('npm run build', { cwd: join(REPO_ROOT, 'frontend'), stdio: 'inherit' })
