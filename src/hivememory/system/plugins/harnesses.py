@@ -62,7 +62,9 @@ class PluginCommandError(Exception):
 
 def run_command(argv: Sequence[str]) -> CommandResult:
     """运行一条插件命令并取得全部输出，不弹出控制台窗口，也不读取标准输入。"""
-    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NO_WINDOW
     try:
         completed = subprocess.run(
             list(argv),
