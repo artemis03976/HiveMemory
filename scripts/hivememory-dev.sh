@@ -390,9 +390,14 @@ start_backend() {
     # The backend writes backend.log and runtime-events.jsonl (one RuntimeEvent
     # per line) itself and rolls both over at midnight. Its stdout/stderr only
     # carry what happens before logging is configured, such as import errors
-    # and the reloader, so they go to a separate file.
+    # and the reloader, so they go to a separate file. The Qdrant address goes in
+    # environment variables, which take precedence over config.yaml and the
+    # personal override, so the backend connects to the Qdrant this script uses.
     if ! start_process_group backend "$PROJECT_ROOT" "$(log_file backend.stdout)" \
         env "HIVEMEMORY_SERVE_FRONTEND=$serve_frontend" \
+        "HIVEMEMORY__PATCHOULI__STORAGE__HOST=$QDRANT_HOST" \
+        "HIVEMEMORY__PATCHOULI__STORAGE__PORT=$QDRANT_HTTP_PORT" \
+        "HIVEMEMORY__PATCHOULI__STORAGE__GRPC_PORT=$QDRANT_GRPC_PORT" \
         "HIVEMEMORY__LOGGING__FILE_PATH=$(log_file backend)" \
         "HIVEMEMORY__LOGGING__EVENT_FILE_PATH=$LOG_DIR/runtime-events.jsonl" \
         HIVEMEMORY__LOGGING__CONSOLE_OUTPUT=false \
