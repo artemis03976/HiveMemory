@@ -23,13 +23,13 @@ related_docs:
   - docs/system/i18n.md
   - docs/contracts/mcp.md
   - docs/system/configuration.md
-  - docs/plans/desktop-plugin-installation.md
+  - docs/archive/plans/desktop-plugin-installation.md
 last_reviewed: 2026-11-12
 ---
 
 # 统一语言设置与外部 Agent 文字的英文版
 
-**文档状态**：Idea（候选）。方向来自候选清单 D-12（[Epic #42](https://github.com/artemis03976/HiveMemory/issues/42) 的剩余部分）。2026-11-12 先起草为计划，同日 owner 决定先做[桌面端安装插件](../plans/desktop-plugin-installation.md)。skill 怎样交到 harness 手中取决于插件随安装包交付的方式，前提因此改变，计划退回本 Idea（[文档治理规范](../DOCUMENTATION.md)第 8.4 节）。第 2 节是 owner 决定，其余是候选设计。
+**文档状态**：Idea（候选）。方向来自候选清单 D-12（[Epic #42](https://github.com/artemis03976/HiveMemory/issues/42) 的剩余部分）。2026-11-12 先起草为计划，同日 owner 决定先做[桌面端安装插件](../archive/plans/desktop-plugin-installation.md)。skill 怎样交到 harness 手中取决于插件随安装包交付的方式，前提因此改变，计划退回本 Idea（[文档治理规范](../DOCUMENTATION.md)第 8.4 节）。第 2 节是 owner 决定，其余是候选设计。
 
 ## 1. 问题
 
@@ -132,7 +132,7 @@ Epic #42 要求用全局配置统一 Agent 提示词的语言。配置项 `i18n.
 
 - **两份正文**：现有 skill 移到 `integrations/hivememory/skill-languages/zh/SKILL.md`，新增英文版 `skill-languages/en/SKILL.md`，两份都受版本控制。英文版的措辞决定 Agent 何时检索、写入与修正记忆，需要 owner 审阅。
 - **后端启动时写入**：四个 harness 读取的 `skills/hivememory/SKILL.md` 改为不受版本控制。
-  - 后端每次启动、读取配置之后，如果插件目录与后端在同一个布局中，就把语言设置对应的那一份复制过去。同一布局指仓库 checkout，或[桌面端安装插件](../plans/desktop-plugin-installation.md)之后的安装目录。
+  - 后端每次启动、读取配置之后，如果插件目录与后端在同一个布局中，就把语言设置对应的那一份复制过去。同一布局指仓库 checkout，或[桌面端安装插件](../archive/plans/desktop-plugin-installation.md)之后的安装目录。
   - 不需要单独的准备步骤，`/health` 也不需要公开语言。
 - **为什么放在后端启动时**：升级发布版本和改语言都必须重启后端，而且重启在 harness 重新加载或更新插件之前。所以在重启时写入，就满足第 2 节“随发布版本自动更新”的要求。
   - 链接安装的 dsh 与 pi，重新打开就会读到新文件；
@@ -180,5 +180,5 @@ Epic #42 要求用全局配置统一 Agent 提示词的语言。配置项 `i18n.
 
 ## 8. 升级为 Plan 的条件
 
-- [桌面端安装插件](../plans/desktop-plugin-installation.md)完成，插件目录随安装包交付成为事实；
+- [桌面端安装插件](../archive/plans/desktop-plugin-installation.md)完成，插件目录随安装包交付成为事实（2026-11-12 已完成）；
 - 第 5.5 节按那份计划落地后的事实核对一遍，尤其是安装版的插件更新方式。

@@ -16,13 +16,13 @@ related_docs:
   - docs/frontend/desktop-client.md
   - docs/help/setup.md
   - docs/help/desktop-client.md
-  - docs/plans/desktop-plugin-installation.md
+  - docs/archive/plans/desktop-plugin-installation.md
 last_reviewed: 2026-11-12
 ---
 
 # 日常实例与开发实例分开
 
-**文档状态**：Idea（候选）。第 2 节是 owner 2026-11-12 的决定，其余是候选设计，可在计划评审时调整。[桌面端安装插件](../plans/desktop-plugin-installation.md)合并之后，按本 Idea 编写下一份计划。
+**文档状态**：Idea（候选）。第 2 节是 owner 2026-11-12 的决定，其余是候选设计，可在计划评审时调整。[桌面端安装插件](../archive/plans/desktop-plugin-installation.md)合并之后，按本 Idea 编写下一份计划。
 
 ## 1. 问题
 
@@ -102,5 +102,5 @@ last_reviewed: 2026-11-12
 
 ## 5. 升级为 Plan 的条件
 
-- [桌面端安装插件](../plans/desktop-plugin-installation.md)合并并归档；
+- [桌面端安装插件](../archive/plans/desktop-plugin-installation.md)合并并归档；
 - 动手之前与 owner 确认迁移日常数据的时间（第 3.2 节）。

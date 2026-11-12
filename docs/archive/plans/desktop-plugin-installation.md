@@ -1,6 +1,9 @@
 ---
 title: 桌面端安装插件
-status: active
+status: archived
+archived_at: 2026-11-12
+implemented_by: PR #218
+superseded_by: docs/frontend/desktop-client.md
 owner: system
 target: v1.0 范围（桌面客户端与四个 harness 的插件模式）
 scope: plugin-directory-in-the-installer-empty-access-on-first-start-and-system-performed-plugin-installation-for-the-four-supported-harnesses
@@ -34,7 +37,7 @@ related_docs:
 
 # 桌面端安装插件
 
-> **状态**：Active（2026-11-12 起草并开始实施；同日实施完成，当前文档已按实现更新，等待手动验收与合并后归档）。owner 于 2026-11-12 决定先做这一项：桌面安装版没有安装插件的入口，桌面端因此失去意义。本计划的前提由 owner 同日决定：
+> **状态**：Archived（2026-11-12，已实施，实施记录见第 10 节）。当前事实见[桌面客户端](../../frontend/desktop-client.md)第 3、8 节、[管理页面](../../frontend/management-views.md#35-插件)第 3.5 节与四份插件帮助（例如[接入 Claude Code](../../help/claude-code-plugin.md)）。以下为实施时的计划原文，第 4.4、4.6 节已按实现改写，链接已按归档位置改正。第 7 节的手动验收由 owner 在日常使用中进行，不阻塞归档。owner 于 2026-11-12 决定先做这一项：桌面安装版没有安装插件的入口，桌面端因此失去意义。本计划的前提由 owner 同日决定：
 >
 > - 桌面端提供安装插件的入口；
 > - 新用户安装之后没有任何连接，只有用户主动选择为某个 harness 安装插件之后才有连接；
@@ -47,15 +50,15 @@ related_docs:
 
 ## 1. 背景和问题
 
-- **安装包里没有插件**：安装版只带 Python 运行时、后端源码与前端页面、Qdrant（[package.mjs](../../desktop/scripts/package.mjs)），不带 `integrations/`。桌面端与前端都没有安装插件的入口，四份插件帮助文档都从仓库 checkout 安装。
+- **安装包里没有插件**：安装版只带 Python 运行时、后端源码与前端页面、Qdrant（[package.mjs](../../../desktop/scripts/package.mjs)），不带 `integrations/`。桌面端与前端都没有安装插件的入口，四份插件帮助文档都从仓库 checkout 安装。
 - **只装了安装版的新用户，要走开发者的步骤**：
   1. 克隆仓库，并切到与安装版相同的版本；插件与后端要同版本，但没有任何东西检查两者是否一致；
   2. 在设置页生成凭据，写进 harness 一侧的环境变量；
   3. 自己运行 harness 的插件命令；
   4. Claude Code 与 Codex 的 hook 用 PATH 上的 Python 运行，安装版自带的 Python 不在 PATH 上，所以还要另装一份 Python；
   5. Claude Code 插件的缺省地址是 `localhost:8000`（Docker 的端口），而安装版固定使用 8769，还要设置 `HIVEMEMORY_URL`。
-- **没有装插件，也已经“接入”**：首次启动时，生效的访问登记从模板生成（[system_principals.example.yaml](../../configs/system_principals.example.yaml)、[workspace_actors.example.yaml](../../configs/workspace_actors.example.yaml)），模板已经为四个 harness 登记了来源与访问记录。没有安装任何插件，这四个来源也已经登记在册。
-- **自由登记的来源没有作用对象**：设置页“接入与权限”的“登记外部 harness”接受任意来源标识，生成凭据后只提示写进哪个环境变量（[管理页面](../frontend/management-views.md)第 3.3 节）。只有四个支持的 harness 有插件；凭据怎样交到 harness 一侧、插件怎样装上，都不在这个流程里。
+- **没有装插件，也已经“接入”**：首次启动时，生效的访问登记从模板生成（[system_principals.example.yaml](../../../configs/system_principals.example.yaml)、[workspace_actors.example.yaml](../../../configs/workspace_actors.example.yaml)），模板已经为四个 harness 登记了来源与访问记录。没有安装任何插件，这四个来源也已经登记在册。
+- **自由登记的来源没有作用对象**：设置页“接入与权限”的“登记外部 harness”接受任意来源标识，生成凭据后只提示写进哪个环境变量（[管理页面](../../frontend/management-views.md)第 3.3 节）。只有四个支持的 harness 有插件；凭据怎样交到 harness 一侧、插件怎样装上，都不在这个流程里。
 - **升级**：安装版靠覆盖安装升级，而插件装在 checkout 或 harness 自己的副本里，不会随安装版一起升级。
 
 ## 2. 目标与非目标
@@ -80,7 +83,7 @@ related_docs:
 - **核对 harness 一侧的插件状态**：用户在 harness 中禁用或删除插件后，页面不会知道。页面状态以 HiveMemory 一侧的登记为准。
 - **Docker 方式**：容器里调用不到宿主上的 harness，插件目录也不在镜像中。Docker 方式继续按帮助文档手动安装。
 - **改动已有部署的生效登记**。
-- **skill 的语言**：留给 D-12。它依赖本计划交付插件的方式，见[统一语言设置 Idea](../ideas/language-setting-unification.md)。
+- **skill 的语言**：留给 D-12。它依赖本计划交付插件的方式，见[统一语言设置 Idea](../../ideas/language-setting-unification.md)。
 
 ## 3. 当前状态和缺口
 
@@ -284,10 +287,39 @@ cd desktop && npm run package
 
 ## 9. 完成时必须更新的当前文档
 
-- [桌面客户端](../frontend/desktop-client.md)：安装包内容、升级后自动更新插件；
-- [管理页面](../frontend/management-views.md)：插件页，以及“接入与权限”页的变化；
-- [公开路由与事件](../contracts/routes-and-events.md)第 6 节：插件管理接口；
-- [System 配置](../system/configuration.md)与[认证与访问登记](../workspace/authentication.md)：模板中不再有外部接入，插件服务登记的来源只用生成的凭据；
-- [使用桌面客户端](../help/desktop-client.md)、[安装与启动](../help/setup.md)第 9 节，以及 [Claude Code](../help/claude-code-plugin.md)、[Codex](../help/codex-plugin.md)、[DeepSeek Harness](../help/deepseek-harness-plugin.md)、[pi](../help/pi-plugin.md) 四份插件帮助；
-- [ROADMAP](../ROADMAP.md) 的对应行；
-- 本计划移入 `archive/plans/`，从 [Plans](./README.md) 中删除，在[归档索引](../archive/plans/README.md)中登记。
+- [桌面客户端](../../frontend/desktop-client.md)：安装包内容、升级后自动更新插件；
+- [管理页面](../../frontend/management-views.md)：插件页，以及“接入与权限”页的变化；
+- [公开路由与事件](../../contracts/routes-and-events.md)第 6 节：插件管理接口；
+- [System 配置](../../system/configuration.md)与[认证与访问登记](../../workspace/authentication.md)：模板中不再有外部接入，插件服务登记的来源只用生成的凭据；
+- [使用桌面客户端](../../help/desktop-client.md)、[安装与启动](../../help/setup.md)第 9 节，以及 [Claude Code](../../help/claude-code-plugin.md)、[Codex](../../help/codex-plugin.md)、[DeepSeek Harness](../../help/deepseek-harness-plugin.md)、[pi](../../help/pi-plugin.md) 四份插件帮助；
+- [ROADMAP](../../ROADMAP.md) 的对应行；
+- 本计划移入 `archive/plans/`，从 [Plans](../../plans/README.md) 中删除，在[归档索引](./README.md)中登记。
+
+## 10. 实施记录
+
+2026-11-12 在分支 `feat/desktop-plugin-installation` 实施第 4 节，以 PR #218 合并。第 4.4 节的手动登记与第 4.6 节 Codex 的启动脚本在实施时定下，已写回正文。与计划不同，或计划没有写到的地方：
+
+- **已经装过时的命令**：
+  - Claude Code 与 Codex 的本地 marketplace 指向别处（例如 checkout）时，先删除，再指向当前的插件目录。已经指向这里时，Claude Code 执行 `marketplace update`，插件已安装则执行 `plugin update`；Codex 再执行一次 `plugin add`，把新版本复制进它的缓存。
+  - pi 中指向别处的 HiveMemory 插件先移除，否则同名的记忆工具会注册两次。
+  - dsh 按路径添加，指向别处的旧链接随之替换。
+  - Claude Code 卸载时带 `--keep-data`，保留连接器的导入进度，重新安装后不必从头补发。
+- **`HIVEMEMORY_PYTHON` 的删除**：卸载 Claude Code 或 Codex 时，另一个仍然安装着就保留这个变量。
+- **不在 Windows 上**：没有用户环境变量可写，凭据交不到 harness 一侧，插件页按“插件目录不可用”处理，不安装也不登记。
+- **安装记录**：新增配置项 `system.plugin_install_record`，缺省为数据根下的 `.hivememory/plugin_installs.json`。
+- **新用户的入口**（第 8 节）：样稿审阅时没有提出其他入口，只在设置页提供。设置页“插件”一类旁只显示已安装的数量，按 owner 审阅样稿时的要求。
+- **测试的归属**：
+  - “插件服务登记的来源只用生成的凭据”由插件服务的单元测试断言；注册表没有改动，`test_registry.py` 不变。
+  - 已经装过时的命令序列由 `tests/unit/system/plugins/test_harnesses.py` 守护。
+  - Claude Code 连接器的缺省地址只是常量，没有单独加测试。
+- **开发方式与安装版的冲突**：实施期间发现，安装版以 checkout 为数据根运行时占着 8769，开发方式的 Vite 连上它一律 401。两者分开运行的方向另起 Idea，见[日常实例与开发实例分开](../../ideas/daily-and-dev-instance-separation.md)。
+
+实测（2026-11-12）：
+
+- 后端门槛 3381 项通过、9 项跳过，覆盖率 94.71%；mypy、ruff 与 black 通过；前端 lint、83 项测试与构建通过；插件的 Node 测试 72 项通过。
+- `hivememory_hook.cmd`：路径带空格时，经 PowerShell 与 cmd 调用都能运行，标准输入照常交给连接器。
+- 免安装目录版：`resources\backend\integrations` 带上了本地 marketplace 与插件目录，不含 `node/test` 与 `__pycache__`；后端以 `pythonw` 运行时，交给 hook 的仍是同一目录中的 `python.exe`。
+- 完整安装包：`npm run package` 生成 `HiveMemory Setup 0.7.3.exe`（约 254 MB），其中的插件目录与免安装目录版相同。
+- 插件页与“接入与权限”页在浏览器中以替身接口核对：未安装、安装成功与 dsh 安装失败三种状态，以及“接入与权限”页，都与样稿一致。
+
+没有在本机实测的是：在插件页真实安装四个 harness、Codex 信任 hook 之后的运行、没有 Python 的新用户环境，以及覆盖安装之后的自动更新。它们属于第 7 节的手动验收，由 owner 在日常使用中进行。
