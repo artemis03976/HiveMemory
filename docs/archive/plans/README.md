@@ -19,6 +19,7 @@ last_reviewed: 2026-11-12
 
 ## 版本之外
 
+- [日常实例与开发实例分开](./daily-and-dev-instance-separation.md)：2026-11-12，PR #219；[安装与启动](../../help/setup.md#47-与桌面安装版同时开发)、[桌面客户端](../../frontend/desktop-client.md)
 - [桌面端安装插件](./desktop-plugin-installation.md)：2026-11-12，PR #218；[桌面客户端](../../frontend/desktop-client.md#8-打包与升级)、[管理页面](../../frontend/management-views.md#35-插件)
 - [管理页修改记忆可见性](./memory-visibility-management.md)：2026-11-11，PR #217；[管理页面](../../frontend/management-views.md#111-可见范围)、[MemoryLibrary](../../patchouli/memory-library.md#12-中期当前可检索书库)
 - [前端 UI 优化与空入口接线](./frontend-ui-and-entry-wiring.md)：2026-11-11，PR #216；[前端](../../frontend/README.md)、[管理页面](../../frontend/management-views.md)

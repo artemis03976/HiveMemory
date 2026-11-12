@@ -312,7 +312,7 @@ cd desktop && npm run package
   - “插件服务登记的来源只用生成的凭据”由插件服务的单元测试断言；注册表没有改动，`test_registry.py` 不变。
   - 已经装过时的命令序列由 `tests/unit/system/plugins/test_harnesses.py` 守护。
   - Claude Code 连接器的缺省地址只是常量，没有单独加测试。
-- **开发方式与安装版的冲突**：实施期间发现，安装版以 checkout 为数据根运行时占着 8769，开发方式的 Vite 连上它一律 401。两者分开运行的方向另起 Idea，见[日常实例与开发实例分开](../../ideas/daily-and-dev-instance-separation.md)。
+- **开发方式与安装版的冲突**：实施期间发现，安装版以 checkout 为数据根运行时占着 8769，开发方式的 Vite 连上它一律 401。两者分开运行的方向另起 Idea，见[日常实例与开发实例分开](../ideas/daily-and-dev-instance-separation.md)。
 
 实测（2026-11-12）：
 

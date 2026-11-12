@@ -1,6 +1,9 @@
 ---
 title: 日常实例与开发实例分开
-status: active
+status: archived
+archived_at: 2026-11-12
+implemented_by: PR #219
+superseded_by: docs/help/setup.md
 owner: project
 target: 版本之外的工作（开发与验收环境，服务 v1.0 的桌面客户端）
 scope: run-the-installed-daily-instance-and-the-checkout-dev-instance-side-by-side-with-separate-ports-data-and-harness-bindings
@@ -32,10 +35,10 @@ related_docs:
 
 # 日常实例与开发实例分开
 
-> **状态**：Active（2026-11-12 起草并开始实施；同日代码与文档完成，第 4.6 节的迁移完成：日常实例在安装版的数据根上运行，四个 harness 已在安装版的插件页重新安装，开发实例使用 8779 这组端口；等待合并后归档）。依据[日常实例与开发实例分开 Idea](../ideas/daily-and-dev-instance-separation.md)。owner 的决定：
+> **状态**：Archived（2026-11-12，已实施，实施记录见第 10 节）。当前事实见[安装与启动](../../help/setup.md#47-与桌面安装版同时开发)第 4.6、4.7 节与[桌面客户端](../../frontend/desktop-client.md)第 1 至 3 节。以下为实施时的计划原文，链接已按归档位置改正。依据[日常实例与开发实例分开 Idea](../ideas/daily-and-dev-instance-separation.md)。owner 的决定：
 >
 > - 日常使用与开发分成两个互不相干的 HiveMemory 实例，每样资源只归其中一个（2026-11-12）；
-> - [桌面端安装插件](../archive/plans/desktop-plugin-installation.md)合并之后，先做这一项（2026-11-12）；
+> - [桌面端安装插件](./desktop-plugin-installation.md)合并之后，先做这一项（2026-11-12）；
 > - Windows Sandbox 中的新用户验收改为可选项，不在本计划交付（2026-11-12）；
 > - 开发实例以分开时日常 Qdrant 数据的一份副本作冷启动，方便开发（2026-11-12）。
 >
@@ -79,7 +82,7 @@ related_docs:
 | `python -m hivememory.server` 的端口 | 固定 8769 | 可由 `HIVEMEMORY_BACKEND_PORT` 指定，缺省 8769 |
 | 插件代为安装 | 在 Windows 上、插件目录存在时就可用 | 只有安装版可用 |
 | 日常数据 | checkout（安装版以它为数据根） | `%LOCALAPPDATA%\HiveMemory` |
-| Windows 开发方式的帮助 | [安装与启动](../help/setup.md)只写了 WSL/Linux 脚本 | 增加 Windows 开发脚本与两个实例的说明 |
+| Windows 开发方式的帮助 | [安装与启动](../../help/setup.md)只写了 WSL/Linux 脚本 | 增加 Windows 开发脚本与两个实例的说明 |
 
 ## 4. 目标设计
 
@@ -144,7 +147,7 @@ owner 的 checkout 已经有四个 harness 的这种登记，迁移后原样保�
   - pi：项目本地安装（`pi install -l`）或会话级加载；
   - dsh：独立的 profile。
 
-  实施第 1 步逐个核对：能否与日常安装的同名插件并存，是否需要先在这个会话中停用日常的那一份。核对结果写进[安装与启动](../help/setup.md)。核对不通的 harness 写明临时做法，做完要在安装版的插件页重新安装。
+  实施第 1 步逐个核对：能否与日常安装的同名插件并存，是否需要先在这个会话中停用日常的那一份。核对结果写进[安装与启动](../../help/setup.md)。核对不通的 harness 写明临时做法，做完要在安装版的插件页重新安装。
 
 ### 4.6 日常实例与一次性迁移
 
@@ -257,16 +260,47 @@ cd desktop && npm run package
 
 ## 9. 完成时必须更新的当前文档
 
-- [安装与启动](../help/setup.md)：
+- [安装与启动](../../help/setup.md)：
   - Windows 开发脚本；
   - 日常实例与开发实例，以及 `dev.env` 的端口；
   - 第 5 节的端口表；
   - 让单个 harness 连开发实例。
-- [使用桌面客户端](../help/desktop-client.md)：日常数据在安装版的数据根中，新代码经打包与覆盖安装进入日常。
-- [桌面客户端](../frontend/desktop-client.md)：
+- [使用桌面客户端](../../help/desktop-client.md)：日常数据在安装版的数据根中，新代码经打包与覆盖安装进入日常。
+- [桌面客户端](../../frontend/desktop-client.md)：
   - 第 1、2 节用 checkout 运行时的端口；
   - 第 3 节安装版打开插件代为安装。
-- [管理页面](../frontend/management-views.md)第 3.5 节：插件代为安装只在安装版中可用。
-- [System 配置](../system/configuration.md)：`system.plugin_installation_enabled`。
-- [ROADMAP](../ROADMAP.md) 的对应行。
-- 本计划与 Idea 移入 `archive/`，从 [Plans](./README.md) 与 [Ideas](../ideas/README.md) 中删除，在归档索引中登记。
+- [管理页面](../../frontend/management-views.md)第 3.5 节：插件代为安装只在安装版中可用。
+- [System 配置](../../system/configuration.md)：`system.plugin_installation_enabled`。
+- [ROADMAP](../../ROADMAP.md) 的对应行。
+- 本计划与 Idea 移入 `archive/`，从 [Plans](../../plans/README.md) 与 [Ideas](../../ideas/README.md) 中删除，在归档索引中登记。
+
+## 10. 实施记录
+
+2026-11-12 在分支 `feat/daily-dev-instance-separation` 实施第 4 节，以 PR #219 合并。与计划不同，或计划没有写到的地方：
+
+- **插件页的文字**：只改说明，没有为文字加测试。第 7 节原有的这一行在实施时删去。
+- **端口的校验**：`dev.env` 中的端口不是 1 至 65535 的整数时，开发脚本与用 checkout 运行的桌面端都直接报错，不回落到缺省端口。
+- **用 checkout 运行的桌面端**：页面地址、管理凭据 cookie 的地址与导航限制都改用布局给出的后端端口，不再是固定的 8769。
+- **各 harness 的隔离方式**（第 4.5 节）：
+  - Claude Code：按官方文档，`--plugin-dir` 加载的插件在这次会话中替换已安装的同名插件；
+  - Codex：另设 `CODEX_HOME` 实测，看不到日常的 marketplace，也没有日常的登录信息，要重新登录或复制 `auth.json`；
+  - pi 与 dsh：按它们命令行的说明整理，没有实际运行。帮助文档中写明了这一点。
+- **迁移中的意外**：
+  - 第一次迁移是从 Claude Code 的命令行工具执行的。Claude 桌面应用是打包安装的 Windows 应用，它的子进程在 `%LOCALAPPDATA%` 下新建的文件，会被转进这个应用自己的私有目录。所以复制的数据根只存在于私有目录中，从工具启动的安装版也在私有目录的视图中运行。
+  - 覆盖安装、修改已有的 `desktop-settings.json`、写注册表中的用户环境变量、写用户目录中的 harness 配置，都在真实系统中生效。因此 owner 在那个窗口中重新安装的四个插件是真实生效的。
+  - owner 直接打开安装版时，真实位置没有数据根，安装版新建了一个空的数据根。
+  - 修复：在终端面板（真实的 shell）中，把空的数据根改名留存，再把私有目录中的数据根复制到真实位置，逐个目录核对文件数与字节数。之后删除了私有目录中的副本与改名留存的空数据根。
+- **保存的生成工作**：`pending_generation.json` 复制给日常实例后从 checkout 删除。日常实例启动时读回 2 项工作并重新提交。
+- **记忆数**：集合信息中的点数是近似值，迁移后一度显示 466，其中包括被更新取代的旧版本。精确计数是 455，与复制前逐字节一致。
+
+实测（2026-11-12）：
+
+- 后端门槛 3384 项通过、9 项跳过，覆盖率 94.72%；ruff 与 black 通过；mypy 按 Windows 与 Linux 两个平台检查均通过；前端 lint、83 项测试与构建通过；`npm run package` 生成的安装包带上了开关。
+- 两个实例同时运行：
+  - 日常实例在 8769 就绪，`/api/` 在桌面窗口之外返回 401；
+  - 开发实例由开发脚本以 8779、6343、6344 启动，记忆库是分开时的副本；
+  - Vite 经开发实例的管理接口返回 200；
+  - 开发实例的插件页中，四个 harness 都不能代为安装。
+- owner 在安装版的插件页重新安装了四个 harness；当前 Claude Code 会话的 MCP 重新连接后连到日常实例。
+
+没有实测的是：用 checkout 运行的桌面端（`npm start`）在开发端口上启动与附着，以及第 4.5 节中 pi 与 dsh 的隔离方式。
