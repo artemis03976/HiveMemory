@@ -4,7 +4,7 @@ import TopBar from './TopBar';
 import ChatMessage from './ChatMessage';
 import OmniInput from './OmniInput';
 import SessionCompactionBoundary from './SessionCompactionBoundary';
-import { useChatStore, useChatUiStore, useMemoryViewStore, useToastStore, useTopicStore } from '@/stores';
+import { useChatStore, useChatUiStore, useMemoryViewStore, useToastStore, useTopicStore, userMessageBefore } from '@/stores';
 import { useAgents, type AgentProfile } from '@/hooks/useAgents';
 import { useTopicTitles } from '@/hooks/useTopicTitles';
 import { recordMemoryFeedback } from '@/services/memoryApi';
@@ -74,6 +74,8 @@ export default function ChatPane({ onOpenSessions, onOpenVision }: ChatPaneProps
     setActiveNavTab('database');
   };
   const lastReplyId = [...messages].reverse().find((m) => m.role === 'agent' || m.role === 'assistant')?.id;
+  // 只有本视图发出的轮次记下了附件、话题与模型等请求，能原样重新生成。
+  const canRegenerate = lastReplyId !== undefined && userMessageBefore(messages, lastReplyId)?.request !== undefined;
 
   const copyReply = (text: string) => {
     navigator.clipboard.writeText(text)
@@ -197,7 +199,7 @@ export default function ChatPane({ onOpenSessions, onOpenVision }: ChatPaneProps
                   topicTitle={msg.topicId ? topicTitles[msg.topicId] : undefined}
                   onOpenTopic={openTopic}
                   onCopy={copyReply}
-                  onRegenerate={msg.id === lastReplyId && !isStreaming ? () => void retryMessage(msg.id) : undefined}
+                  onRegenerate={msg.id === lastReplyId && canRegenerate && !isStreaming ? () => void retryMessage(msg.id) : undefined}
                   onFeedback={msg.id === lastReplyId && !isStreaming && retrievedMemories.length > 0 ? feedbackOnTurn : undefined}
                 />
                 <SessionCompactionBoundary interactionId={msg.interactionId} checkpoint={compactionCheckpoint} />

@@ -7,6 +7,7 @@ export * from './types/memory';
 export * from './types/memoryTask';
 export * from './types/mtp';
 
+import type { ChatRequestParams } from './types/chat';
 import type { MTPVerb } from './types/mtp';
 
 export type NavTab = 'chat' | 'database' | 'agents' | 'theme' | 'terminal' | 'settings';
@@ -84,4 +85,9 @@ export interface Message {
   isStreaming?: boolean;
   error?: string;
   agent_id?: string;
+  /**
+   * 用户消息发出时的请求选项：Agent、附件快照、指定话题、记忆检索开关与模型选择。
+   * 重新生成按它原样再发一轮；会话历史不保存这些选项，从历史恢复的消息没有它。
+   */
+  request?: Omit<ChatRequestParams, 'message' | 'session_id'>;
 }
