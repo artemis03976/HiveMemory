@@ -19,7 +19,7 @@ from hivememory.core.errors import ModelContextWindowExceededError, ModelProvide
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH, MEMORY_TITLE_MAX_LENGTH
 from hivememory.engines.generation.extractor import LLMMemoryExtractor, NoOpMemoryExtractor
-from hivememory.i18n import set_default_language
+from hivememory.i18n import set_language
 from hivememory.infrastructure.llm.base import (
     BaseLLMService,
     LLMCompletion,
@@ -45,9 +45,9 @@ _EXTRACTION_JSON = json.dumps(
 
 @pytest.fixture(autouse=True)
 def reset_i18n():
-    set_default_language("zh")
+    set_language("zh")
     yield
-    set_default_language("zh")
+    set_language("zh")
 
 
 def _extractor(llm: BaseLLMService) -> LLMMemoryExtractor:
@@ -72,9 +72,9 @@ class TestLLMMemoryExtractorPrompts:
         assert '"memories"' in call.messages[0]["content"]
 
     @pytest.mark.asyncio
-    async def test_default_language_selects_english_passive_prompts(self):
+    async def test_language_selects_english_passive_prompts(self):
         """测试全局语言驱动被动提取模板"""
-        set_default_language("en")
+        set_language("en")
         llm = ScriptedLLMService(_EXTRACTION_JSON)
 
         await _extractor(llm).extract("User: Hi")
@@ -84,9 +84,9 @@ class TestLLMMemoryExtractorPrompts:
         assert "Conversation" in messages[1]["content"]
 
     @pytest.mark.asyncio
-    async def test_default_language_selects_english_write_prompts(self):
+    async def test_language_selects_english_write_prompts(self):
         """测试全局语言驱动 WRITE 模板；没有标题时标题一栏写"未提供"。"""
-        set_default_language("en")
+        set_language("en")
         llm = ScriptedLLMService(_DRAFT_JSON)
 
         await _extractor(llm).extract_write(
@@ -108,7 +108,7 @@ class TestLLMMemoryExtractorPrompts:
     )
     async def test_write_prompts_carry_agent_title_and_keep_rule(self, language, keep_rule):
         """Mode B 的系统提示词带沿用规则，用户提示词带 agent 拟定的标题。"""
-        set_default_language(language)
+        set_language(language)
         llm = ScriptedLLMService(_DRAFT_JSON)
 
         await _extractor(llm).extract_write(
@@ -123,9 +123,9 @@ class TestLLMMemoryExtractorPrompts:
         assert "报表服务的每日汇总改由进程内 APScheduler 调度" in user
 
     @pytest.mark.asyncio
-    async def test_default_language_selects_english_update_prompts(self):
+    async def test_language_selects_english_update_prompts(self):
         """测试全局语言驱动 UPDATE 模板"""
-        set_default_language("en")
+        set_language("en")
         llm = ScriptedLLMService(
             json.dumps({"new_content": "New content", "changelog": "Updated content"})
         )
@@ -286,7 +286,7 @@ def _merge_json(**changes):
 @pytest.mark.parametrize("language", ["zh", "en"])
 async def test_merge_sends_both_memories_and_newer_marker(language):
     """两种语言都携带完整内容、较新标记与 Librarian 请求参数。"""
-    set_default_language(language)
+    set_language(language)
     llm = ScriptedLLMService(_merge_json())
     result = await _extractor(llm).merge(*_merge_memories())
     call = llm.calls[0]

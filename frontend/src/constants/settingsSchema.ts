@@ -77,7 +77,7 @@ export const COMMON_SECTIONS: SettingSectionDef[] = [
     description: '',
     fields: [
       { path: 'logging.level', label: '日志级别', description: '排查问题时可调到 DEBUG', kind: 'select', options: LOG_LEVELS },
-      { path: 'i18n.default_language', label: '默认语言', description: '提示词与系统消息使用的语言', kind: 'select', options: [{ label: '中文', value: 'zh' }, { label: 'English', value: 'en' }] },
+      { path: 'i18n.language', label: '语言', description: 'HiveMemory 的提示词、外部 Agent 读到的 MCP 文字与插件 skill、接口的错误说明都用这种语言，界面文字不变。重启后端后生效；Claude Code 与 Codex 还要在插件页重新安装一次，才能读到另一种语言的 skill', kind: 'select', options: [{ label: '中文', value: 'zh' }, { label: 'English', value: 'en' }] },
     ],
   },
 ];

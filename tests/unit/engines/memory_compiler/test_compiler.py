@@ -29,16 +29,16 @@ from hivememory.engines.memory_compiler import (
 from hivememory.engines.memory_compiler.builders import build_memory_atom_ir
 from hivememory.engines.memory_compiler.envelopes import compile_envelope_from_ir
 from hivememory.engines.memory_compiler.ir import MemoryBundleIR, MemorySectionIR
-from hivememory.i18n import set_default_language
+from hivememory.i18n import set_language
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.fixture(autouse=True)
 def reset_i18n():
-    set_default_language("zh")
+    set_language("zh")
     yield
-    set_default_language("zh")
+    set_language("zh")
 
 
 @pytest.fixture
@@ -120,7 +120,7 @@ class TestMemoryAtomCompilation:
         assert artifact.memory_id == str(sample_atom.id)
 
     def test_prompt_full_english(self, sample_atom):
-        set_default_language("en")
+        set_language("en")
         compiler = MemoryCompiler()
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL)
 
@@ -134,7 +134,7 @@ class TestMemoryAtomCompilation:
         assert "**类型**:" not in artifact.text
 
     def test_prompt_full_options_language_overrides_default(self, sample_atom):
-        set_default_language("zh")
+        set_language("zh")
         compiler = MemoryCompiler()
         artifact = compiler.compile(
             sample_atom,
@@ -158,7 +158,7 @@ class TestMemoryAtomCompilation:
         assert "基于 datetime 库" in artifact.text
 
     def test_prompt_index_english(self, sample_atom):
-        set_default_language("en")
+        set_language("en")
         compiler = MemoryCompiler()
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_INDEX)
 
@@ -172,7 +172,7 @@ class TestMemoryAtomCompilation:
         assert "**内容摘要**:" not in artifact.text
 
     def test_prompt_index_options_language_overrides_default(self, sample_atom):
-        set_default_language("zh")
+        set_language("zh")
         compiler = MemoryCompiler()
         artifact = compiler.compile(
             sample_atom,
@@ -186,12 +186,12 @@ class TestMemoryAtomCompilation:
     def test_prompt_index_empty_tags_i18n(self, sample_atom):
         sample_atom.index.tags = []
 
-        set_default_language("zh")
+        set_language("zh")
         zh_artifact = MemoryCompiler().compile(
             sample_atom,
             MemoryCompileTarget.PROMPT_INDEX,
         )
-        set_default_language("en")
+        set_language("en")
         en_artifact = MemoryCompiler().compile(
             sample_atom,
             MemoryCompileTarget.PROMPT_INDEX,
@@ -237,7 +237,7 @@ class TestMemoryAtomCompilation:
         assert "<agent_profile" in artifact.text
 
     def test_agent_profile_menu_english(self, agent_profile_atom):
-        set_default_language("en")
+        set_language("en")
         compiler = MemoryCompiler()
         artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
 
@@ -246,7 +246,7 @@ class TestMemoryAtomCompilation:
         assert "**角色**:" not in artifact.text
 
     def test_agent_profile_menu_options_language_overrides_default(self, agent_profile_atom):
-        set_default_language("zh")
+        set_language("zh")
         compiler = MemoryCompiler()
         artifact = compiler.compile(
             agent_profile_atom,
@@ -262,12 +262,12 @@ class TestMemoryAtomCompilation:
         # 构造该状态（model_copy(update=) 不校验），验证编译器的防御性兜底文案。
         agent_profile_atom.index = agent_profile_atom.index.model_copy(update={"title": ""})
 
-        set_default_language("zh")
+        set_language("zh")
         zh_artifact = MemoryCompiler().compile(
             agent_profile_atom,
             MemoryCompileTarget.AGENT_PROFILE_MENU,
         )
-        set_default_language("en")
+        set_language("en")
         en_artifact = MemoryCompiler().compile(
             agent_profile_atom,
             MemoryCompileTarget.AGENT_PROFILE_MENU,
@@ -284,7 +284,7 @@ class TestMemoryAtomCompilation:
         assert "parse_date" in artifact.text
 
     def test_read_result_english_full_item(self, sample_atom):
-        set_default_language("en")
+        set_language("en")
         compiler = MemoryCompiler()
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.READ_RESULT)
 
@@ -304,7 +304,7 @@ class TestMemoryAtomCompilation:
         assert "[完整内容]:" in artifact.text
 
     def test_shared_context_english_full_item(self, sample_atom):
-        set_default_language("en")
+        set_language("en")
         compiler = MemoryCompiler()
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.SHARED_CONTEXT)
 
@@ -316,13 +316,13 @@ class TestMemoryAtomCompilation:
             compiler.compile(sample_atom, MemoryCompileTarget.RUNNABLE_TOOL)
 
     def test_options_max_content_length(self, compiler, sample_atom):
-        set_default_language("zh")
+        set_language("zh")
         opts = MemoryCompileOptions(max_content_length=10)
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL, opts)
         assert "截断" in artifact.text
 
     def test_prompt_full_english_truncation_notice(self, sample_atom):
-        set_default_language("en")
+        set_language("en")
         compiler = MemoryCompiler()
         artifact = compiler.compile(
             sample_atom,
@@ -335,12 +335,12 @@ class TestMemoryAtomCompilation:
     def test_prompt_full_empty_tags_i18n(self, sample_atom):
         sample_atom.index.tags = []
 
-        set_default_language("zh")
+        set_language("zh")
         zh_artifact = MemoryCompiler().compile(
             sample_atom,
             MemoryCompileTarget.PROMPT_FULL,
         )
-        set_default_language("en")
+        set_language("en")
         en_artifact = MemoryCompiler().compile(
             sample_atom,
             MemoryCompileTarget.PROMPT_FULL,
@@ -819,10 +819,8 @@ class TestEnvelopeCompilation:
         assert "No memories" in envelope.text
         assert "可用子代理" in envelope.text
 
-    def test_retrieval_context_compile_uses_english_default_language(
-        self, sample_atom, agent_profile_atom
-    ):
-        set_default_language("en")
+    def test_retrieval_context_compile_uses_english_language(self, sample_atom, agent_profile_atom):
+        set_language("en")
         compiler = MemoryCompiler()
 
         envelope = compiler.compile(
@@ -836,7 +834,7 @@ class TestEnvelopeCompilation:
         assert "Use common sense when judging them" in envelope.text
 
     def test_retrieval_context_compile_options_language_overrides_default(self, sample_atom):
-        set_default_language("zh")
+        set_language("zh")
         compiler = MemoryCompiler()
 
         envelope = compiler.compile(
@@ -900,7 +898,7 @@ class TestEnvelopeCompilation:
         assert "Python parse_date" in envelope.text
 
     def test_shared_context_injection_compile_english(self, sample_atom):
-        set_default_language("en")
+        set_language("en")
         compiler = MemoryCompiler()
 
         envelope = compiler.compile(
@@ -923,7 +921,7 @@ class TestEnvelopeCompilation:
         assert envelope.sections == []
 
     def test_shared_context_injection_empty_english(self):
-        set_default_language("en")
+        set_language("en")
         compiler = MemoryCompiler()
 
         envelope = compiler.compile(

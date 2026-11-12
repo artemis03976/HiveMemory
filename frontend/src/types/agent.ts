@@ -1,10 +1,9 @@
-/** Agent 图纸的模型参数与提示词语言。 */
+/** Agent 图纸的模型参数。提示词语言由全局语言设置决定，不属于单个 Agent。 */
 export interface AgentProfileConfig {
   model_name: string;
   temperature: number;
   /** 为空时沿用模型定义的默认值。 */
   top_p: number | null;
-  language: string;
 }
 
 export type AgentStatus = 'Active' | 'Inactive';

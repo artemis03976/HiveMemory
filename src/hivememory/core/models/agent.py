@@ -43,7 +43,6 @@ class AgentProfile(BaseModel):
         description="核采样阈值覆盖。None 表示沿用注册表模型定义的 top_p",
     )
 
-    language: str = Field(default="zh", description="提示词语言 (zh/en)")
     enabled: bool = Field(
         default=True,
         description="是否可以用于执行；停用的 Profile 在解析时被拒绝。这不是操作权限，权限只由访问登记表达",
@@ -74,7 +73,6 @@ OMNI_DOLL_PROFILE = AgentProfile(
     model_name="default",
     temperature=None,
     top_p=None,
-    language="zh",
 )
 """全能人偶 (Omni-Doll) 默认配置，无特定人设。
 

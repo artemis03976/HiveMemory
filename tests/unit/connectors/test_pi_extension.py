@@ -16,7 +16,9 @@ import re
 from pathlib import Path
 from typing import get_args
 
+from hivememory.i18n import Language
 from hivememory.mcp_server.server import create_mcp_server
+from hivememory.system.plugins import SKILL_PATH
 from hivememory.system.plugins.harnesses import harness_by_id
 from hivememory.system.services.import_bus.models import (
     ImportedEventKind,
@@ -53,7 +55,7 @@ def _memory_tools() -> dict[str, dict[str, str]]:
 
 
 def _server_tool_parameters() -> dict[str, set[str]]:
-    tools = asyncio.run(create_mcp_server(lambda: None).list_tools())
+    tools = asyncio.run(create_mcp_server(lambda: None, Language.ZH).list_tools())
     return {tool.name: set(tool.input_schema["properties"]) for tool in tools}
 
 
@@ -100,4 +102,6 @@ def test_pi_package_points_at_the_extension_and_the_shared_skill():
     for extension in manifest["pi"]["extensions"]:
         assert (PACKAGE_ROOT / extension).is_file(), extension
     for skills in manifest["pi"]["skills"]:
-        assert (PACKAGE_ROOT / skills / "hivememory" / "SKILL.md").is_file(), skills
+        assert (
+            PACKAGE_ROOT / skills / "hivememory" / "SKILL.md" == PACKAGE_ROOT / SKILL_PATH
+        ), skills

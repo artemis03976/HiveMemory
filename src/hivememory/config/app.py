@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 import yaml
 from dotenv import dotenv_values
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
@@ -33,6 +33,7 @@ from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.runtime import RuntimeEventsConfig, SchedulerConfig
 from hivememory.config.shared import ProviderCredentials, SharedConfig
 from hivememory.config.workspace import WorkspaceConfig
+from hivememory.i18n.types import Language
 
 logger = logging.getLogger(__name__)
 
@@ -292,9 +293,18 @@ class LoggingConfig(BaseModel):
 
 
 class I18nConfig(BaseModel):
-    default_language: str = Field(default="zh")
+    # HiveMemory 只有一个语言设置：提示词、MCP 文字与 HTTP 错误说明都跟随它，重启后生效。
+    language: Language = Field(default=Language.ZH)
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_renamed_default_language(cls, data: Any) -> Any:
+        # 指出新键，比通用的未知键错误更好迁移。
+        if isinstance(data, dict) and "default_language" in data:
+            raise ValueError("i18n.default_language 已改名为 i18n.language，取值为 zh 或 en")
+        return data
 
 
 # ========== 根配置 ==========

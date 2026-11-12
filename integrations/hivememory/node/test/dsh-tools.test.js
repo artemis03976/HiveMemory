@@ -102,7 +102,7 @@ test('writing outside a running turn is refused', async () => {
 
   for (const log of [ended, new SessionLog()]) {
     const pending = currentTurnInfo({ id: 'session-1' }, { readSession: async () => log.snapshot() })
-    await assert.rejects(pending, /没有进行中的一轮/)
+    await assert.rejects(pending, /No turn is in progress/)
   }
 })
 

@@ -133,7 +133,7 @@ Gateway 与 Librarian 的模型在 `configs/config.yaml` 的 `gateway.llm` 与 `
 4. 把其中立即生效的字段写入运行中的服务，例如检索条数上限、相关度阈值、话题空闲结算时间、会话与附件上限（完整清单见 [System 配置](../system/configuration.md#21-个人覆盖与保存)）；
 5. 返回与 `GET` 相同的结构。
 
-其余字段（模型选择与采样参数、存储连接、嵌入与重排模型、调度任务、日志、默认语言等）在启动时就交给了长期存活的组件，保存后出现在 `pending_restart` 中，重启服务后生效。重启后再用 readiness 和实际请求确认。
+其余字段（模型选择与采样参数、存储连接、嵌入与重排模型、调度任务、日志、语言等）在启动时就交给了长期存活的组件，保存后出现在 `pending_restart` 中，重启服务后生效。重启后再用 readiness 和实际请求确认。
 
 恢复默认：`GET /api/v1/config/defaults` 返回不含 `config.local.yaml` 的默认值，把它原样保存即清空个人覆盖；也可以直接删掉 `config.local.yaml` 后重启。
 
@@ -173,6 +173,15 @@ Claude Code、DeepSeek Harness 等外部工具的对话经 `POST /api/v1/import/
 连接器等待一次导入的上限是 60 秒，调大 `apply_wait_seconds` 或 Gateway 请求时限（`gateway.workflow.default_request_timeout_ms`，默认 8 秒）时，两者之和应保持在这个范围内。
 
 升级注意：旧的 `passive_ingress` 段以及 `scheduler.tasks` 下的 `observer_idle_flush_interval_seconds`、`observer_idle_flush_timeout_seconds`、`enable_observer_idle_flush` 已删除。配置文件中仍有这些键时服务无法启动，需要删除它们；配置文件中出现任何未知的顶层段同样会让启动失败。旧的 `/api/v1/ingest` 与 `/api/v1/ingest/flush` 已由 `/api/v1/import/turns` 取代。
+
+### 5.4 语言
+
+`i18n.language` 是 HiveMemory 唯一的语言设置，取值 `zh` 或 `en`，在设置页“常用”的“系统”一节修改。它决定 HiveMemory 自己的提示词、外部 Agent 读到的 MCP 文字与插件 skill，以及接口的错误说明；界面文字不变，已有的记忆也不翻译（[全局 i18n](../system/i18n.md)）。
+
+- 修改后重启后端生效。旧键 `i18n.default_language` 已改名，个人覆盖文件或环境变量中留有它时启动失败，按错误提示改为 `i18n.language`。
+- 后端启动时把对应语言的 skill 写入插件目录：pi 与 dsh 重新打开即读到；Claude Code 与 Codex 保存的是插件的副本，要在插件页重新安装一次。
+- 设为英文之后，新生成的记忆大概率也是英文：生成提示词不规定记忆正文用什么语言。
+- 桌面安装版首次部署时，Windows 的界面语言不是中文就写入 `en`。
 
 ## 6. 当前 Settings 页面限制
 

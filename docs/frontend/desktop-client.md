@@ -79,7 +79,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 主进程意外退出时，后端因此自己正常关闭，不会留下没有人持有凭据的孤儿后端。
 
-桌面模式的后端启动后，在后台为插件页装过的 Claude Code 与 Codex 重新安装插件：两者保存的是插件的副本，覆盖安装新版本之后要重新安装才能读到。插件服务在数据根的 `.hivememory/plugin_installs.json`（`system.plugin_install_record`）中记下每个 harness 安装时的版本，只处理版本落后的；失败只写日志，插件页把它标为“需要更新”。pi 与 dsh 链接插件目录、原地读取，不需要处理。
+后端启动时先由插件服务按语言设置写入插件 skill（[全局 i18n](../system/i18n.md#3-文本领域)），再在桌面模式下于后台为插件页装过的 Claude Code 与 Codex 重新安装插件，复制进去的因此是新的 skill：两者保存的是插件的副本，覆盖安装新版本之后要重新安装才能读到。插件服务在数据根的 `.hivememory/plugin_installs.json`（`system.plugin_install_record`）中记下每个 harness 安装时的版本，只处理版本落后的；失败只写日志，插件页把它标为“需要更新”。pi 与 dsh 链接插件目录、原地读取，不需要处理。
 
 只有安装版代为安装插件：它启动后端时以 `HIVEMEMORY__SYSTEM__PLUGIN_INSTALLATION_ENABLED=true` 打开 `system.plugin_installation_enabled`，缺省关闭。用 checkout 运行的桌面端、开发脚本与 Docker 都不打开，插件页显示“不能代为安装”，启动时也不更新插件：代为安装会把 harness 改指到这个实例的插件目录，并改写用户环境变量中的凭据，开发实例这样做会断开日常实例的连接。
 
@@ -125,6 +125,8 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 就绪状态的含义见 [System 应用服务](../system/application-services.md)。
 
+**语言的初始值**：安装版第一次选择数据根之后、启动后端之前，如果数据根中没有 `configs\config.local.yaml`，就看 Windows 的首选语言：以 `zh` 开头时不写，否则写入一个只含 `i18n.language: en` 的个人覆盖文件。数据根中已有覆盖文件时不改动；用 checkout 运行时不写。
+
 **预设 Agent**：数据根第一次启动时写入预设的 Agent Profile（coder_doll、reviewer_doll），预设内容在 `patchouli/application/preset_agent_profiles.py`。
 
 - server 的 lifespan 在模型预热之后，调用门面的 `seed_preset_agent_profiles`，目标是不带身份声明的请求所在的 Workspace，也就是桌面窗口管理的 Workspace。
@@ -139,7 +141,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 - **Python**：uv 管理的独立 CPython（与仓库 `.venv` 同版本），安装在 `desktop\.cache\python`，不写入用户的 uv 目录、PATH 与注册表。锁定的运行依赖由 `uv export --frozen --no-dev` 导出，直接装进这个解释器，不建 venv：venv 记录基础解释器的绝对路径，无法随安装位置移动。
 - **后端与前端**：后端源码按仓库布局放在 `resources\backend`，经 `PYTHONPATH` 导入，不安装成包，按源码位置找到随程序发布的配置与前端；打包前构建前端。
-- **插件**：`integrations/`（本地 marketplace 与插件目录，不含插件自己的测试与 Python 缓存）放在 `resources\backend\integrations`，与后端同版本；插件页从这里为 harness 安装插件（[管理页面](./management-views.md#35-插件)），覆盖安装时随程序换成新版本。
+- **插件**：`integrations/`（本地 marketplace 与插件目录，不含插件自己的测试、Python 缓存与开发时生成的 `skills/hivememory/SKILL.md`，skill 由后端启动时按语言设置写入）放在 `resources\backend\integrations`，与后端同版本；插件页从这里为 harness 安装插件（[管理页面](./management-views.md#35-插件)），覆盖安装时随程序换成新版本。
 - **启动页字体**：electron-builder 的 `files` 把前端依赖 `@fontsource-variable/manrope` 中的字体文件复制到程序内启动页旁的 `fonts`，与前端打包进页面的是同一个文件，启动页不另带字体副本。
 - **Qdrant**：取自开发环境 `.hivememory\dev.env` 的 `QDRANT_BIN`，与开发时同一个版本。
 - **安装包**：electron-builder 生成按用户安装的 NSIS 安装包，默认装在 `%LOCALAPPDATA%\Programs\HiveMemory`，版本号取自 `_version.py`。

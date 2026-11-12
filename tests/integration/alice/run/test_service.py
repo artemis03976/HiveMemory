@@ -523,8 +523,8 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text():
     assert result.has_output is True
 
 
-#: 压缩用例的执行图纸：英文、无人设；随主线程描述交给 CPU。
-_COMPACTION_PROFILE = AgentProfile(persona="", language="en")
+#: 压缩用例的执行图纸：无人设，随主线程描述交给 CPU；语言来自输入清单。
+_COMPACTION_PROFILE = AgentProfile(persona="")
 
 
 def _compaction_inputs(*, compressible=True):

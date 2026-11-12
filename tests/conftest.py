@@ -18,7 +18,7 @@ import pytest
 from hivememory.config import app as config_app
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.patchouli import PatchouliShutdownConfig
-from hivememory.i18n import set_default_language
+from hivememory.i18n import set_language
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.system.model_registry import ModelRegistry
 
@@ -29,11 +29,11 @@ _PERSONAL_OVERRIDES = config_app.get_default_config_file_path().with_name("confi
 
 
 @pytest.fixture(autouse=True)
-def reset_i18n_default_language_between_tests():
+def reset_i18n_language_between_tests():
     """防止进程级 i18n 状态在测试之间泄漏。"""
-    set_default_language("zh")
+    set_language("zh")
     yield
-    set_default_language("zh")
+    set_language("zh")
 
 
 @pytest.fixture(autouse=True)

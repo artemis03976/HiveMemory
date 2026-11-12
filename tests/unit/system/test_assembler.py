@@ -6,17 +6,17 @@ import pytest
 
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.models.model_definition import ModelSelection
-from hivememory.i18n import get_default_language, set_default_language
+from hivememory.i18n import get_language, set_language
 from hivememory.system.assembler import SystemAssembler
 
 
-def test_assemble_sets_process_default_language_from_runtime_config():
-    set_default_language("zh")
-    config = HiveMemoryConfig(runtime_events={"enabled": False}, i18n={"default_language": "en"})
+def test_assemble_sets_process_language_from_runtime_config():
+    set_language("zh")
+    config = HiveMemoryConfig(runtime_events={"enabled": False}, i18n={"language": "en"})
 
     SystemAssembler(config).assemble()
 
-    assert get_default_language() == "en"
+    assert get_language() == "en"
 
 
 def test_gateway_and_librarian_get_request_params_from_their_own_config():

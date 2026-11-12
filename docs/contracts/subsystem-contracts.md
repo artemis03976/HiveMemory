@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 子系统公共契约
@@ -239,7 +239,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 | 字段 | 语义 |
 |:---|:---|
-| `language: str` | 按 Profile 语言、进程默认值解析出的提示词语言；CPU 的教学、摘要与执行期回填（Alice 的 MTP 结果、错误与 CALL 响应）都沿用该值，不再从 Profile 重新推导 |
+| `language: str` | 进程取自语言设置的提示词语言；CPU 的教学、摘要与执行期回填（Alice 的 MTP 结果、错误与 CALL 响应）都沿用该值，不再重新读取 |
 | `instructions: str` | 环境通知、人设段，按此顺序连接；无内容时为空字符串 |
 | `turn_context: str` | 记忆段、附件段，按此顺序连接；无内容时为空字符串 |
 

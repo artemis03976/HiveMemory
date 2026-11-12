@@ -11,8 +11,10 @@ system:
   server_principal_id: "hivememory:http-server"
 
 # ========== 国际化配置 ==========
+# HiveMemory 只有一个语言设置（zh 或 en）：提示词、MCP 文字、HTTP 错误说明与插件 skill 都跟随它，
+# 改动后重启后端生效。
 i18n:
-  default_language: "zh"
+  language: "zh"
 
 # ========== 日志配置 ==========
 logging:

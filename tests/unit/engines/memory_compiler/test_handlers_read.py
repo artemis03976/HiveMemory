@@ -8,14 +8,14 @@ from hivememory.engines.memory_compiler.ir import (
     MemoryUnitIR,
 )
 from hivememory.engines.memory_compiler.models import MemoryCompileOptions, MemoryCompileTarget
-from hivememory.i18n import set_default_language
+from hivememory.i18n import set_language
 
 
 @pytest.fixture(autouse=True)
 def reset_language():
-    set_default_language("en")
+    set_language("en")
     yield
-    set_default_language("zh")
+    set_language("zh")
 
 
 def test_compile_read_result_delivers_full_atom_content_beyond_content_limit():

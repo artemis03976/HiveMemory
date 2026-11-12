@@ -62,7 +62,7 @@ async def _caller_with_coder_doll(system, e2e_user) -> str:
             "在收到任务时优先直接给出可运行实现。"
         ),
         tags=["agent", "profile", "coder"],
-        agent_config={"model_name": "default", "temperature": 0.2, "language": "zh"},
+        agent_config={"model_name": "default", "temperature": 0.2},
         actor=await root_actor(system, workspace),
     )
     return user_id

@@ -29,7 +29,7 @@ last_reviewed: 2026-11-12
 
 # 统一语言设置与外部 Agent 文字的英文版
 
-**文档状态**：Idea（候选）。方向来自候选清单 D-12（[Epic #42](https://github.com/artemis03976/HiveMemory/issues/42) 的剩余部分）。2026-11-12 先起草为计划，同日 owner 决定先做[桌面端安装插件](../archive/plans/desktop-plugin-installation.md)。skill 怎样交到 harness 手中取决于插件随安装包交付的方式，前提因此改变，计划退回本 Idea（[文档治理规范](../DOCUMENTATION.md)第 8.4 节）。第 2 节是 owner 决定，其余是候选设计。
+**文档状态**：Idea（候选）。方向来自候选清单 D-12（[Epic #42](https://github.com/artemis03976/HiveMemory/issues/42) 的剩余部分）。2026-11-12 先起草为计划，同日 owner 决定先做[桌面端安装插件](../archive/plans/desktop-plugin-installation.md)。skill 怎样交到 harness 手中取决于插件随安装包交付的方式，前提因此改变，计划退回本 Idea（[文档治理规范](../DOCUMENTATION.md)第 8.4 节）。第 2 节是 owner 决定，其余是候选设计。两份前置计划完成后，2026-11-12 重新写成计划[统一语言设置与外部 Agent 文字的英文版](../plans/language-setting-unification.md)，设计以计划为准；第 5.5 节按落地后的事实补充的细节写在计划第 4.5 节。
 
 ## 1. 问题
 

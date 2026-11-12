@@ -6,7 +6,7 @@ import type { HiveMemoryConfig } from '@/types/config';
  */
 export const MOCK_CONFIG: HiveMemoryConfig = {
   logging: { level: 'INFO' },
-  i18n: { default_language: 'zh' },
+  i18n: { language: 'zh' },
   runtime_events: { enabled: true },
   scheduler: {
     tasks: { enable_lifecycle_gc: true, lifecycle_gc_interval_hours: 24 },

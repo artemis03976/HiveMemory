@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from hivememory.config import files as config_files
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.i18n import get_default_language, set_default_language
+from hivememory.i18n import get_language, set_language
 from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.config import router
@@ -114,19 +114,19 @@ def test_saving_applies_immediate_fields_and_reports_the_rest_as_pending(system,
     """立即生效的字段写入运行配置；其余字段只进入覆盖文件，列为等待重启，运行中的进程默认语言不变。"""
     payload = client.get("/api/v1/config").json()["config"]
     payload["patchouli"]["retrieval"]["retriever"]["top_k"] = 8
-    payload["i18n"]["default_language"] = "en"
+    payload["i18n"]["language"] = "en"
 
     response = client.post("/api/v1/config", json=payload)
 
     assert response.status_code == 200
     body = response.json()
-    assert body["config"]["i18n"]["default_language"] == "en"
+    assert body["config"]["i18n"]["language"] == "en"
     assert "patchouli.retrieval.retriever.top_k" in body["immediate_fields"]
-    assert body["pending_restart"] == ["i18n.default_language"]
+    assert body["pending_restart"] == ["i18n.language"]
     assert system.config.patchouli.retrieval.retriever.top_k == 8
-    assert system.config.i18n.default_language == "zh"
-    assert get_default_language() == "zh"
-    assert client.get("/api/v1/config").json()["pending_restart"] == ["i18n.default_language"]
+    assert system.config.i18n.language == "zh"
+    assert get_language() == "zh"
+    assert client.get("/api/v1/config").json()["pending_restart"] == ["i18n.language"]
 
 
 def test_update_config_validation_error_does_not_persist(config_dir, system, client):
@@ -173,14 +173,14 @@ def test_update_config_write_failure_keeps_runtime_config(config_dir, system, cl
     assert _overrides(config_dir) is None
 
 
-def test_default_config_query_keeps_process_default_language():
-    set_default_language("en")
+def test_default_config_query_keeps_process_language():
+    set_language("en")
     client = TestClient(_create_test_app(MagicMock()))
 
     response = client.get("/api/v1/config/defaults")
 
     assert response.status_code == 200
-    assert get_default_language() == "en"
+    assert get_language() == "en"
 
 
 _SETTINGS_SCHEMA = (

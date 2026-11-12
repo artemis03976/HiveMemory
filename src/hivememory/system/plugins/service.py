@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Literal
 
 from hivememory.config.files import write_atomically
 from hivememory.core.access import WorkspaceOperation
+from hivememory.i18n import Language
 from hivememory.system.access import EXTERNAL_ADAPTERS
 from hivememory.system.plugins.harnesses import (
     SUPPORTED_HARNESSES,
@@ -46,6 +47,10 @@ if TYPE_CHECKING:
     from hivememory.workspace.capability.root.access import RootAccessService
 
 logger = logging.getLogger(__name__)
+
+#: harness 读取的 skill 在插件目录中的位置：四个 harness 的插件清单都指向 ``skills/``。
+#: 它不受版本控制，后端启动时按语言设置，从插件目录 ``skill-languages`` 下对应语言的正文写入。
+SKILL_PATH = Path("skills") / "hivememory" / "SKILL.md"
 
 #: hook 以 Python 运行连接器的插件从这个变量取得解释器，没有时找 PATH 上的 Python。
 PYTHON_ENV = "HIVEMEMORY_PYTHON"
@@ -279,6 +284,26 @@ class PluginInstallationService:
             harness.runs_python_hooks and self._registry.entry_for(harness.principal_id) is not None
             for harness in SUPPORTED_HARNESSES
         )
+
+    # ---- skill 的语言 ----
+
+    def write_skill(self, language: Language) -> bool:
+        """把 ``language`` 对应的 skill 正文写到 harness 读取的位置；返回是否改写。
+
+        后端每次启动时调用，先于复制安装插件的自动更新：升级之后重新安装的插件带上的就是
+        新的 skill，链接安装的插件重新打开即读到。插件目录不存在时（Docker）不写；内容相同
+        时不改写。不依赖代为安装是否打开：开发实例也写 checkout 中的这一份，供测试插件使用。
+        """
+        plugin_dir = self._integrations / "hivememory"
+        if not plugin_dir.is_dir():
+            return False
+        content = (plugin_dir / "skill-languages" / language.value / "SKILL.md").read_bytes()
+        target = plugin_dir / SKILL_PATH
+        if target.is_file() and target.read_bytes() == content:
+            return False
+        write_atomically(target, content)
+        logger.info("插件 skill 已按语言设置写入: language=%s", language.value)
+        return True
 
     # ---- 升级之后 ----
 

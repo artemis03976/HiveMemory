@@ -45,7 +45,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 | 地址 | `POST /mcp`，由 server 应用以路由接入，登记在 SPA 兜底路由之前。以路由而不是挂载接入：挂载在 `/mcp` 的子应用只匹配 `/mcp/` 下的路径，插件声明的 `/mcp` 会被重定向 |
 | 传输 | MCP Python SDK 的 streamable HTTP，无状态、JSON 响应：每个 HTTP 请求独立处理，不保存 MCP 会话，也没有服务端通知、资源或提示 |
 | 订阅 | 不提供 `subscriptions/listen`，也不宣告工具、资源与提示的列表变更：工具在运行时不变，没有可推送的变更。该请求的响应是一条一直打开的流，只在会话管理器退出时结束；而 uvicorn 要等所有连接结束后才执行 server 的 lifespan 关闭，接受订阅会让任何在线的客户端（Claude Code 以 2026-07-28 协议连接时会发出该请求）都让服务停不下来 |
-| 生命周期 | SDK 会话管理器由 server 的 lifespan 运行：在装配系统之前进入，在系统停止之后退出。挂进宿主后 SDK 自己的 lifespan 不会执行，没有运行会话管理器时每个请求都会失败。会话管理器每个进程只能运行一次 |
+| 生命周期 | MCP 服务的说明与工具描述随语言设置，在构造时注册，所以服务由 server 的 lifespan 在读取配置之后构造；`/mcp` 路由在导入时登记，请求转交给 lifespan 中构造的应用。SDK 会话管理器由 lifespan 运行：在装配系统之前进入，在系统停止之后退出。挂进宿主后 SDK 自己的 lifespan 不会执行，没有运行会话管理器时每个请求都会失败。会话管理器每个进程只能运行一次 |
 | Host 与 Origin | 保留 SDK 默认的检查，防止 DNS 重绑定：只接受带端口的本机地址（`localhost:*`、`127.0.0.1:*`、`[::1]:*`），其他主机名以 421 拒绝 |
 
 ## 2. 身份交接
@@ -71,7 +71,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 
 | 工具 | 参数 | 归一为 | 授权 | 结果 |
 |:---|:---|:---|:---|:---|
-| `memory_search` | `query`：非空字符串 | `RetrieveRequest(semantic_query=query)` | `memory.search` | 检索上下文信封，每条含 alias、存档时间（记忆的更新时间）与置信度；没有结果时返回“没有检索到相关记忆。”，不算错误。为交付的记忆记录检索命中 |
+| `memory_search` | `query`：非空字符串 | `RetrieveRequest(semantic_query=query)` | `memory.search` | 检索上下文信封，每条含 alias、存档时间（记忆的更新时间）与置信度；没有结果时返回“没有检索到相关记忆。”（英文为“No relevant memories found.”），不算错误。为交付的记忆记录检索命中 |
 | `memory_read` | `aliases`：非空的 alias 列表 | `ResolveReferencesRequest(aliases)` | `memory.read` | 按请求顺序逐项交付全文；未解析的 alias 以“未找到以下 alias：…”列在末尾；全部未解析时返回 `workspace.resource.not_found` 错误。交付正式原子时记录 `workspace.reference_read` 引用 |
 | `memory_write` | `content`：非空字符串；`title`、`reason` 可选，`title` 由正式记忆沿用（[生成](../patchouli/generation.md#32-mode-b主动-write)第 3.2 节）；`turn` | `SubmitWriteIntentRequest(WriteFocus(content, title, reason))` | `memory.write` | pending alias（`draft_` 开头），写明意图已登记并被生成队列接纳、正式记忆尚未保存，可以用 `memory_read` 读取 |
 | `memory_update` | `alias`：要修正的正式记忆；`instruction`：非空字符串；`content` 可选；`turn` | `SubmitUpdateIntentRequest(base_alias=alias, instruction, content)` | `memory.update` | pending alias（`rev_` 开头），说明同上 |
@@ -81,6 +81,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 - **编译**：检索结果与 Alice 的 MTP SEARCH 使用同一检索上下文信封与配置的检索策略，但关闭信封的头尾（编译选项 `include_header_footer=False`）：头尾是提示词中预检索上下文的引导，不适用于工具结果。读取以 `READ_RESULT` 目标逐项编译，哪些解析结果可以交付与 MTP READ 共用 `engines.memory_compiler.readable_source`；`memory_read` 用于取得检索结果中摘要之外的全文，`READ_RESULT` 交付正式原子的全文。编译文本中指引下一步操作的句子只写能力，不写任何协议的指令或工具名（[记忆编译](../patchouli/memory-compiler.md)）。
 - **在途句柄**：写入与更新返回的 pending alias 经 `memory_read` 回读时，交付登记中的状态；生成链结算后，读取重定向到正式记忆（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。
 - **说明文字**：工具说明与 MCP 服务说明（instructions）写明何时检索（回答涉及项目历史、此前的决定或用户偏好的问题之前）、结果是带日期的历史证据（引用前先核实）、仓库中的代码与文档以及 harness 自己的指令与记忆文件优先于检索结果、检索得到的 alias 可以用 `memory_read` 读取全文；何时写入（用户要求记住的事、做出的决定及理由、验证过的结论、偏好与经验，在成立时写入，一次写一件事，只写结果、不把对话或工作的过程复述成记忆）与更新（已有记忆过时或有误，以检索得到的正式 alias 为对象，不能是 `draft_`、`rev_` 句柄）；以及写入与更新返回的是句柄。写入的判据不区分以聊天为主还是长时间执行任务：同一个会话两种情形都可能出现，服务对所有调用方给出同一份说明。主动写入与被动提取写出相似的内容由生成处理（[生成](../patchouli/generation.md#42-本话题的主动写入)第 4.2 节），说明文字因此不以对话会归档作为少写的理由，也不要求 agent 为避免重复而少写。
+- **语言**：服务说明、工具与参数描述和结果文本按 HiveMemory 的语言设置给出中文或英文，两份含义一致；工具名、参数名与 `draft_`/`rev_` 前缀不变（[全局 i18n](../system/i18n.md)）。改语言要重启后端，连接中的客户端重新取得说明后才看到新的文字。
 - **标注**：检索与读取标注为只读（MCP 的 `readOnlyHint`），检索会记录命中、读取会记录引用，但都不改变记忆内容；写入不是只读、也不破坏已有内容（`destructiveHint=false`）；更新改写一条已有记忆的当前版本，标注为破坏性。
 
 ## 4. 确定话题、操作入口与授权
@@ -97,7 +98,7 @@ MCP 入口与 Alice 的 MTP 适配器形态相同：都把协议调用归一为 
 
 ## 5. 错误
 
-MCP 入口复用 HTTP 出口的 `project_error` 投影，不另建映射；投影得到的 JSON（`error`、`detail`、可选的 `reason`，与 HTTP 错误响应体同构）写入 `isError` 的工具结果。
+MCP 入口复用 HTTP 出口的 `project_error` 投影，不另建映射；投影得到的 JSON（`error`、`detail`、可选的 `reason`，与 HTTP 错误响应体同构）写入 `isError` 的工具结果。`detail` 随语言设置为中文或英文，下表引用的是中文说明；错误码与 `reason` 不变。
 
 | 情况 | 来源 | 投影 |
 |:---|:---|:---|

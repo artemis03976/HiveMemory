@@ -26,7 +26,7 @@ last_reviewed: 2026-11-12
 
 - **记忆工具**：插件声明 HiveMemory 的 MCP server，Codex 中的 agent 经 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具访问记忆。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件的 hook 在调用前自动补上，模型自己填写的会被覆盖。
 - **对话回流**：Codex 中每一轮结束后，插件把这一轮（用户消息、回复、思考、命令与工具调用及结果、子 Agent 交回的消息）导入 HiveMemory。网络提交在后台进行，HiveMemory 未运行时 Codex 照常工作，未导入的轮次之后按顺序补发。工作原理见 [Import Bus](../system/import-bus.md#10-codex-插件)第 10 节。
-- **使用手册 skill**：`skills/hivememory/SKILL.md` 随插件加载，引导 agent 何时检索、写入与修正记忆。
+- **使用手册 skill**：`skills/hivememory/SKILL.md` 随插件加载，引导 agent 何时检索、写入与修正记忆。skill 的语言随 HiveMemory 的语言设置：后端每次启动时从插件目录的 `skill-languages/<语言>/SKILL.md` 写入 `skills/hivememory/SKILL.md`（[配置指南](./configuration.md#54-语言)）。Codex 保存的是插件的副本，改语言后要在插件页重新安装一次。
 
 三部分都以 Codex 自己的接入来源 `harness:codex` 认证，以 Agent `codex` 访问。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。
 

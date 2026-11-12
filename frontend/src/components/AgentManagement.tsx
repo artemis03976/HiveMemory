@@ -22,7 +22,7 @@ const EMPTY_AGENT: AgentData = {
   systemPrompt: '',
   model: 'default',
   status: 'Inactive',
-  config: { model_name: 'default', temperature: 0.7, top_p: null, language: 'zh' },
+  config: { model_name: 'default', temperature: 0.7, top_p: null },
 };
 
 const fieldCls = 'rounded-[9px] border border-line-strong bg-field text-fg focus:border-primary/50 focus:outline-none';

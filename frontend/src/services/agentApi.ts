@@ -17,7 +17,6 @@ function toPayload(agent: AgentData) {
       model_name: agent.config.model_name,
       temperature: agent.config.temperature,
       top_p: agent.config.top_p,
-      language: agent.config.language,
       enabled: agent.status === 'Active',
     },
   };

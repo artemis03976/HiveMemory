@@ -39,7 +39,8 @@ export async function currentTurnInfo(session, { readSession }) {
   const turns = sessionTurns(await readSession(session.id))
   const index = turns.length - 1
   if (index === -1 || turns[index].closed) {
-    throw new Error('当前没有进行中的一轮，无法确定写入属于哪一轮')
+    // 连接器不知道 HiveMemory 的语言设置，进入 Agent 上下文的这条错误用英文。
+    throw new Error('No turn is in progress, so this write cannot be attributed to a turn')
   }
   return turnInfo(session.id, turns, index)
 }

@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hivememory.config.app import I18nConfig
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.config.import_bus import ImportBusConfig
 from hivememory.config.runtime import RuntimeEventsConfig
@@ -30,6 +31,7 @@ def system_config():
     config.import_bus = ImportBusConfig()
     config.workspace = WorkspaceConfig()
     config.runtime_events = RuntimeEventsConfig()
+    config.i18n = I18nConfig()
     return config
 
 

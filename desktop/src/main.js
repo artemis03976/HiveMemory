@@ -8,7 +8,7 @@
 
 import { app, BrowserWindow, dialog, Menu, nativeImage, shell, Tray } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import { checkoutLayout, installedLayout } from './layout.js'
 import { LocalServices, MANAGEMENT_CREDENTIAL_COOKIE } from './services.js'
@@ -127,8 +127,24 @@ async function resolveDataRoot() {
   const saved = readDesktopSettings().dataRoot
   if (saved) return saved
   const dataRoot = await chooseDataRoot()
-  if (dataRoot) writeDesktopSettings({ dataRoot })
+  if (dataRoot) {
+    writeDesktopSettings({ dataRoot })
+    writeInitialLanguage(dataRoot)
+  }
   return dataRoot
+}
+
+/**
+ * 首次部署时按 Windows 的界面语言写入 HiveMemory 的语言设置：首选语言不是中文时，写一个只含
+ * `i18n.language: en` 的个人覆盖文件。数据根中已有覆盖文件时不改动（例如选用的是已有数据）。
+ */
+function writeInitialLanguage(dataRoot) {
+  const overlay = join(dataRoot, 'configs', 'config.local.yaml')
+  if (existsSync(overlay)) return
+  const preferred = app.getPreferredSystemLanguages()[0] ?? ''
+  if (preferred.toLowerCase().startsWith('zh')) return
+  mkdirSync(dirname(overlay), { recursive: true })
+  writeFileSync(overlay, 'i18n:\n  language: en\n', 'utf8')
 }
 
 function desktopSettingsPath() {
