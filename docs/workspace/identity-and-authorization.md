@@ -22,7 +22,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/architecture/data-model.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # 身份与授权
@@ -165,7 +165,7 @@ Workspace 资源的最终寻址同时包含 WorkspaceIdentity 和资源 ID。复
 
 ### 5.2 Memory 的归属
 
-Memory 在 `MetaData.workspace_identity` 中保存唯一持久化归属；读取时先限定 owning Workspace，再由 Patchouli 的记忆策略判断 actor 是否可读。具体 policy 与检索规则属于 [MemoryLibrary](../patchouli/memory-library.md) 与 [Retrieval](../patchouli/retrieval.md)，本文只确认 Workspace 是 Memory 的唯一归属边界；存储层的 legacy 兼容解释分支已随存量数据迁移完成而删除，`workspace_identity` 是归属字段的唯一权威。
+Memory 在 `MetaData.workspace_identity` 中保存唯一持久化归属；读取时先限定 owning Workspace，再由 Patchouli 的记忆策略判断 actor 是否可读。策略在资源创建时写入、之后只经 root API 的管理编辑修改，用户是唯一能改变可见性的一方：被动提取与 Agent 的写入都生成 PUBLIC，Agent 不能为自己的写入声明策略，写入意图因此也不设策略（[读取视图与写入意图](./read-view-and-write-intents.md#6-已知限制)）。管理读取只检查归属、不受策略约束（[能力层](./capability.md#4-两种读取视角)第 4 节）。具体 policy 与检索规则属于 [MemoryLibrary](../patchouli/memory-library.md) 与 [Retrieval](../patchouli/retrieval.md)，本文只确认 Workspace 是 Memory 的唯一归属边界；存储层的 legacy 兼容解释分支已随存量数据迁移完成而删除，`workspace_identity` 是归属字段的唯一权威。
 
 ### 5.3 共享基础设施不分区
 

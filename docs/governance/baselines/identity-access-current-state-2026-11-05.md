@@ -279,7 +279,7 @@ last_reviewed: 2026-11-05
 | 冷存储在 `main_workspace` 下回退裸 `memory_id`，`remove` 与 `is_archived` 不重验归属 | `adapters/long_term.py` | 补丁 | — |
 | 进程控制只比对 Workspace | `authorize_process_control` | 补丁 | Idea P-7 |
 | RUN 与 `sys_*` 工具不受操作约束 | `verbs.py`、`mtp/verbs/run.py` | 补丁 | 治理 Phase S3；ROADMAP 第 5.4 节暂不考虑 |
-| PRIVATE 与 TEAM 可见性、`team_id` | 第 7.2 节 | 休眠 | Idea P-8；[Memory 可见性策略前端 Todo](../../todo/memory-visibility-policy-ui.md) |
+| PRIVATE 与 TEAM 可见性、`team_id` | 第 7.2 节 | 休眠 | Idea P-8；[管理页修改记忆可见性计划](../../archive/plans/memory-visibility-management.md)（已归档，原 Todo 已并入） |
 | owner 检查与目标等于驻留 Workspace 的检查 | `_check_target`、`admit` | 休眠 | Idea 第 7 节 |
 | 可见性主体的区分（进程 Agent、被调用方、调用方、`system`） | 第 7.1 节 | 休眠 | — |
 | 白名单 | 第 7.2 节 | 休眠（随仓库发布的登记下） | Idea E-1、P-4a |

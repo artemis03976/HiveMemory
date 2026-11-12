@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # MemoryLibrary 与存储层
@@ -61,6 +61,8 @@ Actor 读取（UUID、alias、scroll 与 search）独立接收 `belong_to` 和�
 持久化 payload 的读取统一经 `decode_memory_payload` 规范化，只接受 Memory schema `"2.1"`（其他版本 fail closed；整数 `2` 的兼容解码分支已随 2026-09-23 全量迁移完成而删除，迁移执行记录见[归档 Plan](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)附录 B.5）。
 
 `upsert(recompute_vectors=False)` 用于 embedding 输入未变化的完整提交（如仅修改 `payload.agent_config`）：以 `set_payload` 替换整份 payload 并原样保留向量。`patch_payload` 是动态状态与资源策略的唯一持久化路径：只接受 `meta.lifecycle.*` 七个白名单字段与 `meta.access_policy` 整体替换，按嵌套键做 Qdrant 局部更新，不重算向量、不写版本 Artifact、不改内容时间与版本；未知路径、空 patch 或未通过领域校验的值直接拒绝。
+
+记忆的读取策略在创建时确定：管理入口的手动创建可以给出 PUBLIC 或指向一个 Agent 的 PRIVATE，没有给出时为 PUBLIC；被动提取、Agent 的写入与 Agent Profile 都是 PUBLIC。创建之后策略只有一个修改入口：管理编辑经 `MemoryGenerationFamiliar` 以 `patch_payload` 替换 `meta.access_policy`（[管理页面](../frontend/management-views.md#111-可见范围)）。同一次编辑也改了内容时，先提交内容、再替换策略：内容提交写回的是编辑开始时读到的整条原子，先写的策略会被它改回旧值；两步之间没有原子保证，策略写入失败时内容已经提交。Agent Profile 的策略决定 CALL 能否看到这个 Agent，记忆编辑对它提交策略时以 `InvalidMemoryFieldError` 拒绝。策略变更同样经下文的变更事件让读取视图失效，Mode C 修订写回前沿用当前策略（[Patchouli 生成](./generation.md#33-mode-c主动-update)）。
 
 alias 在同一 Workspace 的中期库内唯一。`upsert` 是全部完整写入（生成、手工编辑、Profile 管理创建、revive）的汇聚点，在主后端写入前检查 alias 是否已被同一 Workspace 的其他 Memory 占用，冲突时抛 `MemoryAliasConflictError`（`reason=alias_occupied`）且不产生任何写入；没有 alias 的原子不参与该约束，原子自身已持有该 alias 视为可用。归档即释放 alias，revive 时撞名显式失败；`patch_payload` 白名单不含 `index.alias`，不需要校验。精确 alias 查询命中多条时 fail closed（`reason=ambiguous_alias`），不按存储顺序任取其一。并发写入者之间“检查→写入”的竞态不在保证范围内。
 

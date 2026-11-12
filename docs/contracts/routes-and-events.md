@@ -111,10 +111,10 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.memory.create` | `create_memory` | `identity_scope`、`MemoryCreation`（创建材料；类型不得为 `AGENT_PROFILE`） | 持久化后的 `MemoryAtom` |
+| `patchouli.public.memory.create` | `create_memory` | `identity_scope`、`MemoryCreation`（创建材料；类型不得为 `AGENT_PROFILE`；`access_policy` 为 `None` 时为 PUBLIC） | 持久化后的 `MemoryAtom` |
 | `patchouli.public.memory.list` | `list_memories` | `identity_scope`、query、filters、limit、exclude、cursor、refresh | `MemoryListPage`：一页记忆、下一页游标与总数。没有 query 时按存储顺序翻页，排除的类型在存储侧过滤，总数按同一过滤条件计数；有 query 时按相关度返回、不翻页，总数是本次条数 |
 | `patchouli.public.memory.get` | `get_memory` | memory id、`identity_scope`、refresh | `MemoryAtom | None` |
-| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope`、`MemoryEdit`（部分编辑，`None` 表示不修改；记忆与 Profile 共用，`agent_config` 只对 `AGENT_PROFILE` 有效） | `MemoryAtom | None` |
+| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope`、`MemoryEdit`（部分编辑，`None` 表示不修改；记忆与 Profile 共用，`agent_config` 只对 `AGENT_PROFILE` 有效，`access_policy` 只对其他类型有效，修改策略不产生新版本） | `MemoryAtom | None` |
 | `patchouli.public.memory.delete` | `delete_memory` | `identity_scope`、memory id | `bool` |
 | `patchouli.public.memory.record_feedback` | `record_feedback` | memory id、`identity_scope`、positive、source | 记录结果 |
 

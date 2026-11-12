@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/execution-threads.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/attachments.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-11
 ---
 
 # 能力层
@@ -61,7 +61,7 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 | 服务 | 方法 | 行为 |
 |:---|:---|:---|
-| `RootMemoryService` | `create_memory`、`list_memories`、`get_memory`、`update_memory`、`record_feedback`、`delete_memory`、`storage_available` | 以授权返回的 `IdentityScope` 经 Patchouli public route 执行；创建与编辑只提交 API 字段，原子由 Patchouli 构造与校验，root API 不组装 `MemoryAtom`。列表查询显式排除 `AGENT_PROFILE`，避免普通记忆管理与 Profile 资产混为一类；不存在的 get/update 使用共享的 `ResourceNotFoundError`。`storage_available` 读取存储是否可用，只供任务进程使用（存储健康决定提示词的离线提示），没有 HTTP 管理路由 |
+| `RootMemoryService` | `create_memory`、`list_memories`、`get_memory`、`update_memory`、`record_feedback`、`delete_memory`、`storage_available` | 以授权返回的 `IdentityScope` 经 Patchouli public route 执行；创建与编辑只提交 API 字段（含可选的读取策略 `access_policy`，root API 不核对策略指向的 Agent），原子由 Patchouli 构造与校验，root API 不组装 `MemoryAtom`。列表查询显式排除 `AGENT_PROFILE`，避免普通记忆管理与 Profile 资产混为一类；不存在的 get/update 使用共享的 `ResourceNotFoundError`。`storage_available` 读取存储是否可用，只供任务进程使用（存储健康决定提示词的离线提示），没有 HTTP 管理路由 |
 | `RootAgentProfileService` | `create_agent_profile`、`list_agent_profiles` | 只提交创建材料并列出 `AGENT_PROFILE`，Profile 原子的构造、持久化和可见性都由 Patchouli 负责；`agent_config` 是资产内容，不是 System 直接解释的运行时权限 |
 | `RootSessionService` | `create_session`、`list_sessions`、`get_session`、`rename_session`、`delete_session` | 委托共享会话服务（[会话资源](./sessions.md)） |
 | `RootAccessService` | `list_records`、`put_record`、`delete_record` | 管理目标 Workspace 的访问记录（准入与 actor 操作白名单），不新增可登记给 actor 的管理 operation。列表不含保留的 `system` 记录，它也不能修改或删除：root 授权以它准入 `system`。编辑写回登记文件，授权者在下一次授权时按新内容判定（[认证与访问登记](./authentication.md#2-两类访问登记)第 2 节） |

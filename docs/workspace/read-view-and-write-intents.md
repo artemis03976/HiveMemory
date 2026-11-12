@@ -23,7 +23,7 @@ related_docs:
   - docs/contracts/mcp.md
   - docs/patchouli/generation.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-11
 ---
 
 # 读取视图与写入意图
@@ -98,7 +98,7 @@ UPDATE 的基础冷读在取得派发话题与登记的同步段之前完成，�
 
 - 读取视图与写入意图登记均为进程内状态；失效通知不处理未送达补齐，意图句柄不回收也不跨重启恢复，实时派发的结果未知时可能长期保持 MATERIALIZING；
 - 改指事件与结算事件同样没有补偿：改指丢失时句柄仍指向已删除的 N，SETTLED redirect 读不到正式目标，按不可读处理；
-- 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。结算对账、句柄保留期、意图 policy 与外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；
+- 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。这与意图的结果一致：Agent 的写入总是生成 PUBLIC，只有用户能在管理页修改可见性；用户把正式记忆或 UPDATE 的基础改为只对其他 Agent 可见之后，重定向与 UPDATE 意图的回读照常按正式记忆的策略授权（第 4 节）。结算对账、句柄保留期与外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；
 - 原子缓存与意图读取交付独立副本，但对象仍可变，不宣称递归冻结。
 
 ## 7. 代码与测试入口
