@@ -51,10 +51,10 @@ export default function ModelConfigTab() {
 
       <div className="flex items-center gap-2.5 border-t border-line pt-3">
         <div className="flex flex-1 flex-col gap-0.5">
-          <span className="text-sm font-semibold text-fg">为本会话单独设置参数</span>
-          <span className="text-xs text-fg-3">关闭时沿用 Agent 与模型定义</span>
+          <span className="text-sm font-semibold text-fg">单独设置生成参数</span>
+          <span className="text-xs text-fg-3">对之后发出的每一轮生效；关闭时沿用 Agent 与模型定义</span>
         </div>
-        <Toggle checked={overrideParams} onChange={setOverrideParams} label="为本会话单独设置参数" />
+        <Toggle checked={overrideParams} onChange={setOverrideParams} label="单独设置生成参数" />
       </div>
 
       {overrideParams ? (

@@ -51,7 +51,7 @@ class ProfileResolver:
     ) -> AgentProfile:
         """解析并交付 AgentProfile 独立副本。
 
-        缺失、不可见、类型不符或配置损坏均按 backing 的既有错误失败，不降级
+        缺失、不可见、类型不符、配置损坏或已停用均按 backing 的既有错误失败，不降级
         为默认配置；命中后对当前 Actor 不可见时与"不存在"同样表达，不泄露资源是否存在。
         ``enforce_actor_visibility=False`` 是管理读取，命中与冷读都不检查可见性。
         """

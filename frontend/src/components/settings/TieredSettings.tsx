@@ -3,6 +3,7 @@ import { ChevronDown, RotateCcw, Zap } from 'lucide-react';
 import { Toggle } from '../common/FormControls';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { readPath, type SettingField, type SettingSectionDef } from '@/constants/settingsSchema';
+import { useToastStore } from '@/stores';
 import type { RegisteredModel } from '@/types/model';
 
 interface TieredSettingsProps {
@@ -81,6 +82,7 @@ export function TieredSettings({
   sections, config, savedConfig, immediateFields, pendingRestart, models, showPaths = false, updateConfig, restoreDefaults,
 }: TieredSettingsProps) {
   const [confirming, setConfirming] = useState<SettingSectionDef | null>(null);
+  const addToast = useToastStore((s) => s.addToast);
 
   return (
     <div className="flex flex-col gap-5">
@@ -152,7 +154,10 @@ export function TieredSettings({
         message="只影响这一节，其他设置不变。恢复后仍需保存才会生效。"
         confirmText="恢复"
         onConfirm={() => {
-          if (confirming) void restoreDefaults(confirming.fields.filter((f) => f.kind !== 'readonly').map((f) => f.path));
+          if (confirming) {
+            restoreDefaults(confirming.fields.filter((f) => f.kind !== 'readonly').map((f) => f.path))
+              .catch(() => addToast('没有读到默认值，这一节没有恢复', 'error'));
+          }
           setConfirming(null);
         }}
         onCancel={() => setConfirming(null)}

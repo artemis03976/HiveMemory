@@ -4,6 +4,7 @@
  */
 
 import { useLayoutEffect } from 'react';
+import { MotionConfig } from 'motion/react';
 import GlobalNavBar from './components/GlobalNavBar';
 import ChatLayout from './components/ChatLayout';
 import MemoryLibrary from './components/MemoryLibrary';
@@ -35,7 +36,9 @@ export default function App() {
     document.documentElement.dataset.theme = resolvedTheme;
   }, [resolvedTheme]);
 
+  // 系统设置为减少动效时，Motion 的入场与展开动画也一并去掉
   return (
+    <MotionConfig reducedMotion="user">
     <div className="flex h-screen w-full overflow-hidden bg-background">
       <DynamicToast />
       <GlobalNavBar activeTab={activeNavTab} onTabChange={changeTab} resolvedTheme={resolvedTheme} />
@@ -60,5 +63,6 @@ export default function App() {
         </div>
       </div>
     </div>
+    </MotionConfig>
   );
 }
