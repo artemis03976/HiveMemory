@@ -130,7 +130,7 @@ last_reviewed: 2026-11-11
 | 外部 harness 的 controller 模式 | Candidate / 不绑定版本（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | 第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md) |
 | 记忆价值体系重新设计 | Candidate / 不绑定版本 | owner 重新设计价值体系，不在现有信号上增补 | 第 4.7 节 |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 随受影响的 API 并行；[Frontend](./frontend/README.md)与第 4.8 节 Todo |
-| 前端 UI 优化与空入口接线 | Completed（2026-11-11 收尾）/ v1.0 范围（候选清单 D-05、D-07、D-15；D-13 只完成了浅色主题的配色）；保留东方/魔法命名与紫色霓虹，加入樱花粉点缀，先出样稿、owner 定稿后实施（owner，2026-11-11）；自定义背景与毛玻璃未做，动效、响应速度与自适应布局等细节单独记为 Todo（owner，2026-11-11） | 浅色主题独立配色、设计令牌与随包字体、三栏断点与全局连接状态条、各页排版与文案、设置页分常用与高级两层、短期话题池与 Agent 页按样稿重做、空入口逐项接线 | [前端](./frontend/README.md)、[应用外壳](./frontend/application-shell.md)、[管理页面](./frontend/management-views.md)、[归档计划](./archive/plans/frontend-ui-and-entry-wiring.md)、[细节优化 Todo](./todo/frontend-ui-polish.md) |
+| 前端 UI 优化与空入口接线 | Completed（2026-11-11 收尾）/ v1.0 范围（候选清单 D-05、D-07、D-15；D-13 只完成了浅色主题的配色）；保留东方/魔法命名与紫色霓虹，加入樱花粉点缀，先出样稿、owner 定稿后实施（owner，2026-11-11）；自定义背景与毛玻璃未做，与桌面端的主题持久化一起记为 Todo；动效、响应速度与自适应布局等细节单独记为 Todo（owner，2026-11-11） | 浅色主题独立配色、设计令牌与随包字体、三栏断点与全局连接状态条、各页排版与文案、设置页分常用与高级两层、短期话题池与 Agent 页按样稿重做、空入口逐项接线 | [前端](./frontend/README.md)、[应用外壳](./frontend/application-shell.md)、[管理页面](./frontend/management-views.md)、[归档计划](./archive/plans/frontend-ui-and-entry-wiring.md)、[细节优化 Todo](./todo/frontend-ui-polish.md)、[自定义背景 Todo](./todo/custom-background-and-preference-persistence.md) |
 | Electron 桌面客户端 | Completed（2026-11-10 收尾）/ v1.0 范围；不签名、不自动升级、提供二次确认的删除记忆数据入口、不做备份（owner，2026-11-10）；随包发布与版本号随 v1.0 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 第 5.1 节；[桌面客户端](./frontend/desktop-client.md)、[使用桌面客户端](./help/desktop-client.md)、[归档计划](./archive/plans/desktop-client.md) |
 
 ### 4.3 v0.7.3：主动写入与被动提取的收敛
@@ -205,6 +205,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [Mock fallback 披露（归档）](./archive/todo/frontend-mock-fallback-disclosure.md) | Completed / Archived（2026-11-07）：owner 决定 mock 数据只在 debug 模式下启用 | 默认读取失败如实显示，不以 mock 数据冒充真实结果 |
 | [Memory 管理页列表与检索（归档）](./archive/todo/frontend-memory-library-listing.md) | Completed / Archived（2026-11-02）：列表跟随游标取全，语义检索请求后端 | 列表取全并显示真实总量；语义检索复用真实后端能力，保留失败和空结果 |
 | [前端细节优化](./todo/frontend-ui-polish.md) | 未排期（owner，2026-11-11） | 动效、响应速度与自适应布局；验收在打包后的桌面端中进行 |
+| [自定义背景与界面偏好持久化](./todo/custom-background-and-preference-persistence.md) | 未排期；主题持久化与自定义背景一起做（owner，2026-11-11） | 偏好跨桌面客户端重启保留，管理凭据不落盘；背景透出用毛玻璃表面令牌 |
 | [Memory visibility policy UI](./todo/memory-visibility-policy-ui.md) | 后端契约稳定后进入资源体验 | UI 编辑策略不能替代后端授权 |
 | [会话 /compact 指令](./todo/conversation-compact-command.md) | 会话与 Alice 自动压缩已完成，仍依赖命令运行位置与命令系统接回 | compact 只作用于 CPU 的会话上下文，不改写 Session 记录与 Topic；后台 Topic 的 page folding 是另一个问题 |
 | [Work Queue 多 lane 拓扑](./todo/work-queue-runtime-lane-topology.md) | 保持 Deferred | 只有共享 Store、跨 lane 调度或可复现故障触发才重评 |
