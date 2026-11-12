@@ -6,7 +6,7 @@ scope: install-first-start-upgrade-data-deletion-and-uninstall-of-the-windows-de
 related_docs:
   - docs/frontend/desktop-client.md
   - docs/help/setup.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-12
 ---
 
 # 使用桌面客户端
@@ -39,11 +39,13 @@ last_reviewed: 2026-11-10
   - **删除全部记忆数据…**：见第 5 节；
   - **退出**：后端正常关闭后退出，通常几秒内完成。没有生成完的记忆在下次启动后继续生成。
 - 管理只能在桌面窗口中进行：在浏览器中打开 `http://127.0.0.1:8769` 会被拒绝（401）。
-- 外部 harness 照常连接 `http://127.0.0.1:8769`。在设置页的“接入与权限”中为 harness 生成接入凭据，再按各自的手册配置（[安装与启动](./setup.md#9-接入外部-harness)第 9 节）。
+- 新安装的 HiveMemory 不连接任何 harness。在设置页的“插件”页为 Claude Code、Codex、pi 或 dsh 桌面端安装插件：安装包带着插件，HiveMemory 代为运行 harness 的插件命令、登记接入，并把凭据写进 Windows 用户环境变量；装好之后完全退出该 harness 再打开。各 harness 的细节见[安装与启动](./setup.md#9-接入外部-harness)第 9 节列出的手册。
 
 ## 4. 升级
 
 下载新版安装包，退出正在运行的 HiveMemory（托盘“退出”），再运行安装包覆盖安装。数据目录与设置保留，窗口标题显示新的版本号。没有自动升级。
+
+插件随安装包一起换成新版本：pi 与 dsh 原地读取插件，重新打开即可；Claude Code 与 Codex 保存的是插件的副本，HiveMemory 启动后自动为它们重新安装，之后重新打开该 harness（Codex 还要重新信任 hook）。自动重新安装失败时，插件页把它标为“需要更新”。
 
 升级之后后端起不来时，错误框会显示后端最后的输出：如果提示配置中有未知的键，按提示从数据目录下 `configs\config.local.yaml` 或 `.env` 中删掉那一项。
 
@@ -52,7 +54,7 @@ last_reviewed: 2026-11-10
 托盘“删除全部记忆数据…”，确认两次后删除，没有备份，不能撤销。
 
 - **删除**：全部记忆与 Agent（预设 Agent 会在重启后重新写入）、来源与版本记录、长期归档、还没生成完的记忆工作。
-- **保留**：配置、Provider 密钥、harness 接入凭据、推理模型与日志。
+- **保留**：配置、Provider 密钥、harness 接入凭据与已安装的插件、推理模型与日志。
 
 删除后应用自动重新启动，可以直接继续使用。数据目录指向仓库 checkout 时，删除的就是 checkout 中的记忆库，仓库文件不受影响。
 

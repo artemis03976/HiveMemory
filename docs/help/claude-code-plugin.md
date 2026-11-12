@@ -6,15 +6,14 @@ scope: claude-code-plugin-installation-configuration-verification-and-troublesho
 code_paths:
   - integrations/.claude-plugin/marketplace.json
   - integrations/hivememory/
-  - configs/system_principals.example.yaml
-  - configs/workspace_actors.example.yaml
+  - src/hivememory/system/plugins/
 related_contracts:
   - docs/contracts/mcp.md
 related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-12
 ---
 
 # 接入 Claude Code
@@ -25,78 +24,66 @@ last_reviewed: 2026-11-09
 - **记忆访问**：插件声明了 HiveMemory 的 MCP server，Claude Code 的 agent 可以调用 `memory_search` 检索记忆、`memory_read` 按 alias 读取全文、`memory_write` 写入值得长期保存的内容、`memory_update` 修正检索到的已有记忆。插件不主动向 Claude Code 注入记忆，何时检索与写入由 agent 自己决定；写入与更新前，插件的 hook 在本地为调用补上当前一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题。契约见 [MCP 记忆访问](../contracts/mcp.md)。
 - **使用手册 skill**：插件附带 skill `hivememory`（`skills/hivememory/SKILL.md`），在 Claude Code 中名为 `hivememory-connector:hivememory`。它说明何时检索、怎样采信记忆、什么值得写入、怎样写才能被以后找到、何时修正已有记忆，以及怎样与 Claude Code 自己的记忆文件共存。Claude Code 按 skill 的描述在需要时加载，也可以输入 `/hivememory-connector:hivememory` 手动加载。skill 的内容不区分 harness，DeepSeek Harness 等其他 harness 复制这一份使用。
 
-两部分都以 Claude Code 自己的接入身份 `harness:claude-code` 认证，需要在 HiveMemory 与 Claude Code 两侧配置同一份接入凭据（第 2 节）。
+三部分都以 Claude Code 自己的接入来源 `harness:claude-code` 认证。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。
 
 ## 1. 前置条件与步骤一览
 
-- HiveMemory 后端已按[安装与启动](./setup.md)第 3 节或第 4 节运行；
-- Claude Code 所在环境可以运行 `python3`。插件只用 Python 标准库，不需要安装依赖，也不需要安装 HiveMemory 包。
+- HiveMemory 在 Windows 上运行：[桌面客户端](./desktop-client.md)，或按[安装与启动](./setup.md)第 4 节从仓库运行；
+- 这台电脑上装有 Claude Code，PATH 上能找到 `claude` 命令。
 
 | 步骤 | 在哪一侧 | 内容 |
 |:---|:---|:---|
-| 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 与 Claude Code 的环境写同值的 `HIVEMEMORY_CLAUDE_CODE_TOKEN`（第 2 节） |
-| 安装插件 | Claude Code | 添加本地 marketplace 并安装 `hivememory-connector`（第 3 节） |
-| 配置连接器 | Claude Code | 至少设置 `HIVEMEMORY_URL`（第 4 节） |
-| 核对访问登记 | HiveMemory | 默认登记已包含 Agent `claude_code`，自定义过登记时补齐（第 5 节） |
-| 重启并确认 | 两侧 | 重启 HiveMemory、重新打开 Claude Code，确认工具与导入（第 6、7 节） |
+| 安装插件 | HiveMemory 设置页 | 在“插件”页点 Claude Code 的“安装”（第 2 节） |
+| 重新打开 Claude Code | Claude Code | 完全退出（包括已经打开的终端）再打开，读到新写入的环境变量 |
+| 确认 | 两侧 | 记忆工具与导入（第 6、7 节） |
 
-## 2. 配置接入凭据
+## 2. 从插件页安装
 
-凭据可以在 HiveMemory 设置页的“接入与权限”中为 `harness:claude-code` 生成或轮换：HiveMemory 一侧立即生效，不需要重启后端，把页面显示的凭据写进 Claude Code 一侧的 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 即可。HiveMemory 一侧的同名环境变量有值时优先于生成的凭据，页面上不能轮换。也可以按下面的方式自己生成一份，写入两侧的环境变量。
+在设置页的“插件”页点 Claude Code 的“安装”，HiveMemory 依次完成：
 
-先生成一份随机凭据，例如：
+1. 用 Claude Code 自己的命令安装插件：本地 marketplace `hivememory-local` 指向插件目录（安装版是程序目录中的 `resources\backend\integrations`，从仓库运行时是仓库的 `integrations`），再安装 `hivememory-connector@hivememory-local`。marketplace 已经指向别处（例如另一个 checkout）时先移除再添加；插件已经装过时改为更新。
+2. 登记接入来源 `harness:claude-code`，初始只能声明 Agent `claude_code`，凭据由 HiveMemory 生成。
+3. `claude_code` 还没有访问记录时，为它补一条只开放检索、读取、写入与更新的记录（第 5 节）。
+4. 把凭据写进 Windows 用户环境变量 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，把运行 HiveMemory 的 Python 写进 `HIVEMEMORY_PYTHON`。插件的 hook 用它运行连接器，电脑上不需要另装 Python。
 
-```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-```
+第 1 步失败时什么都不登记，页面给出失败的命令、输出的最后几行和手动安装的命令。之后完全退出 Claude Code 再打开：已经在运行的程序与终端读不到新写入的环境变量。
 
-把同一个值写入两侧，变量名都是 `HIVEMEMORY_CLAUDE_CODE_TOKEN`：
+插件挂载 `Stop`、`StopFailure`、`SessionStart`、`SessionEnd` 与只匹配本插件写入、更新工具的 `PreToolUse` 五个 hook，在 `.mcp.json` 中声明 MCP server `hivememory`，并附带 skill `hivememory`。安装时 Claude Code 保存的是插件的副本（第 10 节说明怎样更新）。
 
-| 一侧 | 写在哪里 |
-|:---|:---|
-| HiveMemory | 仓库根 `.env`（与其他密钥放在一起，Docker 路径同样读取它），或启动后端的环境 |
-| Claude Code | 启动 Claude Code 的环境，或 `~/.claude/settings.json` 的 `env` |
+## 3. 手动安装
 
-变量名带上 harness，是为了让多个 harness 共用一套环境变量时（例如 dsh 插件的 `HIVEMEMORY_DSH_TOKEN` 与本插件同在一个 Windows 用户环境中）各读各的凭据，不会拿别的 harness 的凭据冒充 `harness:claude-code`。HiveMemory 先读进程环境变量、没有时再读 `.env`，所以后端与 Claude Code 在同一套环境中运行时，设置一次即可同时供两侧使用。
-
-修改后重启 HiveMemory，并重新打开 Claude Code。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝：HiveMemory 照常启动并在启动日志中提示凭据环境变量未设置，连接器保留进度等待补发，MCP 工具返回错误（第 9 节）。凭据只用于防止本机其他程序冒用 Claude Code 的身份，不进入日志与错误响应。
-
-## 3. 安装插件
-
-`integrations/.claude-plugin/marketplace.json` 声明了一个本地 marketplace `hivememory-local`，只供本机安装。在 Claude Code 中执行（把路径换成本机仓库的实际位置）：
+插件页找不到 `claude`，或者插件命令失败时，可以在 Claude Code 中手动安装（插件页给出的命令带着本机插件目录的实际位置）：
 
 ```text
-/plugin marketplace add <HiveMemory 仓库路径>/integrations
+/plugin marketplace add <插件目录>
 /plugin install hivememory-connector@hivememory-local
 ```
 
-插件挂载 `Stop`、`StopFailure`、`SessionStart`、`SessionEnd` 与只匹配本插件写入、更新工具的 `PreToolUse` 五个 hook，在 `.mcp.json` 中声明 MCP server `hivememory`，并附带 skill `hivememory`。安装时 Claude Code 保存的是插件的副本，仓库中的插件更新后要重新更新插件（第 10 节）。
+装好之后回到插件页，点“已用命令装好，完成登记”：HiveMemory 只完成第 2 节的第 2 至 4 步。
 
-## 4. 配置连接器
+插件页不能代为安装时（HiveMemory 不在 Windows 上运行，例如 Docker），在生效的 `configs/system_principals.yaml` 中登记 `harness:claude-code`（adapter `mcp` 与 `import`，`allowed_agent_ids: ["claude_code"]`，`credential_env: "HIVEMEMORY_CLAUDE_CODE_TOKEN"`），在 `configs/workspace_actors.yaml` 中为 `claude_code` 登记四项记忆操作，再生成一份随机凭据（例如 `python -c "import secrets; print(secrets.token_urlsafe(32))"`），把同一个值写进 HiveMemory 的 `.env` 与 Claude Code 的环境（或 `~/.claude/settings.json` 的 `env`），重启 HiveMemory。登记规则见[配置指南](./configuration.md#51-访问登记)。
 
-连接器与 MCP server 从同一组环境变量读取配置。hook 与 MCP 连接都由 Claude Code 发起，因此在启动 Claude Code 的环境中设置（也可以写在 `~/.claude/settings.json` 的 `env` 中）：
+## 4. 连接器读取的环境变量
+
+连接器与 MCP server 从同一组环境变量读取配置。hook 与 MCP 连接都由 Claude Code 发起，因此要在启动 Claude Code 的环境中能读到（插件页写在 Windows 用户环境变量中，也可以写在 `~/.claude/settings.json` 的 `env` 中）：
 
 | 环境变量 | 默认值 | 说明 |
 |:---|:---|:---|
-| `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 后端地址。默认值对应 Docker 路径；本地开发路径（含脚本的 `serve` 模式）的后端在 `8769`，需要设为 `http://localhost:8769`。MCP 只接受本机地址（`localhost`、`127.0.0.1` 或 `[::1]`，带端口） |
-| `HIVEMEMORY_CLAUDE_CODE_TOKEN` | 不设置 | 接入凭据，见第 2 节 |
+| `HIVEMEMORY_URL` | `http://127.0.0.1:8769` | HiveMemory 后端地址。默认值对应桌面客户端与从仓库运行；Docker 路径的后端在 `8000`，需要设为 `http://localhost:8000`。MCP 只接受本机地址（`localhost`、`127.0.0.1` 或 `[::1]`，带端口） |
+| `HIVEMEMORY_CLAUDE_CODE_TOKEN` | 插件页写入 | 接入凭据 |
+| `HIVEMEMORY_PYTHON` | 插件页写入 | hook 运行连接器的 Python；没有设置时用 PATH 上的 `python3` 或 `python` |
 | `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入与访问；不设置时使用服务端的默认用户 `default` |
 | `HIVEMEMORY_AGENT_ID` | `claude_code` | 以哪个 Agent 导入与访问；不能使用保留的 `system` |
 | `HIVEMEMORY_CONNECTOR_STATE_DIR` | 见第 7 节 | 连接器状态、日志与拒绝记录的目录 |
 
-例如本地开发路径：
-
-```bash
-export HIVEMEMORY_URL=http://localhost:8769
-export HIVEMEMORY_CLAUDE_CODE_TOKEN=<第 2 节生成的凭据>
-```
+变量名带上 harness，是为了让多个 harness 共用一套 Windows 用户环境变量时各读各的凭据，不会拿别的 harness 的凭据冒充 `harness:claude-code`。凭据只用于防止本机其他程序冒用 Claude Code 的身份，不进入日志与错误响应。
 
 ## 5. 访问登记
 
-导入与 MCP 请求都经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。从模板生成的登记已经为默认用户 `default` 登记了 `claude_code`，使用默认配置时不需要修改。这条记录获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，分别对应四个 MCP 工具；导入只要求准入、不需要任何 actor 操作；精确记录也使这个 Agent 不继承默认用户的 `memory.run` 与 `agent.call`。更早生成或自定义过的登记，需要手动为它加上 `memory.write` 与 `memory.update`，否则写入与更新返回 403（`workspace.operation_denied`）。
+导入与 MCP 请求都经统一认证网关，请求的用户与 Agent 必须在 Workspace 访问登记中获准进入。插件页安装时，`claude_code` 还没有记录就补一条，获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，分别对应四个 MCP 工具；导入只要求准入、不需要任何 actor 操作；精确记录也使这个 Agent 不继承默认用户的 `memory.run` 与 `agent.call`。已有的记录不改动，卸载插件也不删除它：权限属于 Agent，不属于 harness。
 
 - `HIVEMEMORY_USER_ID` 设为 `default` 以外的用户时，需要为该用户登记记录，否则导入与工具调用返回 403，连接器停止提交并保留进度；
-- 更换 `HIVEMEMORY_AGENT_ID` 时，先在设置页的“接入与权限”中把新的 Agent 加入 `harness:claude-code` 可声明的 Agent，否则请求以 403（`reason=agent_not_allowed_for_principal`）被拒；新的 Agent 由默认的用户级记录覆盖，如果希望它的权限与 `claude_code` 相同，在同一页为它增加记录；
+- 同一个 Claude Code 可以以多个 Agent 运行。更换 `HIVEMEMORY_AGENT_ID` 时，先在设置页的“接入与权限”中把新的 Agent 加入 `harness:claude-code` 可声明的 Agent，否则请求以 403（`reason=agent_not_allowed_for_principal`）被拒；新的 Agent 由默认的用户级记录覆盖，如果希望它的权限与 `claude_code` 相同，在同一页为它增加记录；
 - 在设置页修改登记立即生效；直接修改登记文件后重启 HiveMemory。登记规则见[配置指南](./configuration.md#51-访问登记)。
 
 ## 6. 确认记忆访问
@@ -132,15 +119,16 @@ export HIVEMEMORY_CLAUDE_CODE_TOKEN=<第 2 节生成的凭据>
 
 | 现象 | 原因与处理 |
 |:---|:---|
-| `/mcp` 显示 `hivememory` 连接失败，工具不出现 | HiveMemory 未运行或 `HIVEMEMORY_URL` 不对（本地开发与 `serve` 模式在 `8769`，Docker 在 `8000`）。启动后在 Claude Code 中执行 `/mcp reconnect all` 或重新打开会话 |
-| 工具调用返回 `invalid_credential`，`connector.log` 的 `stopped` 行带 403 `invalid_credential` | 两侧凭据不一致或没有配置：两侧都是 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，HiveMemory 一侧先取进程环境变量、再取 `.env`（后端启动日志会提示它未设置）。改正后重启 HiveMemory、重新打开 Claude Code；连接器保留了进度，下一次唤醒时补发未导入的轮次 |
+| `/mcp` 显示 `hivememory` 连接失败，工具不出现 | HiveMemory 未运行或 `HIVEMEMORY_URL` 不对（桌面客户端与从仓库运行在 `8769`，Docker 在 `8000`）。启动后在 Claude Code 中执行 `/mcp reconnect all` 或重新打开会话 |
+| 工具调用返回 `invalid_credential`，`connector.log` 的 `stopped` 行带 403 `invalid_credential` | Claude Code 读到的凭据与 HiveMemory 登记的不一致：多半是安装之后没有完全退出 Claude Code，或者终端是安装之前打开的。完全退出再打开；仍然不行时在插件页点“重新安装”，凭据会重新写入。连接器保留了进度，下一次唤醒时补发未导入的轮次 |
 | 导入返回 400 `request.principal_required` | 服务端已更新而插件仍是旧版本：更新插件（第 10 节）后重启 Claude Code，积压的轮次随后补发 |
-| 工具调用返回 `operation_not_allowed` | `workspace_actors.yaml` 中该 Agent 的白名单缺少对应的 `memory.*` 操作（第 5 节）；修改后重启 HiveMemory |
+| 导入返回 403 `unknown_principal` | 插件还装着，但 HiveMemory 一侧没有 `harness:claude-code` 的登记（例如在插件页卸载过，或换了一个新的数据目录）：在插件页重新安装 |
+| 工具调用返回 `operation_not_allowed` | 该 Agent 的访问记录缺少对应的 `memory.*` 操作（第 5 节）：在设置页的“接入与权限”中勾选，立即生效 |
 | 写入或更新返回 `request.turn_required` | 插件的 `PreToolUse` hook 没有运行：确认插件已更新、已重启 Claude Code |
 | 工具调用返回 `request.workspace_not_found` | `X-Workspace-ID` 只接受 `main_workspace` |
 | MCP 请求返回 421 | MCP 端点只接受带端口的本机地址（`localhost`、`127.0.0.1`、`[::1]`）；`HIVEMEMORY_URL` 改用这些地址 |
 
 ## 10. 更新与卸载
 
-- **更新**：仓库中的插件更新后，在 `/plugin` 中更新该插件，或执行 `claude plugin marketplace update hivememory-local` 与 `claude plugin update hivememory-connector@hivememory-local`，再重启 Claude Code。插件目录从 `integrations/claude-code/` 改名为 `integrations/hivememory/` 之后（与 Codex 合用一个插件目录），先执行这两条命令更新一次即可：插件名与 marketplace 名不变，插件数据目录与其中的游标保留。插件与 HiveMemory 需要一起升级：新插件导入的轮次可能带写入与更新的标记，旧版 HiveMemory 不认识它们，会整轮拒绝。
-- **卸载**：执行 `claude plugin uninstall hivememory-connector@hivememory-local`，再重启 Claude Code。
+- **更新**：Claude Code 保存的是插件的副本，插件目录更新后要重新安装才能读到。桌面客户端覆盖安装新版本之后，后端启动时自动为插件页装过的 Claude Code 重新安装插件，失败时插件页把它标为“需要更新”；从仓库运行时，更新代码后在插件页点“重新安装”，或执行 `claude plugin marketplace update hivememory-local` 与 `claude plugin update hivememory-connector@hivememory-local`。之后重启 Claude Code。插件与 HiveMemory 需要一起升级：新插件导入的轮次可能带旧版 HiveMemory 不认识的内容，会被整轮拒绝。
+- **卸载**：在插件页点 Claude Code 的“卸载”：卸载 Claude Code 中的插件（保留插件的数据目录，重新安装后不必从头补发）、移除本地 marketplace，删除 `harness:claude-code` 的登记、凭据与写入的环境变量；`claude_code` 的访问记录与已经写入的记忆保留。再重启 Claude Code。

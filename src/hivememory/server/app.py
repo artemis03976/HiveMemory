@@ -43,6 +43,7 @@ from hivememory.server.routers.logs import router as logs_router
 from hivememory.server.routers.memories import router as memories_router
 from hivememory.server.routers.memory_tasks import router as memory_tasks_router
 from hivememory.server.routers.models import router as models_router
+from hivememory.server.routers.plugins import router as plugins_router
 from hivememory.server.routers.providers import router as providers_router
 from hivememory.server.routers.runtime_events import router as runtime_events_router
 from hivememory.server.routers.sessions import router as sessions_router
@@ -77,6 +78,14 @@ async def _warm_up_and_seed_presets(system: "HiveMemorySystem") -> None:
         return
     if created:
         logger.info("初次部署写入预设 Agent: aliases=%s", ",".join(created))
+
+
+async def _update_copied_plugins(system: "HiveMemorySystem") -> None:
+    """升级之后重新安装 Claude Code 与 Codex 中复制安装的插件；失败只记录日志。"""
+    try:
+        await system.plugin_service.update_copied_plugins()
+    except Exception:
+        logger.exception("升级后更新插件失败: reason=plugin_update_failed")
 
 
 @asynccontextmanager
@@ -114,6 +123,10 @@ async def lifespan(app: FastAPI):
 
         # 后台预热推理模型并完成初次部署的预设 Agent 写入（不阻塞服务启动）
         asyncio.create_task(_warm_up_and_seed_presets(system))
+        # 安装版覆盖安装之后，插件目录随程序换成新版本；复制安装的插件要重新安装才能
+        # 读到。开发方式的 checkout 由开发者自己更新，不在启动时改动 harness。
+        if is_desktop_mode(app):
+            app.state.plugin_update_task = asyncio.create_task(_update_copied_plugins(system))
 
         logger.info("HiveMemorySystem 就绪，服务启动完成")
         yield
@@ -189,6 +202,7 @@ async def readiness():
 
 # 注册路由
 app.include_router(access_router, prefix="/api/v1")
+app.include_router(plugins_router, prefix="/api/v1")
 app.include_router(agents_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")

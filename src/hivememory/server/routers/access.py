@@ -3,7 +3,8 @@
 两组接口分开维护，各守自己的所有权：
 
 - 接入登记属于 System：与提供商、模型接口一样直接读写注册表，只由管理凭据
-  保护，不经认证网关；只有外部来源可以编辑；
+  保护，不经认证网关；这里只列出与修改，只有外部来源可以修改。外部来源的登记、
+  凭据与删除随插件的安装与卸载完成（插件路由），凭据要交到 harness 一侧才有意义；
 - 访问记录属于 workspace：经 root API，以请求的工作 actor 做 root 授权，目标
   是它驻留的 Workspace。
 
@@ -23,8 +24,6 @@ from hivememory.server.error_handlers import error_responses
 from hivememory.server.models.access import (
     ActorRecordRequest,
     ActorRecordResponse,
-    PrincipalCreateRequest,
-    PrincipalCredentialResponse,
     PrincipalResponse,
     PrincipalSettings,
 )
@@ -53,23 +52,6 @@ async def list_principals(
     return [PrincipalResponse.from_entry(entry) for entry in registry.entries()]
 
 
-@router.post("/principals", response_model=PrincipalCredentialResponse, status_code=201)
-async def register_principal(
-    body: PrincipalCreateRequest,
-    registry: SystemActorAccessRegistry = Depends(get_principal_registry),
-) -> PrincipalCredentialResponse:
-    """登记一个外部来源并生成凭据；凭据明文只在这次响应中返回。"""
-    entry, credential = registry.register(
-        body.principal_id.strip(),
-        adapters=frozenset(body.adapters),
-        allowed_agent_ids=_agent_set(body.allowed_agent_ids),
-        enabled=body.enabled,
-    )
-    return PrincipalCredentialResponse(
-        principal=PrincipalResponse.from_entry(entry), credential=credential
-    )
-
-
 @router.put("/principals/{principal_id}", response_model=PrincipalResponse)
 async def update_principal(
     principal_id: str,
@@ -84,28 +66,6 @@ async def update_principal(
         enabled=body.enabled,
     )
     return PrincipalResponse.from_entry(entry)
-
-
-@router.post("/principals/{principal_id}/credential", response_model=PrincipalCredentialResponse)
-async def rotate_principal_credential(
-    principal_id: str,
-    registry: SystemActorAccessRegistry = Depends(get_principal_registry),
-) -> PrincipalCredentialResponse:
-    """为外部来源生成新凭据，旧凭据随即失效。"""
-    entry, credential = registry.rotate_credential(principal_id)
-    return PrincipalCredentialResponse(
-        principal=PrincipalResponse.from_entry(entry), credential=credential
-    )
-
-
-@router.delete("/principals/{principal_id}", status_code=204)
-async def delete_principal(
-    principal_id: str,
-    registry: SystemActorAccessRegistry = Depends(get_principal_registry),
-) -> Response:
-    """删除外部来源与它的生成凭据。"""
-    registry.delete(principal_id)
-    return Response(status_code=204)
 
 
 # ---- Workspace 访问记录（root API） ----

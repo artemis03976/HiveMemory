@@ -1,3 +1,5 @@
 # Keep LF line endings in every checkout. Git for Windows enables core.autocrlf by default,
 # which would otherwise turn shell scripts, fixtures and config files into CRLF on Windows.
 * text=auto eol=lf
+# cmd.exe 按 CRLF 解析批处理文件：括号块与 rem 在只有 LF 时可能被截断或错位。
+*.cmd text eol=crlf

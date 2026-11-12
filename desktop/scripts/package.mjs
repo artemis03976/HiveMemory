@@ -5,7 +5,8 @@
  *   python/   uv 管理的独立 CPython，版本与仓库 .venv 相同；锁定的运行依赖装进它自己的
  *             site-packages，整个目录可以随安装位置移动
  *   backend/  与仓库根相同的布局：src/hivememory、configs（config.yaml 与各模板）、
- *             frontend/dist；后端按源码位置找到随程序发布的配置与前端
+ *             frontend/dist 与 integrations（外部 harness 的插件）；后端按源码位置找到
+ *             随程序发布的配置、前端与插件
  *   qdrant/   qdrant.exe，取自 .hivememory/dev.env 的 QDRANT_BIN，与开发时同一个版本
  * 模型不随包，首次启动时由后端下载到数据根。
  *
@@ -84,6 +85,12 @@ function prepareBackend() {
     'system_principals.example.yaml', 'workspace_actors.example.yaml']) {
     cpSync(join(REPO_ROOT, 'configs', name), join(target, 'configs', name))
   }
+  // 外部 harness 的插件与本地 marketplace，与后端同版本；插件页从这里为 harness 安装，
+  // 覆盖安装时随程序换成新版本。插件自己的测试与 Python 缓存不随包。
+  cpSync(join(REPO_ROOT, 'integrations'), join(target, 'integrations'), {
+    recursive: true,
+    filter: (source) => !['__pycache__', 'test'].includes(basename(source)),
+  })
   console.log('> npm run build (frontend)')
   execSync('npm run build', { cwd: join(REPO_ROOT, 'frontend'), stdio: 'inherit' })
   cpSync(join(REPO_ROOT, 'frontend', 'dist'), join(target, 'frontend', 'dist'), { recursive: true })

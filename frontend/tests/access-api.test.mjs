@@ -19,7 +19,8 @@ test('登记冲突按原因给出可操作的提示', async () => {
     reason: 'file_modified',
   }), { status: 409 });
 
-  await assert.rejects(accessApi.rotatePrincipalCredential('harness:dsh'), (error) => {
+  const settings = { adapters: ['mcp', 'import'], allowed_agent_ids: ['dsh'], enabled: true };
+  await assert.rejects(accessApi.updatePrincipal('harness:dsh', settings), (error) => {
     assert.equal(error.status, 409);
     assert.match(error.message, /重启后端/);
     return true;

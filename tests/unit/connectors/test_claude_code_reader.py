@@ -5,7 +5,8 @@
 除外），子 Agent 交回的报告写为子 Agent 消息事件；助手文本、思考、工具
 调用与工具结果映射为导入事件；本插件自身的 MCP 记忆工具归一化为 SEARCH、READ、
 WRITE、UPDATE 能力调用，不带调用名与 hook 补上的轮次信息；插件清单、hooks 的
-matcher 与连接器常量一致；
+matcher 与连接器常量一致，principal、缺省 Agent、凭据变量与 hook 的解释器变量和插件服务
+安装时登记、写入的一致；
 子代理、元条目、压缩摘要、注入的内容、系统条目与不认识的条目跳过；中断标记
 结束一轮；重复写入的块按消息与块位置去重；只读完整行；游标之前的条目不形成
 轮次。
@@ -24,6 +25,8 @@ from connector.claude_code.reader import (
     plugin_tool_name,
 )
 
+from hivememory.system.plugins.harnesses import harness_by_id
+from hivememory.system.plugins.service import PYTHON_ENV
 from tests.unit.connectors.transcripts import (
     TranscriptWriter,
     text,
@@ -214,7 +217,8 @@ def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
 
 def test_connector_constants_match_plugin_declarations():
     """标记依赖插件名与 server 名，导入依赖 principal，补轮次信息依赖 hooks 的 matcher，
-    连接器按 hook 命令中的 harness 参数取配置：插件清单、.mcp.json 或 hooks.json 改动时这里失败。"""
+    连接器按 hook 命令中的 harness 参数取配置，hook 优先使用插件服务写入的解释器：插件清单、
+    .mcp.json、hooks.json 或插件服务的 harness 表改动时这里失败。"""
     plugin_root = Path(__file__).resolve().parents[3] / "integrations" / "hivememory"
     manifest = json.loads(
         (plugin_root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
@@ -236,6 +240,15 @@ def test_connector_constants_match_plugin_declarations():
         for handler in group["hooks"]
     ]
     assert all(f" {HARNESS.source} hook " in command for command in commands)
+    assert all(command.startswith(f'"${{{PYTHON_ENV}:-') for command in commands)
+
+    installed = harness_by_id("claude-code")
+    assert installed.principal_id == HARNESS.principal_id
+    assert installed.default_agent_id == HARNESS.default_agent_id
+    assert installed.credential_env == HARNESS.token_env
+    assert servers[MCP_SERVER_NAME]["headers"]["Authorization"] == (
+        f"Bearer ${{{installed.credential_env}}}"
+    )
 
 
 def test_next_prompt_closes_the_previous_turn_at_its_line(tmp_path):

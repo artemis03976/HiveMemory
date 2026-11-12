@@ -2,7 +2,7 @@
   "mcpServers": {
     "hivememory": {
       "type": "http",
-      "url": "${HIVEMEMORY_URL:-http://localhost:8000}/mcp",
+      "url": "${HIVEMEMORY_URL:-http://127.0.0.1:8769}/mcp",
       "headers": {
         "X-Principal-ID": "harness:claude-code",
         "Authorization": "Bearer ${HIVEMEMORY_CLAUDE_CODE_TOKEN}",

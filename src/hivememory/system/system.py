@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from hivememory.system.access import SystemActorAccessRegistry
     from hivememory.system.application.import_bus_service import ImportBusService
     from hivememory.system.application.readiness_service import SystemReadinessService
+    from hivememory.system.plugins import PluginInstallationService
     from hivememory.workspace.authentication import ActorAuthenticationGateway
     from hivememory.workspace.capability.operations import WorkspaceOperationEntry
     from hivememory.workspace.capability.root.access import RootAccessService
@@ -87,6 +88,7 @@ class HiveMemorySystem:
         self._root_access_service = services.root_access
         self._readiness_service = services.readiness
         self._root_workspace_asset_service = services.root_workspace_assets
+        self._plugin_service = services.plugins
 
         # 注册表：全局单例，供 API 层（deps.py）注入到路由
         self._model_registry = registries.model_registry
@@ -427,8 +429,13 @@ class HiveMemorySystem:
 
     @property
     def principal_registry(self) -> SystemActorAccessRegistry:
-        """System 接入注册表：外部来源的运行时登记、修改、凭据轮换与删除。"""
+        """System 接入注册表：外部来源的列表与修改；登记与删除经插件服务。"""
         return self._principal_registry
+
+    @property
+    def plugin_service(self) -> PluginInstallationService:
+        """插件服务：为支持的外部 harness 安装、卸载插件并维护它的接入。"""
+        return self._plugin_service
 
     @property
     def root_topic_service(self) -> RootTopicService:

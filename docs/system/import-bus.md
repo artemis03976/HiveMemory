@@ -45,7 +45,7 @@ related_plans:
   - docs/archive/plans/codex-plugin-integration.md
   - docs/archive/plans/pi-plugin-integration.md
   - docs/archive/plans/claude-code-wake-turns.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # Import Bus
@@ -288,8 +288,8 @@ Gateway 请求时限（`gateway.workflow.default_request_timeout_ms`，默认 80
 ### 8.1 组成
 
 - `integrations/.claude-plugin/marketplace.json`：本地 marketplace `hivememory-local`，只列出插件 `hivememory-connector`（来源 `./hivememory`），供本机安装，不发布；Claude Code 与 Codex 都从它安装。
-- `integrations/hivememory/.claude-plugin/plugin.json` 与 `hooks/hooks.json`：Claude Code 的插件清单与五个命令 hook；插件说明同时覆盖对话回流与记忆访问。Codex 按自己的清单读取另外的 hook 与 MCP 文件，不读这两个文件。
-- `integrations/hivememory/.mcp.json`：插件声明的 MCP server `hivememory`（HTTP，`${HIVEMEMORY_URL:-http://localhost:8000}/mcp`），请求头带 principal、`Bearer ${HIVEMEMORY_CLAUDE_CODE_TOKEN}`、用户与 Agent 声明；插件启用后 Claude Code 自动连接，HiveMemory 不可用时重试后标为连接失败，工具不出现，工作照常进行（[MCP 记忆访问](../contracts/mcp.md)）。
+- `integrations/hivememory/.claude-plugin/plugin.json` 与 `hooks/hooks.json`：Claude Code 的插件清单与五个命令 hook；插件说明同时覆盖对话回流与记忆访问。hook 在 Git Bash 中执行，解释器取 `${HIVEMEMORY_PYTHON:-$(command -v python3 || command -v python)}`：插件页安装时把运行 HiveMemory 的 Python 写进 `HIVEMEMORY_PYTHON`，没有时用 PATH 上的 Python。Codex 按自己的清单读取另外的 hook 与 MCP 文件，不读这两个文件。
+- `integrations/hivememory/.mcp.json`：插件声明的 MCP server `hivememory`（HTTP，`${HIVEMEMORY_URL:-http://127.0.0.1:8769}/mcp`），请求头带 principal、`Bearer ${HIVEMEMORY_CLAUDE_CODE_TOKEN}`、用户与 Agent 声明；插件启用后 Claude Code 自动连接，HiveMemory 不可用时重试后标为连接失败，工具不出现，工作照常进行（[MCP 记忆访问](../contracts/mcp.md)）。
 - `hivememory_hook.py`：启动脚本，把插件根目录放进导入路径后交给 `connector` 的命令行入口。第一个参数是 harness（`claude-code` 或 `codex`），决定来源标识、principal、默认 Agent、凭据变量、读取器与 hook 处理；其后是 `hook <事件>`、`sync --transcript <路径>` 或 `sync --all`，后台同步的命令沿用同一个 harness 参数。
 - `connector/core/`：与 harness 无关的公共骨架——配置、状态与游标、提交与结果分类、同步循环、日志、本插件记忆工具的回声标记规则，以及用户消息中宿主附加的块（`user_message.py`，第 8.3 节）；`connector/claude_code/`：Claude Code 会话记录的读取器与 hook 处理；`connector/codex/`：Codex 的（第 10 节）。
 - `scripts/transcript_stats.py`：维护工具，只统计会话记录的字段名、类型、计数与固定标记，不输出正文，用于在 Claude Code 升级后核对记录结构；其中 `user_message_tags` 列出导入为用户消息的条目中出现过的行首标签名，并标出导入时是否被去掉（与读取器使用同一张表）。
@@ -350,7 +350,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 | 环境变量 | 默认值 | 作用 |
 |:---|:---|:---|
-| `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 服务地址 |
+| `HIVEMEMORY_URL` | `http://127.0.0.1:8769` | HiveMemory 服务地址 |
 | `HIVEMEMORY_USER_ID` | 不发送 | 作为 `X-User-ID` 请求头发送；缺省时由服务端取默认用户 |
 | `HIVEMEMORY_AGENT_ID` | `claude_code` | 请求体中的 `agent_id` |
 | `HIVEMEMORY_CLAUDE_CODE_TOKEN` | 不发送 | 接入凭据，作为 `Authorization: Bearer` 发送（去掉首尾空白）；未设置时服务端以 `invalid_credential` 拒绝，连接器保留游标等待补发 |
@@ -413,7 +413,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 ### 9.5 配置与状态目录
 
-插件从环境变量读取配置：地址、用户与 Agent 的变量与 Claude Code 连接器同名，地址默认为 `http://127.0.0.1:8769`，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`；凭据变量是 `HIVEMEMORY_DSH_TOKEN`，与服务端核对这份凭据的变量同名（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-配置插件)第 3 节，服务端一侧见[配置](./configuration.md)）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`。
+插件从环境变量读取配置：地址、用户与 Agent 的变量与 Claude Code 连接器同名，地址默认为 `http://127.0.0.1:8769`，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`；凭据变量是 `HIVEMEMORY_DSH_TOKEN`，与服务端核对这份凭据的变量同名（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-手动安装与命令行)第 3 节，服务端一侧见[配置](./configuration.md)）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`。
 
 状态目录中保存 `sessions/`（各会话的状态）、`connector.json`（首次运行时间）、`rejections.jsonl`（拒绝记录：会话标识、轮号、状态码、错误码与原因）与 `connector.log`（超过 1 MiB 时轮转一份），只保存标识、轮号与状态，不保存会话正文。dsh 的插件代码在一个线程中运行，状态以同步文件操作读改写、替换写入，同一进程内不需要文件锁。
 
@@ -427,7 +427,7 @@ Codex 与 Claude Code 合用插件目录 `integrations/hivememory/` 与 Python �
 |:---|:---|
 | `.codex-plugin/plugin.json` | Codex 的插件清单：写明 `skills`、`mcpServers: ./codex.mcp.json` 与 `hooks: ./hooks/codex.json`。Codex 按根目录 `plugin.json`、`.codex-plugin/plugin.json`、`.claude-plugin/plugin.json` 的顺序取第一份清单；清单写明 hook 与 MCP 文件后，不再读取 Claude Code 默认的 `hooks/hooks.json` 与 `.mcp.json` |
 | `codex.mcp.json` | MCP server `hivememory`：`type: http`，地址 `http://127.0.0.1:8769/mcp`（Codex 不展开这里的环境变量）；`bearer_token_env_var: HIVEMEMORY_CODEX_TOKEN`；`http_headers` 带 `X-Principal-ID: harness:codex` 与 `X-Agent-ID: codex`；`env_http_headers` 把 `HIVEMEMORY_USER_ID` 作为 `X-User-ID`（未设置时不发送）；`default_tools_approval_mode: approve`，四个记忆工具不逐次审批 |
-| `hooks/codex.json` | 五个命令 hook，命令为 `python "${PLUGIN_ROOT}/hivememory_hook.py" codex hook <事件>`：Codex 在交给 shell 之前替换 `${PLUGIN_ROOT}`，命令不依赖 shell 语法 |
+| `hooks/codex.json` | 五个命令 hook，命令为 `cmd /c "${PLUGIN_ROOT}/hivememory_hook.cmd" codex hook <事件>`：Codex 在交给 shell 之前替换 `${PLUGIN_ROOT}`，再交给会话所用的 shell（PowerShell 或 cmd）；两者引用环境变量的写法不同，所以由 `hivememory_hook.cmd` 选择解释器：设置了 `HIVEMEMORY_PYTHON`（插件页安装时写入）时用它，否则用 PATH 上的 `python` |
 | `connector/codex/` | 会话记录读取器与 hook 处理 |
 
 Codex 安装插件时把整个目录复制到 `CODEX_HOME/plugins/cache/` 下，仓库中的插件更新后要重新安装；插件的 hook 要经用户在 Codex 中审阅信任后才运行，插件内容变化（例如重新安装更新后的插件）后需要重新信任。
@@ -570,7 +570,7 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 - 话题路由失败时续接上一轮的兜底，会把用户恰在故障期间换了话题的轮次归入旧话题。
 - 超过请求体上限的一轮以 413 整轮跳过；提交队列的终态工作记录保存完整的编码载荷，工具输出很大时占用可观的内存。
 - 工具结果可能包含密钥、令牌等凭据：连接器不筛选，原文随交互 Artifact 持久化，截断后的结果进入生成转写；提取提示词要求不把凭据写入记忆。
-- 请求头中的用户身份不做证明，只适用于本地单用户部署；接入凭据是本地共享密钥，在设置页生成或轮换的立即生效，环境变量中的修改经重启生效。
+- 请求头中的用户身份不做证明，只适用于本地单用户部署；接入凭据是本地共享密钥，插件页安装时生成并写进 harness 一侧的 Windows 用户环境变量，同一用户运行的程序都能读到；后端环境变量中的凭据修改经重启生效。
 - 回声标记依赖 Claude Code 的工具调用命名规则：规则变化时标记静默失效，回声恢复，表现为重复记忆；`PreToolUse` 的 matcher 写的也是这些调用名，同样失效，写入与更新以缺少轮次信息被拒绝。
 - 写入时已确定话题的轮次始终没有回流（连接器长期不可用，或 hook 未运行时模型编造了轮次信息）时，登记留到进程重启，写入时建立、没有接收交互的话题由空闲结算按没有材料的话题结束。
 - 后台运行的子代理在会话开启下一轮之后（用户发出下一条消息，或 agent 被唤醒）才写入时，写入落在那时的当前一轮：`PreToolUse` 的输入只给出会话当时的当前一轮。dsh 的子 Agent 同样落在顶层会话那时最近的一轮。
@@ -620,6 +620,6 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 - 装配与关闭：`tests/unit/system/application/test_api_services.py`、`tests/unit/system/test_hivememory_system.py`、`tests/unit/system/test_lifecycle.py`；配置：`tests/unit/system/test_config_agent_runtime.py`；
 - 真实队列与感知的协作、交互的发起者是参与者、系统自身的 principal 未登记与目标不是参与者驻留的 Workspace 时的拒绝：`tests/integration/system/test_import_bus_submission.py`；经 MCP 写入后回流落在写入派发的话题：`tests/integration/system/test_mcp_memory_access.py`；离线 E2E：`tests/e2e/system/test_import_turns.py`；
 - 用户消息中宿主附加的块（表中从行首开始的完整块去掉，代码块、粘贴的内容、行内提及与表外的标签保留）：`tests/unit/connectors/test_user_message.py`；
-- 连接器（含唤醒开启的一轮与它的用户消息、由人发出的消息去掉宿主附加的块、子 Agent 交回的事件、上一轮提交之后的续作单独提交、回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal 与凭据请求头、按 harness 取凭据、会话记录写明的结局）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`；Codex（轮次切分、用户消息的拼接与去掉宿主附加的块、事件映射、回声标记与结局、根轮的取得、`PreToolUse` 的输出与子 Agent 归属、扩展长度前缀、清单与登记一致）：`tests/unit/connectors/test_codex_reader.py`、`tests/unit/connectors/test_codex_hooks.py`；
-- dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、水位与补发）：`integrations/hivememory/node/test/dsh-*.test.js`；事件种类是导入接受的，principal 与 Agent 在发布的登记中，包清单的入口与 bundle 配置存在、补丁指向的使用手册 skill 目录存在：`tests/unit/connectors/test_deepseek_harness_plugin.py`；
-- pi 扩展（一轮的条目只取结束标记回溯的一段、fork 复制的标记不导入、原始输入、事件映射、回声标记与结局、写入时的轮次信息与之后的导入一致、只交给模型的工具、待提交与补发、关闭时有上限的等待，以及事件处理的整体流程）：`integrations/hivememory/node/test/`，与 dsh 插件的测试和公共部分的测试（提交分类、按 harness 取凭据）一起以 `npm test` 运行（CI 的 `node-connectors` 任务）；共用的记忆工具与 MCP server 的工具名、参数一致，principal 与 Agent 在发布的登记中，包清单指向的扩展与 skill 存在：`tests/unit/connectors/test_pi_extension.py`。
+- 连接器（含唤醒开启的一轮与它的用户消息、由人发出的消息去掉宿主附加的块、子 Agent 交回的事件、上一轮提交之后的续作单独提交、回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal、缺省 Agent、凭据变量与 hook 的解释器变量和插件服务一致、按 harness 取凭据、会话记录写明的结局）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`；Codex（轮次切分、用户消息的拼接与去掉宿主附加的块、事件映射、回声标记与结局、根轮的取得、`PreToolUse` 的输出与子 Agent 归属、扩展长度前缀、清单与插件服务的登记一致、hook 经启动脚本选择解释器）：`tests/unit/connectors/test_codex_reader.py`、`tests/unit/connectors/test_codex_hooks.py`；
+- dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、水位与补发）：`integrations/hivememory/node/test/dsh-*.test.js`；事件种类是导入接受的，principal、缺省 Agent 与凭据变量和插件服务登记的一致，包清单的入口与 bundle 配置存在、补丁指向的使用手册 skill 目录存在：`tests/unit/connectors/test_deepseek_harness_plugin.py`；
+- pi 扩展（一轮的条目只取结束标记回溯的一段、fork 复制的标记不导入、原始输入、事件映射、回声标记与结局、写入时的轮次信息与之后的导入一致、只交给模型的工具、待提交与补发、关闭时有上限的等待，以及事件处理的整体流程）：`integrations/hivememory/node/test/`，与 dsh 插件的测试和公共部分的测试（提交分类、按 harness 取凭据）一起以 `npm test` 运行（CI 的 `node-connectors` 任务）；共用的记忆工具与 MCP server 的工具名、参数一致，principal、缺省 Agent 与凭据变量和插件服务登记的一致，包清单指向的扩展与 skill 存在：`tests/unit/connectors/test_pi_extension.py`。

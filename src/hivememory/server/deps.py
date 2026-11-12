@@ -17,6 +17,7 @@ from hivememory.system import HiveMemorySystem
 from hivememory.system.access import HTTP_ADAPTER, SystemActorAccessRegistry
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.model_registry import ModelRegistry
+from hivememory.system.plugins import PluginInstallationService
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.capability.root.access import RootAccessService
@@ -101,6 +102,11 @@ def get_root_access_service() -> RootAccessService:
 def get_principal_registry() -> SystemActorAccessRegistry:
     """FastAPI Depends 注入 — 获取 System 接入注册表（外部来源的运行时管理）。"""
     return get_system().principal_registry
+
+
+def get_plugin_service() -> PluginInstallationService:
+    """FastAPI Depends 注入 — 获取插件服务（外部 harness 插件的安装与卸载）。"""
+    return get_system().plugin_service
 
 
 def get_root_topic_service() -> RootTopicService:

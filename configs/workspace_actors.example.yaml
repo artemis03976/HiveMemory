@@ -5,6 +5,9 @@
 # 只修改生效的登记，写回时不保留注释；指定了 HIVEMEMORY_WORKSPACE_ACTORS_PATH 时
 # 使用该路径的文件，不从模板生成。
 #
+# 外部 harness 的 Agent 没有预先登记：插件页安装插件时，为插件的缺省 Agent 补一条
+# 只开放检索、读取、写入与更新的记录（已有记录时不改动）；卸载插件不删除它。
+#
 # 本文件是两类访问登记之一（workspace 所有）：一条记录同时承载准入状态
 # 与行为白名单。W0 兼容基线：user_id 必须等于 owner_user_id；缺失记录即
 # 准入失败（fail closed）。operation 只接受六项 actor 操作的枚举值，允许为空；
@@ -36,56 +39,3 @@ workspace_actors:
     workspace_id: "main_workspace"
     user_id: "default"
     agent_id: "system"
-
-  # Claude Code：连接器以 (default, claude_code) 声明导入已结束的交互，MCP
-  # 工具以同一声明检索、读取、写入与更新记忆。导入与写入前的确定话题由 system
-  # 执行、不经本白名单；MCP 的每次调用按本白名单逐次授权。精确记录优先于
-  # 上方的用户级记录，这个 Agent 不继承 memory.run 与 agent.call：MCP 入口
-  # 不提供这两项操作。
-  - owner_user_id: "default"
-    workspace_id: "main_workspace"
-    user_id: "default"
-    agent_id: "claude_code"
-    allowed_operations:
-      - "memory.read"
-      - "memory.search"
-      - "memory.write"
-      - "memory.update"
-
-  # DeepSeek Harness：插件以 (default, dsh) 声明导入已结束的交互，记忆工具以同一
-  # 声明经 MCP 检索、读取、写入与更新记忆；授权规则与 claude_code 相同，同样不继承
-  # memory.run 与 agent.call。
-  - owner_user_id: "default"
-    workspace_id: "main_workspace"
-    user_id: "default"
-    agent_id: "dsh"
-    allowed_operations:
-      - "memory.read"
-      - "memory.search"
-      - "memory.write"
-      - "memory.update"
-
-  # Codex：连接器以 (default, codex) 声明导入已结束的交互，MCP 工具以同一声明检索、
-  # 读取、写入与更新记忆；授权规则与 claude_code 相同，同样不继承 memory.run 与
-  # agent.call。
-  - owner_user_id: "default"
-    workspace_id: "main_workspace"
-    user_id: "default"
-    agent_id: "codex"
-    allowed_operations:
-      - "memory.read"
-      - "memory.search"
-      - "memory.write"
-      - "memory.update"
-
-  # pi：扩展以 (default, pi) 声明导入已结束的交互，记忆工具以同一声明检索、读取、
-  # 写入与更新记忆；授权规则与 claude_code 相同，同样不继承 memory.run 与 agent.call。
-  - owner_user_id: "default"
-    workspace_id: "main_workspace"
-    user_id: "default"
-    agent_id: "pi"
-    allowed_operations:
-      - "memory.read"
-      - "memory.search"
-      - "memory.write"
-      - "memory.update"

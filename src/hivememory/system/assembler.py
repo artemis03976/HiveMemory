@@ -16,9 +16,12 @@ HiveMemory 系统装配器
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from hivememory._version import __version__
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import (
@@ -48,6 +51,12 @@ from hivememory.system.access import (
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.model_registry import ModelRegistry
+from hivememory.system.plugins import (
+    INTEGRATIONS_DIR,
+    PluginInstallationService,
+    WindowsUserEnvironment,
+    hook_python_executable,
+)
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.system.services.import_bus import ImportBusIngestor
 from hivememory.workspace.assets.parse_service import AttachmentParseService
@@ -176,6 +185,7 @@ class _ServicesBundle:
     root_access: RootAccessService
     readiness: SystemReadinessService
     root_workspace_assets: RootWorkspaceAssetService
+    plugins: PluginInstallationService
 
 
 # ---------------------------------------------------------------------------
@@ -563,6 +573,10 @@ class SystemAssembler:
         readiness = SystemReadinessService(
             global_bus=runtime.global_bus,
         )
+        root_access = RootAccessService(
+            access_control.workspace_registry,
+            operation_authorizer=access_control.operation_authorizer,
+        )
         # 上传应用服务直接持有进程级唯一的 WorkspaceAssetStore 命令端口，
         # 附件上传不经过全局总线（资产状态真相由 Store 同步持有）。
         root_workspace_assets = RootWorkspaceAssetService(
@@ -587,12 +601,18 @@ class SystemAssembler:
             root_session=RootSessionService(
                 runtime.sessions, operation_authorizer=access_control.operation_authorizer
             ),
-            root_access=RootAccessService(
-                access_control.workspace_registry,
-                operation_authorizer=access_control.operation_authorizer,
-            ),
+            root_access=root_access,
             readiness=readiness,
             root_workspace_assets=root_workspace_assets,
+            plugins=PluginInstallationService(
+                principal_registry=access_control.system_registry,
+                root_access=root_access,
+                integrations_dir=INTEGRATIONS_DIR,
+                install_record_path=Path(self._config.system.plugin_install_record),
+                version=__version__,
+                python_executable=hook_python_executable(),
+                user_environment=WindowsUserEnvironment() if sys.platform == "win32" else None,
+            ),
         )
 
 

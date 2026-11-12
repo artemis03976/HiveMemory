@@ -116,6 +116,7 @@ def system(mock_patchouli, recorded_events):
         root_topic=topic_service,
         readiness=readiness_service,
         root_workspace_assets=MagicMock(),
+        plugins=MagicMock(),
     )
 
     system = HiveMemorySystem(

@@ -284,9 +284,9 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 **事实文档登记的已知限制**（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节、[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节）
 
-- 接入凭据没有过期；环境变量中的凭据修改后经重启生效（设置页生成与轮换的凭据立即生效）；
+- 接入凭据没有过期；环境变量中的凭据修改后经重启生效（插件页安装时生成的凭据立即生效）；
 - principal 标识执行环境，不与 Agent 绑定。这是设计，不是限制：依据是[执行环境 Idea](./execution-environment.md) 前提 9 与外部 Actor Idea 的 E-6a（owner，2026-10-06），以及一个 harness 对应一个 principal（P-1c）。同一执行环境可以以不同 Agent 运行，Agent 由经过证明的执行环境声明，权限与可见性只跟随 Agent。
-  - 接入登记可以以 `allowed_agent_ids` 限定一个来源能声明哪些 Agent（2026-11-09），登记模板中的四个 harness 登记各自只能声明自己的 Agent。仍然存在的限制是不限定的来源（前端使用的 server 来源）可以声明用户级记录接纳的任意具体 Agent；chat 需要对应的 Profile。
+  - 接入登记可以以 `allowed_agent_ids` 限定一个来源能声明哪些 Agent（2026-11-09），插件页为 harness 登记来源时初始只允许插件的缺省 Agent，之后可以增加（2026-11-12 起模板不再预先登记外部 harness）。仍然存在的限制是不限定的来源（前端使用的 server 来源）可以声明用户级记录接纳的任意具体 Agent；chat 需要对应的 Profile。
   - 现有登记中的 `claude_code` 与 `dsh` 把 harness 名称当作 Agent，是前提 9 之前“harness 即 agent”看法的残留，它们的白名单实际上按执行环境限权。plugin 模式目前不能选择 Agent，暂时可用；支持选择 Agent 时需要重新处理。
 - 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单；
 - Patchouli 的交互提交与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权，依赖唯一的生产调用方先完成授权。
