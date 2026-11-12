@@ -40,7 +40,9 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 | 后端 | 随包的 `resources\python\pythonw.exe`，以 `PYTHONPATH` 指向随包的后端源码 | 仓库 `.venv` 的 `pythonw.exe` 与仓库源码 |
 | 前端页面 | 随包的 `resources\backend\frontend\dist` | 仓库 `frontend\dist`，改动前端后先 `npm run build` |
 | Qdrant | 随包的 `resources\qdrant\qdrant.exe`，存储在 `<数据根>\.hivememory\qdrant` | `.hivememory\dev.env` 中的 `QDRANT_BIN` 与存储路径，与开发脚本相同 |
+| 端口 | 固定 8769、6333、6334 | `.hivememory\dev.env` 中的 `HIVEMEMORY_BACKEND_PORT`、`QDRANT_HTTP_PORT` 与 `QDRANT_GRPC_PORT`，缺省与安装版相同，与开发脚本、Vite 读同一组 |
 | 端口上已有服务 | 报错退出 | 直接使用（附着），不启动也不关闭它 |
+| 插件代为安装 | 打开 | 关闭：开发实例不改动 harness（第 3 节） |
 
 两种方式的布局由 `desktop/src/layout.js` 给出，其余行为相同。安装版是打包那一刻的快照，不读 checkout 中的代码；改代码之后用 checkout 运行即可，只有验证安装版特有的行为或发布时才需要重新打包。
 
@@ -50,9 +52,9 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 1. 单实例：第二次打开只显示已有窗口。
 2. 安装版取得数据根（第 5 节）；以 `--hidden` 启动（登录 Windows 时）只进托盘、不显示窗口。
-3. 安装版检查 8769、6333 与 6334（Qdrant 的 gRPC），任一被占用时说明原因并退出。端口固定：插件都写死 8769，换端口要改所有插件。被占用多半是开发用的 `ps1 serve`、Qdrant 或另一个 HiveMemory；安装版附着到开发用的 Qdrant 会读写 checkout 的记忆库，所以不附着。
+3. 安装版检查 8769、6333 与 6334（Qdrant 的 gRPC），任一被占用时说明原因并退出。端口固定：插件都写死 8769，换端口要改所有插件。被占用多半是开发用的 `ps1 serve`、Qdrant 或另一个 HiveMemory；安装版附着到开发用的 Qdrant 会读写 checkout 的记忆库，所以不附着。开发实例在 `dev.env` 中换一组端口之后，可以与安装版同时运行（[安装与启动](../help/setup.md#47-与桌面安装版同时开发)）。
 4. 启动 Qdrant：工作目录是 `<数据根>\.hivememory\run`，pid 写在同目录的 `qdrant.pid`（与开发脚本共用，主进程意外退出后可以用 `hivememory-dev.ps1 stop-qdrant` 结束它）。
-5. 生成管理凭据，以 `python -m hivememory.server --desktop` 启动后端：工作目录是数据根，环境变量带上数据根与日志路径，stdin 的第一行是凭据（第 4 节）。
+5. 生成管理凭据，以 `python -m hivememory.server --desktop` 启动后端：工作目录是数据根，环境变量带上数据根、日志路径与端口（`HIVEMEMORY_BACKEND_PORT` 与 Qdrant 的端口），stdin 的第一行是凭据（第 4 节）。
 6. 等后端能响应 `/health`，把凭据放进窗口的内存会话，再等推理模型就绪（第 7 节），然后加载后端页面。
 
 后端与 Qdrant 以 detached 子进程启动：非 detached 的子进程会被放进随主进程结束而结束的 job，主进程被强制结束时，后端会在关闭中途被杀掉。后端用不带控制台的 `pythonw.exe`：venv 的 `python.exe` 只是转发器，detached 的转发器没有控制台，Windows 会给真正的解释器新开一个空的控制台窗口，用户关掉它时后端立即被结束。
@@ -77,7 +79,9 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 主进程意外退出时，后端因此自己正常关闭，不会留下没有人持有凭据的孤儿后端。
 
-桌面模式的后端启动后，在后台为插件页装过的 Claude Code 与 Codex 重新安装插件：两者保存的是插件的副本，覆盖安装新版本之后要重新安装才能读到。插件服务在数据根的 `.hivememory/plugin_installs.json`（`system.plugin_install_record`）中记下每个 harness 安装时的版本，只处理版本落后的；失败只写日志，插件页把它标为“需要更新”。pi 与 dsh 链接插件目录、原地读取，不需要处理。开发方式（checkout）不在启动时改动 harness。
+桌面模式的后端启动后，在后台为插件页装过的 Claude Code 与 Codex 重新安装插件：两者保存的是插件的副本，覆盖安装新版本之后要重新安装才能读到。插件服务在数据根的 `.hivememory/plugin_installs.json`（`system.plugin_install_record`）中记下每个 harness 安装时的版本，只处理版本落后的；失败只写日志，插件页把它标为“需要更新”。pi 与 dsh 链接插件目录、原地读取，不需要处理。
+
+只有安装版代为安装插件：它启动后端时以 `HIVEMEMORY__SYSTEM__PLUGIN_INSTALLATION_ENABLED=true` 打开 `system.plugin_installation_enabled`，缺省关闭。用 checkout 运行的桌面端、开发脚本与 Docker 都不打开，插件页显示“不能代为安装”，启动时也不更新插件：代为安装会把 harness 改指到这个实例的插件目录，并改写用户环境变量中的凭据，开发实例这样做会断开日常实例的连接。
 
 ## 4. 管理凭据
 

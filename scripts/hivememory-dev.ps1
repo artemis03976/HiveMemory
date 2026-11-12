@@ -24,6 +24,12 @@ the next start.
 
 Copy scripts\hivememory-dev.env.example to .hivememory\dev.env and set
 QDRANT_BIN to the absolute path of qdrant.exe before the first start.
+
+The ports come from the same dev.env (HIVEMEMORY_BACKEND_PORT,
+QDRANT_HTTP_PORT, QDRANT_GRPC_PORT) and default to 8769, 6333 and 6334. A
+development instance that runs next to the installed desktop app sets another
+group there; the Vite dev server and the desktop app started from this
+checkout read the same values.
 #>
 param(
     [Parameter(Position = 0)]
@@ -40,11 +46,6 @@ $RunDir = Join-Path $ProjectRoot '.hivememory\run'
 $LogDir = Join-Path $ProjectRoot '.hivememory\logs'
 $QdrantPidFile = Join-Path $RunDir 'qdrant.pid'
 $FrontendDistIndex = Join-Path $ProjectRoot 'frontend\dist\index.html'
-
-# Ports match the repository configuration and the WSL/Linux script defaults.
-$QdrantReadyUrl = 'http://127.0.0.1:6333/readyz'
-$BackendHealthUrl = 'http://127.0.0.1:8769/health'
-$FrontendUrl = 'http://127.0.0.1:5173'
 
 # dev.env holds KEY=VALUE lines. Quotes around values are removed; variables
 # such as $HOME are not expanded, so paths must be absolute.
@@ -63,6 +64,28 @@ function Read-DevEnv {
     }
     return $settings
 }
+
+# A port from dev.env, or the default that matches the repository
+# configuration and the WSL/Linux script.
+function Get-Port([hashtable]$Settings, [string]$Key, [int]$Default) {
+    $value = $Settings[$Key]
+    if (-not $value) {
+        return $Default
+    }
+    $port = 0
+    if (-not [int]::TryParse($value, [ref]$port) -or $port -le 0 -or $port -gt 65535) {
+        throw "$EnvFile 中的 $Key 不是有效端口：'$value'"
+    }
+    return $port
+}
+
+$DevSettings = Read-DevEnv
+$BackendPort = Get-Port $DevSettings 'HIVEMEMORY_BACKEND_PORT' 8769
+$QdrantHttpPort = Get-Port $DevSettings 'QDRANT_HTTP_PORT' 6333
+$QdrantGrpcPort = Get-Port $DevSettings 'QDRANT_GRPC_PORT' 6334
+$QdrantReadyUrl = "http://127.0.0.1:$QdrantHttpPort/readyz"
+$BackendHealthUrl = "http://127.0.0.1:$BackendPort/health"
+$FrontendUrl = 'http://127.0.0.1:5173'
 
 # Health checks bypass the system proxy: a local proxy client must not answer
 # for 127.0.0.1.
@@ -109,24 +132,23 @@ function Start-Qdrant {
         return
     }
 
-    $settings = Read-DevEnv
-    $qdrantBin = $settings['QDRANT_BIN']
+    $qdrantBin = $DevSettings['QDRANT_BIN']
     if (-not $qdrantBin -or -not (Test-Path $qdrantBin -PathType Leaf)) {
         throw "Qdrant 可执行文件不存在：'$qdrantBin'。请在 $EnvFile 中把 QDRANT_BIN 设为 qdrant.exe 的绝对路径。"
     }
-    $storagePath = $settings['QDRANT_STORAGE_PATH']
+    $storagePath = $DevSettings['QDRANT_STORAGE_PATH']
     if (-not $storagePath) {
         $storagePath = Join-Path $ProjectRoot '.hivememory\qdrant'
     }
     New-Item -ItemType Directory -Force -Path $RunDir, $LogDir, $storagePath | Out-Null
 
-    Write-Host "qdrant: starting (storage=$storagePath)"
+    Write-Host "qdrant: starting (storage=$storagePath, port=$QdrantHttpPort)"
     # Start-Process in Windows PowerShell 5.1 has no per-process environment,
     # so the settings are set here for the child to inherit and removed again.
     $env:QDRANT__STORAGE__STORAGE_PATH = $storagePath
     $env:QDRANT__SERVICE__HOST = '127.0.0.1'
-    $env:QDRANT__SERVICE__HTTP_PORT = '6333'
-    $env:QDRANT__SERVICE__GRPC_PORT = '6334'
+    $env:QDRANT__SERVICE__HTTP_PORT = "$QdrantHttpPort"
+    $env:QDRANT__SERVICE__GRPC_PORT = "$QdrantGrpcPort"
     try {
         # The working directory is the run directory because Qdrant writes
         # snapshots and its init marker relative to it.
@@ -185,12 +207,16 @@ function Start-Backend([string]$Mode) {
     $env:HIVEMEMORY_SERVE_FRONTEND = if ($Mode -eq 'serve') { 'true' } else { 'false' }
     $env:HIVEMEMORY__LOGGING__FILE_PATH = Join-Path $LogDir 'backend.log'
     $env:HIVEMEMORY__LOGGING__EVENT_FILE_PATH = Join-Path $LogDir 'runtime-events.jsonl'
-    $arguments = @('run', 'uvicorn', 'hivememory.server.app:app', '--host', '127.0.0.1', '--port', '8769')
+    # Environment variables take precedence over config.yaml and the personal
+    # override, so the backend connects to the Qdrant this script started.
+    $env:HIVEMEMORY__PATCHOULI__STORAGE__PORT = "$QdrantHttpPort"
+    $env:HIVEMEMORY__PATCHOULI__STORAGE__GRPC_PORT = "$QdrantGrpcPort"
+    $arguments = @('run', 'uvicorn', 'hivememory.server.app:app', '--host', '127.0.0.1', '--port', "$BackendPort")
     if ($Mode -eq 'dev') {
         $arguments += '--reload'
     }
 
-    Write-Host "backend: starting ($Mode)，按 Ctrl+C 停止；退出前会结算内存中的话题，请等它自己退出。"
+    Write-Host "backend: starting ($Mode, port=$BackendPort)，按 Ctrl+C 停止；退出前会结算内存中的话题，请等它自己退出。"
     Push-Location $ProjectRoot
     try {
         & uv @arguments
@@ -240,6 +266,7 @@ switch ($Command) {
 后端在前台运行，按 Ctrl+C 停止，并等它结算完内存中的话题后自己退出。
 dev 模式下，另开一个终端运行前端：cd frontend; npm run dev
 日志在 .hivememory\logs；可用 Get-Content -Wait -Tail 100 .hivememory\logs\backend.log 跟踪。
+端口读自 .hivememory\dev.env，缺省 8769、6333、6334；与安装版同时运行时在那里换一组。
 
 首次使用：
   Copy-Item scripts\hivememory-dev.env.example .hivememory\dev.env

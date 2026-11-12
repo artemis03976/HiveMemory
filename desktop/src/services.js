@@ -1,8 +1,8 @@
 /**
  * 本机服务：Qdrant 与 HiveMemory 后端的启动、就绪等待与正常关闭。
  *
- * 程序与数据的位置由 layout.js 给出；后端以数据根为工作目录，日志写在数据根的 .hivememory/logs。
- * 端口与仓库配置一致，外部 harness 的插件都连 8769，因此被占用时不换端口。
+ * 程序与数据的位置、端口由 layout.js 给出；后端以数据根为工作目录，日志写在数据根的 .hivememory/logs。
+ * 安装版的端口固定，外部 harness 的插件都连 8769，因此被占用时不换端口。
  */
 
 import { spawn } from 'node:child_process'
@@ -21,25 +21,23 @@ import {
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 
-export const BACKEND_ORIGIN = 'http://127.0.0.1:8769'
 export const MANAGEMENT_CREDENTIAL_COOKIE = 'hivememory_management'
 
-const BACKEND_HEALTH_URL = `${BACKEND_ORIGIN}/health`
-const BACKEND_READY_URL = `${BACKEND_ORIGIN}/health/ready`
-const QDRANT_READY_URL = 'http://127.0.0.1:6333/readyz'
 const BACKEND_START_TIMEOUT_MS = 120_000
 const QDRANT_START_TIMEOUT_MS = 60_000
 // 模型未就绪、模型缓存也这么久没有增长、后端也没有报告失败时，不再等待：下载卡住而没有报错时
 // 不应让窗口一直停在启动页。
 const MODEL_STALL_TIMEOUT_MS = 60_000
-// 后端 8769，Qdrant 的 HTTP 6333 与 gRPC 6334。
-const SERVICE_PORTS = [8769, 6333, 6334]
 // 错误框里显示的后端输出行数：足够看到 Python 的异常类与信息（例如配置中残留的键）。
 const OUTPUT_TAIL_LINES = 12
 
 export class LocalServices {
   constructor({ layout, log }) {
     this.layout = layout
+    this.backendOrigin = `http://127.0.0.1:${layout.ports.backend}`
+    this.backendHealthUrl = `${this.backendOrigin}/health`
+    this.backendReadyUrl = `${this.backendOrigin}/health/ready`
+    this.qdrantReadyUrl = `http://127.0.0.1:${layout.ports.qdrantHttp}/readyz`
     this.logDir = join(layout.dataRoot, '.hivememory', 'logs')
     this.runDir = join(layout.dataRoot, '.hivememory', 'run')
     // 配置中模型缓存的默认位置，相对后端的工作目录（数据根）。
@@ -56,16 +54,16 @@ export class LocalServices {
   /**
    * 启动 Qdrant 与后端，等后端能响应 HTTP 后返回。
    *
-   * 允许附着时（用 checkout 运行），8769 上已有后端就直接附着，不启动也不关闭它；这时没有
+   * 允许附着时（用 checkout 运行），后端端口上已有后端就直接附着，不启动也不关闭它；这时没有
    * 内存中的凭据，页面由那个后端照旧下发 cookie。不允许附着时，任一端口被占用都报错。
    * 返回 `{ attached, credential }`，credential 是交给后端的管理凭据。
    */
   async start() {
-    if (this.layout.attachToRunning && (await isUp(BACKEND_HEALTH_URL))) {
-      this.log('8769 上已有后端，附着到它，不启动也不关闭它')
+    if (this.layout.attachToRunning && (await isUp(this.backendHealthUrl))) {
+      this.log(`${this.layout.ports.backend} 上已有后端，附着到它，不启动也不关闭它`)
       return { attached: true, credential: null }
     }
-    if (!this.layout.attachToRunning) await refuseOccupiedPorts()
+    if (!this.layout.attachToRunning) await refuseOccupiedPorts(this.layout.ports)
     await this.ensureQdrant()
     const credential = randomBytes(32).toString('base64url')
     await this.startBackend(credential)
@@ -83,7 +81,7 @@ export class LocalServices {
     let lastBytes = initialBytes
     let lastGrowth = Date.now()
     for (;;) {
-      const readiness = await readJson(BACKEND_READY_URL)
+      const readiness = await readJson(this.backendReadyUrl)
       if (readiness?.models_ready) break
       if (readiness?.status === 'model_load_failed') {
         this.log(`推理模型加载失败: models=${readiness.failed_models}`)
@@ -167,7 +165,7 @@ export class LocalServices {
   }
 
   async ensureQdrant() {
-    if (this.layout.attachToRunning && (await isUp(QDRANT_READY_URL))) {
+    if (this.layout.attachToRunning && (await isUp(this.qdrantReadyUrl))) {
       this.log('Qdrant 已在运行，直接使用，退出时不结束它')
       return
     }
@@ -179,7 +177,7 @@ export class LocalServices {
     mkdirSync(this.logDir, { recursive: true })
     mkdirSync(qdrantStorage, { recursive: true })
 
-    this.log(`启动 Qdrant: storage=${qdrantStorage}`)
+    this.log(`启动 Qdrant: storage=${qdrantStorage} port=${this.layout.ports.qdrantHttp}`)
     const stdout = openSync(join(this.logDir, 'qdrant.log'), 'a')
     const stderr = openSync(join(this.logDir, 'qdrant.err.log'), 'a')
     // 工作目录是 run 目录：Qdrant 在工作目录下写快照与初始化标记。
@@ -189,8 +187,8 @@ export class LocalServices {
         ...process.env,
         QDRANT__STORAGE__STORAGE_PATH: qdrantStorage,
         QDRANT__SERVICE__HOST: '127.0.0.1',
-        QDRANT__SERVICE__HTTP_PORT: '6333',
-        QDRANT__SERVICE__GRPC_PORT: '6334',
+        QDRANT__SERVICE__HTTP_PORT: String(this.layout.ports.qdrantHttp),
+        QDRANT__SERVICE__GRPC_PORT: String(this.layout.ports.qdrantGrpc),
       },
       stdio: ['ignore', stdout, stderr],
       windowsHide: true,
@@ -203,14 +201,14 @@ export class LocalServices {
     writeFileSync(join(this.runDir, 'qdrant.pid'), String(this.qdrant.pid))
 
     this.qdrantExited = new Promise((resolveExit) => this.qdrant.once('exit', resolveExit))
-    if (!(await waitUntilUp(QDRANT_READY_URL, QDRANT_START_TIMEOUT_MS, this.qdrantExited))) {
+    if (!(await waitUntilUp(this.qdrantReadyUrl, QDRANT_START_TIMEOUT_MS, this.qdrantExited))) {
       throw new Error('Qdrant 没有启动成功，见日志目录下的 qdrant.log 与 qdrant.err.log')
     }
     this.log('Qdrant 已就绪')
   }
 
   async startBackend(credential) {
-    const { python, pythonEnv, frontendIndex, dataRoot } = this.layout
+    const { python, pythonEnv, frontendIndex, dataRoot, ports } = this.layout
     for (const required of [python, frontendIndex]) {
       if (!existsSync(required)) throw new Error(`找不到 ${required}`)
     }
@@ -229,6 +227,9 @@ export class LocalServices {
         ...process.env,
         ...pythonEnv,
         HIVEMEMORY_SERVE_FRONTEND: 'true',
+        HIVEMEMORY_BACKEND_PORT: String(ports.backend),
+        HIVEMEMORY__PATCHOULI__STORAGE__PORT: String(ports.qdrantHttp),
+        HIVEMEMORY__PATCHOULI__STORAGE__GRPC_PORT: String(ports.qdrantGrpc),
         HIVEMEMORY__LOGGING__FILE_PATH: join(this.logDir, 'backend.log'),
         HIVEMEMORY__LOGGING__EVENT_FILE_PATH: join(this.logDir, 'runtime-events.jsonl'),
         // 输出重定向到文件时，Python 默认按系统代码页编码，中文日志会编码失败。
@@ -250,7 +251,7 @@ export class LocalServices {
     // stdin 的第一行是管理凭据；stdin 保持打开，关闭它即请求后端正常关闭。
     this.backend.stdin.write(`${credential}\n`)
 
-    if (!(await waitUntilUp(BACKEND_HEALTH_URL, BACKEND_START_TIMEOUT_MS, this.backendExited))) {
+    if (!(await waitUntilUp(this.backendHealthUrl, BACKEND_START_TIMEOUT_MS, this.backendExited))) {
       throw new Error(`后端没有启动成功。后端最后的输出：\n\n${this.backendOutputTail()}`)
     }
     this.log('后端已能响应 HTTP')
@@ -267,13 +268,15 @@ function directorySize(path) {
   return total
 }
 
-/** 安装版不附着：端口被占用多半是开发用的服务（ps1 serve 或 Qdrant）或另一个 HiveMemory。 */
-async function refuseOccupiedPorts() {
-  for (const port of SERVICE_PORTS) {
+/** 安装版不附着：端口被占用多半是没有换端口的开发实例（ps1 serve 或 Qdrant）或另一个 HiveMemory。 */
+async function refuseOccupiedPorts(ports) {
+  const required = [ports.backend, ports.qdrantHttp, ports.qdrantGrpc]
+  for (const port of required) {
     if (!(await isPortFree(port))) {
       throw new Error(
-        `端口 ${port} 已被占用。HiveMemory 的后端与记忆库固定使用 8769、6333 与 6334 端口，` +
-          '请先关闭占用它的程序（例如开发用的 ps1 serve、Qdrant 或另一个正在运行的 HiveMemory）再打开。',
+        `端口 ${port} 已被占用。HiveMemory 的后端与记忆库固定使用 ${required.join('、')} 端口，` +
+          '请先关闭占用它的程序（例如开发用的 ps1 serve、Qdrant 或另一个正在运行的 HiveMemory）再打开。' +
+          '开发实例可以在 .hivememory\\dev.env 中换一组端口，与安装版同时运行。',
       )
     }
   }

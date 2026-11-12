@@ -11,7 +11,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { join, resolve } from 'node:path'
 
 import { checkoutLayout, installedLayout } from './layout.js'
-import { BACKEND_ORIGIN, LocalServices, MANAGEMENT_CREDENTIAL_COOKIE } from './services.js'
+import { LocalServices, MANAGEMENT_CREDENTIAL_COOKIE } from './services.js'
 
 const ICON_PATH = join(import.meta.dirname, '..', 'assets', 'icon.png')
 // 与 data/model_cache 中两份推理模型的实际大小一致，只用于在启动页提示首次下载的总量。
@@ -91,7 +91,7 @@ async function startup() {
   if (started.credential) {
     // 凭据只放进窗口的内存会话：页面的请求、事件流与 WebSocket 都会带上它，后端不再下发。
     await window.webContents.session.cookies.set({
-      url: BACKEND_ORIGIN,
+      url: services.backendOrigin,
       name: MANAGEMENT_CREDENTIAL_COOKIE,
       value: started.credential,
       path: '/',
@@ -116,7 +116,7 @@ async function startup() {
     return
   }
   if (models.state === 'stalled') log('推理模型仍未就绪，模型缓存也不再增长，先打开界面')
-  await window.loadURL(`${BACKEND_ORIGIN}/`)
+  await window.loadURL(`${services.backendOrigin}/`)
 }
 
 /**
@@ -297,7 +297,7 @@ function createWindow() {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(`${BACKEND_ORIGIN}/`)) event.preventDefault()
+    if (!services || !url.startsWith(`${services.backendOrigin}/`)) event.preventDefault()
   })
   return win
 }

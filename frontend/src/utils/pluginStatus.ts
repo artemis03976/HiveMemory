@@ -28,7 +28,7 @@ export function pluginFailureMessage(
   }
   switch (failure.reason) {
     case 'unavailable':
-      return '这里不能代为安装：插件目录不可用，或者 HiveMemory 不是在 Windows 上运行。';
+      return '这里不能代为安装：只有 Windows 上的安装版代为安装插件，开发方式、Docker 或其他系统上运行的 HiveMemory 不代为安装。';
     case 'harness_missing':
       return `没有找到 ${status.name}。装好它之后点“重新检查”，或者按下面的命令手动安装。`;
     case 'command_timeout':

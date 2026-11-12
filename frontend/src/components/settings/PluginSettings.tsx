@@ -69,7 +69,7 @@ function detailText(status: PluginStatus, state: PluginCardState, version: strin
     case 'missing':
       return status.harness === 'dsh' ? '没有找到 dsh 桌面端' : `没有在 PATH 上找到 ${status.name}`;
     case 'unavailable':
-      return '插件目录不可用，或者 HiveMemory 不是在 Windows 上运行';
+      return '只有 Windows 上的安装版代为安装插件';
   }
 }
 

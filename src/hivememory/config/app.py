@@ -261,6 +261,9 @@ class SystemConfig(BaseModel):
     # 插件服务记下每个 harness 安装时的 HiveMemory 版本；升级之后据此重新安装复制安装
     # 的插件。相对路径按工作目录（数据根）解析。
     plugin_install_record: str = Field(default=".hivememory/plugin_installs.json")
+    # 是否代为安装插件。只有安装版打开：代为安装会把 harness 改指到本实例的插件目录，并改写
+    # 用户环境变量中的凭据，开发实例这样做会断开日常实例的连接。
+    plugin_installation_enabled: bool = Field(default=False)
 
     model_config = ConfigDict(extra="forbid")
 

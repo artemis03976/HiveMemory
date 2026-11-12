@@ -473,6 +473,17 @@ class SystemAssembler:
     # 层五：任务进程与其他应用服务（复用已构建的 workspace 能力服务）
     # ------------------------------------------------------------------
 
+    def _plugin_user_environment(self) -> WindowsUserEnvironment | None:
+        """交给插件服务的用户环境变量写入方；为 ``None`` 时插件服务不代为安装。
+
+        只有打开了代为安装、又在 Windows 上时才有：凭据经 Windows 用户环境变量交给 harness。
+        """
+        if not self._config.system.plugin_installation_enabled:
+            return None
+        if sys.platform != "win32":
+            return None
+        return WindowsUserEnvironment()
+
     def _build_services(
         self,
         runtime: _RuntimeBundle,
@@ -611,7 +622,7 @@ class SystemAssembler:
                 install_record_path=Path(self._config.system.plugin_install_record),
                 version=__version__,
                 python_executable=hook_python_executable(),
-                user_environment=WindowsUserEnvironment() if sys.platform == "win32" else None,
+                user_environment=self._plugin_user_environment(),
             ),
         )
 
