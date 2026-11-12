@@ -2,7 +2,7 @@
 title: 管理页修改记忆可见性
 status: archived
 archived_at: 2026-11-11
-implemented_by: 分支 feat/memory-visibility-management（尚未提交）
+implemented_by: PR #217
 superseded_by: docs/frontend/management-views.md
 owner: project
 target: 版本之外的工作（身份与访问主线）

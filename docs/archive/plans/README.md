@@ -19,7 +19,7 @@ last_reviewed: 2026-11-11
 
 ## 版本之外
 
-- [管理页修改记忆可见性](./memory-visibility-management.md)：2026-11-11，尚未提交；[管理页面](../../frontend/management-views.md#111-可见范围)、[MemoryLibrary](../../patchouli/memory-library.md#12-中期当前可检索书库)
+- [管理页修改记忆可见性](./memory-visibility-management.md)：2026-11-11，PR #217；[管理页面](../../frontend/management-views.md#111-可见范围)、[MemoryLibrary](../../patchouli/memory-library.md#12-中期当前可检索书库)
 - [前端 UI 优化与空入口接线](./frontend-ui-and-entry-wiring.md)：2026-11-11，PR #216；[前端](../../frontend/README.md)、[管理页面](../../frontend/management-views.md)
 - [Electron 桌面客户端](./desktop-client.md)：2026-11-10，PR #214；[桌面客户端](../../frontend/desktop-client.md)、[使用桌面客户端](../../help/desktop-client.md)
 - [退出时保存待生成的记忆工作](./shutdown-pending-generation-persistence.md)：2026-11-10，PR #213；[Patchouli 生成](../../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)、[Patchouli](../../patchouli/README.md#42-维护任务与关闭)
