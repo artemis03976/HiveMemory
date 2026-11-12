@@ -15,6 +15,8 @@ code_paths:
   - frontend/src/constants/settingsSchema.ts
   - frontend/src/hooks/
   - frontend/src/services/
+  - frontend/src/utils/memoryVisibility.ts
+  - src/hivememory/server/models/memory.py
   - src/hivememory/server/models/agent.py
 related_contracts:
   - docs/contracts/routes-and-events.md
@@ -39,9 +41,9 @@ last_reviewed: 2026-11-11
 - **语义检索**：停止输入 400 毫秒后，以 `query` 调用同一接口，在整个记忆库中返回按相关度排列的至多 50 条。结果保持相关度顺序，排序选项对它不生效；页面分别显示检索中、检索失败与没有结果。
 - **本地过滤**：只匹配已加载记忆的标题、摘要、正文与标签，`alias:`、`tag:` 前缀把匹配限定在对应字段。
 
-类型过滤、排序和 grid/list 切换都在浏览器中完成。卡片与列表项用类型图标块（`MemoryTypeTile`）标出类型：类型色只上在图标与它的浅底上，类型名是中性文字，卡片背景与边框不带类型色；状态在前端总是圆点加文字，两者靠形状区分，类型色不会被读成状态。图标块旁是类型名与别名，没有别名时显示 `mem_` 加 ID 的前 8 位。卡片高度随内容，标题与摘要限制行数，最多显示三个标签；底部的“生命力”“置信度”带文字标签、悬停说明含义，与时间一起始终可见。列表视图在一行内放同样的信息，只显示两个标签。时间取最近更新：一周以内显示相对时间（“3 分钟前”），更早的按统一格式（今天只显示时分，今年显示月日与时分，更早的显示完整日期），悬停显示完整时间（`utils/dateTime.ts`）。
+类型过滤、排序和 grid/list 切换都在浏览器中完成。卡片与列表项用类型图标块（`MemoryTypeTile`）标出类型：类型色只上在图标与它的浅底上，类型名是中性文字，卡片背景与边框不带类型色；状态在前端总是圆点加文字，两者靠形状区分，类型色不会被读成状态。图标块旁是类型名与别名，没有别名时显示 `mem_` 加 ID 的前 8 位。卡片高度随内容，标题与摘要限制行数，最多显示三个标签；底部的“生命力”“置信度”带文字标签、悬停说明含义，与时间一起始终可见。列表视图在一行内放同样的信息，只显示两个标签。只对一个 Agent 可见的记忆，卡片在标题行右侧、列表项在标题之后显示锁形图标与这个 Agent 的 agent_id（不加“只有”之类的前缀），悬停说明含义；卡片上的标记与悬停时出现的操作按钮共用右上角，悬停或聚焦时让位；指向的 Agent 已不在候选列表中时标记改用警示色（第 1.1.1 节）。时间取最近更新：一周以内显示相对时间（“3 分钟前”），更早的按统一格式（今天只显示时分，今年显示月日与时分，更早的显示完整日期），悬停显示完整时间（`utils/dateTime.ts`）。
 
-详情弹层分两栏。头部是类型图标块、标题、可复制的别名与摘要，右上角依次是编辑、Pin、删除与关闭，都有悬停提示，删除与其余按钮以分隔线隔开。左栏是 Markdown 渲染的正文（可复制）；右栏依次是元数据（可复制完整 ID，置信度与生命力带短条与悬停说明，被引用次数）、时间线（创建与最近更新）与标签。编辑在原位修改 title、summary、content、alias 与 tags，编辑中按 Esc 等同“取消”。
+详情弹层分两栏。头部是类型图标块、标题、可复制的别名与摘要，右上角依次是编辑、Pin、删除与关闭，都有悬停提示，删除与其余按钮以分隔线隔开。左栏是 Markdown 渲染的正文（可复制）；右栏依次是元数据（可复制完整 ID，置信度与生命力带短条与悬停说明，被引用次数）、时间线（创建与最近更新）、标签与可见范围。编辑在原位修改 title、summary、content、alias、tags 与可见范围，编辑中按 Esc 等同“取消”。
 
 卡片与列表项可用 Tab 到达，Enter 或空格打开详情；卡片上的编辑与删除按钮在悬停或键盘聚焦时出现。类型筛选与排序菜单在悬停或键盘聚焦时展开。详情与“注入记忆”对话框打开时焦点留在其中，Esc 关闭。
 
@@ -53,6 +55,16 @@ last_reviewed: 2026-11-11
 - 在对话页的引用记忆面板与消息的反馈按钮上提交 feedback（[Chat 视图](./chat-view.md)）。
 
 创建菜单不提供 `AGENT_PROFILE` 与 `TOOL`，避免把专业 Profile 和工具资产当成普通文本记忆随意播种。Agent Profile 由独立页面管理。
+
+#### 1.1.1 可见范围
+
+可见范围是后端 `MemoryAccessPolicy` 在管理页的编辑入口，也是用户修改记忆可见性的唯一入口：被动提取、Agent 的写入与 Agent Profile 都生成所有 Agent 可见的记忆（[Patchouli 生成](../patchouli/generation.md)）。页面只呈现两种：所有 Agent（`PUBLIC`）与只有一个 Agent（`PRIVATE`，目标是 agent_id）；管理接口不接受 `TEAM`，生产中也没有 Team 归属的来源。
+
+- **含义**：可见范围只约束 Agent 的检索与读取（chat 的预检索、MTP 与 MCP），不授予任何操作，管理页始终能看到全部记忆。它也不是保密：被动结算的查重看不到只对某个 Agent 可见的记忆，之后的对话里再提到同一件事，仍可能提取出一条所有 Agent 可见的新记忆，两条的策略不同也不会合并。这段说明在“注入记忆”中直接显示，在详情中放在悬停提示里。
+- **控件**：创建与详情编辑共用一个下拉框（`MemoryVisibilitySelect`）：第一项“所有 Agent”，其后按“外部接入”“对话 Agent”两组直接列出 agent_id。选中即确定目标，没有选了“只有一个 Agent”却没有目标的中间状态，不需要额外的必填校验。详情的可见范围是标签下面单独一张卡片，查看时显示值与一句解释，编辑时换成下拉框。
+- **候选 Agent**：取当前 Workspace 访问记录中的具体 agent_id（不含用户级记录与保留的 `system`）和 Agent 列表（含内置的 omni_doll），有 Profile 的归入对话 Agent（`hooks/useVisibilityAgents.ts`、`utils/memoryVisibility.ts`）。两个来源都是已有接口；后端不核对目标是否存在。
+- **目标不在候选中**：Agent 已删除或改名时，下拉框把原目标单独列在最前，用户不改动即原样保留。只有两个来源都读取成功时才判定为“已不在列表中”：详情只显示警示，说明现在没有 Agent 能检索到这条记忆；卡片与列表的标记改用警示色。任一来源读取失败时不作判断，避免误报。
+- **提交**：创建默认所有 Agent，请求总是带 `access_policy`。详情保存时只在可见范围改变时带上 `access_policy`；后端在内容提交之后单独替换策略，不产生新版本、不改更新时间（[MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)）。策略写入失败时内容已经保存，请求按失败提示，重新保存会补上策略。Agent Profile 的策略不经这里修改，后端拒绝对 Profile 提交 `access_policy`。
 
 ### 1.2 短期话题池
 
@@ -168,6 +180,7 @@ Model 页面通过 `/api/v1/models` 管理本机的生效文件 `configs/models.
 - 页面展示的 Memory、Topic、Agent、Provider、Model 与 Config 必须能追溯到明确后端来源，mock 数据只在 debug 模式下出现；
 - 乐观更新失败时必须恢复或显著提示失配，不能让“界面消失”冒充“后端删除成功”；
 - Agent persona 与权限字段分离，权限以 runtime 校验为准；Agent 的启用只决定 Profile 能否用于对话，不是权限；
+- 记忆的可见范围只编辑后端的 `MemoryAccessPolicy`：页面不从来源字段推导可见性，不把保留的 `system` 当作目标，管理读取也不受可见范围约束；
 - API key 与接入凭据不在列表响应中返回明文，不把密钥写进受版本控制的配置或模型文件；
 - 配置保存与配置生效是两个阶段，只有被重新装配或动态读取的组件才能宣称即时生效；页面的生效标记只取后端给出的 `immediate_fields` 与 `pending_restart`；
 - 短期话题的结算与丢弃只经 root API 的手动用例，话题池显示的自动结算时间只是估算，不代表后端的结算计划；
@@ -177,7 +190,7 @@ Model 页面通过 `/api/v1/models` 管理本机的生效文件 `configs/models.
 
 | 页面 | 前端入口 | 后端验证 |
 |:---|:---|:---|
-| Memory Library | `hooks/useMemories.ts`、`components/memory/`、`stores/memory/viewStore.ts`、`services/memoryApi.ts`；翻页取全由 `frontend/tests/memory-api.test.mjs`（`node --test`）验证，统一的时间格式由 `date-time.test.mjs` 验证 | `tests/unit/server/routers/test_memories.py`；翻页、类型排除与计数经真实 Qdrant 内存模式的 `tests/integration/patchouli/test_memory_management_listing.py` |
+| Memory Library | `hooks/useMemories.ts`、`components/memory/`、`stores/memory/viewStore.ts`、`services/memoryApi.ts`；翻页取全由 `frontend/tests/memory-api.test.mjs`（`node --test`）验证，统一的时间格式由 `date-time.test.mjs` 验证；可见范围的候选合并与取值互换由 `memory-visibility.test.mjs` 验证 | `tests/unit/server/routers/test_memories.py`（含可见范围的透传与 TEAM 的拒绝）；可见范围的创建与修改由 `tests/unit/patchouli/services/test_external_edit_validation.py` 验证，经真实路由改策略后其他 Agent 读不到由 `tests/integration/patchouli/test_memory_management_edit_route.py` 验证；翻页、类型排除与计数经真实 Qdrant 内存模式的 `tests/integration/patchouli/test_memory_management_listing.py` |
 | 短期话题池 | `components/memory/TopicPool.tsx`、`stores/topic/topicStore.ts`、`services/topicApi.ts`、`utils/topicPool.ts`；自动结算的估算与 tokens 的显示由 `frontend/tests/topic-pool.test.mjs` 验证 | `tests/unit/server/routers/test_topics.py` |
 | Agent Management | `hooks/useAgents.ts`、`useAgentManagement.ts`、`components/agent/`、`services/agentApi.ts` | `test_agents.py`（含创建与保存时间）、停用的 Profile 由 `tests/unit/patchouli/services/test_profile_resolution.py` 验证、Patchouli agent profile tests |
 | Settings | `hooks/useSettings.ts`、`components/settings/TieredSettings.tsx`、`constants/settingsSchema.ts`、`services/configApi.ts`；debug 模式的模拟配置为每个字段给出与控件相符的值，由 `frontend/tests/settings-mock-config.test.mjs` 验证 | `test_config.py`，其中校验字段表中的每条路径都存在于主配置 |

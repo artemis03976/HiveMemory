@@ -118,6 +118,9 @@ class _InMemoryMidTermPort:
         if atom is None:
             return None
         for path, value in patch.items():
+            if path == "meta.access_policy":
+                atom.meta.access_policy = value
+                continue
             _, section, field = path.split(".", 2)
             target = atom.meta.lifecycle if section == "lifecycle" else getattr(atom.meta, section)
             setattr(target, field, value)
@@ -506,9 +509,12 @@ async def test_history_policy_snapshot_is_not_authorization_basis(tmp_path):
     other_scope = make_memory_identity_scope(user_id="u1", agent_id="other-agent")
     before = _atom("v1 content")
 
+    mid_term = _InMemoryMidTermPort()
+    await mid_term.upsert(before)
+
     # 提交时点策略为 PUBLIC（进入版本快照的历史事实）。
     outcome = _update_outcome(before, "v2 content")
-    familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path))
+    familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
     await familiar.execute(_spec(owner_scope), on_commit_started=_ignore_commit_start)
 
     canonical = await mid_term.get(owner_scope.workspace_identity, outcome.atom.id)

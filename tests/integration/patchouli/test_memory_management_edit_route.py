@@ -133,3 +133,39 @@ async def test_public_memory_edit_persists_content_through_real_route_handlers(e
     assert persisted.meta.updated_at == COMMIT_NOW
     assert persisted.meta.access_policy == policy
     assert persisted.meta.provenance.source_agent_id == "author-agent"
+
+
+@pytest.mark.asyncio
+async def test_policy_edit_through_route_changes_agent_visibility_without_new_version(edit_route):
+    """只改读取策略的管理编辑经真实 handler 落到 Qdrant：其他 Agent 读不到，版本不变。"""
+    global_bus, mid_term = edit_route
+    scope = make_identity_scope(user_id="u1", agent_id="system")
+    memory = MemoryAtom(
+        meta=make_memory_metadata(user_id="u1", source_agent_id="author-agent"),
+        index=IndexLayer(
+            title="Shared note",
+            summary="Memory whose visibility is narrowed by the management route.",
+            memory_type=MemoryType.FACT,
+        ),
+        payload=PayloadLayer(content="note content"),
+    )
+    await mid_term.upsert(memory)
+    workspace = scope.workspace_identity
+    reader = make_identity_scope(user_id="u1", agent_id="dsh").actor_identity
+    other = make_identity_scope(user_id="u1", agent_id="claude_code").actor_identity
+
+    await global_bus.request(
+        PatchouliRoutes.MEMORY_UPDATE,
+        str(memory.id),
+        identity_scope=scope,
+        edit=MemoryEdit(
+            access_policy=MemoryAccessPolicy(
+                visibility=MemoryVisibility.PRIVATE, target_agent_id="dsh"
+            )
+        ),
+    )
+
+    readable = await mid_term.get(workspace, memory.id, from_actor=reader)
+    assert readable.meta.version == 1
+    assert readable.payload.content == "note content"
+    assert await mid_term.get(workspace, memory.id, from_actor=other) is None

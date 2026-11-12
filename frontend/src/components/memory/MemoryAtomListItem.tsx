@@ -1,10 +1,11 @@
-import { Flame, Target, Pin, Edit2, Trash2 } from 'lucide-react';
+import { Flame, Target, Pin, Edit2, Trash2, Lock } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
 import { memoryTypeLabels } from '../../types/memory';
 import { formatVitalityScore } from '../../utils/memoryScores';
 import { formatFullDateTime, formatListTime } from '../../utils/dateTime';
 import MemoryTypeTile from './MemoryTypeTile';
 import { activateOnKey } from '@/utils/activateOnKey';
+import { policyTarget } from '@/utils/memoryVisibility';
 
 interface MemoryAtomListItemProps {
   atom: MemoryAtom;
@@ -12,11 +13,14 @@ interface MemoryAtomListItemProps {
   onView?: (id: string) => void;
   onEdit?: (id: string) => void;
   onDelete?: (id: string) => void;
+  /** 只对某个 Agent 可见、而这个 Agent 已不在候选列表中。 */
+  visibilityTargetUnlisted?: boolean;
 }
 
 /** 列表视图的一行：类型图标块、标题与摘要、标签、带标签的指标与时间。 */
-export default function MemoryAtomListItem({ atom, onClick, onView, onEdit, onDelete }: MemoryAtomListItemProps) {
+export default function MemoryAtomListItem({ atom, onClick, onView, onEdit, onDelete, visibilityTargetUnlisted = false }: MemoryAtomListItemProps) {
   const typeLabel = memoryTypeLabels[atom.memory_type] || atom.memory_type;
+  const visibilityTarget = policyTarget(atom.access_policy);
   const updatedMs = Date.parse(atom.updated_at || atom.created_at);
   const open = () => {
     if (onClick) onClick();
@@ -38,6 +42,17 @@ export default function MemoryAtomListItem({ atom, onClick, onView, onEdit, onDe
         <div className="flex items-baseline gap-2">
           <h3 className="truncate text-sm font-semibold text-fg">{atom.title}</h3>
           <span className="shrink-0 text-xs text-fg-3">{typeLabel}</span>
+          {visibilityTarget && (
+            <span
+              title={visibilityTargetUnlisted ? `只对 ${visibilityTarget} 可见，但这个 Agent 已不在列表中` : `只有 ${visibilityTarget} 能检索与读取`}
+              className={`flex shrink-0 items-center gap-1 self-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                visibilityTargetUnlisted ? 'bg-magic-metal/12 text-magic-metal' : 'bg-surface-container-high text-fg-2'
+              }`}
+            >
+              <Lock className="h-3 w-3" aria-hidden="true" />
+              <span className="font-mono">{visibilityTarget}</span>
+            </span>
+          )}
         </div>
         <p className="truncate text-[13px] text-fg-2">{atom.summary}</p>
         <span className="font-mono text-xs text-fg-3">{atom.alias || `mem_${atom.id.replace(/-/g, '').slice(0, 8)}`}</span>

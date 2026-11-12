@@ -5,6 +5,7 @@ Memories 路由单元测试
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -87,6 +88,8 @@ class _MemoryManagementStub:
             index=index,
             payload=PayloadLayer(content=creation.content),
         )
+        if creation.access_policy is not None:
+            atom.meta.access_policy = creation.access_policy
         self.storage.upsert_memory(atom)
         return atom
 
@@ -156,6 +159,8 @@ class _MemoryManagementStub:
                     atom.index.tags = value
                 elif key == "agent_config":
                     atom.payload.agent_config = value
+                elif key == "access_policy":
+                    atom.meta.access_policy = value
         except ValidationError as exc:
             raise InvalidMemoryFieldError.from_validation_error(exc) from exc
         self.storage.upsert_memory(atom)
@@ -292,6 +297,63 @@ class TestMemoriesRouter:
         assert response.status_code == 201
         assert response.json()["summary"] == ""
         assert storage.upsert_memory.call_args.args[0].index.summary == ""
+
+    def test_create_memory_forwards_access_policy_and_returns_it(self):
+        """创建请求的读取策略经 root API 交给 Patchouli，响应带回落库的策略。"""
+        storage = MagicMock()
+        client = TestClient(_create_test_app(storage))
+        private = {"visibility": "PRIVATE", "target_agent_id": "dsh", "target_team_id": None}
+
+        response = client.post(
+            "/api/v1/memories",
+            json={
+                "title": "Only for dsh",
+                "content": "content",
+                "memory_type": "FACT",
+                "access_policy": private,
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["access_policy"] == private
+        assert storage.upsert_memory.call_args.args[0].meta.access_policy.target_agent_id == "dsh"
+
+    def test_update_memory_forwards_access_policy(self):
+        """编辑请求只带读取策略时同样经 root API 交给 Patchouli，响应带回新策略。"""
+        storage = MagicMock()
+        storage.get_memory.return_value = _make_atom(title="Existing")
+        client = TestClient(_create_test_app(storage))
+
+        response = client.patch(
+            f"/api/v1/memories/{uuid4()}",
+            json={"access_policy": {"visibility": "PRIVATE", "target_agent_id": "dsh"}},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["access_policy"]["visibility"] == "PRIVATE"
+        assert storage.upsert_memory.call_args.args[0].meta.access_policy.target_agent_id == "dsh"
+
+    @pytest.mark.parametrize("method", ["post", "patch"])
+    def test_team_access_policy_is_rejected_before_backend(self, method):
+        """管理接口不开放 TEAM：创建与编辑都在请求校验时拒绝，不触达后端。"""
+        storage = MagicMock()
+        storage.get_memory.return_value = _make_atom(title="Existing")
+        client = TestClient(_create_test_app(storage))
+        team = {"visibility": "TEAM", "target_team_id": "core"}
+
+        if method == "post":
+            response = client.post(
+                "/api/v1/memories",
+                json={"title": "t", "content": "c", "memory_type": "FACT", "access_policy": team},
+            )
+        else:
+            response = client.patch(f"/api/v1/memories/{uuid4()}", json={"access_policy": team})
+
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error"] == "request.validation_failed"
+        assert body["issues"][0]["loc"] == ["body", "access_policy"]
+        storage.upsert_memory.assert_not_called()
 
     def test_update_memory_rejects_invalid_field_with_422(self):
         """编辑提交非法值时返回 422 与字段原因，且不写入。"""

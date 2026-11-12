@@ -6,11 +6,15 @@ import { createMemory } from '@/services/memoryApi';
 import { useDraft } from '@/hooks/useDraft';
 import { useDialog } from '@/hooks/useDialog';
 import { memoryTypeLabels, type MemoryType } from '@/types/memory';
+import type { VisibilityAgents } from '@/hooks/useVisibilityAgents';
+import { targetPolicy, VISIBILITY_NOTE } from '@/utils/memoryVisibility';
+import MemoryVisibilitySelect from './MemoryVisibilitySelect';
 
 interface CreateMemoryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreated: () => void;
+  visibilityAgents: VisibilityAgents;
 }
 
 const CREATABLE_TYPES: MemoryType[] = [
@@ -25,6 +29,8 @@ interface FormState {
   memory_type: MemoryType | '';
   tags: string;
   alias: string;
+  /** 空串表示所有 Agent 可见。 */
+  visibilityTarget: string;
 }
 
 const INITIAL_FORM: FormState = {
@@ -34,6 +40,7 @@ const INITIAL_FORM: FormState = {
   memory_type: '',
   tags: '',
   alias: '',
+  visibilityTarget: '',
 };
 
 interface FormErrors {
@@ -56,7 +63,7 @@ function validate(form: FormState): FormErrors {
   return errors;
 }
 
-export default function CreateMemoryModal({ isOpen, onClose, onCreated }: CreateMemoryModalProps) {
+export default function CreateMemoryModal({ isOpen, onClose, onCreated, visibilityAgents }: CreateMemoryModalProps) {
   const [errors, setErrors] = useState<FormErrors>({});
   const addToast = useToastStore(s => s.addToast);
 
@@ -82,6 +89,7 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
         memory_type: draftData.memory_type,
         tags,
         alias: draftData.alias.trim() || null,
+        access_policy: targetPolicy(draftData.visibilityTarget),
       });
     },
     onSuccess: () => {
@@ -238,6 +246,20 @@ export default function CreateMemoryModal({ isOpen, onClose, onCreated }: Create
                     onChange={e => update({ alias: e.target.value })}
                   />
                 </div>
+              </div>
+
+              {/* Visibility */}
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="create-memory-visibility" className="text-xs text-fg-3 font-medium ml-1">可见范围</label>
+                <div className="max-w-xs">
+                  <MemoryVisibilitySelect
+                    id="create-memory-visibility"
+                    value={form.visibilityTarget}
+                    onChange={visibilityTarget => update({ visibilityTarget })}
+                    agents={visibilityAgents}
+                  />
+                </div>
+                <span className="text-xs text-fg-3 ml-1 leading-relaxed">{VISIBILITY_NOTE}</span>
               </div>
             </div>
 

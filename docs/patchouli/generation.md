@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-11
 ---
 
 # 记忆生成
@@ -150,6 +150,8 @@ Engine 用 extractor 的修订（`revise`，结果为 `RevisionResult`）生成�
 - 只有 instruction：保留旧正文，记录无内容变更的 fallback changelog。
 
 修订结果与现有正文一致时不创建新版本——outcome 为 TOUCH，只经受限 patch 推进访问统计。真实内容变化时，Familiar 在提交边界（一次取 `now`）推进 `meta.version` 与 `updated_at`/`decay_anchor_at`、重置置信度，前后完整快照交给 Artifact 层生成 MemoryVersionArtifact 后写回中期库。
+
+修订以 spec 构建时读到的基础记忆为底，任务可能排队很久（正常关闭时还会随任务写盘），写回的又是整条原子。为了不把用户在这期间于管理页修改的读取策略改回去，Familiar 在模型计算之后、提交之前按复合键重读基础记忆，沿用此刻的策略再提交，与合并写回前的重读相同。基础记忆已被删除或对发起者不可读时不写回，任务以 `ResourceNotFoundError` 失败（原因码按领域错误的规则为 `workspace.resource.not_found`，第 6.1 节）：发起者不能修订它读不到的记忆，写回也会让已删除的记忆重新出现；缺失与不可读同样按不存在处理。重读只处理策略与存在性，不比对内容版本（第 8 节）。
 
 ## 4. 查重与合并
 
@@ -288,7 +290,7 @@ PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中�
 
 Familiar 把一次任务分成两段：
 
-- **提交之前**：为结算保存来源 InteractionArtifact，调用模型提取、修订或合并，查重；合并任务另有写回之前的重读与校验。这一段除了交互 Artifact 不写任何东西。
+- **提交之前**：为结算保存来源 InteractionArtifact，调用模型提取、修订或合并，查重；合并任务另有写回之前的重读与校验，修订写回之前重读基础记忆（第 3.3 节）。这一段除了交互 Artifact 不写任何东西。
 - **提交**：写版本记录、upsert 中期存储、提升附件；合并任务是写回保留记忆、删除被吸收的记忆。只有本地写入，一般在秒级。
 
 开始提交之前，Familiar 同步调用执行路由 `generation.execute_spec` 的 `on_commit_started`，控制器把它记在任务句柄上。提交这一段以 `join_shielded` 执行，期间收到的取消等写完再传出，因此在提交之前被中止的任务可以从头重跑，不会留下写了一半的记忆。用户取消或 lane 时限恰好落在提交阶段时，任务写完后以取消或超时结束：写入意图报告取消或失败，记忆已经落库；写入本身出错时，错误随取消一起丢弃。
@@ -344,7 +346,7 @@ Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动
 - 一次结算的多条结果依次提交，中途失败（例如存储或版本记录故障）时已提交的记忆保留而任务失败；控制面只在任务成功时提交合并提名，这一批的合并因此不会发生，留下重复；
 - 一段话题的全部草稿共用一次调用的输出上限：草稿多、正文长的话题被截断时任务失败，原文仍在来源 InteractionArtifact 中，但没有记忆引用它；
 - 结果未知或结算事件丢失时，句柄可能长期保持 MATERIALIZING；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
-- UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
+- UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；写回前的重读只沿用当前策略（第 3.3 节），排队期间对同一条记忆的手动内容编辑仍会被修订写回覆盖；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
 - 正常关闭时未执行的工作保存到磁盘、下次启动后继续（第 6.2 节），崩溃或强制结束时随进程丢失；typed result 与终态快照只存在于当前进程，旧任务 ID 重启后查不到；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Controller 的 admission 持有同一把锁串行执行，并发提交的意图按取得锁的顺序入队；

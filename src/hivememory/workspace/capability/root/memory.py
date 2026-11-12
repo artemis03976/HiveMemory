@@ -13,6 +13,7 @@ from hivememory.core.errors import (
     ResourceNotFoundError,
 )
 from hivememory.core.models import (
+    MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
 )
@@ -52,14 +53,15 @@ class RootMemoryService:
         memory_type: MemoryType,
         tags: list[str],
         alias: str | None = None,
+        access_policy: MemoryAccessPolicy | None = None,
         actor: WorkingActor,
     ) -> MemoryAtom:
         """管理创建入口（root 授权）：在目标 Workspace 中创建 Memory。
 
-        只提交创建材料：原子的身份、时间戳、来源记录与默认策略由 Patchouli
-        确定。来源记录中的 actor 是管理入口的保留 ``system``，只作展示，
-        不参与可见性授权；字段非法时 Patchouli 以 ``InvalidMemoryFieldError``
-        拒绝。
+        只提交创建材料：原子的身份、时间戳、来源记录与生命周期由 Patchouli
+        确定，没有给出读取策略时为 PUBLIC。来源记录中的 actor 是管理入口的
+        保留 ``system``，只作展示，不参与可见性授权；策略指向的 Agent 不在
+        这里核对。字段非法时 Patchouli 以 ``InvalidMemoryFieldError`` 拒绝。
         """
         scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
@@ -72,6 +74,7 @@ class RootMemoryService:
                 memory_type=memory_type,
                 tags=tuple(tags),
                 alias=alias,
+                access_policy=access_policy,
             ),
         )
 
@@ -134,9 +137,13 @@ class RootMemoryService:
         alias: str | None = None,
         tags: list[str] | None = None,
         agent_config: dict | None = None,
+        access_policy: MemoryAccessPolicy | None = None,
         actor: WorkingActor,
     ) -> MemoryAtom:
-        """管理更新入口（root 授权）：显式授权 mutation，且不改变原 ownership/provenance。"""
+        """管理更新入口（root 授权）：显式授权 mutation，且不改变原 ownership/provenance。
+
+        ``access_policy`` 为 ``None`` 表示不修改读取策略。
+        """
         scope = self._authorizer.authorize_root(actor, target_workspace)
         atom = await self._global_bus.request(
             PatchouliRoutes.MEMORY_UPDATE,
@@ -149,6 +156,7 @@ class RootMemoryService:
                 alias=alias,
                 tags=tuple(tags) if tags is not None else None,
                 agent_config=agent_config,
+                access_policy=access_policy,
             ),
         )
         if atom is None:

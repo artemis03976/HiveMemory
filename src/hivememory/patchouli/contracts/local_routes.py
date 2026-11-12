@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from hivememory.core.models import (
         ActorIdentity,
+        MemoryAccessPolicy,
         MemoryAtom,
         MemoryType,
         ResolvedAgentProfile,
@@ -59,8 +60,9 @@ class PatchouliLocalRoutes:
         tags: list[str] | None = None,
         alias: str | None = None,
         agent_config: dict[str, Any] | None = None,
+        access_policy: MemoryAccessPolicy | None = None,
     ) -> MemoryAtom:
-        """以外部提交的材料创建记忆原子并持久化，原子的身份、时间与默认策略在此确定。"""
+        """以外部提交的材料创建记忆原子并持久化，原子的身份与时间在此确定，策略缺省为 PUBLIC。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory.list")
@@ -100,8 +102,9 @@ class PatchouliLocalRoutes:
         alias: str | None = None,
         tags: list[str] | None = None,
         agent_config: dict | None = None,
+        access_policy: MemoryAccessPolicy | None = None,
     ) -> MemoryAtom | None:
-        """对外部手动的记忆编辑进行持久化处理。"""
+        """对外部手动的记忆编辑进行持久化处理；``access_policy`` 为 ``None`` 时不修改策略。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory.delete")

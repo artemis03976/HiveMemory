@@ -1,12 +1,12 @@
 import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
-import type { MemoryAtom, MemoryListResponse } from '@/types/memory';
+import type { MemoryAccessPolicy, MemoryAtom, MemoryListResponse } from '@/types/memory';
 import { apiUrl } from '@/transports/backendUrl';
 import { backendFetch } from '@/transports/connectionStatus';
 
 export type UpdateMemoryPatch = Partial<Pick<
   MemoryAtom,
-  'title' | 'summary' | 'content' | 'alias' | 'tags'
+  'title' | 'summary' | 'content' | 'alias' | 'tags' | 'access_policy'
 >>;
 
 interface MemoryPageQuery {
@@ -66,6 +66,7 @@ export interface CreateMemoryPayload {
   memory_type: string;
   tags: string[];
   alias?: string | null;
+  access_policy?: MemoryAccessPolicy;
 }
 
 export async function createMemory(payload: CreateMemoryPayload): Promise<MemoryAtom> {

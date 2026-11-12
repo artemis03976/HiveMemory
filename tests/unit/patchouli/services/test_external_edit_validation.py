@@ -1,13 +1,19 @@
-"""外部创建与编辑的字段校验：非法值拒绝且不提交，合法空值与规范化不误伤。
+"""外部创建与编辑的提交语义：字段校验与读取策略的写入。
 
-使用真实 ``MemoryArtifactBuilder`` + ``ArtifactStore``（临时目录）与内存版
-中期存储（复用历史一致性测试的替身），不 mock 被测提交链。
+非法值拒绝且不提交，合法空值与规范化不误伤；读取策略随创建写入，编辑时
+单独替换、不产生新版本。使用真实 ``MemoryArtifactBuilder`` + ``ArtifactStore``
+（临时目录）与内存版中期存储（复用历史一致性测试的替身），不 mock 被测提交链。
 """
 
 import pytest
 
 from hivememory.core.errors import InvalidMemoryFieldError
-from hivememory.core.models import MemoryType
+from hivememory.core.models import (
+    MemoryAccessPolicy,
+    MemoryType,
+    MemoryVisibility,
+    WorkspaceMemoryKey,
+)
 from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
@@ -27,6 +33,17 @@ async def _setup(tmp_path, *, memory_type: MemoryType = MemoryType.FACT):
     familiar, mid_term = _familiar([], _artifact_engine(tmp_path))
     await mid_term.upsert(atom)
     return identity_scope, atom, familiar, mid_term
+
+
+_PRIVATE_TO_DSH = MemoryAccessPolicy(visibility=MemoryVisibility.PRIVATE, target_agent_id="dsh")
+
+
+async def _stored(mid_term, identity_scope, memory_id):
+    return await mid_term.get_by_key(
+        WorkspaceMemoryKey(
+            workspace_identity=identity_scope.workspace_identity, memory_id=memory_id
+        )
+    )
 
 
 async def _version_artifacts(tmp_path, identity_scope, memory_id) -> list:
@@ -164,3 +181,77 @@ async def test_clearing_alias_of_regular_memory_is_allowed(tmp_path):
     assert result is not None
     assert result.index.alias is None
     assert result.meta.version == 2
+
+
+@pytest.mark.asyncio
+async def test_creation_persists_given_access_policy(tmp_path):
+    """创建材料带读取策略时按它落库，而不是固定为 PUBLIC。"""
+    identity_scope = make_memory_identity_scope()
+    familiar, mid_term = _familiar([], _artifact_engine(tmp_path))
+
+    atom = await familiar.create_external_memory(
+        identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
+        memory_type=MemoryType.FACT,
+        title="Only for dsh",
+        access_policy=_PRIVATE_TO_DSH,
+    )
+
+    assert (await _stored(mid_term, identity_scope, atom.id)).meta.access_policy == _PRIVATE_TO_DSH
+
+
+@pytest.mark.asyncio
+async def test_policy_only_edit_replaces_policy_without_new_version(tmp_path):
+    """只改读取策略：策略生效，不推进版本、不写版本记录、不整条写回。"""
+    identity_scope, atom, familiar, mid_term = await _setup(tmp_path)
+    upserts_before = len(mid_term.upsert_calls)
+
+    result = await familiar.update_external_memory(
+        atom.id, belong_to=identity_scope.workspace_identity, access_policy=_PRIVATE_TO_DSH
+    )
+
+    stored = await _stored(mid_term, identity_scope, atom.id)
+    assert result.meta.access_policy == _PRIVATE_TO_DSH
+    assert stored.meta.access_policy == _PRIVATE_TO_DSH
+    assert stored.meta.version == 1
+    assert len(mid_term.upsert_calls) == upserts_before
+    assert await _version_artifacts(tmp_path, identity_scope, atom.id) == []
+
+
+@pytest.mark.asyncio
+async def test_content_and_policy_edit_keeps_both(tmp_path):
+    """内容与策略一起修改：内容产生新版本，策略不被内容提交改回旧值。"""
+    identity_scope, atom, familiar, mid_term = await _setup(tmp_path)
+
+    await familiar.update_external_memory(
+        atom.id,
+        belong_to=identity_scope.workspace_identity,
+        title="Edited title",
+        access_policy=_PRIVATE_TO_DSH,
+    )
+
+    stored = await _stored(mid_term, identity_scope, atom.id)
+    assert stored.index.title == "Edited title"
+    assert stored.meta.version == 2
+    assert stored.meta.access_policy == _PRIVATE_TO_DSH
+
+
+@pytest.mark.asyncio
+async def test_policy_edit_on_agent_profile_is_rejected(tmp_path):
+    """Profile 的读取策略不经记忆编辑修改：拒绝且内容与策略都不变。"""
+    identity_scope, atom, familiar, mid_term = await _setup(
+        tmp_path, memory_type=MemoryType.AGENT_PROFILE
+    )
+    upserts_before = len(mid_term.upsert_calls)
+
+    with pytest.raises(InvalidMemoryFieldError, match="access_policy"):
+        await familiar.update_external_memory(
+            atom.id,
+            belong_to=identity_scope.workspace_identity,
+            title="Edited title",
+            access_policy=_PRIVATE_TO_DSH,
+        )
+
+    stored = await _stored(mid_term, identity_scope, atom.id)
+    assert stored.meta.access_policy == MemoryAccessPolicy.public()
+    assert len(mid_term.upsert_calls) == upserts_before

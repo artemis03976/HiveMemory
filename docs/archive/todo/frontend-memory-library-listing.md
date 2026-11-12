@@ -19,7 +19,7 @@ related_docs:
   - docs/frontend/management-views.md
   - docs/patchouli/memory-library.md
   - docs/archive/todo/frontend-mock-fallback-disclosure.md
-  - docs/todo/memory-visibility-policy-ui.md
+  - docs/archive/plans/memory-visibility-management.md
 last_reviewed: 2026-11-02
 ---
 
@@ -86,7 +86,7 @@ Memory Library 目前是 owner 唯一的记忆管理入口。
 ## 非目标
 
 - 所有页面 mock fallback 的统一披露，见[统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
-- 可见性策略的编辑，见 [Memory 可见性策略前端组件](../../todo/memory-visibility-policy-ui.md)；
+- 可见性策略的编辑，见[管理页修改记忆可见性](../plans/memory-visibility-management.md)计划（已归档，原 Todo 已并入）；
 - 归档记忆的浏览与复活。
 
 ## 处置（2026-11-02）

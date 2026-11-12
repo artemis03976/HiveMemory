@@ -35,8 +35,8 @@ related_docs:
   - docs/archive/plans/http-management-credential.md
   - docs/archive/plans/unified-identity-authorization-entry.md
   - docs/archive/plans/workspace-asset-ownership-split.md
-  - docs/todo/memory-visibility-policy-ui.md
-last_reviewed: 2026-11-10
+  - docs/archive/plans/memory-visibility-management.md
+last_reviewed: 2026-11-11
 ---
 
 # 身份与访问体系
@@ -67,7 +67,7 @@ last_reviewed: 2026-11-10
 | Principal 登记 | 两份配置文件在启动时装载，运行中可以经管理接口编辑并写回；外部来源的凭据可以生成与轮换，principal 可以限定可声明的 Agent（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节） | 已实施，见第 3 节 |
 | 调用方证明 | 统一认证网关；外部 principal 以共享密钥证明；任务进程注册、Import Bus 与 MCP 入口经网关；HTTP 管理面以管理凭据防误用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节） | HTTP 管理入口的防刻意随桌面客户端；controller 模式下请求与进程的归属校验：第 4 节 |
 | 工作 actor 与操作授权 | 工作 actor 只含 principal、actor 与驻留 Workspace；actor 执行期间按白名单授权，系统级操作（root API、任务进程的系统阶段与取消、导入与确定话题）以 `system` 授权（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)第 4 节） | 工作 actor 是否带 adapter、本次运行的操作上限、进程控制中取消以外的授权主体：第 5 节 |
-| 资源可见性 | 只有 MemoryAtom 带资源 policy，且只表达读取；其余资源只按归属授权 | 修改与执行授权、写入意图的可见性：第 6 节 |
+| 资源可见性 | 只有 MemoryAtom 带资源 policy，且只表达读取，只有用户能在管理页修改（[管理页面](../frontend/management-views.md#111-可见范围)）；其余资源只按归属授权 | 修改与执行授权：第 6 节 |
 | 进入其他 Workspace | 第 3 阶段只接受目标等于驻留 Workspace | 受限穿透访问：第 7 节 |
 | 例外、暂缓与已知限制 | — | 第 8 节 |
 
@@ -233,15 +233,11 @@ last_reviewed: 2026-11-10
 
 2026-11-05 由[写入意图后续方向 Idea](./pending-intent-migration.md) 第 5 节移入。
 
-**问题**：意图不设 policy，同 Workspace 内持有别名即可回读（UPDATE 意图跟随基础原子的可读性）。别名由标题或内容片段加 4 位十六进制后缀组成，“只有写入者知道别名”是惯例，不是访问控制，真正的边界是 Workspace。`WriteFocus` 只有 content、reason、title，不携带目标 policy。
+**背景**：意图不设 policy，同 Workspace 内持有别名即可回读（UPDATE 意图跟随基础原子的可读性）。别名由标题或内容片段加 4 位十六进制后缀组成，“只有写入者知道别名”是惯例，不是访问控制，真正的边界是 Workspace。`WriteFocus` 只有 content、reason、title，不携带目标 policy。
 
-需要回答：
+**owner 决定（2026-11-11），问题关闭**：记忆的可见性只由用户在管理页修改；被动提取、Agent 写入、手动创建的默认值与 Agent Profile 仍然生成 PUBLIC；TEAM 保留在模型中，不开放。Agent 写入不声明策略，写入意图因此不加 policy：意图结算出的正式记忆对 Workspace 内所有 Agent 可见，结算前按 Workspace 归属回读与此一致。已实施（2026-11-11，[归档计划](../archive/plans/memory-visibility-management.md)，原 Todo“Memory 可见性策略前端组件”并入其中），当前事实见[管理页面](../frontend/management-views.md#111-可见范围)。以后开放 Agent 写入声明策略时，需要重新回答意图在结算前的可见性是否跟随声明的策略。
 
-- WRITE 若能声明目标 policy，落库前的意图可见性是否跟随该 policy；
-- 增加意图 policy 时，不要求外部构造 RuntimeScope，也不把整个 scope 相等重新变成权限条件；
-- 读取正式原子时，是否提示调用者自己仍在进行的 UPDATE 修订；不提示时，Pending 正文不能静默叠加到已提交版本上。
-
-管理页查看与编辑记忆策略的前端组件见 [Memory 可见性策略前端组件 Todo](../todo/memory-visibility-policy-ui.md)，它依赖 Memory CRUD 契约先支持 `access_policy` 的读写。
+搁置：读取正式原子时，是否提示调用者自己仍在进行的 UPDATE 修订（现在读取正式原子始终返回已提交版本，进行中的修订只经它自己的 pending 句柄可见）。
 
 ## 7. 受限穿透访问
 

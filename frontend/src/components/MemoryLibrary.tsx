@@ -3,7 +3,9 @@ import { motion } from 'motion/react';
 import { useMemoryViewStore, useToastStore, useTopicStore } from '@/stores';
 import type { LibraryTab } from '@/stores/memory/viewStore';
 import { useMemories } from '@/hooks/useMemories';
+import { useVisibilityAgents } from '@/hooks/useVisibilityAgents';
 import type { MemoryAtom } from '@/types/memory';
+import { isListedAgent, policyTarget } from '@/utils/memoryVisibility';
 import TopicPool from './memory/TopicPool';
 import MemoryAtomCard from './memory/MemoryAtomCard';
 import MemoryAtomListItem from './memory/MemoryAtomListItem';
@@ -47,6 +49,12 @@ export default function MemoryLibrary() {
   const [selectedAtom, setSelectedAtom] = useState<MemoryAtom | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const visibilityAgents = useVisibilityAgents();
+  // 只有候选列表读全时才能断定目标已不在列表中，避免读取失败时误报。
+  const isTargetUnlisted = (atom: MemoryAtom) => {
+    const target = policyTarget(atom.access_policy);
+    return target !== '' && visibilityAgents.complete && !isListedAgent(visibilityAgents.groups, target);
+  };
 
   const {
     memories,
@@ -197,6 +205,7 @@ export default function MemoryLibrary() {
                       onView={() => handleView(atom.id)}
                       onEdit={handleEdit}
                       onDelete={confirmDelete}
+                      visibilityTargetUnlisted={isTargetUnlisted(atom)}
                     />
                   ) : (
                     <MemoryAtomListItem
@@ -204,6 +213,7 @@ export default function MemoryLibrary() {
                       onView={() => handleView(atom.id)}
                       onEdit={handleEdit}
                       onDelete={confirmDelete}
+                      visibilityTargetUnlisted={isTargetUnlisted(atom)}
                     />
                   )}
                 </motion.div>
@@ -220,6 +230,7 @@ export default function MemoryLibrary() {
           onClose={() => setSelectedAtom(null)}
           onEdit={handleModalEdit}
           onDelete={confirmDelete}
+          visibilityAgents={visibilityAgents}
         />
       )}
 
@@ -238,6 +249,7 @@ export default function MemoryLibrary() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onCreated={() => { refetch(); setShowCreateModal(false); }}
+        visibilityAgents={visibilityAgents}
       />
     </div>
   );

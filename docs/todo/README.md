@@ -27,7 +27,6 @@ last_reviewed: 2026-11-11
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：alias 占用查询的 payload index；无 alias 记忆的寻址已于 2026-11-07 改为回退到 `mem_<memory id>`）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；
 - [Work Queue Runtime 多 lane 拓扑技术债](./work-queue-runtime-lane-topology.md)；
-- [Memory 可见性策略前端组件](./memory-visibility-policy-ui.md)（依赖 Memory CRUD 契约先支持 `access_policy` 读写）；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 
 已完成的事项，以及升级为计划、并入计划或删除的事项，登记在 [Archived Todo](../archive/todo/README.md)。

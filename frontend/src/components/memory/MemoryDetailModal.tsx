@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Check, RotateCcw } from 'lucide-react';
+import { X, Copy, Pin, Edit2, Trash2, Clock, Hash, Database, FileText, AtSign, Check, RotateCcw, Globe, Lock } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
 import MarkdownRenderer from '../common/MarkdownRenderer';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,12 +9,16 @@ import { formatDateTime, formatFullDateTime } from '../../utils/dateTime';
 import { useDraft } from '../../hooks/useDraft';
 import { useDialog } from '../../hooks/useDialog';
 import { formatVitalityScore } from '../../utils/memoryScores';
+import type { VisibilityAgents } from '@/hooks/useVisibilityAgents';
+import { isListedAgent, policyTarget, targetPolicy, visibilityAgentLabel, VISIBILITY_NOTE } from '@/utils/memoryVisibility';
+import MemoryVisibilitySelect from './MemoryVisibilitySelect';
 
 interface MemoryDetailModalProps {
   atom: MemoryAtom | null;
   onClose: () => void;
-  onEdit: (id: string, patch: Partial<Pick<MemoryAtom, 'title' | 'summary' | 'content' | 'alias' | 'tags'>>) => Promise<void>;
+  onEdit: (id: string, patch: Partial<Pick<MemoryAtom, 'title' | 'summary' | 'content' | 'alias' | 'tags' | 'access_policy'>>) => Promise<void>;
   onDelete: (id: string) => void;
+  visibilityAgents: VisibilityAgents;
 }
 
 /** 元数据栏里的一行：名称、可选的短条与数值，悬停说明含义。 */
@@ -32,14 +36,16 @@ function MetaRow({ label, value, ratio, hint }: { label: string; value: string; 
   );
 }
 
-export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete }: MemoryDetailModalProps) {
+export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete, visibilityAgents }: MemoryDetailModalProps) {
   const [editing, setEditing] = useState(false);
+  const savedTarget = atom ? policyTarget(atom.access_policy) : '';
   const initialDraftData = useMemo(() => ({
     title: atom?.title || '',
     summary: atom?.summary || '',
     content: atom?.content || '',
     alias: atom?.alias || '',
     tags: atom?.tags.join(', ') || '',
+    visibilityTarget: atom ? policyTarget(atom.access_policy) : '',
   }), [atom]);
 
   const { draft, isDirty, isSaving, updateDraft, save, reset } = useDraft({
@@ -52,6 +58,10 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete }: M
         content: draftData.content,
         alias: draftData.alias || null,
         tags: draftData.tags.split(',').map(t => t.trim()).filter(Boolean),
+        // 策略单独写入、不产生新版本；没有改动时不提交，避免多一次写入。
+        ...(draftData.visibilityTarget !== savedTarget
+          ? { access_policy: targetPolicy(draftData.visibilityTarget) }
+          : {}),
       });
     },
     onSuccess: () => setEditing(false),
@@ -64,6 +74,8 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete }: M
   });
 
   if (!atom) return null;
+  // 只有候选列表读全时才能断定目标已不在列表中。
+  const targetUnlisted = savedTarget !== '' && visibilityAgents.complete && !isListedAgent(visibilityAgents.groups, savedTarget);
 
 
   const startEdit = () => {
@@ -339,6 +351,41 @@ export default function MemoryDetailModal({ atom, onClose, onEdit, onDelete }: M
                     </div>
                   ) : (
                     <span className="text-xs text-fg-3">暂无标签</span>
+                  )}
+                </div>
+
+                <div className="p-3 rounded-xl bg-surface-container border border-line">
+                  <div className="text-[13px] text-fg-3 mb-2 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5" />
+                    可见范围
+                  </div>
+                  {editing ? (
+                    <div className="mt-1 flex flex-col gap-1.5">
+                      <MemoryVisibilitySelect
+                        ariaLabel="可见范围"
+                        value={draft.visibilityTarget}
+                        onChange={visibilityTarget => updateDraft({ visibilityTarget })}
+                        agents={visibilityAgents}
+                      />
+                      <span className="text-xs text-fg-3 ml-1" title={VISIBILITY_NOTE}>只限定 Agent 的检索与读取，不是保密</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      <span className={`flex items-center gap-1.5 text-[13px] font-semibold ${targetUnlisted ? 'text-magic-metal' : 'text-fg'}`}>
+                        {savedTarget ? <Lock className="h-3.5 w-3.5" aria-hidden="true" /> : <Globe className="h-3.5 w-3.5" aria-hidden="true" />}
+                        {savedTarget ? <span className="font-mono">{visibilityAgentLabel(savedTarget)}</span> : '所有 Agent'}
+                      </span>
+                      {!targetUnlisted && (
+                        <span className="text-xs leading-relaxed text-fg-3">
+                          {savedTarget ? '只有这个 Agent 能检索与读取，管理页照常可见' : '接入的 Agent 都能检索与读取'}
+                        </span>
+                      )}
+                      {targetUnlisted && (
+                        <span role="note" className="mt-1 rounded-lg bg-magic-metal/12 px-2.5 py-2 text-xs leading-relaxed text-magic-metal">
+                          这个 Agent 已不在 Agent 列表中，现在没有 Agent 能检索到这条记忆。编辑时可以改为其他 Agent 或所有 Agent。
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

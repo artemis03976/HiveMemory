@@ -3,7 +3,7 @@ title: Archived Todo
 status: current
 owner: project
 scope: completed-todo-history
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # Archived Todo
@@ -50,6 +50,7 @@ last_reviewed: 2026-11-09
 
 这些事项没有归档文件，历史由版本控制保留：
 
+- “Memory 可见性策略前端组件”：2026-11-11 并入[管理页修改记忆可见性](../plans/memory-visibility-management.md)计划（已归档），TEAM 不开放，删除前的最后版本见 commit `3cfdec9d`；
 - “建立前端身份状态所有权”：2026-11-09 删除。后端拒绝的呈现已修复，见[状态与传输](../../frontend/state-and-transports.md#31-http-错误解析)；身份切换时的持久化、失效与清理不再单独追踪，owner 决定出现登录或 Workspace 切换时再计划。删除前的最后版本见 commit `3cfdec9d`；
 - “Memory Garden 接入真实语义检索”：2026-11-02 并入 [Memory 管理页列表不全与检索](./frontend-memory-library-listing.md)（已归档），删除前的最后版本见 commit `46c82c8c`；
 - “Gateway 与 Librarian 的旧式直配路径”：2026-11-01 升级为[模型选择统一为 ModelSelection，组件模型只经注册表解析](../plans/llm-config-retirement.md)（已归档），删除前的最后版本见 commit `190accd2`；
