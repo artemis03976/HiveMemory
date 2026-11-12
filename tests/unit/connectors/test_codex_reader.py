@@ -1,7 +1,7 @@
 """Codex 会话记录读取器的单元测试：轮次切分、用户消息、事件映射、回声标记与结局。
 
 使用按 Codex 0.167.0 字段形状合成的会话记录。另核对插件中 Codex 一侧的声明与
-连接器常量、随仓库发布的接入登记一致。
+连接器常量、插件服务安装时的登记一致。
 """
 
 from __future__ import annotations
@@ -11,16 +11,15 @@ import re
 from pathlib import Path
 
 import pytest
-import yaml
 from connector.claude_code.reader import PLUGIN_NAME
 from connector.codex.reader import HARNESS, MCP_SERVER_NAME, CodexReader, hook_tool_name
 
-from hivememory.config.access import SystemPrincipalsFile, WorkspaceActorsFile
+from hivememory.system.plugins.harnesses import harness_by_id
+from hivememory.system.plugins.service import PYTHON_ENV
 from tests.unit.connectors.codex_rollouts import PLUGIN_ID, THREAD_ID, RolloutWriter
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PLUGIN_ROOT = REPO_ROOT / "integrations" / "hivememory"
-MEMORY_OPERATIONS = {"memory.read", "memory.search", "memory.write", "memory.update"}
 
 reader = CodexReader()
 
@@ -191,8 +190,8 @@ def test_started_at_and_turn_id_at_read_the_session_and_turn_start(tmp_path):
 
 def test_codex_declarations_match_connector_and_registration():
     """Codex 清单与 Claude Code 清单是同一个插件，清单指向的文件存在，MCP server、principal、
-    凭据变量与 matcher 和连接器一致，
-    hook 命令带上 Codex 的 harness 参数，principal 与默认 Agent 在随仓库发布的登记中。"""
+    凭据变量与 matcher 和连接器一致，hook 命令带上 Codex 的 harness 参数，principal、缺省
+    Agent 与凭据变量和插件服务安装时登记、交付的一致。"""
     manifest = json.loads((PLUGIN_ROOT / ".codex-plugin" / "plugin.json").read_text("utf-8"))
     assert manifest["name"] == PLUGIN_NAME
     for key in ("skills", "mcpServers", "hooks"):
@@ -220,18 +219,14 @@ def test_codex_declarations_match_connector_and_registration():
         for handler in group["hooks"]
     ]
     assert all(f" {HARNESS.source} hook " in command for command in commands)
+    # hook 经启动脚本选择解释器：插件服务写入的 HIVEMEMORY_PYTHON 由它读取。
+    launcher = PLUGIN_ROOT / "hivememory_hook.cmd"
+    assert all(
+        command.startswith('cmd /c "${PLUGIN_ROOT}/hivememory_hook.cmd"') for command in commands
+    )
+    assert f"%{PYTHON_ENV}%" in launcher.read_text(encoding="ascii")
 
-    principals = SystemPrincipalsFile.model_validate(
-        yaml.safe_load(
-            (REPO_ROOT / "configs" / "system_principals.example.yaml").read_text("utf-8")
-        )
-    )
-    actors = WorkspaceActorsFile.model_validate(
-        yaml.safe_load((REPO_ROOT / "configs" / "workspace_actors.example.yaml").read_text("utf-8"))
-    )
-    [principal] = [p for p in principals.principals if p.principal_id == HARNESS.principal_id]
-    [actor] = [a for a in actors.workspace_actors if a.agent_id == HARNESS.default_agent_id]
-    assert principal.enabled and not principal.allow_system_actor
-    assert set(principal.adapters) == {"mcp", "import"}
-    assert principal.credential_env == HARNESS.token_env
-    assert actor.enabled and set(actor.allowed_operations) == MEMORY_OPERATIONS
+    installed = harness_by_id("codex")
+    assert installed.principal_id == HARNESS.principal_id
+    assert installed.default_agent_id == HARNESS.default_agent_id
+    assert installed.credential_env == HARNESS.token_env

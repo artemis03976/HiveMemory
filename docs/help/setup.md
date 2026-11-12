@@ -21,7 +21,7 @@ related_docs:
   - docs/help/deepseek-harness-plugin.md
   - docs/help/codex-plugin.md
   - docs/help/pi-plugin.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-12
 ---
 
 # 安装与启动 HiveMemory
@@ -250,11 +250,11 @@ npm run build
 
 ## 9. 接入外部 harness
 
-服务运行起来之后，可以把外部 harness 以插件接入 HiveMemory：对话回流把每一轮已经结束的对话导入 HiveMemory，记忆工具让 harness 中的 agent 检索、读取、写入与更新记忆。每个 harness 有自己的插件、接入身份与凭据，安装、配置、确认与排查各有一份手册：
+服务运行起来之后，可以把外部 harness 以插件接入 HiveMemory：对话回流把每一轮已经结束的对话导入 HiveMemory，记忆工具让 harness 中的 agent 检索、读取、写入与更新记忆。新部署不连接任何 harness；HiveMemory 在 Windows 上运行时，在设置页的“插件”页为 harness 安装插件，HiveMemory 代为运行 harness 的插件命令、登记接入并交付凭据。每个 harness 的安装、确认与排查各有一份手册：
 
 - [接入 Claude Code](./claude-code-plugin.md)：插件 `hivememory-connector`（`integrations/hivememory/`），接入身份 `harness:claude-code`；
 - [接入 Codex](./codex-plugin.md)：同一个插件目录中的 Codex 插件，接入身份 `harness:codex`，只支持 Codex 与 HiveMemory 都在 Windows 上原生运行；
 - [接入 pi](./pi-plugin.md)：同一个插件目录作为 pi 包安装的扩展，接入身份 `harness:pi`，只支持 pi 与 HiveMemory 都在 Windows 上原生运行；
-- [接入 DeepSeek Harness](./deepseek-harness-plugin.md)：同一个插件目录作为 dsh bundle 安装，接入身份 `harness:dsh`，包括 Windows 桌面端连接 WSL 中的 HiveMemory。
+- [接入 DeepSeek Harness](./deepseek-harness-plugin.md)：同一个插件目录链接安装到 dsh 桌面端，接入身份 `harness:dsh`；命令行版与不在 Windows 上运行的 HiveMemory 按手册手动安装。
 
 长期接入时，本地开发路径建议用脚本的 `serve` 模式运行后端（第 4.5 节）。

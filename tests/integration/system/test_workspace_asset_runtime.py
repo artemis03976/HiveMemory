@@ -241,6 +241,7 @@ def _build_system(
         root_topic=object(),  # type: ignore[arg-type]
         readiness=object(),  # type: ignore[arg-type]
         root_workspace_assets=object(),  # type: ignore[arg-type]
+        plugins=object(),  # type: ignore[arg-type]
     )
     system = HiveMemorySystem(
         config=HiveMemoryConfig(runtime_events={"enabled": False}),
@@ -444,6 +445,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         root_topic=object(),  # type: ignore[arg-type]
         readiness=object(),  # type: ignore[arg-type]
         root_workspace_assets=object(),  # type: ignore[arg-type]
+        plugins=object(),  # type: ignore[arg-type]
     )
     system = HiveMemorySystem(
         config=HiveMemoryConfig(runtime_events={"enabled": False}),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SlidersHorizontal, Wrench, RefreshCw, RotateCcw, Boxes, KeyRound, ShieldCheck } from 'lucide-react';
+import { SlidersHorizontal, Wrench, RefreshCw, RotateCcw, Boxes, KeyRound, Plug, ShieldCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useSettings } from '../hooks/useSettings';
 import PageHeader from './common/PageHeader';
@@ -9,9 +9,11 @@ import { THEME_OPTIONS } from '@/stores/ui/theme';
 import { ModelRegistrySettings } from './settings/ModelRegistrySettings';
 import { ProviderSettings } from './settings/ProviderSettings';
 import { AccessSettings } from './settings/AccessSettings';
+import { PluginSettings } from './settings/PluginSettings';
 import { TieredSettings } from './settings/TieredSettings';
 import { ADVANCED_SECTIONS, COMMON_SECTIONS, changedSettingPaths, settingLabel } from '@/constants/settingsSchema';
 import { fetchModels } from '@/services/modelRegistryApi';
+import { fetchPlugins } from '@/services/pluginApi';
 import type { RegisteredModel } from '@/types/model';
 
 interface Category {
@@ -25,6 +27,7 @@ const TIERS: Category[] = [
   { id: 'advanced', label: '高级', icon: Wrench },
 ];
 const MANAGEMENT: Category[] = [
+  { id: 'plugins', label: '插件', icon: Plug },
   { id: 'providers', label: '提供商凭证', icon: KeyRound },
   { id: 'models', label: '模型注册表', icon: Boxes },
   { id: 'access', label: '接入与权限', icon: ShieldCheck },
@@ -74,9 +77,14 @@ export default function Settings() {
   const { addToast } = useToastStore();
   const setUnsaved = useUnsavedSettings((s) => s.setDirty);
   const [models, setModels] = useState<RegisteredModel[]>([]);
+  // 导航中“插件”旁的数字：已安装插件的 harness 数；插件页的安装与卸载随时更新它。
+  const [installedPlugins, setInstalledPlugins] = useState<number | null>(null);
 
   useEffect(() => {
     fetchModels().then(setModels).catch(() => setModels([]));
+    fetchPlugins()
+      .then((list) => setInstalledPlugins(list.harnesses.filter((h) => h.installed).length))
+      .catch(() => setInstalledPlugins(null));
   }, []);
 
   // 有未保存的更改时，离开设置页与关闭窗口前都先提醒
@@ -116,7 +124,10 @@ export default function Settings() {
       >
         {isActive && <span aria-hidden="true" className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full bg-brand" />}
         <Icon className="h-4 w-4" />
-        {cat.label}
+        <span className="flex-1 text-left">{cat.label}</span>
+        {cat.id === 'plugins' && installedPlugins !== null && (
+          <span className="text-xs font-medium text-fg-3">{installedPlugins}</span>
+        )}
       </button>
     );
   };
@@ -173,6 +184,7 @@ export default function Settings() {
                 />
               </div>
             )}
+            {activeCategory === 'plugins' && <PluginSettings onInstalledCount={setInstalledPlugins} />}
             {activeCategory === 'providers' && <ProviderSettings />}
             {activeCategory === 'models' && <ModelRegistrySettings />}
             {activeCategory === 'access' && <AccessSettings />}

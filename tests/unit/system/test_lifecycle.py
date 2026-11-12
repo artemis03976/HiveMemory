@@ -170,6 +170,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             root_topic=topic_service,
             readiness=readiness_service,
             root_workspace_assets=MagicMock(),
+            plugins=MagicMock(),
         )
         return HiveMemorySystem(
             config=MagicMock(),

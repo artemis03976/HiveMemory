@@ -20,7 +20,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-12
 ---
 
 # System 配置与注册表
@@ -39,7 +39,7 @@ last_reviewed: 2026-11-10
 
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
-| `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`、预设 Agent 写入标记的路径 `preset_agent_profiles_marker`（默认 `.hivememory/preset_agent_profiles_seeded`，相对工作目录）；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
+| `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`、预设 Agent 写入标记的路径 `preset_agent_profiles_marker`（默认 `.hivememory/preset_agent_profiles_seeded`，相对工作目录）、插件服务记下各 harness 安装版本的文件 `plugin_install_record`（默认 `.hivememory/plugin_installs.json`，相对工作目录）；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
 | `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，perception idle flush、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | 默认 embedding 模型 | 共享模型能力 |
 | `gateway` | `config.gateway` | 模型选择与生成参数（`llm`）、interceptor、commands、workflow、topic router、query analysis | Gateway |
@@ -87,12 +87,12 @@ last_reviewed: 2026-11-10
 | `configs/workspace_actors.yaml`（模板 `workspace_actors.example.yaml`） | `workspace_actors`：Workspace Actor 的准入与行为白名单 | workspace | `HIVEMEMORY_WORKSPACE_ACTORS_PATH` |
 
 - 两个文件都拒绝未知字段；默认路径的生效文件缺失时从模板复制一份再装载，已有的生效文件不被模板覆盖，升级也不会改动它们；路径变量指定的文件不从模板生成，缺失或内容非法时装载失败。
-- 两份登记都可以在运行时经设置页的“接入与权限”或管理接口编辑，立即生效并写回生效的登记文件，写回时不保留注释，模板保持原样。运行中手工改过文件之后，运行时编辑被拒绝，重启装载之后再编辑（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节）。
+- 两份登记都可以在运行时编辑，立即生效并写回生效的登记文件，写回时不保留注释，模板保持原样：外部来源在设置页的“插件”页安装插件时登记、卸载时删除，“接入与权限”中可以启停来源、调整可声明的 Agent 与各 Agent 的操作权限。运行中手工改过文件之后，运行时编辑被拒绝，重启装载之后再编辑（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节）。
 - `system.server_principal_id`（默认 `hivememory:http-server`）是 server 的前端路由（管理、chat 与取消）经统一认证网关认证时使用的 principal，必须与 `system_principals.yaml` 中的登记一致；导入与 MCP 入口不使用它，以请求声明的 principal 认证。
 - 系统自身的 principal `hivememory:system`（`local` adapter、`allow_system_actor: true`、不带凭据）不经配置项指定：它的标识是代码中的常量，任务进程的注册入口与 Import Bus 服务以它认证 (user, `system`)，取得执行系统阶段、导入与确定话题的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。登记文件缺少这一条时，chat 注册、对话导入与 MCP 写入、更新都以 403 `unknown_principal` 拒绝。
-- `system_principals.yaml` 的每条登记另有 `allow_system_actor`（能否声明保留的 `system`，默认 `false`）、`allowed_agent_ids`（能声明哪些 Agent，默认不限定）与 `credential_env`（接入凭据所在的环境变量名）。一条登记要么只列外部 adapter（`mcp`、`import`），要么只列进程内 adapter（`http`、`local`），后者不能声明 `credential_env`，否则装载失败。外部来源的凭据来自 `credential_env` 指向的环境变量，或在设置页登记与轮换时生成、保存在登记文件同目录 `principals.secrets.yaml`（不受版本控制）的生成凭据；环境变量按与其他配置相同的来源在启动时读取（进程环境变量优先，其次是 `.env` / `configs/.env`，去掉首尾空白），有值时优先于生成凭据。两者都没有时启动告警，该来源的认证一律以 `invalid_credential` 拒绝，HiveMemory 照常启动。登记模板中，Claude Code 的 `harness:claude-code` 使用 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，DeepSeek Harness 的 `harness:dsh` 使用 `HIVEMEMORY_DSH_TOKEN`，Codex 的 `harness:codex` 使用 `HIVEMEMORY_CODEX_TOKEN`，pi 的 `harness:pi` 使用 `HIVEMEMORY_PI_TOKEN`，各自只能声明同名的 Agent（`claude_code`、`dsh`、`codex`、`pi`）；harness 一侧的插件读取同名变量，两侧配置为同一份凭据（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。
+- `system_principals.yaml` 的每条登记另有 `allow_system_actor`（能否声明保留的 `system`，默认 `false`）、`allowed_agent_ids`（能声明哪些 Agent，默认不限定）与 `credential_env`（接入凭据所在的环境变量名）。一条登记要么只列外部 adapter（`mcp`、`import`），要么只列进程内 adapter（`http`、`local`），后者不能声明 `credential_env`，否则装载失败。外部来源的凭据来自 `credential_env` 指向的环境变量，或插件页安装插件时生成、保存在登记文件同目录 `principals.secrets.yaml`（不受版本控制）的生成凭据；环境变量按与其他配置相同的来源在启动时读取（进程环境变量优先，其次是 `.env` / `configs/.env`，去掉首尾空白），有值时优先于生成凭据。两者都没有时启动告警，该来源的认证一律以 `invalid_credential` 拒绝，HiveMemory 照常启动。登记模板只有 HiveMemory 自己的两个来源，不接入任何外部 harness。插件页安装插件时登记 `harness:claude-code`、`harness:dsh`、`harness:codex` 或 `harness:pi`，不声明 `credential_env`，初始只能声明插件的缺省 Agent（`claude_code`、`dsh`、`codex`、`pi`）；生成的凭据写进 harness 一侧读取的 Windows 用户环境变量 `HIVEMEMORY_CLAUDE_CODE_TOKEN`、`HIVEMEMORY_DSH_TOKEN`、`HIVEMEMORY_CODEX_TOKEN` 或 `HIVEMEMORY_PI_TOKEN`（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)）。
 
-`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的系统阶段（Gateway、Profile 解析、附件租借、确定话题、交互提交）由系统执行、不检查执行 Agent 的白名单；预检索是执行 Agent 的检索操作，只在它持有 `memory.search` 时进行。白名单为空的 Agent 因此也能完成对话，只是没有预检索，也不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样由系统执行，不检查参与 Agent 的白名单；随仓库发布的登记为 Claude Code 使用的 `claude_code` 与 DeepSeek Harness 使用的 `dsh` 各登记了 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的精确记录，供四个记忆工具逐次授权；导入与确定话题本身不读取白名单，写入与更新则先经白名单授权、通过后才确定话题；精确记录优先于用户级记录，这两个 Agent 因此不继承 `memory.run` 与 `agent.call`（[Import Bus](./import-bus.md#41-认证与授权)、[MCP 记忆访问](../contracts/mcp.md)）。
+`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的系统阶段（Gateway、Profile 解析、附件租借、确定话题、交互提交）由系统执行、不检查执行 Agent 的白名单；预检索是执行 Agent 的检索操作，只在它持有 `memory.search` 时进行。白名单为空的 Agent 因此也能完成对话，只是没有预检索，也不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样由系统执行，不检查参与 Agent 的白名单；插件页安装插件时，为插件的缺省 Agent 补一条 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的精确记录（已有时不改动），供四个记忆工具逐次授权；导入与确定话题本身不读取白名单，写入与更新则先经白名单授权、通过后才确定话题；精确记录优先于用户级记录，这些 Agent 因此不继承 `memory.run` 与 `agent.call`（[Import Bus](./import-bus.md#41-认证与授权)、[MCP 记忆访问](../contracts/mcp.md)）。
 
 访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 的 `agent_config` 不再承载权限，`sys_*` 系统工具不设权限。白名单可以在设置页的“接入与权限”中编辑，也可以修改本文件后重启。
 
@@ -108,7 +108,9 @@ last_reviewed: 2026-11-10
 
 升级注意（接入登记的 `system` 声明范围与外部入口）：`allow_system_actor` 默认 `false`。自定义过 `system_principals.yaml` 的部署需要为 server 的登记显式设为 `true`，否则管理路由以 403 `system_actor_not_allowed` 拒绝；Profile 注入脚本使用的本地来源同理。导入改为以 Claude Code 自己的 principal 与凭据认证：服务端与插件需要一起更新，并在两侧配置同一份凭据；只更新服务端时，旧连接器的导入以 400 `request.principal_required` 拒绝，连接器保留游标，配置完成后补发，不丢失轮次。导入交互标识由 principal 参与推导，迁移后同一外部轮次得到新的标识，只有“已应用但确认在升级时丢失”的轮次会被再导入一次。
 
-升级注意（principal 的 Agent 限定）：模板中的四个 harness 登记带 `allowed_agent_ids`，各自只能声明同名的 Agent。从模板新生成的登记中，以 `HIVEMEMORY_AGENT_ID` 让 harness 声明其他 Agent 的请求以 403 `agent_not_allowed_for_principal` 拒绝，需要在设置页或登记文件中把那个 Agent 加入该来源可声明的 Agent。升级前已有的生效登记不变，没有这个字段即不限定，需要限定时自己补上。
+升级注意（principal 的 Agent 限定）：插件页登记的来源带 `allowed_agent_ids`，初始只能声明插件的缺省 Agent。以 `HIVEMEMORY_AGENT_ID` 让 harness 声明其他 Agent 的请求以 403 `agent_not_allowed_for_principal` 拒绝，需要在设置页或登记文件中把那个 Agent 加入该来源可声明的 Agent。没有这个字段的旧登记不限定，需要限定时自己补上。
+
+升级注意（外部 harness 改由插件页接入）：两份模板删除了四个 harness 的来源与访问记录，新生成的登记不接入任何外部 harness，要在插件页安装插件之后才能连接。已经生成的生效登记不变，其中的四个 harness 登记被插件页识别为已安装，原有的 `credential_env` 与环境变量凭据照常使用。管理接口不再提供外部来源的登记、轮换与删除。
 
 升级注意（访问登记改为模板加本地文件）：`configs/system_principals.yaml` 与 `configs/workspace_actors.yaml` 移出版本控制，仓库改为发布同目录的 `*.example.yaml` 模板。在原 checkout 中升级时两个文件留在原处，成为本机的生效登记，内容不变。其他 checkout 拉取这次改动时，git 会删除这两个文件；本地改过时拉取被拒，先把它们复制到别处再拉取，拉取后放回原处即可，没有改过的，下次启动从模板重新生成。以后模板新增的登记不会进入已有的生效登记，升级说明会写明需要补上的内容。
 

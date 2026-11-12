@@ -1,7 +1,7 @@
 """接入登记与 Workspace 访问记录的请求/响应模型。
 
-凭据明文只出现在登记与轮换的响应中，供用户复制到 harness 一侧；列表与其他
-响应只给打码值。
+接入登记的响应只给凭据的来源与打码值：凭据由插件服务直接交给 harness 一侧，
+不经管理接口返回。
 """
 
 from typing import Literal
@@ -52,13 +52,6 @@ class PrincipalResponse(BaseModel):
         )
 
 
-class PrincipalCredentialResponse(BaseModel):
-    """登记或轮换的结果：凭据明文只在这里返回一次。"""
-
-    principal: PrincipalResponse
-    credential: str = Field(description="新凭据的明文，写进 harness 一侧的环境变量")
-
-
 class PrincipalSettings(BaseModel):
     """外部来源可以修改的内容。"""
 
@@ -77,18 +70,6 @@ class PrincipalSettings(BaseModel):
             not agent_id.strip() for agent_id in self.allowed_agent_ids
         ):
             raise ValueError("可声明的 Agent 不能为空字符串")
-        return self
-
-
-class PrincipalCreateRequest(PrincipalSettings):
-    """登记一个外部来源。"""
-
-    principal_id: str = Field(min_length=1, description="稳定来源标识，例如 harness:my-tool")
-
-    @model_validator(mode="after")
-    def _principal_not_blank(self) -> "PrincipalCreateRequest":
-        if not self.principal_id.strip():
-            raise ValueError("principal_id 不能为空")
         return self
 
 

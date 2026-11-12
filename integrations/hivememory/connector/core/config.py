@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_URL = "http://localhost:8000"
+DEFAULT_URL = "http://127.0.0.1:8769"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
 

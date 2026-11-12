@@ -33,16 +33,6 @@ export interface PrincipalSettingsPayload {
   enabled: boolean;
 }
 
-export interface PrincipalCreatePayload extends PrincipalSettingsPayload {
-  principal_id: string;
-}
-
-/** 登记或轮换的结果：凭据明文只在这里出现一次 */
-export interface PrincipalCredential {
-  principal: AccessPrincipal;
-  credential: string;
-}
-
 /** 一条 Workspace 访问记录；agent_id 为 null 表示用户级记录 */
 export interface ActorRecord {
   agent_id: string | null;

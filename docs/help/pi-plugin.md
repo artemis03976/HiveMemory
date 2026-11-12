@@ -6,15 +6,14 @@ scope: pi-extension-installation-configuration-verification-and-troubleshooting
 code_paths:
   - integrations/hivememory/package.json
   - integrations/hivememory/node/
-  - configs/system_principals.example.yaml
-  - configs/workspace_actors.example.yaml
+  - src/hivememory/system/plugins/
 related_contracts:
   - docs/contracts/mcp.md
 related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/claude-code-plugin.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-12
 ---
 
 # 接入 pi
@@ -25,59 +24,48 @@ last_reviewed: 2026-11-09
 - **对话回流**：pi 中每一轮结束后，扩展在会话记录中写一条结束标记（不进入模型上下文），再把这一轮（用户的原始输入、回复、思考、工具调用及结果）导入 HiveMemory。网络提交在后台进行，HiveMemory 未运行时 pi 照常工作，未导入的轮次在下次打开 pi 时补发。工作原理见 [Import Bus](../system/import-bus.md#11-pi-扩展)第 11 节。
 - **使用手册 skill**：`skills/hivememory/SKILL.md` 随包加载，引导 agent 何时检索、写入与修正记忆；也可以用 `/skill:hivememory` 展开它。
 
-两部分都以 pi 自己的接入身份 `harness:pi` 认证，以 Agent `pi` 访问，需要在 HiveMemory 与 pi 两侧配置同一份接入凭据（第 2 节）。扩展只用 Node 标准库，不需要安装依赖。
+三部分都以 pi 自己的接入来源 `harness:pi` 认证，以 Agent `pi` 访问。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。扩展只用 Node 标准库，不需要安装依赖。
 
 当前只支持纯 Windows 环境：pi 与 HiveMemory 都在 Windows 上原生运行，按 pi 1.5.0 核对。
 
 ## 1. 前置条件与步骤一览
 
-- HiveMemory 后端已在 Windows 上原生运行，地址为 `http://127.0.0.1:8769`（[安装与启动](./setup.md)）；
-- Windows 上的 pi（`@earendil-works/pi-coding-agent`，需要 Node 22.19 以上），已经在 pi 中登录过模型账户。
+- HiveMemory 在 Windows 上运行：[桌面客户端](./desktop-client.md)，或按[安装与启动](./setup.md)第 4 节从仓库运行，地址为 `http://127.0.0.1:8769`；
+- Windows 上的 pi（`@earendil-works/pi-coding-agent`，需要 Node 22.19 以上），PATH 上能找到 `pi` 命令，已经在 pi 中登录过模型账户。
 
 | 步骤 | 在哪一侧 | 内容 |
 |:---|:---|:---|
-| 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 与 Windows 用户环境变量写同值的 `HIVEMEMORY_PI_TOKEN`（第 2 节） |
-| 安装扩展 | pi | 以本地路径安装插件目录（第 3 节） |
-| 配置 | pi | 后端不在默认地址时设置 `HIVEMEMORY_URL`（第 4 节） |
-| 核对访问登记 | HiveMemory | 默认登记已包含 Agent `pi`（第 5 节） |
-| 重启并确认 | 两侧 | 重启 HiveMemory、重新打开 pi，确认工具与导入（第 6 节） |
+| 安装扩展 | HiveMemory 设置页 | 在“插件”页点 pi 的“安装”（第 2 节） |
+| 重新打开并确认 | 两侧 | 重新打开终端再启动 pi，确认工具与导入（第 6 节） |
 
-## 2. 配置接入凭据
+## 2. 从插件页安装
 
-凭据可以在 HiveMemory 设置页的“接入与权限”中为 `harness:pi` 生成或轮换：HiveMemory 一侧立即生效，不需要重启后端，把页面显示的凭据写进 pi 一侧的 `HIVEMEMORY_PI_TOKEN` 即可。HiveMemory 一侧的同名环境变量有值时优先于生成的凭据，页面上不能轮换。也可以按下面的方式自己生成一份，写入两侧的环境变量。
+在设置页的“插件”页点 pi 的“安装”，HiveMemory 依次完成：
 
-先生成一份随机凭据，例如：
+1. 用 pi 自己的命令安装插件目录：`pi install <插件目录>\hivememory`。插件目录在安装版中是程序目录中的 `resources\backend\integrations`，从仓库运行时是仓库的 `integrations`。pi 把这个本地路径写入个人设置（`%USERPROFILE%\.pi\agent\settings.json` 的 `packages`），以后启动时原地加载，不复制文件。pi 中已经装着另一处的 HiveMemory 插件（例如另一个 checkout）时先把它移除，否则同名工具会注册两次。
+2. 登记接入来源 `harness:pi`，初始只能声明 Agent `pi`，凭据由 HiveMemory 生成。
+3. `pi` 还没有访问记录时，为它补一条只开放检索、读取、写入与更新的记录（第 5 节）。
+4. 把凭据写进 Windows 用户环境变量 `HIVEMEMORY_PI_TOKEN`。
 
-```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-把同一个值写入两侧，变量名都是 `HIVEMEMORY_PI_TOKEN`：
-
-| 一侧 | 写在哪里 |
-|:---|:---|
-| HiveMemory | 仓库根 `.env`，或启动后端的环境 |
-| pi | Windows 用户环境变量（`setx HIVEMEMORY_PI_TOKEN <凭据>`） |
-
-变量名带上 harness，多个 harness 共用一套 Windows 用户环境变量时各读各的凭据。修改后重启 HiveMemory；Windows 程序只在启动时读取环境变量，`setx` 之后要重新打开终端再启动 pi。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝，扩展保留未导入的轮次等待补发（第 8 节）。
-
-## 3. 安装扩展
-
-在终端中执行（把路径换成本机仓库的实际位置）：
-
-```powershell
-pi install <HiveMemory 仓库路径>\integrations\hivememory
-```
-
-pi 把这个本地路径写入个人设置（`%USERPROFILE%\.pi\agent\settings.json` 的 `packages`），以后启动时原地加载，不复制文件。`pi list` 可以查看已安装的包。
+第 1 步失败时什么都不登记，页面给出失败的命令、输出的最后几行和手动安装的命令。之后重新打开终端再启动 pi：Windows 程序只在启动时读取环境变量。
 
 不要再在 pi 的 `mcp.json` 中配置 HiveMemory 的 MCP server，否则模型会同时看到两套记忆工具，经 MCP 的那一套也不会补上轮次信息。
+
+## 3. 手动安装
+
+插件页找不到 `pi`，或者插件命令失败时，可以在终端中手动安装（插件页给出的命令带着本机插件目录的实际位置）：
+
+```powershell
+pi install <插件目录>\hivememory
+```
+
+`pi list` 可以查看已安装的包。装好之后回到插件页，点“已用命令装好，完成登记”：HiveMemory 只完成第 2 节的第 2 至 4 步。
 
 ## 4. 配置
 
 | 环境变量 | 默认值 | 说明 |
 |:---|:---|:---|
-| `HIVEMEMORY_PI_TOKEN` | 不设置 | 接入凭据，见第 2 节；导入与记忆工具都使用它 |
+| `HIVEMEMORY_PI_TOKEN` | 插件页写入 | 接入凭据；导入与记忆工具都使用它 |
 | `HIVEMEMORY_URL` | `http://127.0.0.1:8769` | 后端地址；导入与记忆工具都使用它 |
 | `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入与访问；不设置时使用服务端的默认用户 `default` |
 | `HIVEMEMORY_AGENT_ID` | `pi` | 以哪个 Agent 导入与访问 |
@@ -87,7 +75,7 @@ pi 把这个本地路径写入个人设置（`%USERPROFILE%\.pi\agent\settings.j
 
 ## 5. 访问登记
 
-随仓库发布的登记模板 `configs/system_principals.example.yaml` 登记了 `harness:pi`（adapter `mcp` 与 `import`，凭据变量 `HIVEMEMORY_PI_TOKEN`，只能声明 Agent `pi`），`configs/workspace_actors.example.yaml` 为默认用户 `default` 登记了 Agent `pi`，获准检索、读取、写入与更新。本机的生效登记首次启动时从这两份模板生成，已包含这些登记，不需要修改；更早生成的生效登记不会随升级更新，缺少这些登记时在设置页的“接入与权限”中补上，或按模板手工加入后重启后端。自定义过登记或改用别的用户、Agent 时，按[接入 Claude Code](./claude-code-plugin.md#5-访问登记)第 5 节的写法补齐。
+插件页安装时登记 `harness:pi`（adapter `mcp` 与 `import`，初始只能声明 Agent `pi`），`pi` 还没有访问记录时为它补一条，获准检索、读取、写入与更新；已有的记录不改动，卸载插件也不删除它。同一个 pi 可以以多个 Agent 运行：经 `HIVEMEMORY_AGENT_ID` 换成其他 Agent 之前，先在设置页的“接入与权限”中把它加入 `harness:pi` 可声明的 Agent。改用别的用户时，按[接入 Claude Code](./claude-code-plugin.md#5-访问登记)第 5 节的写法补齐。
 
 ## 6. 确认
 
@@ -110,12 +98,13 @@ pi 把这个本地路径写入个人设置（`%USERPROFILE%\.pi\agent\settings.j
 | 现象 | 原因与处理 |
 |:---|:---|
 | 记忆工具不出现 | 扩展没有安装（`pi list`）；HiveMemory 未运行或不在 `HIVEMEMORY_URL` 的地址：`connector.log` 中有 `connect failed`。后端恢复后，下一次发出消息时重新连接 |
-| 工具返回 `invalid_credential` | 两侧凭据不一致或没有配置：两侧都是 `HIVEMEMORY_PI_TOKEN`。改正后重启 HiveMemory，重新打开终端与 pi |
+| 工具返回 `invalid_credential` | pi 读到的凭据与 HiveMemory 登记的不一致：多半是终端在安装之前就打开了。重新打开终端与 pi；仍然不行时在插件页点“重新安装” |
+| `connector.log` 中有 `stopped ... reason=unknown_principal` | 扩展还装着，但 HiveMemory 一侧没有 `harness:pi` 的登记（例如在插件页卸载过）：在插件页重新安装 |
 | 写入返回“只能在一轮进行中调用” | 写入工具在一轮之外被调用，例如由其他扩展直接执行；在对话中由模型调用即可 |
 | `connector.log` 中有 `stopped ... status=403` 或 `401` | 凭据或访问登记的问题，同上；扩展保留了未导入的轮次，修正后补发 |
 | `connector.log` 中有 `stopped ... kind=retryable` | HiveMemory 暂时不可用；下次打开 pi 时补发 |
 
 ## 9. 更新与卸载
 
-- **更新**：仓库中的扩展更新后，在 pi 中执行 `/reload` 或重新打开 pi 即生效，不需要重新安装。扩展与 HiveMemory 需要一起升级。升级 pi 之后，若扩展行为异常，对照 [Import Bus](../system/import-bus.md#11-pi-扩展)第 11 节确认 pi 的扩展接口没有变化。
-- **卸载**：执行 `pi remove <HiveMemory 仓库路径>\integrations\hivememory`。已写入会话记录的结束标记保留在原处，不影响 pi 的使用。
+- **更新**：扩展原地读取插件目录：桌面客户端覆盖安装新版本、或从仓库运行时更新代码之后，在 pi 中执行 `/reload` 或重新打开 pi 即生效，不需要重新安装。扩展与 HiveMemory 需要一起升级。升级 pi 之后，若扩展行为异常，对照 [Import Bus](../system/import-bus.md#11-pi-扩展)第 11 节确认 pi 的扩展接口没有变化。
+- **卸载**：在插件页点 pi 的“卸载”：从 pi 的个人设置中移除插件目录，删除 `harness:pi` 的登记、凭据与写入的环境变量；`pi` 的访问记录与已经写入的记忆保留。已写入会话记录的结束标记保留在原处，不影响 pi 的使用。

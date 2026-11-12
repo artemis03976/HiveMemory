@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook PreToolUse",
+            "command": "cmd /c \"${PLUGIN_ROOT}/hivememory_hook.cmd\" codex hook PreToolUse",
             "timeout": 10
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook SessionStart",
+            "command": "cmd /c \"${PLUGIN_ROOT}/hivememory_hook.cmd\" codex hook SessionStart",
             "timeout": 10
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook Stop",
+            "command": "cmd /c \"${PLUGIN_ROOT}/hivememory_hook.cmd\" codex hook Stop",
             "timeout": 10
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook Interrupt",
+            "command": "cmd /c \"${PLUGIN_ROOT}/hivememory_hook.cmd\" codex hook Interrupt",
             "timeout": 3
           }
         ]
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"${PLUGIN_ROOT}/hivememory_hook.py\" codex hook SessionEnd",
+            "command": "cmd /c \"${PLUGIN_ROOT}/hivememory_hook.cmd\" codex hook SessionEnd",
             "timeout": 3
           }
         ]

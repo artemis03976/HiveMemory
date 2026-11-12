@@ -8,15 +8,14 @@ code_paths:
   - integrations/hivememory/node/dsh/
   - integrations/hivememory/node/core/
   - integrations/hivememory/skills/hivememory/
-  - configs/system_principals.example.yaml
-  - configs/workspace_actors.example.yaml
+  - src/hivememory/system/plugins/
 related_contracts:
   - docs/contracts/mcp.md
 related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-12
 ---
 
 # 接入 DeepSeek Harness
@@ -26,132 +25,83 @@ last_reviewed: 2026-11-09
 - **记忆工具**：插件启动时从 HiveMemory 取得工具列表与服务说明，在 dsh 中注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具，服务说明作为系统提示词的一节交给 Agent。何时检索与写入由 Agent 自己决定。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件在调用时以 Agent 所在会话的当前一轮自动补上，Agent 看不到也不能填写这个参数。
 - **对话回流**：dsh 中每一轮对话结束后，插件把这一轮（用户消息、回复、思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。网络提交在后台进行，HiveMemory 未运行时 dsh 照常工作，未导入的轮次之后按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
 
-HiveMemory 的使用手册 skill 在同一个插件目录中维护（`integrations/hivememory/skills/hivememory/SKILL.md`），内容不区分 harness，安装插件后随插件提供给 dsh（第 4.3 节）。
+HiveMemory 的使用手册 skill 在同一个插件目录中维护（`integrations/hivememory/skills/hivememory/SKILL.md`），内容不区分 harness，安装插件后随插件提供给 dsh（第 4 节）。
 
-两部分都以 dsh 自己的接入身份 `harness:dsh` 认证，以 Agent `dsh` 访问，需要在 HiveMemory 与 dsh 两侧配置同一份接入凭据（第 2 节）。插件只用 Node 标准库，不需要安装依赖，也不需要安装 HiveMemory 包。
+两部分都以 dsh 自己的接入来源 `harness:dsh` 认证，以 Agent `dsh` 访问。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。插件只用 Node 标准库，不需要安装依赖，也不需要安装 HiveMemory 包。
 
 ## 1. 前置条件与步骤一览
 
-- HiveMemory 后端已按[安装与启动](./setup.md)第 3 节或第 4 节运行；
-- dsh 版本在 `0.2.1-rc.5` 与 0.2.x 之间（插件的 `engines.dsh`，版本不满足时 dsh 拒绝安装与加载）。桌面端自带 dsh，两者版本相同，可以用桌面端自带的命令查看：
+- HiveMemory 在 Windows 上运行：[桌面客户端](./desktop-client.md)，或按[安装与启动](./setup.md)第 4 节从仓库运行；
+- 这台电脑上装有 dsh 桌面端，并且至少打开过一次（让它初始化自己的 profile）；
+- dsh 版本在 `0.2.1-rc.5` 与 0.2.x 之间（插件的 `engines.dsh`，版本不满足时 dsh 拒绝安装与加载）。可以用桌面端自带的命令查看：
 
   ```powershell
   & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" --version
   ```
 
-插件运行在 dsh 所在的环境，HiveMemory 可以在另一个环境，常见的两种组合：
-
-| 组合 | dsh | HiveMemory | 插件的环境变量设在 |
-|:---|:---|:---|:---|
-| A | Windows 上的 dsh 桌面端 | WSL2 中运行 | Windows 用户环境变量 |
-| B | 同一台 Linux（或同一个 WSL）中的 dsh 命令行 | 同一环境中运行 | 启动 dsh 的 shell 环境 |
-
 | 步骤 | 在哪一侧 | 内容 |
 |:---|:---|:---|
-| 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 与 dsh 一侧写同值的 `HIVEMEMORY_DSH_TOKEN`（第 2 节） |
-| 配置插件 | dsh | 设置 `HIVEMEMORY_URL` 与 `HIVEMEMORY_DSH_TOKEN`（第 3 节） |
-| 安装插件 | dsh | 桌面端完全退出后用它自带的命令安装（第 4.1 节），命令行用 `dsh plugin add`（第 4.2 节） |
-| 核对访问登记 | HiveMemory | 默认登记已包含 Agent `dsh`，自定义过登记时补齐（第 5 节） |
-| 重启并确认 | 两侧 | 重启 HiveMemory、重新打开 dsh，确认工具与导入（第 6 节） |
+| 退出 dsh 桌面端 | dsh | 从系统托盘菜单退出（只关闭窗口不够）：桌面端运行时独占自己的 profile，插件装不上 |
+| 安装插件 | HiveMemory 设置页 | 在“插件”页点 DeepSeek Harness 的“安装”（第 2 节） |
+| 重新打开并确认 | 两侧 | 重新打开 dsh 桌面端，确认工具与导入（第 6 节） |
 
-## 2. 配置接入凭据
+## 2. 从插件页安装
 
-凭据可以在 HiveMemory 设置页的“接入与权限”中为 `harness:dsh` 生成或轮换：HiveMemory 一侧立即生效，不需要重启后端，把页面显示的凭据写进 dsh 一侧的 `HIVEMEMORY_DSH_TOKEN` 即可。HiveMemory 一侧的同名环境变量有值时优先于生成的凭据，页面上不能轮换。也可以按下面的方式自己生成一份，写入两侧的环境变量。
+在设置页的“插件”页点 DeepSeek Harness 的“安装”，HiveMemory 依次完成：
 
-先生成一份随机凭据，例如：
+1. 用桌面端自带的命令（`%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`）把插件链接安装到桌面端的 profile：`dsh.cmd plugin --profile desktop add <插件目录>\hivememory`。插件目录在安装版中是程序目录中的 `resources\backend\integrations`，从仓库运行时是仓库的 `integrations`；指向别处的旧链接随之替换。桌面端正在运行时 dsh 会拒绝，页面提示先从托盘退出 dsh 再重试。
+2. 登记接入来源 `harness:dsh`，初始只能声明 Agent `dsh`，凭据由 HiveMemory 生成。
+3. `dsh` 还没有访问记录时，为它补一条只开放检索、读取、写入与更新的记录（第 5 节）。
+4. 把凭据写进 Windows 用户环境变量 `HIVEMEMORY_DSH_TOKEN`。
 
-```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+第 1 步失败时什么都不登记，页面给出失败的命令、输出的最后几行和手动安装的命令。之后重新打开 dsh 桌面端：它从 Windows 的用户环境变量启动，读到新写入的凭据。
+
+链接安装的插件原地读取插件目录：桌面客户端覆盖安装新版本、或从仓库运行时更新代码之后，重新打开 dsh 就读到新版本。
+
+## 3. 手动安装与命令行
+
+插件页找不到 dsh 桌面端，或者插件命令失败时，可以在桌面端退出后，在 PowerShell 中手动安装（插件页给出的命令带着本机插件目录的实际位置）：
+
+```powershell
+$dsh = "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd"
+& $dsh plugin --profile desktop add '<插件目录>\hivememory'
 ```
 
-把同一个值写入两侧，变量名都是 `HIVEMEMORY_DSH_TOKEN`：
+输出中出现 `+ hivememory-connector <- ...` 即安装成功；之后可以用 `& $dsh plugin --profile desktop list` 查看已安装的插件。装好之后回到插件页，点“已用命令装好，完成登记”：HiveMemory 只完成第 2 节的第 2 至 4 步。
 
-| 一侧 | 写在哪里 |
-|:---|:---|
-| HiveMemory | 仓库根 `.env`（与其他密钥放在一起，Docker 路径同样读取它），或启动后端的环境 |
-| dsh | 插件读取的环境（第 3 节） |
+命令行的 dsh 按 profile 安装，插件页不能代为安装。命令行的 `dsh plugin` 以 pnpm 安装插件，需要 PATH 上有 pnpm：
 
-修改 `.env` 后重启 HiveMemory：接入登记与凭据都在后端启动时装载，更新到包含 `harness:dsh` 登记的版本之后同样需要重启。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝：HiveMemory 照常启动并在启动日志中提示凭据环境变量未设置，插件保留进度等待补发，记忆工具返回错误（第 8 节）。
+```bash
+dsh plugin --profile <profile> add <插件目录>/hivememory
+dsh --profile <profile> --dump-config   # 输出中出现 "# == hivememory-connector" 一层
+```
 
-变量名带上 harness，是为了让多个 harness 共用一套环境变量时（例如 Claude Code 插件的 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 与本插件同在一个 Windows 用户环境中）各读各的凭据，不会拿别的 harness 的凭据冒充 `harness:dsh`。HiveMemory 先读进程环境变量、没有时再读 `.env`，所以后端与 dsh 在同一套环境中运行时，设置一次即可同时供两侧使用。
-
-## 3. 配置插件
+安装后同样在插件页点“已用命令装好，完成登记”，再以 `dsh --profile <profile>` 加上要用的入口启动，例如 `dsh --profile <profile> headless "..."`。
 
 插件在 dsh 启动时从环境变量读取配置，修改后重新打开 dsh 才生效：
 
 | 环境变量 | 默认值 | 说明 |
 |:---|:---|:---|
-| `HIVEMEMORY_URL` | `http://127.0.0.1:8769` | HiveMemory 后端地址。默认值对应本地开发路径（含脚本的 `serve` 模式）；Docker 路径的后端在 `8000`，需要设为 `http://localhost:8000`。MCP 只接受本机地址（`localhost`、`127.0.0.1` 或 `[::1]`，带端口） |
-| `HIVEMEMORY_DSH_TOKEN` | 不设置 | 接入凭据，见第 2 节 |
+| `HIVEMEMORY_URL` | `http://127.0.0.1:8769` | HiveMemory 后端地址。默认值对应桌面客户端与从仓库运行；Docker 路径的后端在 `8000`，需要设为 `http://localhost:8000`。MCP 只接受本机地址（`localhost`、`127.0.0.1` 或 `[::1]`，带端口） |
+| `HIVEMEMORY_DSH_TOKEN` | 插件页写入 | 接入凭据 |
 | `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入与访问；不设置时使用服务端的默认用户 `default` |
 | `HIVEMEMORY_AGENT_ID` | `dsh` | 以哪个 Agent 导入与访问；不能使用保留的 `system` |
 | `HIVEMEMORY_CONNECTOR_STATE_DIR` | `~/.hivememory/dsh-connector` | 插件状态、日志与拒绝记录的目录；Windows 上默认是 `%USERPROFILE%\.hivememory\dsh-connector` |
 
-**组合 A（Windows 桌面端）**：桌面端从 Windows 的用户与系统环境变量启动，不读取 WSL 的 shell 配置。在 PowerShell 中设置：
+HiveMemory 不在 Windows 上运行时（例如 Docker 或 WSL），插件页不能代为安装：按上面的命令手动安装插件，再按[接入 Claude Code](./claude-code-plugin.md#3-手动安装)第 3 节的写法，在登记文件中登记 `harness:dsh`（凭据变量 `HIVEMEMORY_DSH_TOKEN`、可声明的 Agent `dsh`），并把同一份凭据写进 dsh 一侧的环境变量。后端在 WSL2 中时，Windows 上的 `127.0.0.1` 会转发到 WSL 中监听本机地址的服务；不要改用 WSL 虚拟机的 IP：MCP 端点只接受本机地址，会以 421 拒绝。
 
-```powershell
-setx HIVEMEMORY_URL http://127.0.0.1:8769
-setx HIVEMEMORY_DSH_TOKEN <第 2 节生成的凭据>
-```
+## 4. 使用手册 skill
 
-`setx` 只影响之后启动的程序。桌面端关闭窗口后仍驻留在系统托盘，要从托盘菜单选择退出，再重新打开。
-
-WSL2 默认的网络模式会把 Windows 上的 `127.0.0.1`、`localhost` 转发到 WSL 中监听本机地址的服务，HiveMemory 在 WSL 中以默认方式监听即可从 Windows 访问。不要改用 WSL 虚拟机的 IP：MCP 端点只接受本机地址，会以 421 拒绝。在 Windows 中可以这样确认后端可达：
-
-```powershell
-curl.exe http://127.0.0.1:8769/health
-```
-
-**组合 B（命令行）**：在启动 dsh 的环境中设置：
-
-```bash
-export HIVEMEMORY_URL=http://127.0.0.1:8769
-export HIVEMEMORY_DSH_TOKEN=<第 2 节生成的凭据>
-```
-
-## 4. 安装插件
-
-### 4.1 Windows 桌面端
-
-桌面端独占自己的 profile（`%USERPROFILE%\.dsh\profiles\desktop`），插件只能在桌面端退出时安装：
-
-1. 至少打开过一次桌面端，让它初始化 profile；
-2. 从系统托盘菜单退出桌面端（只关闭窗口不够）；
-3. 在 PowerShell 中用桌面端自带的命令安装。插件直接链接 WSL 中的仓库目录，路径可以在 WSL 中用 `wslpath -w <仓库路径>/integrations/hivememory` 得到（HiveMemory 在 Windows 上原生运行时直接写 Windows 路径，例如 `D:\Projects\HiveMemory\integrations\hivememory`）：
-
-   ```powershell
-   $dsh = "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd"
-   & $dsh plugin --profile desktop add '\\wsl.localhost\<发行版>\home\<用户>\<仓库路径>\integrations\hivememory'
-   ```
-
-   输出中出现 `+ hivememory-connector <- \\wsl.localhost\...` 即安装成功；之后可以用 `& $dsh plugin --profile desktop list` 查看已安装的插件。
-4. 重新打开桌面端。
-
-桌面端自带 Node 与 pnpm，Windows 上不需要另外安装。链接安装的插件随仓库更新，桌面端启动时需要能访问 WSL（访问 `\\wsl.localhost` 时 WSL 会自动启动）。也可以先把 `integrations/hivememory` 复制到 Windows 本地目录再安装，代价是仓库更新后要重新复制。
-
-### 4.2 命令行
-
-命令行的 `dsh plugin` 以 pnpm 安装插件，需要 PATH 上有 pnpm：
-
-```bash
-dsh plugin --profile <profile> add <HiveMemory 仓库路径>/integrations/hivememory
-dsh --profile <profile> --dump-config   # 输出中出现 "# == hivememory-connector" 一层
-```
-
-安装后以 `dsh --profile <profile>` 加上要用的入口启动，例如 `dsh --profile <profile> headless "..."`。
-
-### 4.3 使用手册 skill
-
-skill `hivememory` 随插件提供，不需要另外复制：插件的配置层另外插入一个 skill 提供方，只扫描插件目录下的 `skills/`，不改动用户与各模式自己的 skill 配置。在加载 skill 的模式中（例如桌面端的标准模式；最小模式不加载任何 skill），它出现在会话的 skill 列表里：任务与它的描述相符时，Agent 用 `skill` 工具加载正文；也可以在消息中输入 `/hivememory` 直接加载。链接安装时 skill 随仓库更新。
+skill `hivememory` 随插件提供，不需要另外复制：插件的配置层另外插入一个 skill 提供方，只扫描插件目录下的 `skills/`，不改动用户与各模式自己的 skill 配置。在加载 skill 的模式中（例如桌面端的标准模式；最小模式不加载任何 skill），它出现在会话的 skill 列表里：任务与它的描述相符时，Agent 用 `skill` 工具加载正文；也可以在消息中输入 `/hivememory` 直接加载。链接安装时 skill 随插件目录更新。
 
 此前把 skill 手动复制到 `<DSH_HOME>/skills/hivememory`（Windows 上是 `%USERPROFILE%\.dsh\skills\hivememory`）或 `~/.agents/skills/hivememory` 的，安装新版插件后删除这份副本：同名 skill 由离 Agent 更近的来源胜出，桌面端的各模式自己扫描这两个目录，会一直使用旧副本。
 
 ## 5. 访问登记
 
-导入与记忆工具都经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。从模板生成的登记已经为默认用户 `default` 登记了 `dsh`，获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，分别对应四个工具；导入只要求准入，不需要任何 actor 操作；这个 Agent 不继承默认用户的 `memory.run` 与 `agent.call`。`configs/system_principals.yaml` 中的 `harness:dsh` 开放 `mcp` 与 `import` 两个入口，不能声明保留的 `system`。
+导入与记忆工具都经统一认证网关，请求的用户与 Agent 必须在 Workspace 访问登记中获准进入。插件页安装时登记 `harness:dsh`，开放 `mcp` 与 `import` 两个入口，不能声明保留的 `system`；`dsh` 还没有访问记录时为它补一条，获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，分别对应四个工具；导入只要求准入，不需要任何 actor 操作；这个 Agent 不继承默认用户的 `memory.run` 与 `agent.call`。已有的记录不改动，卸载插件也不删除它。
 
 - `HIVEMEMORY_USER_ID` 设为 `default` 以外的用户时，需要为该用户登记记录，否则导入与工具调用返回 403，插件停止提交并保留进度；
-- 更换 `HIVEMEMORY_AGENT_ID` 时，先在设置页的“接入与权限”中把新的 Agent 加入 `harness:dsh` 可声明的 Agent，否则请求以 403（`reason=agent_not_allowed_for_principal`）被拒；新的 Agent 由默认的用户级记录覆盖，如果希望它的权限与 `dsh` 相同，在同一页为它增加记录；
+- 同一个 dsh 可以以多个 Agent 运行。更换 `HIVEMEMORY_AGENT_ID` 时，先在设置页的“接入与权限”中把新的 Agent 加入 `harness:dsh` 可声明的 Agent，否则请求以 403（`reason=agent_not_allowed_for_principal`）被拒；新的 Agent 由默认的用户级记录覆盖，如果希望它的权限与 `dsh` 相同，在同一页为它增加记录；
 - 在设置页修改登记立即生效；直接修改登记文件后重启 HiveMemory。登记规则见[配置指南](./configuration.md#51-访问登记)。
 
 ## 6. 确认
@@ -179,17 +129,17 @@ skill `hivememory` 随插件提供，不需要另外复制：插件的配置层�
 | 现象 | 原因与处理 |
 |:---|:---|
 | 状态目录中没有 `connector.log` | 插件没有加载：确认安装命令成功、安装后重新打开了 dsh；dsh 版本不在支持范围内时安装与加载会被拒绝 |
-| 日志中有 `connect failed`，记忆工具不出现 | HiveMemory 未运行，或 `HIVEMEMORY_URL` 不对（本地开发与 `serve` 模式在 `8769`，Docker 在 `8000`）；组合 A 先在 Windows 中用 `curl.exe` 确认后端可达。恢复后新建一个会话，或重新打开 dsh |
+| 日志中有 `connect failed`，记忆工具不出现 | HiveMemory 未运行，或 `HIVEMEMORY_URL` 不对（桌面客户端与从仓库运行在 `8769`，Docker 在 `8000`）；可以用 `curl.exe http://127.0.0.1:8769/health` 确认后端可达。恢复后新建一个会话，或重新打开 dsh |
 | 工具返回 `HiveMemory 暂时无法访问` | 同上：调用时后端不可达 |
 | 工具返回 `HiveMemory MCP 请求失败，HTTP 421` | `HIVEMEMORY_URL` 不是本机地址（例如填了 WSL 虚拟机的 IP），改用 `127.0.0.1` 或 `localhost` |
-| 工具返回 `invalid_credential`，日志的 `stopped` 行带 `status=403 reason=invalid_credential` | 两侧凭据不一致或没有配置：两侧都是 `HIVEMEMORY_DSH_TOKEN`，HiveMemory 一侧先取进程环境变量、再取 `.env`（后端启动日志会提示它未设置）。改正后重启 HiveMemory、重新打开 dsh，积压的轮次随后补发 |
-| `stopped` 行带 `reason=unknown_principal` | HiveMemory 的接入登记中没有 `harness:dsh`：更新仓库后需要重启后端 |
-| 工具返回 `operation_not_allowed` | `workspace_actors.yaml` 中该 Agent 的白名单缺少对应的 `memory.*` 操作（第 5 节）；修改后重启 HiveMemory |
+| 工具返回 `invalid_credential`，日志的 `stopped` 行带 `status=403 reason=invalid_credential` | dsh 读到的凭据与 HiveMemory 登记的不一致：多半是安装之后没有从托盘退出 dsh 再打开。退出再打开；仍然不行时在插件页点“重新安装”，凭据会重新写入。积压的轮次随后补发 |
+| `stopped` 行带 `reason=unknown_principal` | 插件还装着，但 HiveMemory 一侧没有 `harness:dsh` 的登记（例如在插件页卸载过，或换了一个新的数据目录）：在插件页重新安装 |
+| 工具返回 `operation_not_allowed` | 该 Agent 的访问记录缺少对应的 `memory.*` 操作（第 5 节）：在设置页的“接入与权限”中勾选，立即生效 |
 | 工具返回 `当前没有进行中的一轮` | 写入与更新只能在一轮对话进行中调用 |
 | 日志中有 `stopped ... kind=retryable` | HiveMemory 暂时不可用或繁忙，进度已保留，之后自动补发 |
 | 日志中有 `rejected`，`rejections.jsonl` 有记录 | 这一轮被服务端拒绝（413、422，或连续三次 500）后跳过，记录中有会话、轮号、状态码与错误码 |
 
 ## 9. 更新与卸载
 
-- **更新**：链接安装（第 4.1、4.2 节）的插件与使用手册 skill 随仓库更新，重新打开 dsh 即生效；复制安装的需要重新复制。插件与 HiveMemory 需要一起更新，并且先重启 HiveMemory、再重新打开 dsh：新版本插件可能发出旧版 HiveMemory 不认识的内容（例如子 Agent 交回的消息），旧服务端以 422 拒绝这样的一轮，插件会把它写入拒绝记录并跳过。dsh 升级到支持范围之外的版本时，插件不再加载。插件目录从 `integrations/deepseek-harness/` 并入 `integrations/hivememory/` 之后（与 pi 扩展共用 Node 公共部分），已安装的插件要按第 4 节从新目录重新安装一次：插件名不变，安装命令把原来的链接改到新目录，状态目录与其中的水位保留，已经确认的轮次不会重复导入；重新安装之前，dsh 重启后加载不到插件。
-- **卸载**：桌面端从托盘退出后执行 `& $dsh plugin --profile desktop remove hivememory-connector`，命令行执行 `dsh plugin --profile <profile> remove hivememory-connector`，再重新打开 dsh。使用手册 skill 随插件一起移除。
+- **更新**：链接安装的插件与使用手册 skill 原地读取插件目录：桌面客户端覆盖安装新版本、或从仓库运行时更新代码之后，重新打开 dsh 即生效。插件与 HiveMemory 需要一起更新，并且先重启 HiveMemory、再重新打开 dsh：新版本插件可能发出旧版 HiveMemory 不认识的内容，旧服务端以 422 拒绝这样的一轮，插件会把它写入拒绝记录并跳过。dsh 升级到支持范围之外的版本时，插件不再加载。
+- **卸载**：从托盘退出 dsh 桌面端，在插件页点 DeepSeek Harness 的“卸载”：移除桌面端 profile 中的插件，删除 `harness:dsh` 的登记、凭据与写入的环境变量；`dsh` 的访问记录与已经写入的记忆保留。使用手册 skill 随插件一起移除。命令行的 dsh 执行 `dsh plugin --profile <profile> remove hivememory-connector`。

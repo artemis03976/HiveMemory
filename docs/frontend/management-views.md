@@ -21,7 +21,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 前端管理页面
@@ -140,7 +140,7 @@ Agent Profile 是存储在 Patchouli 中的 `AGENT_PROFILE` 记忆，也是 Alic
 
 ## 3. Settings
 
-设置页左侧导航分为“常用”“高级”两层与“管理”一组（提供商凭证、模型注册表、接入与权限）。常用与高级共用主配置接口，管理下的三类各有独立的 API。选中的分类作为视图偏好持久化，旧版本停留在已删除分类上的迁移为常用。
+设置页左侧导航分为“常用”“高级”两层与“管理”一组（插件、提供商凭证、模型注册表、接入与权限）。常用与高级共用主配置接口，管理下的四类各有独立的 API。“插件”旁显示已安装插件的 harness 数，插件页的安装与卸载随时更新它。选中的分类作为视图偏好持久化，旧版本停留在已删除分类上的迁移为常用。
 
 ### 3.1 Provider Registry
 
@@ -154,7 +154,7 @@ Model 页面通过 `/api/v1/models` 管理本机的生效文件 `configs/models.
 
 接入与权限页面读写 `/api/v1/access` 的两组接口（[公开路由与事件](../contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界)第 6 节），修改立即生效并写回登记文件：
 
-- 外部接入列出全部接入登记，进程内来源只读。可以登记外部 harness：登记后弹出只显示一次的凭据，并提示写进 harness 一侧的哪个环境变量；同一流程中可以为它可声明的 Agent 建立访问记录，这一步失败时来源已登记，页面提示补建。也可以启停、修改接入方式与可声明的 Agent、轮换凭据与删除；凭据来自环境变量的来源不能轮换。
+- 外部接入列出全部接入登记，进程内来源只读。外部 harness 的来源在插件页安装时登记、卸载时删除（第 3.5 节），这里不能新增、轮换凭据或删除：凭据要交到 harness 一侧才有意义，只删登记而插件还装着会留下没有作用对象的连接。外部来源可以启停、修改接入方式与可声明的 Agent：一个 harness 可以声明多个 Agent。页面上有“前往插件页”。
 - Agent 操作权限列出当前 Workspace 的访问记录（不含 `system`），用户级记录显示为“其余所有 Agent”。每条以准入开关与六项操作的勾选编辑，改动立即保存；关闭准入时一并清空操作，因为禁用的记录不能带白名单。可以从已有 Profile 中选择或直接填写 Agent 标识，新增精确记录。
 - 修改被拒时以 toast 显示原因：登记冲突按 `reason` 换成可操作的提示，例如登记文件在运行中被手工修改过时提示重启后端。
 
@@ -174,6 +174,15 @@ Model 页面通过 `/api/v1/models` 管理本机的生效文件 `configs/models.
 **外观**：常用页的外观一节选择深色、浅色或跟随系统的主题，只保存在这台电脑上、选择即生效，不进入主配置的保存（[状态与传输](./state-and-transports.md)）。
 
 **失败**：读取失败时两页只显示“设置暂不可用”，连接类的原因由页面顶部的连接状态条说明。只有 debug 模式加载 `MOCK_CONFIG`（按后端的真实结构写，只含前端读取的字段）并保留 error，页面显示完整表单，但保存会失败。Settings 草稿只存在内存中，不会跨刷新恢复。“恢复本节默认值”读取默认配置失败时，以错误提示说明这一节没有恢复。
+
+### 3.5 插件
+
+插件页（`components/settings/PluginSettings.tsx`）读写 `/api/v1/plugins`（[公开路由与事件](../contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界)第 6 节），为 Claude Code、Codex、pi 与 dsh 桌面端安装、卸载 HiveMemory 插件。新安装的 HiveMemory 不连接任何 harness，只有在这里安装之后才有连接。
+
+- **页头**：插件目录与版本（插件与后端同为一个版本）。
+- **卡片**：每个 harness 一张，状态由后端的状态推出（`utils/pluginStatus.ts`）：已安装（写明可声明的 Agent、凭据所在的环境变量与安装方式）、需要更新（复制安装的插件在升级后还没有重新安装）、未安装（写明找到的命令）、没有找到 harness、不能代为安装（插件目录不可用或不在 Windows 上）。操作是安装、重新安装或更新、卸载（经确认对话框）。安装与卸载同一时刻只做一个，进行中卡片显示安装中或卸载中。
+- **结果**：安装成功后显示这个 harness 的下一步（完全退出再打开；Codex 还要信任 hook）。没有完成时显示原因、失败的命令与输出的最后几行；安装失败时另给出手动安装的命令，以及“已用命令装好，完成登记”（只登记接入、交付凭据，不运行插件命令）。卸载失败时说明接入已经删除、插件可能还留在 harness 中。
+- **页脚**：凭据写入 Windows 用户环境变量，已经打开的 harness 与终端读不到，需要完全退出后重新打开。
 
 ## 4. 人工干预不变量
 
@@ -197,5 +206,6 @@ Model 页面通过 `/api/v1/models` 管理本机的生效文件 `configs/models.
 | Provider Registry | `ProviderSettings.tsx`、`providerRegistryApi.ts` | `test_providers_router.py`、`test_provider_registry.py` |
 | Model Registry | `ModelRegistrySettings.tsx`、`modelRegistryApi.ts` | `test_models_router.py`、`test_model_registry.py` |
 | 接入与权限 | `AccessSettings.tsx`、`accessApi.ts`；冲突提示与请求路径由 `frontend/tests/access-api.test.mjs` 验证 | `tests/unit/server/routers/test_access.py`、`tests/unit/system/access/test_registry.py`、`tests/unit/workspace/capability/root/test_access.py` |
+| 插件 | `PluginSettings.tsx`、`pluginApi.ts`、`utils/pluginStatus.ts`；卡片状态与失败说明由 `frontend/tests/plugin-status.test.mjs` 验证 | `tests/unit/system/plugins/`（安装、卸载与升级后的更新，各 harness 的插件命令）、`tests/unit/server/routers/test_plugins.py` |
 
 配置文件、优先级和安全操作步骤见 [Help 配置指南](../help/configuration.md)。

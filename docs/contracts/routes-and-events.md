@@ -30,7 +30,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 公开路由与事件
@@ -267,7 +267,8 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 - `/api/` 下除导入之外的 HTTP 与 WebSocket 路由，在进入路由之前先核对管理凭据，缺少或不一致时以 401 `request.management_credential_invalid` 拒绝，WebSocket 以 1008 关闭；它不改变上述身份声明与认证（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）。
 - 导入以请求声明的 principal、凭据与 (user, 具体 Agent) 声明经 `import` adapter 认证，证明来源与参与的 Agent；Import Bus 服务再以系统自身的 principal 认证系统的 root 工作 actor，交给编排器；编排器经 root API 执行每一步，由 root API 在方法入口组装 `IdentityScope`：不检查参与 Agent 的操作白名单，目标只能是参与者驻留的 Workspace（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。认证前不组装 scope，没有例外入口。
 - MCP 入口（`POST /mcp`）以请求头声明的 principal、凭据与 (user, 具体 Agent) 经 `mcp` adapter 认证，每次工具调用认证一次，契约见 [MCP 记忆访问](./mcp.md)。
-- 访问登记的管理路由分两组。接入登记属于 System：`GET/POST /api/v1/access/principals`、`PUT/DELETE /api/v1/access/principals/{principal_id}` 与轮换凭据 `POST /api/v1/access/principals/{principal_id}/credential`，与提供商、模型接口一样不经认证网关、只由管理凭据保护，不读取身份请求头。访问记录经 root API：`GET /api/v1/access/actors`，用户级记录 `PUT/DELETE /api/v1/access/actors/user`，精确记录 `PUT/DELETE /api/v1/access/actors/agents/{agent_id}`，以请求的 (user, `system`) 工作 actor 授权，只作用于它驻留的 Workspace。登记与轮换（201/200）的响应带凭据明文 `credential`，只返回这一次；列表只给凭据来源（`env`、`generated` 或 `null`）与打码值，进程内来源标为 `editable: false`。禁用的访问记录不能带操作白名单，请求以 422 拒绝；冲突与不存在的映射见[错误模型](./error-model.md#44-workspace-与访问边界错误)。
+- 访问登记的管理路由分两组。接入登记属于 System：`GET /api/v1/access/principals` 与 `PUT /api/v1/access/principals/{principal_id}`（启停、adapter 与可声明的 Agent），与提供商、模型接口一样不经认证网关、只由管理凭据保护，不读取身份请求头；外部来源的登记与删除只经下面的插件路由。访问记录经 root API：`GET /api/v1/access/actors`，用户级记录 `PUT/DELETE /api/v1/access/actors/user`，精确记录 `PUT/DELETE /api/v1/access/actors/agents/{agent_id}`，以请求的 (user, `system`) 工作 actor 授权，只作用于它驻留的 Workspace。接入登记的响应只给凭据来源（`env`、`generated` 或 `null`）与打码值，不返回凭据明文，进程内来源标为 `editable: false`。禁用的访问记录不能带操作白名单，请求以 422 拒绝；冲突与不存在的映射见[错误模型](./error-model.md#44-workspace-与访问边界错误)。
+- 外部 harness 插件的管理路由（`server/routers/plugins.py`）只由管理凭据保护：`GET /api/v1/plugins` 返回插件目录、版本与四个支持的 harness 的状态；`POST /api/v1/plugins/{harness}/install`（`harness` 为 `claude-code`、`codex`、`pi`、`dsh`，其他值 422）代为运行 harness 的插件命令，成功后登记接入来源、为缺省 Agent 补访问记录（经 root API，以请求的 (user, `system`) 工作 actor 授权）并把凭据写进 Windows 用户环境变量，请求体 `run_plugin_commands: false` 表示用户已手动装好插件、只做后面几步；`POST /api/v1/plugins/{harness}/uninstall` 卸载插件并删除来源、凭据与写入的环境变量，访问记录保留。插件命令失败不是 HTTP 错误：两个动作都以 200 返回状态与 `failure`（`unavailable`、`harness_missing`、`command_failed`、`command_timeout`、`unexpected_output`，带失败的命令与输出的最后几行）；安装失败时什么都不登记，卸载时接入总会删除。
 - 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
 - Memory task list 按快照的必需 `belong_to` 过滤；get/cancel 对越域与不存在统一抛 `ResourceNotFoundError`，HTTP 统一映射为 404，任务 ID 不授予观察或取消能力。
 - 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。

@@ -1,12 +1,15 @@
 """访问登记文件的装载：生效文件是本机的个人配置，在数据根下；默认路径缺失时从随程序
-发布的模板生成，已有的生效文件不被模板覆盖；环境变量指定的路径缺失时显式失败。"""
+发布的模板生成，已有的生效文件不被模板覆盖；环境变量指定的路径缺失时显式失败。随程序
+发布的模板不预先接入任何外部 harness。"""
 
 from pathlib import Path
 
 import pytest
+import yaml
 
 from hivememory.config import access
-from hivememory.config.files import DATA_ROOT_ENV
+from hivememory.config.access import SystemPrincipalsFile, WorkspaceActorsFile
+from hivememory.config.files import DATA_ROOT_ENV, SHIPPED_CONFIGS_DIR
 
 _PRINCIPALS_TEMPLATE = """\
 # 模板中的说明
@@ -87,3 +90,19 @@ def test_missing_explicit_path_fails_without_generating(configs_dir, monkeypatch
     with pytest.raises(FileNotFoundError):
         access.load_access_registration()
     assert not explicit.exists()
+
+
+def test_shipped_templates_connect_no_external_harness():
+    """新部署没有外部接入：模板只有进程内来源，Agent 只有用户级记录与保留的 system。
+
+    外部 harness 的来源与缺省 Agent 的记录在插件页安装插件时才产生。
+    """
+    principals = SystemPrincipalsFile.model_validate(
+        yaml.safe_load((SHIPPED_CONFIGS_DIR / "system_principals.example.yaml").read_text("utf-8"))
+    )
+    actors = WorkspaceActorsFile.model_validate(
+        yaml.safe_load((SHIPPED_CONFIGS_DIR / "workspace_actors.example.yaml").read_text("utf-8"))
+    )
+
+    assert {set(p.adapters) <= {"local", "http"} for p in principals.principals} == {True}
+    assert {a.agent_id for a in actors.workspace_actors} == {None, "system"}

@@ -2,9 +2,8 @@
 
 插件与 pi 扩展同在 ``integrations/hivememory/``，共用 ``node/core`` 中的记忆工具回声
 规则，它与 MCP server 的一致由 pi 扩展的同类测试守护。这里保护 dsh 自己的契约：写出的
-事件种类是导入接受的种类；插件声明的 principal 在随仓库发布的接入登记中、开放 mcp 与
-import 并要求凭据，默认 Agent 在 Workspace 访问登记中持有四项记忆操作，来源标识符合
-导入的格式；包清单的入口与 bundle 配置存在，补丁指向的使用手册 skill 目录存在。插件的
+事件种类是导入接受的种类；插件声明的 principal、缺省 Agent 与凭据变量和插件服务安装时
+登记、交付的一致，来源标识符合导入的格式；包清单的入口与 bundle 配置存在，补丁指向的使用手册 skill 目录存在。插件的
 轮次投影、回流与工具行为由插件自己的测试守护（``node --test``）。
 """
 
@@ -15,16 +14,12 @@ import re
 from pathlib import Path
 from typing import get_args
 
-import yaml
-
-from hivememory.config.access import SystemPrincipalsFile, WorkspaceActorsFile
+from hivememory.system.plugins.harnesses import harness_by_id
 from hivememory.system.services.import_bus.models import ImportedEventKind, InFlightTurn
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_ROOT = REPO_ROOT / "integrations" / "hivememory"
 DSH_ROOT = PACKAGE_ROOT / "node" / "dsh"
-
-MEMORY_OPERATIONS = {"memory.read", "memory.search", "memory.write", "memory.update"}
 
 
 def _source(name: str) -> str:
@@ -46,27 +41,16 @@ def test_plugin_event_kinds_are_accepted_by_import():
 
 
 def test_plugin_identity_is_registered_for_mcp_and_import():
-    """插件的 principal 与默认 Agent 在随仓库发布的登记中，来源标识可以导入。"""
+    """插件的 principal、缺省 Agent 与凭据变量和插件服务登记的一致，来源标识可以导入。"""
     index = _source("index.js")
     principal_id = _string_constant(index, "principalId")
     agent_id = _string_constant(index, "defaultAgentId")
     token_env = _string_constant(index, "tokenEnv")
     source = _string_constant(_source("turns.js"), "SOURCE")
-    principals = SystemPrincipalsFile.model_validate(
-        yaml.safe_load(
-            (REPO_ROOT / "configs" / "system_principals.example.yaml").read_text("utf-8")
-        )
-    )
-    actors = WorkspaceActorsFile.model_validate(
-        yaml.safe_load((REPO_ROOT / "configs" / "workspace_actors.example.yaml").read_text("utf-8"))
-    )
-
-    [principal] = [entry for entry in principals.principals if entry.principal_id == principal_id]
-    [actor] = [entry for entry in actors.workspace_actors if entry.agent_id == agent_id]
-    assert principal.enabled and not principal.allow_system_actor
-    assert set(principal.adapters) == {"mcp", "import"}
-    assert principal.credential_env == token_env
-    assert actor.enabled and set(actor.allowed_operations) == MEMORY_OPERATIONS
+    installed = harness_by_id("dsh")
+    assert installed.principal_id == principal_id
+    assert installed.default_agent_id == agent_id
+    assert installed.credential_env == token_env
     InFlightTurn(source=source, external_conversation_id="s", external_turn_id="1", user_message="")
 
 

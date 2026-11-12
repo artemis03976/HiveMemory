@@ -19,7 +19,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/system/configuration.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 桌面客户端
@@ -77,6 +77,8 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 主进程意外退出时，后端因此自己正常关闭，不会留下没有人持有凭据的孤儿后端。
 
+桌面模式的后端启动后，在后台为插件页装过的 Claude Code 与 Codex 重新安装插件：两者保存的是插件的副本，覆盖安装新版本之后要重新安装才能读到。插件服务在数据根的 `.hivememory/plugin_installs.json`（`system.plugin_install_record`）中记下每个 harness 安装时的版本，只处理版本落后的；失败只写日志，插件页把它标为“需要更新”。pi 与 dsh 链接插件目录、原地读取，不需要处理。开发方式（checkout）不在启动时改动 harness。
+
 ## 4. 管理凭据
 
 `/api/` 下除导入之外的接口都要求管理凭据（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。开发方式下凭据保存在 `configs/management.token`，后端提供页面时随页面以 cookie 下发，只能防误用：同一个系统用户的程序读得到文件，也能请求页面拿到 cookie。
@@ -133,6 +135,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 - **Python**：uv 管理的独立 CPython（与仓库 `.venv` 同版本），安装在 `desktop\.cache\python`，不写入用户的 uv 目录、PATH 与注册表。锁定的运行依赖由 `uv export --frozen --no-dev` 导出，直接装进这个解释器，不建 venv：venv 记录基础解释器的绝对路径，无法随安装位置移动。
 - **后端与前端**：后端源码按仓库布局放在 `resources\backend`，经 `PYTHONPATH` 导入，不安装成包，按源码位置找到随程序发布的配置与前端；打包前构建前端。
+- **插件**：`integrations/`（本地 marketplace 与插件目录，不含插件自己的测试与 Python 缓存）放在 `resources\backend\integrations`，与后端同版本；插件页从这里为 harness 安装插件（[管理页面](./management-views.md#35-插件)），覆盖安装时随程序换成新版本。
 - **启动页字体**：electron-builder 的 `files` 把前端依赖 `@fontsource-variable/manrope` 中的字体文件复制到程序内启动页旁的 `fonts`，与前端打包进页面的是同一个文件，启动页不另带字体副本。
 - **Qdrant**：取自开发环境 `.hivememory\dev.env` 的 `QDRANT_BIN`，与开发时同一个版本。
 - **安装包**：electron-builder 生成按用户安装的 NSIS 安装包，默认装在 `%LOCALAPPDATA%\Programs\HiveMemory`，版本号取自 `_version.py`。

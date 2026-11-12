@@ -1,4 +1,4 @@
-"""接入登记与访问记录路由：凭据明文只在登记与轮换时返回，用户级与精确记录的
+"""接入登记与访问记录路由：接入登记只列出与修改、不返回凭据明文，用户级与精确记录的
 路径各自编辑对应的记录，禁用却带白名单的请求在入口被拒。"""
 
 from pathlib import Path
@@ -49,19 +49,23 @@ def _load(path: Path, text: str, model):
 
 
 @pytest.fixture
-def client(tmp_path):
-    """真实的注册表、认证网关与 root 服务，登记文件放在 tmp_path。"""
+def principals(tmp_path):
     principals_file, principals_digest = _load(
         tmp_path / "system_principals.yaml", _PRINCIPALS_YAML, SystemPrincipalsFile
     )
-    actors_file, actors_digest = _load(
-        tmp_path / "workspace_actors.yaml", _ACTORS_YAML, WorkspaceActorsFile
-    )
-    principals = SystemActorAccessRegistry.from_config(
+    return SystemActorAccessRegistry.from_config(
         principals_file,
         file_path=tmp_path / "system_principals.yaml",
         file_digest=principals_digest,
         credentials_path=tmp_path / "principals.secrets.yaml",
+    )
+
+
+@pytest.fixture
+def client(tmp_path, principals):
+    """真实的注册表、认证网关与 root 服务，登记文件放在 tmp_path。"""
+    actors_file, actors_digest = _load(
+        tmp_path / "workspace_actors.yaml", _ACTORS_YAML, WorkspaceActorsFile
     )
     actors = WorkspaceActorAccessRegistry.from_config(
         actors_file, file_path=tmp_path / "workspace_actors.yaml", file_digest=actors_digest
@@ -87,24 +91,27 @@ def client(tmp_path):
     return TestClient(app)
 
 
-def test_credential_plaintext_is_returned_only_by_register_and_rotate(client):
-    """登记与轮换的响应带凭据明文，列表只给来源与打码值。"""
-    registered = client.post(
-        "/api/v1/access/principals",
-        json={"principal_id": "harness:new", "adapters": ["mcp"], "allowed_agent_ids": ["a1"]},
+def test_external_source_can_declare_more_agents_and_never_exposes_its_credential(
+    client, principals
+):
+    """插件安装登记的来源可以增加可声明的 Agent；修改与列表的响应都只给凭据的打码值。"""
+    _, credential = principals.register(
+        "harness:claude-code",
+        adapters=frozenset({"mcp", "import"}),
+        allowed_agent_ids=frozenset({"claude_code"}),
     )
-    assert registered.status_code == 201
-    first = registered.json()["credential"]
 
-    rotated = client.post("/api/v1/access/principals/harness:new/credential")
-    second = rotated.json()["credential"]
-
+    updated = client.put(
+        "/api/v1/access/principals/harness:claude-code",
+        json={"adapters": ["mcp", "import"], "allowed_agent_ids": ["claude_code", "reviewer"]},
+    )
     listing = client.get("/api/v1/access/principals")
-    assert first not in listing.text and second not in listing.text
-    entry = next(p for p in listing.json() if p["principal_id"] == "harness:new")
+
+    assert updated.status_code == 200
+    assert credential not in updated.text and credential not in listing.text
+    entry = next(p for p in listing.json() if p["principal_id"] == "harness:claude-code")
     assert entry["credential_source"] == "generated"
-    assert entry["editable"] is True
-    assert entry["allowed_agent_ids"] == ["a1"]
+    assert entry["allowed_agent_ids"] == ["claude_code", "reviewer"]
 
 
 def test_user_and_agent_routes_edit_their_own_records(client):

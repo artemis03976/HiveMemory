@@ -1,9 +1,12 @@
 # System 接入登记（调用来源）的模板
 #
 # 本文件随仓库发布，不在运行中修改。生效的登记是同目录的 system_principals.yaml，
-# 它不受版本控制：后端启动时它不存在，就从本模板复制一份。设置页的“接入与权限”
-# 只修改生效的登记，写回时不保留注释；指定了 HIVEMEMORY_PRINCIPALS_PATH 时使用
-# 该路径的文件，不从模板生成。
+# 它不受版本控制：后端启动时它不存在，就从本模板复制一份。设置页只修改生效的登记，
+# 写回时不保留注释；指定了 HIVEMEMORY_PRINCIPALS_PATH 时使用该路径的文件，不从模板
+# 生成。
+#
+# 模板只登记 HiveMemory 自己的两个来源，新部署没有任何外部接入：外部 harness 的
+# 来源在设置页的插件页安装插件时登记、卸载时删除，凭据由插件页生成并交给 harness。
 #
 # 本文件是两类访问登记之一（System 所有）：声明允许接入的调用来源及其
 # 可用的 adapter。principal 配置不授予任何 Workspace operation——操作
@@ -38,52 +41,3 @@ principals:
     adapters:
       - "local"
     allow_system_actor: true
-
-  # Claude Code（插件中的连接器与 MCP server 共用）：经 import 导入已结束的
-  # 交互，经 mcp 检索与读取记忆，两者都以同一凭据认证；只能声明 Agent claude_code，
-  # 不能声明 system。
-  - principal_id: "harness:claude-code"
-    kind: "harness"
-    enabled: true
-    adapters:
-      - "mcp"
-      - "import"
-    allowed_agent_ids:
-      - "claude_code"
-    credential_env: "HIVEMEMORY_CLAUDE_CODE_TOKEN"
-
-  # DeepSeek Harness（dsh 插件中的回流与记忆工具共用）：经 import 导入已结束的
-  # 交互，经 mcp 检索、读取、写入与更新记忆，两者都以同一凭据认证；不能声明 system。
-  - principal_id: "harness:dsh"
-    kind: "harness"
-    enabled: true
-    adapters:
-      - "mcp"
-      - "import"
-    allowed_agent_ids:
-      - "dsh"
-    credential_env: "HIVEMEMORY_DSH_TOKEN"
-
-  # Codex（插件中的连接器与 MCP server 共用）：经 import 导入已结束的交互，经 mcp
-  # 检索、读取、写入与更新记忆，两者都以同一凭据认证；不能声明 system。
-  - principal_id: "harness:codex"
-    kind: "harness"
-    enabled: true
-    adapters:
-      - "mcp"
-      - "import"
-    allowed_agent_ids:
-      - "codex"
-    credential_env: "HIVEMEMORY_CODEX_TOKEN"
-
-  # pi（扩展中的回流与记忆工具共用）：经 import 导入已结束的交互，经 mcp 检索、
-  # 读取、写入与更新记忆，两者都以同一凭据认证；不能声明 system。
-  - principal_id: "harness:pi"
-    kind: "harness"
-    enabled: true
-    adapters:
-      - "mcp"
-      - "import"
-    allowed_agent_ids:
-      - "pi"
-    credential_env: "HIVEMEMORY_PI_TOKEN"

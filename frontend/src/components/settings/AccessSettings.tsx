@@ -1,26 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, KeyRound, Lock, Pencil, Plus, RefreshCw, RotateCw, Trash2, X } from 'lucide-react';
+import { ArrowRight, KeyRound, Lock, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 
 import { Input, Toggle } from '../common/FormControls';
-import { useToastStore } from '@/stores';
+import { useChatUiStore, useToastStore } from '@/stores';
 import { useAgents } from '@/hooks/useAgents';
 import {
   deleteActorRecord,
-  deletePrincipal,
   fetchActorRecords,
   fetchPrincipals,
   putActorRecord,
-  registerPrincipal,
-  rotatePrincipalCredential,
   updatePrincipal,
 } from '@/services/accessApi';
-import type {
-  AccessPrincipal,
-  ActorRecord,
-  ExternalAdapter,
-  PrincipalCredential,
-  WorkspaceOperationName,
-} from '@/types/access';
+import type { AccessPrincipal, ActorRecord, ExternalAdapter, WorkspaceOperationName } from '@/types/access';
 
 const OPERATIONS: { value: WorkspaceOperationName; label: string }[] = [
   { value: 'memory.read', label: '读取' },
@@ -29,14 +20,6 @@ const OPERATIONS: { value: WorkspaceOperationName; label: string }[] = [
   { value: 'memory.write', label: '写入' },
   { value: 'memory.update', label: '更新' },
   { value: 'agent.call', label: '调用 Agent' },
-];
-
-/** 外部 harness 经插件使用的四项记忆操作，新登记的 Agent 默认取这些。 */
-const HARNESS_OPERATIONS: WorkspaceOperationName[] = [
-  'memory.read',
-  'memory.search',
-  'memory.write',
-  'memory.update',
 ];
 
 const ADAPTERS: { value: ExternalAdapter; label: string }[] = [
@@ -62,63 +45,21 @@ const buttonCls =
 const iconButtonCls =
   'p-2 text-fg-3 hover:text-primary hover:bg-ink/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed';
 
-/** 凭据明文只在登记与轮换后出现一次，关闭后无法再看到。 */
-function CredentialNotice({ result, onClose }: { result: PrincipalCredential; onClose: () => void }) {
-  const { addToast } = useToastStore();
-  const envName = result.principal.credential_env;
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(result.credential);
-      addToast('凭据已复制', 'success', 1600);
-    } catch {
-      addToast('复制失败，请手动选中复制', 'error');
-    }
-  };
-  return (
-    <div className="mb-4 rounded-2xl border border-magic-metal/30 bg-magic-metal/5 p-5 text-sm text-fg-2">
-      <div className="flex items-start justify-between gap-4">
-        <div className="font-bold text-magic-metal">
-          {result.principal.principal_id} 的新凭据：只显示这一次
-        </div>
-        <button onClick={onClose} className={iconButtonCls} title="关闭" aria-label="关闭">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        <code className="flex-1 break-all rounded-lg bg-field px-3 py-2 font-mono text-xs text-fg">
-          {result.credential}
-        </code>
-        <button onClick={copy} className={iconButtonCls} title="复制" aria-label="复制">
-          <Copy className="w-4 h-4" />
-        </button>
-      </div>
-      <p className="mt-3 text-xs leading-relaxed text-fg-3">
-        把它写进 harness 一侧读取凭据的环境变量
-        {envName ? <span className="font-mono">（{envName}）</span> : null}
-        ，然后重启 harness。旧凭据已经失效；错过这次显示时，可以再次轮换。
-      </p>
-    </div>
-  );
-}
-
 interface PrincipalDraft {
   principal_id: string;
   adapters: ExternalAdapter[];
   agents: string;
-  /** 登记后为每个可声明的 Agent 建立访问记录时授予的操作；为空则不建立。 */
-  operations: WorkspaceOperationName[];
 }
 
+/** 修改一个外部来源：接入方式与可声明的 Agent。一个 harness 可以以多个 Agent 运行。 */
 function PrincipalEditor({
   draft,
-  isNew,
   saving,
   onChange,
   onSubmit,
   onCancel,
 }: {
   draft: PrincipalDraft;
-  isNew: boolean;
   saving: boolean;
   onChange: (patch: Partial<PrincipalDraft>) => void;
   onSubmit: () => void;
@@ -128,19 +69,7 @@ function PrincipalEditor({
   const labelCls = 'text-sm text-fg-2 shrink-0 w-32';
   return (
     <div className="bg-field border border-primary/20 rounded-2xl p-5 space-y-1 border border-line">
-      <div className="text-sm font-bold text-primary mb-3">
-        {isNew ? '登记外部 harness' : `修改 ${draft.principal_id}`}
-      </div>
-      <div className={rowCls}>
-        <span className={labelCls}>来源标识</span>
-        <Input
-          value={draft.principal_id}
-          onChange={(v: string) => onChange({ principal_id: v })}
-          disabled={!isNew}
-          placeholder="harness:my-tool"
-          className="w-64"
-        />
-      </div>
+      <div className="text-sm font-bold text-primary mb-3">修改 {draft.principal_id}</div>
       <div className={rowCls}>
         <span className={labelCls}>接入方式</span>
         <div className="flex gap-4">
@@ -162,28 +91,10 @@ function PrincipalEditor({
         <Input
           value={draft.agents}
           onChange={(v: string) => onChange({ agents: v })}
-          placeholder="例如 my_tool；留空表示不限定"
+          placeholder="例如 claude_code, reviewer；留空表示不限定"
           className="w-64"
         />
       </div>
-      {isNew && (
-        <div className={rowCls}>
-          <span className={labelCls}>为这些 Agent 授予</span>
-          <div className="flex flex-wrap justify-end gap-3">
-            {OPERATIONS.map((op) => (
-              <label key={op.value} className="flex items-center gap-1.5 text-xs text-fg-2">
-                <input
-                  type="checkbox"
-                  checked={draft.operations.includes(op.value)}
-                  onChange={(e) => onChange({ operations: toggleIn(draft.operations, op.value, e.target.checked) })}
-                  className="accent-primary"
-                />
-                {op.label}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
       <div className="flex justify-end gap-2 pt-3">
         <button onClick={onCancel} disabled={saving} className="px-4 py-1.5 text-sm text-fg-3 hover:text-fg transition-colors disabled:opacity-50">
           取消
@@ -216,15 +127,11 @@ function PrincipalRow({
   busy,
   onToggle,
   onEdit,
-  onRotate,
-  onDelete,
 }: {
   principal: AccessPrincipal;
   busy: boolean;
   onToggle: (enabled: boolean) => void;
   onEdit: () => void;
-  onRotate: () => void;
-  onDelete: () => void;
 }) {
   const external = principal.editable;
   return (
@@ -258,20 +165,8 @@ function PrincipalRow({
       {external && (
         <div className="flex items-center gap-1 shrink-0">
           <Toggle checked={principal.enabled} onChange={onToggle} disabled={busy} label="允许接入" />
-          <button onClick={onEdit} disabled={busy} className={iconButtonCls} title="修改" aria-label="修改">
+          <button onClick={onEdit} disabled={busy} className={iconButtonCls} title="修改接入方式与可声明的 Agent" aria-label="修改">
             <Pencil className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onRotate}
-            disabled={busy || principal.credential_source === 'env'}
-            className={iconButtonCls}
-            title={principal.credential_source === 'env' ? '凭据来自环境变量，请修改 .env' : '轮换凭据'}
-            aria-label="轮换凭据"
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
-          <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-magic-fire`} title="删除" aria-label="删除">
-            <Trash2 className="w-4 h-4" />
           </button>
         </div>
       )}
@@ -332,16 +227,15 @@ function ActorRecordRow({
   );
 }
 
-const EMPTY_DRAFT: PrincipalDraft = {
-  principal_id: '',
-  adapters: ['mcp', 'import'],
-  agents: '',
-  operations: HARNESS_OPERATIONS,
-};
-
-/** 接入与权限：外部 harness 的接入登记与各 Agent 的操作权限，修改立即生效并写回登记文件。 */
+/**
+ * 接入与权限：接入登记与各 Agent 的操作权限，修改立即生效并写回登记文件。
+ *
+ * 外部 harness 的来源在插件页安装插件时登记、卸载时删除，凭据也由插件页交给 harness；
+ * 这里只能启停来源、调整它能声明哪些 Agent。
+ */
 export function AccessSettings() {
   const { addToast } = useToastStore();
+  const setSettingsActiveCategory = useChatUiStore((s) => s.setSettingsActiveCategory);
   const { rawAgents } = useAgents();
   const [principals, setPrincipals] = useState<AccessPrincipal[]>([]);
   const [records, setRecords] = useState<ActorRecord[]>([]);
@@ -349,7 +243,6 @@ export function AccessSettings() {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<PrincipalDraft | null>(null);
   const [editing, setEditing] = useState<AccessPrincipal | null>(null);
-  const [credential, setCredential] = useState<PrincipalCredential | null>(null);
   const [newAgent, setNewAgent] = useState('');
 
   const load = useCallback(async () => {
@@ -387,47 +280,19 @@ export function AccessSettings() {
   };
 
   const submitPrincipal = async () => {
-    if (!draft) return;
+    if (!draft || !editing) return;
     if (draft.adapters.length === 0) {
       addToast('至少选择一种接入方式', 'error');
       return;
     }
-    const agents = parseAgents(draft.agents);
-    if (editing) {
-      await run(async () => {
-        await updatePrincipal(editing.principal_id, {
-          adapters: draft.adapters,
-          allowed_agent_ids: agents,
-          enabled: editing.enabled,
-        });
-        closeEditor();
-      }, '接入来源已修改');
-      return;
-    }
-    if (!draft.principal_id.trim()) {
-      addToast('来源标识为必填', 'error');
-      return;
-    }
     await run(async () => {
-      const result = await registerPrincipal({
-        principal_id: draft.principal_id.trim(),
+      await updatePrincipal(editing.principal_id, {
         adapters: draft.adapters,
-        allowed_agent_ids: agents,
-        enabled: true,
+        allowed_agent_ids: parseAgents(draft.agents),
+        enabled: editing.enabled,
       });
-      setCredential(result);
       closeEditor();
-      // 登记来源与建立访问记录是两份登记：第二步失败时来源已登记，只是还不能进入 Workspace。
-      if (agents && draft.operations.length > 0) {
-        try {
-          for (const agent of agents) {
-            await putActorRecord(agent, { enabled: true, allowed_operations: draft.operations });
-          }
-        } catch (err) {
-          throw new Error(`来源已登记，但访问记录没有建立：${errorText(err)}。请在下方补上 Agent 记录`);
-        }
-      }
-    }, '接入来源已登记');
+    }, '接入来源已修改');
   };
 
   const addRecord = async () => {
@@ -462,23 +327,25 @@ export function AccessSettings() {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <section className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-fg">外部接入</h2>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-fg">外部接入</h2>
+            <p className="mt-1 text-[13px] text-fg-3">
+              外部 harness 的接入在插件页安装时登记、卸载时删除。这里可以停用，或调整它能以哪些 Agent 运行：一个 harness 可以声明多个 Agent。
+            </p>
+          </div>
           <button
-            onClick={() => { setEditing(null); setDraft({ ...EMPTY_DRAFT }); }}
-            disabled={draft !== null || busy}
-            className="flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={() => setSettingsActiveCategory('plugins')}
+            className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 bg-primary/15 hover:bg-primary/25 text-primary rounded-xl border border-primary/30 transition-all text-sm font-semibold"
           >
-            <Plus className="w-4 h-4" />
-            登记 harness
+            前往插件页
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         </div>
-        {credential && <CredentialNotice result={credential} onClose={() => setCredential(null)} />}
         {draft && (
           <div className="mb-4">
             <PrincipalEditor
               draft={draft}
-              isNew={editing === null}
               saving={busy}
               onChange={(patch) => setDraft((d) => (d ? { ...d, ...patch } : d))}
               onSubmit={() => void submitPrincipal()}
@@ -506,28 +373,22 @@ export function AccessSettings() {
                   principal_id: p.principal_id,
                   adapters: p.adapters as ExternalAdapter[],
                   agents: (p.allowed_agent_ids ?? []).join(', '),
-                  operations: [],
                 });
-              }}
-              onRotate={() => {
-                if (!window.confirm(`轮换 ${p.principal_id} 的凭据后，旧凭据立即失效。确定轮换？`)) return;
-                void run(async () => setCredential(await rotatePrincipalCredential(p.principal_id)), '凭据已轮换');
-              }}
-              onDelete={() => {
-                if (!window.confirm(`删除 ${p.principal_id} 后，它的导入与记忆工具调用都会被拒绝。确定删除？`)) return;
-                void run(() => deletePrincipal(p.principal_id), '接入来源已删除');
               }}
             />
           ))}
         </div>
         <p className="text-xs text-fg-3 mt-3 leading-relaxed">
-          外部 harness 以登记的来源标识与凭据接入，凭据由这里生成，也可以继续写在 .env 中（环境变量优先，只读）。
+          外部 harness 以登记的来源标识与凭据接入，凭据由插件页安装时生成并交给 harness；更早手工配置的来源也可以继续把凭据写在 .env 中（环境变量优先）。
           进程内来源关系到本页面、对话与导入本身，只能修改登记文件后重启。修改立即生效并写回登记文件。
         </p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-lg font-bold text-fg mb-4">Agent 操作权限</h2>
+        <h2 className="text-lg font-bold text-fg">Agent 操作权限</h2>
+        <p className="mt-1 mb-4 text-[13px] text-fg-3">
+          权限跟随 Agent，不跟随 harness：安装插件时只为还没有记录的缺省 Agent 补一条，卸载插件不删除它。
+        </p>
         <div className="bg-surface-container-low border border-line rounded-2xl overflow-hidden border border-line">
           {records.map((r) => (
             <ActorRecordRow

@@ -9,15 +9,15 @@ code_paths:
   - integrations/hivememory/codex.mcp.json
   - integrations/hivememory/hooks/codex.json
   - integrations/hivememory/connector/codex/
-  - configs/system_principals.example.yaml
-  - configs/workspace_actors.example.yaml
+  - integrations/hivememory/hivememory_hook.cmd
+  - src/hivememory/system/plugins/
 related_contracts:
   - docs/contracts/mcp.md
 related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/claude-code-plugin.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-12
 ---
 
 # 接入 Codex
@@ -28,56 +28,44 @@ last_reviewed: 2026-11-09
 - **对话回流**：Codex 中每一轮结束后，插件把这一轮（用户消息、回复、思考、命令与工具调用及结果、子 Agent 交回的消息）导入 HiveMemory。网络提交在后台进行，HiveMemory 未运行时 Codex 照常工作，未导入的轮次之后按顺序补发。工作原理见 [Import Bus](../system/import-bus.md#10-codex-插件)第 10 节。
 - **使用手册 skill**：`skills/hivememory/SKILL.md` 随插件加载，引导 agent 何时检索、写入与修正记忆。
 
-两部分都以 Codex 自己的接入身份 `harness:codex` 认证，以 Agent `codex` 访问，需要在 HiveMemory 与 Codex 两侧配置同一份接入凭据（第 2 节）。插件只用 Python 标准库，不需要安装依赖。
+三部分都以 Codex 自己的接入来源 `harness:codex` 认证，以 Agent `codex` 访问。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。
 
 当前只支持纯 Windows 环境：Codex 与 HiveMemory 都在 Windows 上原生运行，按 Codex CLI 0.167.0 核对。
 
 ## 1. 前置条件与步骤一览
 
-- HiveMemory 后端已在 Windows 上原生运行，地址为 `http://127.0.0.1:8769`（[安装与启动](./setup.md)）；
-- Windows 上的 Codex CLI 或桌面应用，两者共用 `CODEX_HOME`（默认 `%USERPROFILE%\.codex`）中的插件、hook 与配置；
-- 命令行中可以运行 `python`（Windows 的 Python 安装包提供 `python`，插件的 hook 以它运行连接器）。
+- HiveMemory 在 Windows 上运行：[桌面客户端](./desktop-client.md)，或按[安装与启动](./setup.md)第 4 节从仓库运行，地址为 `http://127.0.0.1:8769`；
+- Windows 上的 Codex CLI 或桌面应用，两者共用 `CODEX_HOME`（默认 `%USERPROFILE%\.codex`）中的插件、hook 与配置；PATH 上能找到 `codex` 命令。
 
 | 步骤 | 在哪一侧 | 内容 |
 |:---|:---|:---|
-| 生成并配置接入凭据 | 两侧 | HiveMemory 的 `.env` 与 Windows 用户环境变量写同值的 `HIVEMEMORY_CODEX_TOKEN`（第 2 节） |
-| 安装插件 | Codex | 添加本地 marketplace 并安装 `hivememory-connector`（第 3 节） |
-| 信任 hook | Codex | 在 Codex 中审阅并信任插件的 hook（第 4 节） |
-| 配置 | Codex | 设置导入用的 `HIVEMEMORY_URL`（第 5 节） |
-| 核对访问登记 | HiveMemory | 默认登记已包含 Agent `codex`（第 6 节） |
-| 重启并确认 | 两侧 | 重启 HiveMemory、重新打开 Codex，确认工具与导入（第 7 节） |
+| 安装插件 | HiveMemory 设置页 | 在“插件”页点 Codex 的“安装”（第 2 节） |
+| 重新打开并信任 hook | Codex | 完全退出 Codex 再打开，审阅并信任插件的 hook（第 4 节） |
+| 确认 | 两侧 | 记忆工具与导入（第 7 节） |
 
-## 2. 配置接入凭据
+## 2. 从插件页安装
 
-凭据可以在 HiveMemory 设置页的“接入与权限”中为 `harness:codex` 生成或轮换：HiveMemory 一侧立即生效，不需要重启后端，把页面显示的凭据写进 Codex 一侧的 `HIVEMEMORY_CODEX_TOKEN` 即可。HiveMemory 一侧的同名环境变量有值时优先于生成的凭据，页面上不能轮换。也可以按下面的方式自己生成一份，写入两侧的环境变量。
+在设置页的“插件”页点 Codex 的“安装”，HiveMemory 依次完成：
 
-先生成一份随机凭据，例如：
+1. 用 Codex 自己的命令安装插件：本地 marketplace `hivememory-local` 指向插件目录（安装版是程序目录中的 `resources\backend\integrations`，从仓库运行时是仓库的 `integrations`），再执行 `codex plugin add hivememory-connector@hivememory-local`，把插件复制到 `CODEX_HOME\plugins\cache\` 下。marketplace 已经指向别处时先移除再添加。
+2. 登记接入来源 `harness:codex`，初始只能声明 Agent `codex`，凭据由 HiveMemory 生成。
+3. `codex` 还没有访问记录时，为它补一条只开放检索、读取、写入与更新的记录（第 6 节）。
+4. 把凭据写进 Windows 用户环境变量 `HIVEMEMORY_CODEX_TOKEN`，把运行 HiveMemory 的 Python 写进 `HIVEMEMORY_PYTHON`。插件的 hook 经 `hivememory_hook.cmd` 用它运行连接器，电脑上不需要另装 Python；没有这个变量时用 PATH 上的 `python`。
 
-```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
+第 1 步失败时什么都不登记，页面给出失败的命令、输出的最后几行和手动安装的命令。之后完全退出 Codex（桌面应用从托盘退出）、终端与编辑器再打开：Windows 程序只在启动时读取环境变量。
 
-把同一个值写入两侧，变量名都是 `HIVEMEMORY_CODEX_TOKEN`：
+Codex 按插件目录中的 `.codex-plugin/plugin.json` 加载：使用手册 skill、`codex.mcp.json` 中的 MCP server `hivememory`，以及 `hooks/codex.json` 中的五个 hook（`SessionStart`、`Stop`、`Interrupt`、`SessionEnd` 与只匹配写入、更新工具的 `PreToolUse`）。Claude Code 用的 `.mcp.json` 与 `hooks/hooks.json` 不会被 Codex 读取。
 
-| 一侧 | 写在哪里 |
-|:---|:---|
-| HiveMemory | 仓库根 `.env`，或启动后端的环境 |
-| Codex | Windows 用户环境变量（`setx HIVEMEMORY_CODEX_TOKEN <凭据>`） |
+## 3. 手动安装
 
-变量名带上 harness，多个 harness 共用一套 Windows 用户环境变量时各读各的凭据。HiveMemory 先读进程环境变量、没有时再读 `.env`，所以后端也从同一套用户环境启动时，设置一次即可同时供两侧使用。
-
-修改后重启 HiveMemory。Windows 程序只在启动时读取环境变量：`setx` 之后要完全退出 Codex（桌面应用从托盘退出）、终端与编辑器再打开。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝，连接器保留进度等待补发（第 9 节）。
-
-## 3. 安装插件
-
-`integrations/.claude-plugin/marketplace.json` 声明了本地 marketplace `hivememory-local`，Codex 同样读取它。在终端中执行（把路径换成本机仓库的实际位置）：
+插件页找不到 `codex`，或者插件命令失败时，可以在终端中手动安装（插件页给出的命令带着本机插件目录的实际位置）：
 
 ```powershell
-codex plugin marketplace add <HiveMemory 仓库路径>\integrations
+codex plugin marketplace add <插件目录>
 codex plugin add hivememory-connector@hivememory-local
 ```
 
-Codex 按插件目录中的 `.codex-plugin/plugin.json` 加载：使用手册 skill、`codex.mcp.json` 中的 MCP server `hivememory`，以及 `hooks/codex.json` 中的五个 hook（`SessionStart`、`Stop`、`Interrupt`、`SessionEnd` 与只匹配写入、更新工具的 `PreToolUse`）。Claude Code 用的 `.mcp.json` 与 `hooks/hooks.json` 不会被 Codex 读取。安装时 Codex 把插件复制到 `CODEX_HOME\plugins\cache\` 下，仓库中的插件更新后要重新安装（第 10 节）。
+装好之后回到插件页，点“已用命令装好，完成登记”：HiveMemory 只完成第 2 节的第 2 至 4 步。
 
 ## 4. 信任 hook
 
@@ -89,8 +77,9 @@ hook 没有信任时，对话不会回流；写入与更新缺少这一轮的信
 
 | 环境变量 | 默认值 | 说明 |
 |:---|:---|:---|
-| `HIVEMEMORY_CODEX_TOKEN` | 不设置 | 接入凭据，见第 2 节；导入与 MCP 工具都使用它 |
-| `HIVEMEMORY_URL` | `http://localhost:8000` | 导入使用的后端地址，设为 `http://127.0.0.1:8769` |
+| `HIVEMEMORY_CODEX_TOKEN` | 插件页写入 | 接入凭据；导入与 MCP 工具都使用它 |
+| `HIVEMEMORY_PYTHON` | 插件页写入 | hook 运行连接器的 Python；没有设置时用 PATH 上的 `python` |
+| `HIVEMEMORY_URL` | `http://127.0.0.1:8769` | 导入使用的后端地址 |
 | `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入与访问；不设置时使用服务端的默认用户 `default` |
 | `HIVEMEMORY_AGENT_ID` | `codex` | 以哪个 Agent 导入；MCP 工具的 Agent 固定为 `codex` |
 | `HIVEMEMORY_CONNECTOR_STATE_DIR` | Codex 的插件数据目录 | 连接器状态、日志与拒绝记录的目录，默认 `CODEX_HOME\plugins\data\hivememory-connector-hivememory-local` |
@@ -107,7 +96,7 @@ default_tools_approval_mode = "approve"
 
 ## 6. 访问登记
 
-随仓库发布的登记模板 `configs/system_principals.example.yaml` 登记了 `harness:codex`（adapter `mcp` 与 `import`，凭据变量 `HIVEMEMORY_CODEX_TOKEN`，只能声明 Agent `codex`），`configs/workspace_actors.example.yaml` 为默认用户 `default` 登记了 Agent `codex`，获准检索、读取、写入与更新。本机的生效登记首次启动时从这两份模板生成，已包含这些登记，不需要修改；更早生成的生效登记不会随升级更新，缺少这些登记时在设置页的“接入与权限”中补上，或按模板手工加入后重启后端。自定义过登记或改用别的用户、Agent 时，按 [接入 Claude Code](./claude-code-plugin.md#5-访问登记)第 5 节的写法补齐。
+插件页安装时登记 `harness:codex`（adapter `mcp` 与 `import`，初始只能声明 Agent `codex`），`codex` 还没有访问记录时为它补一条，获准检索、读取、写入与更新；已有的记录不改动，卸载插件也不删除它。导入可以经 `HIVEMEMORY_AGENT_ID` 以其他 Agent 运行，先在设置页的“接入与权限”中把它加入 `harness:codex` 可声明的 Agent；MCP 工具的 Agent 固定为 `codex`。改用别的用户时，按 [接入 Claude Code](./claude-code-plugin.md#5-访问登记)第 5 节的写法补齐。
 
 ## 7. 确认
 
@@ -127,13 +116,14 @@ default_tools_approval_mode = "approve"
 | 现象 | 原因与处理 |
 |:---|:---|
 | 记忆工具不出现 | 插件没有安装或已禁用（`codex plugin list`）；HiveMemory 未运行或不在 `127.0.0.1:8769`（第 5 节） |
-| 工具返回 `invalid_credential` | 两侧凭据不一致或没有配置：两侧都是 `HIVEMEMORY_CODEX_TOKEN`。改正后重启 HiveMemory、完全退出并重新打开 Codex |
+| 工具返回 `invalid_credential` | Codex 读到的凭据与 HiveMemory 登记的不一致：多半是安装之后没有完全退出 Codex。完全退出再打开；仍然不行时在插件页点“重新安装” |
+| 导入返回 403 `unknown_principal` | 插件还装着，但 HiveMemory 一侧没有 `harness:codex` 的登记（例如在插件页卸载过）：在插件页重新安装 |
 | 写入或更新返回 `request.turn_required` | hook 没有运行：在 Codex 中用 `/hooks` 确认 `hivememory-connector` 的 hook 已信任且启用；更新插件后需要重新信任 |
 | 写入要求逐次确认，或无头运行时写入失败 | 自己在 `config.toml` 中声明了 `[mcp_servers.hivememory]` 而没有写 `default_tools_approval_mode = "approve"`（第 5 节） |
 | `connector.log` 中没有 `confirmed`，有 `stopped ... status=403` | 凭据或访问登记的问题，同上；连接器保留了进度，修正后补发 |
-| `connector.log` 中什么都没有 | hook 没有运行：检查信任状态，以及命令行中能否运行 `python` |
+| `connector.log` 中什么都没有 | hook 没有运行：检查信任状态；`HIVEMEMORY_PYTHON` 没有设置时，检查命令行中能否运行 `python` |
 
 ## 10. 更新与卸载
 
-- **更新**：仓库中的插件更新后，重新执行 `codex plugin add hivememory-connector@hivememory-local` 把新版本复制进缓存，再在 Codex 中重新信任 hook。插件与 HiveMemory 需要一起升级。
-- **卸载**：执行 `codex plugin remove hivememory-connector@hivememory-local`。
+- **更新**：Codex 保存的是插件的副本，插件目录更新后要重新安装才能读到。桌面客户端覆盖安装新版本之后，后端启动时自动为插件页装过的 Codex 重新安装插件，失败时插件页把它标为“需要更新”；从仓库运行时，更新代码后在插件页点“重新安装”，或重新执行 `codex plugin add hivememory-connector@hivememory-local`。之后在 Codex 中重新信任 hook。插件与 HiveMemory 需要一起升级。
+- **卸载**：在插件页点 Codex 的“卸载”：卸载 Codex 中的插件、移除本地 marketplace，删除 `harness:codex` 的登记、凭据与写入的环境变量；`codex` 的访问记录与已经写入的记忆保留。

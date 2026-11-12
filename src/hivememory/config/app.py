@@ -258,6 +258,9 @@ class SystemConfig(BaseModel):
     # 初次部署写入预设 Agent 之后留下的标记文件；存在时不再写入，用户删掉预设 Agent
     # 后重启不会写回。相对路径按工作目录（数据根）解析。
     preset_agent_profiles_marker: str = Field(default=".hivememory/preset_agent_profiles_seeded")
+    # 插件服务记下每个 harness 安装时的 HiveMemory 版本；升级之后据此重新安装复制安装
+    # 的插件。相对路径按工作目录（数据根）解析。
+    plugin_install_record: str = Field(default=".hivememory/plugin_installs.json")
 
     model_config = ConfigDict(extra="forbid")
 

@@ -21,7 +21,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-12
 ---
 
 # HiveMemory 配置指南
@@ -42,7 +42,7 @@ HiveMemory 把配置分为三类：主配置描述系统如何装配，Model Reg
 | `configs/providers.secrets.yaml` | 由 UI/API 管理的 Provider 凭证 | 不提交，已 gitignore |
 | `configs/system_principals.yaml` | 访问登记：允许接入的调用来源（server 自身作为 `hivememory:http-server` 登记）；本机的个人配置，首次启动时从 `system_principals.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布 |
 | `configs/workspace_actors.yaml` | 访问登记：哪个用户/Agent 可以进入哪个 Workspace、能执行哪些操作；本机的个人配置，首次启动时从 `workspace_actors.example.yaml` 生成 | 不提交，已 gitignore；模板随仓库发布 |
-| `configs/principals.secrets.yaml` | 设置页为外部 harness 生成的接入凭据 | 不提交，已 gitignore |
+| `configs/principals.secrets.yaml` | 插件页为外部 harness 生成的接入凭据 | 不提交，已 gitignore |
 | `HIVEMEMORY_CONFIG_PATH` | 改用指定 YAML 主配置 | 由部署环境决定 |
 
 `.env` 与 `configs/.env` 都会被配置加载器读取。为减少同一键在两个文件中重复，个人开发建议只维护根 `.env`；Docker Compose 也明确把根 `.env` 作为可选 `env_file`。容器同时挂载 `configs/`，因此其中的配置和 secret 文件可以持久化。
@@ -141,15 +141,15 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 
 ### 5.1 访问登记
 
-与 Workspace 相关的 HTTP 请求（Chat、停止、对话导入、MCP 记忆访问、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关。前端使用的路由由 server 以 `system.server_principal_id` 登记的 principal 接入；对话导入与 MCP 由外部 harness 以自己登记的 principal 与接入凭据接入（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`，凭据配置分别见[接入 Claude Code](./claude-code-plugin.md#2-配置接入凭据)与[接入 DeepSeek Harness](./deepseek-harness-plugin.md#2-配置接入凭据)）。随后按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。Chat 的话题准备、Profile、附件与交互提交，以及对话导入，都由 HiveMemory 自己以登记的 `hivememory:system` 执行，不受 Agent 的操作许可限制。从模板生成的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（读取、检索、运行、写入、更新与调用其他 Agent），并单独登记保留的 `system`（管理操作，以及上面这些由 HiveMemory 执行的步骤），为 Claude Code 与 DeepSeek Harness 分别登记获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的 `claude_code` 与 `dsh`（四个记忆工具的检索、读取、写入与更新；对话导入只要求准入，见[接入 Claude Code](./claude-code-plugin.md#5-访问登记)与[接入 DeepSeek Harness](./deepseek-harness-plugin.md#5-访问登记)）。
+与 Workspace 相关的 HTTP 请求（Chat、停止、对话导入、MCP 记忆访问、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关。前端使用的路由由 server 以 `system.server_principal_id` 登记的 principal 接入；对话导入与 MCP 由外部 harness 以自己登记的 principal 与接入凭据接入（例如 Claude Code 为 `harness:claude-code`）；这些登记与凭据在设置页的“插件”页安装插件时产生，见各 harness 的接入手册（例如[接入 Claude Code](./claude-code-plugin.md#2-从插件页安装)）。随后按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。Chat 的话题准备、Profile、附件与交互提交，以及对话导入，都由 HiveMemory 自己以登记的 `hivememory:system` 执行，不受 Agent 的操作许可限制。从模板生成的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（读取、检索、运行、写入、更新与调用其他 Agent），并单独登记保留的 `system`（管理操作，以及上面这些由 HiveMemory 执行的步骤），不接入任何外部 harness。插件页安装插件时，为插件的缺省 Agent（例如 `claude_code`）补一条获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的记录（四个记忆工具；对话导入只要求准入，见[接入 Claude Code](./claude-code-plugin.md#5-访问登记)）。
 
 - 使用其他用户（请求头 `x-user-id`）时，需要在 `workspace_actors.yaml` 中为该用户登记对应记录，并单独登记该用户的 `system`（不写 `agent_id` 的用户级记录不包含它），否则请求返回 403（`reason=actor_not_admitted`）；
-- 两份登记都可以在设置页的“接入与权限”中修改：登记外部 harness 并生成凭据、启停、轮换凭据，以及编辑各 Agent 的操作权限；修改立即生效，并写回本机的生效登记（不保留注释）。生效登记是本机的个人配置，不受版本控制：首次启动时从随仓库发布的 `*.example.yaml` 模板生成，此后升级不会改动它们；两个文件也可以分别用 `HIVEMEMORY_PRINCIPALS_PATH`、`HIVEMEMORY_WORKSPACE_ACTORS_PATH` 指向其他位置，指定的文件必须已经存在。直接修改文件后需要重启服务；运行中手工改过文件时，页面上的修改会被拒绝，重启后再改；
+- 外部 harness 的接入在设置页的“插件”页安装插件时登记、卸载时删除；“接入与权限”中可以启停外部来源、调整它能声明哪些 Agent，以及编辑各 Agent 的操作权限；修改立即生效，并写回本机的生效登记（不保留注释）。生效登记是本机的个人配置，不受版本控制：首次启动时从随仓库发布的 `*.example.yaml` 模板生成，此后升级不会改动它们；两个文件也可以分别用 `HIVEMEMORY_PRINCIPALS_PATH`、`HIVEMEMORY_WORKSPACE_ACTORS_PATH` 指向其他位置，指定的文件必须已经存在。直接修改文件后需要重启服务；运行中手工改过文件时，页面上的修改会被拒绝，重启后再改；
 - 默认位置的登记文件被删掉时，下次启动从模板重新生成；路径变量指定的文件缺失时启动失败；
 - `configs/system_principals.yaml` 中每个调用来源能否以 `system` 进入管理接口由 `allow_system_actor` 决定，默认不能；自定义过该文件时，server 的登记需要显式设为 `true`，否则管理接口返回 403（`reason=system_actor_not_allowed`）；
 - 登记模板包含 HiveMemory 自己的来源 `hivememory:system`。更早生成或自定义过的生效登记缺少它时要补上这一条（`kind: local-process`、`adapters: [local]`、`allow_system_actor: true`，不写 `credential_env`），否则 Chat、对话导入与外部工具的记忆写入、更新都返回 403（`reason=unknown_principal`）；这个原因与外部工具自己的 principal 未登记相同，排查时两条登记都要核对；
-- 外部 harness 的接入凭据可以在设置页生成与轮换，保存在登记文件同目录的 `principals.secrets.yaml`（不受版本控制），立即生效；也可以沿用登记中 `credential_env` 指向的环境变量，写在 `.env` 或环境变量中，它有值时优先于生成的凭据，修改后重启服务；
-- 从模板生成的登记中，每个 harness 的登记限定了它能声明的 Agent（`allowed_agent_ids`），改用其他 Agent 时先在设置页把它加入，否则请求返回 403（`reason=agent_not_allowed_for_principal`）；
+- 外部 harness 的接入凭据由插件页安装时生成，保存在登记文件同目录的 `principals.secrets.yaml`（不受版本控制），同时写进 harness 一侧读取的 Windows 用户环境变量；更早手工配置的登记也可以沿用 `credential_env` 指向的环境变量，写在 `.env` 或环境变量中，它有值时优先于生成的凭据，修改后重启服务；
+- 插件页登记的来源初始只能声明插件的缺省 Agent（`allowed_agent_ids`）；同一个 harness 可以以多个 Agent 运行，改用其他 Agent 时先在“接入与权限”中把它加入，否则请求返回 403（`reason=agent_not_allowed_for_principal`）；
 - 前端使用的接口在经过认证网关之前，另要求后端首次启动时生成的管理凭据 `configs/management.token`；它不需要配置，前端自动带上，终端调用的写法见[安装与启动](./setup.md#43-启动后端)。桌面客户端不使用这个文件，凭据只在内存中（[使用桌面客户端](./desktop-client.md)）；
 - 请求头中的用户身份不做证明，管理凭据也只防误用，两者都只适用于本地单用户部署。
 

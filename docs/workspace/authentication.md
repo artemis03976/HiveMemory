@@ -26,7 +26,7 @@ related_docs:
   - docs/system/configuration.md
   - docs/system/import-bus.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-12
 ---
 
 # 认证与访问登记
@@ -55,13 +55,13 @@ last_reviewed: 2026-11-10
 
 **接入凭据**：
 
-- 外部来源的凭据有两个来源：登记中 `credential_env` 指向的环境变量，或 HiveMemory 在登记与轮换时生成、保存在接入登记文件同目录 `principals.secrets.yaml` 中的生成凭据（第 2 节）。环境变量按与其他配置相同的来源在启动时读取，进程环境变量优先，其次是 `.env` 文件；它有值时优先于生成凭据，规则与 Provider 凭证相同。凭据去掉首尾空白，只存在于内存中的登记与凭据文件里，不进入日志、`repr` 与列表响应。
+- 外部来源的凭据有两个来源：登记中 `credential_env` 指向的环境变量，或 HiveMemory 的插件服务登记时生成、保存在接入登记文件同目录 `principals.secrets.yaml` 中的生成凭据（第 2 节）。环境变量按与其他配置相同的来源在启动时读取，进程环境变量优先，其次是 `.env` 文件；它有值时优先于生成凭据，规则与 Provider 凭证相同。凭据去掉首尾空白，只存在于内存中的登记与凭据文件里，不进入日志、`repr` 与列表响应。
 - 第 1 阶段在 adapter 检查之后以常量时间比较核对凭据：外部来源的每次认证都要提供与生效凭据一致的凭据，否则以 `invalid_credential` 拒绝。外部来源两种凭据都没有时，启动时记录一条警告，此后它的每次认证都被拒绝；HiveMemory 照常启动，不使用这个来源的部署不受影响。凭据错误与未登记分开报告，用户才能区分“没登记”和“凭据不对”。
 - 装载时校验：一条登记要么只列进程内 adapter（`local`、`http`），要么只列外部 adapter，混用时装载失败；列出进程内 adapter 的登记不能声明凭据。没有凭据的进程内 principal（server、系统自身）因此只能经进程内 adapter 接入，外部请求无法借用它们的身份；进程内入口总是不带凭据认证，与凭据同登记会使这些入口一律被拒绝。新增的 adapter 默认属于外部入口，必须以凭据证明。
 
 **`system` 的声明范围**：登记的 `allow_system_actor` 默认为 `false`。第 1 阶段在用户检查之后拒绝不允许的 principal 声明保留的 `system`（`system_actor_not_allowed`）；能声明 `system` 的只有用户经 HTTP 入口的管理访问与系统自身的 principal，两者的登记显式设为 `true`，外部 harness 取默认值。
 
-**可声明的 Agent**：登记的 `allowed_agent_ids` 限定这个来源能声明哪些 Agent，默认不限定；第 1 阶段在用户检查之后核对，声明集合之外的 Agent 以 `agent_not_allowed_for_principal` 拒绝。登记模板中的四个 harness 登记各自只能声明自己的 Agent（`claude_code`、`dsh`、`codex`、`pi`），前端使用的 server 来源不限定。限定的是一个集合，不是一对一绑定：同一个执行环境仍可以以多个 Agent 运行。
+**可声明的 Agent**：登记的 `allowed_agent_ids` 限定这个来源能声明哪些 Agent，默认不限定；第 1 阶段在用户检查之后核对，声明集合之外的 Agent 以 `agent_not_allowed_for_principal` 拒绝。插件服务为 harness 登记来源时，初始只允许声明插件的缺省 Agent（`claude_code`、`dsh`、`codex`、`pi`），之后可以经管理接口增加；前端使用的 server 来源不限定。限定的是一个集合，不是一对一绑定：同一个执行环境仍可以以多个 Agent 运行。
 
 **HTTP 管理面的管理凭据**：上表的 server 的 principal 不携带凭据，HTTP 管理面另由管理凭据证明调用方，检查发生在认证网关之前。
 
@@ -85,7 +85,9 @@ last_reviewed: 2026-11-10
 - **用户级记录**：省略 `agent_id` 的记录覆盖该用户的所有具体 Agent，但不覆盖保留的 `system`；`system` 必须单独登记。查询时精确记录优先，精确记录被禁用即拒绝，不回落到用户级记录；每个 `(owner, workspace, user)` 至多一条用户级记录。
 - **装载规则**：两个文件都拒绝未知字段；装载期拒绝重复键、跨 owner 记录（W0 基线：`user_id` 必须等于 `owner_user_id`）、“禁用却配置白名单”的矛盾配置，以及为保留的 `system` 配置 operation 的记录；未知 operation 值（包括已删除的旧名称）装载期失败并指出值与记录坐标。默认路径的生效文件缺失时，先从模板原样复制一份（保留注释）再装载，已有的生效文件不被模板覆盖；文件路径可用 `HIVEMEMORY_PRINCIPALS_PATH` / `HIVEMEMORY_WORKSPACE_ACTORS_PATH` 覆盖，指定的路径不从模板生成，缺失或内容非法时显式失败，避免路径写错时悄悄生成一份默认登记。
 - **运行时编辑**：两份登记都可以在运行中编辑，立即生效并写回当前生效的登记文件（路径变量指向的文件，未设置时是 `configs/` 下不受版本控制的生效文件），模板保持原样。每次编辑先构造新的完整登记并走与装载相同的校验，写回成功后才替换内存中的内容；校验或写入失败时内存与文件都不变。装载时记下文件内容的摘要，写回前核对：文件在运行中被手工改动时，编辑以 409 `access.registration.conflict`（`reason=file_modified`）拒绝，不覆盖手工修改，重启装载之后再编辑。写回重新序列化 YAML，不保留注释。编辑方法是同步的，路由在事件循环中调用，校验、写回与替换之间没有 `await`。
-  - 接入登记属于 System：管理接口 `/api/v1/access/principals` 与提供商、模型接口一样只由管理凭据保护，System 中不做授权，读写方法在接入注册表上。只能编辑外部来源：登记（`kind` 为 `harness`，不能声明 `system`，同时生成凭据）、启停、修改 adapter 与可声明的 Agent、轮换凭据与删除（同时删除它的生成凭据）；凭据明文只在登记与轮换的响应中返回一次。进程内来源（server、系统自身）只读，编辑以 `reason=protected` 拒绝：它们关系到管理接口、chat 与导入本身能否工作，禁用它们会让管理接口立即失效，而恢复它们恰恰需要管理接口。凭据来自环境变量时不能轮换（`reason=credential_from_env`）。
+  - 接入登记属于 System，读写方法在接入注册表上，System 中不做授权。只能编辑外部来源，进程内来源（server、系统自身）只读，编辑以 `reason=protected` 拒绝：它们关系到管理接口、chat 与导入本身能否工作，禁用它们会让管理接口立即失效，而恢复它们恰恰需要管理接口。
+    - 管理接口 `/api/v1/access/principals` 与提供商、模型接口一样只由管理凭据保护，只列出与修改：启停、修改 adapter 与可声明的 Agent；响应只给凭据的来源与打码值。
+    - 外部来源的登记（`kind` 为 `harness`，不能声明 `system`，同时生成凭据）、补发凭据与删除（同时删除它的生成凭据）由插件服务在安装与卸载插件时执行（`system/plugins/`，HTTP 为 `/api/v1/plugins`）：只有支持的四个 harness 可以登记，登记只在 harness 的插件命令成功之后发生，凭据不经接口返回、直接写进 harness 一侧读取的 Windows 用户环境变量。插件服务登记的来源不声明 `credential_env`，后端只认生成的凭据。已登记的来源再次安装时沿用原有登记；凭据来自环境变量的旧登记不改（`credential_from_env`）。
   - Workspace 访问记录属于 workspace：经 root API 的 `RootAccessService` 编辑（HTTP 为 `/api/v1/access/actors`），每次调用在入口 root 授权，只能读写目标 Workspace 坐标下的记录，记录的 owner 与用户都取目标 Workspace 的 owner。保留的 `system` 记录不在列表中，也不能修改或删除（`reason=protected`）：root 授权以它准入 `system`。
   - 生效时点见第 8 节。
 - **随仓库发布的模板**（从模板生成的生效登记即为以下内容）：
@@ -94,18 +96,10 @@ last_reviewed: 2026-11-10
 |:---|:---|:---|
 | principals | server 的 principal `hivememory:http-server` | adapter `http`，`allow_system_actor: true`；需与 `config.yaml` 的 `system.server_principal_id` 一致；只用于前端的管理、chat 与取消路由 |
 | principals | 系统自身的 principal `hivememory:system` | kind `local-process`，adapter `local`，`allow_system_actor: true`；任务进程的注册入口与 Import Bus 服务以它认证系统的 root 工作 actor（第 5 节） |
-| principals | Claude Code 的 principal `harness:claude-code` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CLAUDE_CODE_TOKEN`，只能声明 Agent `claude_code`；不能声明 `system` |
-| principals | DeepSeek Harness 的 principal `harness:dsh` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_DSH_TOKEN`，只能声明 Agent `dsh`；不能声明 `system` |
-| principals | Codex 的 principal `harness:codex` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CODEX_TOKEN`，只能声明 Agent `codex`；不能声明 `system` |
-| principals | pi 的 principal `harness:pi` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_PI_TOKEN`，只能声明 Agent `pi`；不能声明 `system` |
 | workspace_actors | 用户 `default` 在 `main_workspace` 的用户级记录（所有具体 Agent） | 六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call` |
 | workspace_actors | 用户 `default` 的 `system` | 只登记准入，不配置 operation |
-| workspace_actors | 用户 `default` 的 `claude_code`（Claude Code 导入与 MCP 访问声明的 Agent） | 精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` |
-| workspace_actors | 用户 `default` 的 `dsh`（DeepSeek Harness 插件导入与记忆工具声明的 Agent） | 精确记录，`allowed_operations` 同 `claude_code` |
-| workspace_actors | 用户 `default` 的 `codex`（Codex 插件的连接器与 MCP 工具声明的 Agent） | 精确记录，`allowed_operations` 同 `claude_code` |
-| workspace_actors | 用户 `default` 的 `pi`（pi 扩展导入与记忆工具声明的 Agent） | 精确记录，`allowed_operations` 同 `claude_code` |
 
-`system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。管理路由、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，因此任何要对话、导入或经 MCP 写入的 Workspace 都需要它；用户级记录不覆盖 `system`。`claude_code`、`dsh`、`codex` 与 `pi` 的精确记录获准检索、读取、写入与更新：导入与写入时的确定话题由系统执行、不读取白名单（[身份与授权](./identity-and-authorization.md#4-操作授权)），MCP 的每次工具调用按这份白名单逐次授权；精确记录优先于用户级记录，这些 Agent 因此不继承用户级的 `memory.run` 与 `agent.call`。
+`system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。管理路由、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，因此任何要对话、导入或经 MCP 写入的 Workspace 都需要它；用户级记录不覆盖 `system`。模板不接入任何外部 harness。插件服务安装插件时，插件的缺省 Agent（`claude_code`、`dsh`、`codex` 或 `pi`）还没有精确记录就补一条，获准检索、读取、写入与更新，已有的记录不改动，卸载插件也不删除它：权限属于 Agent，不属于 harness。导入与写入时的确定话题由系统执行、不读取白名单（[身份与授权](./identity-and-authorization.md#4-操作授权)），MCP 的每次工具调用按这份白名单逐次授权；精确记录优先于用户级记录，这些 Agent 因此不继承用户级的 `memory.run` 与 `agent.call`。
 
 ## 3. 工作 actor
 
