@@ -16,32 +16,32 @@ function StatusBadge({
   assetState: string | null;
 }) {
   if (status === 'queued') {
-    return <span className="text-[11px] text-slate-500">等待上传</span>;
+    return <span className="text-xs text-fg-3">等待上传</span>;
   }
   if (status === 'uploading') {
     return (
-      <span className="flex items-center gap-1 text-[11px] text-slate-400">
+      <span className="flex items-center gap-1 text-xs text-fg-3">
         <Loader2 className="w-3 h-3 animate-spin" />
         上传中...
       </span>
     );
   }
   if (status === 'failed') {
-    return <span className="text-[11px] text-red-400">上传失败</span>;
+    return <span className="text-xs text-magic-fire">上传失败</span>;
   }
   // uploaded：按服务端资产终态展示"可用/解析失败/解析中"
   if (assetState === 'ready') {
     return (
-      <span className="flex items-center gap-1 text-[11px] text-emerald-400">
+      <span className="flex items-center gap-1 text-xs text-magic-wood">
         <CheckCircle2 className="w-3 h-3" />
         可用
       </span>
     );
   }
   if (assetState === 'failed') {
-    return <span className="text-[11px] text-red-400">解析失败</span>;
+    return <span className="text-xs text-magic-fire">解析失败</span>;
   }
-  return <span className="text-[11px] text-slate-500">已上传，解析中...</span>;
+  return <span className="text-xs text-fg-3">已上传，解析中...</span>;
 }
 
 /**
@@ -72,19 +72,19 @@ export default function AttachmentQueue() {
             className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-xs transition-all ${
               selected
                 ? 'bg-primary/15 border-primary/50'
-                : 'bg-surface-container-high border-white/10'
+                : 'bg-surface-container-high border-line'
             }`}
           >
-            <FileText className="w-4 h-4 shrink-0 text-slate-400" />
+            <FileText className="w-4 h-4 shrink-0 text-fg-3" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-slate-200 truncate">{item.displayName}</span>
-                <span className="text-slate-500 shrink-0">{formatSize(item.file.size)}</span>
+                <span className="font-medium text-fg truncate">{item.displayName}</span>
+                <span className="text-fg-3 shrink-0">{formatSize(item.file.size)}</span>
               </div>
               <div className="mt-0.5 flex items-center gap-2">
                 <StatusBadge status={item.status} assetState={item.assetState} />
                 {item.errorMessage && (
-                  <span className="text-[11px] text-red-400/80 truncate">{item.errorMessage}</span>
+                  <span className="text-xs text-magic-fire/80 truncate">{item.errorMessage}</span>
                 )}
               </div>
             </div>
@@ -94,7 +94,7 @@ export default function AttachmentQueue() {
                 className={`p-1.5 rounded-lg transition-all ${
                   selected
                     ? 'text-primary hover:bg-primary/10'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    : 'text-fg-3 hover:text-fg hover:bg-ink/5'
                 }`}
                 title={selected ? '取消选择（不发送该附件）' : '选择该附件随下一条消息发送'}
                 aria-label={selected ? `取消选择 ${item.displayName}` : `选择 ${item.displayName}`}
@@ -106,7 +106,7 @@ export default function AttachmentQueue() {
             {item.status === 'failed' && (
               <button
                 onClick={() => retry(item.id)}
-                className="p-1.5 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                className="p-1.5 text-fg-3 hover:text-fg hover:bg-ink/5 rounded-lg transition-all"
                 title="重新上传（沿用同一上传标识）"
                 aria-label={`重新上传 ${item.displayName}`}
               >
@@ -116,7 +116,7 @@ export default function AttachmentQueue() {
             {item.status !== 'uploading' && (
               <button
                 onClick={() => dismiss(item.id)}
-                className="p-1.5 text-slate-500 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+                className="p-1.5 text-fg-3 hover:text-fg hover:bg-ink/5 rounded-lg transition-all"
                 title="从队列中移除"
                 aria-label={`移除 ${item.displayName}`}
               >

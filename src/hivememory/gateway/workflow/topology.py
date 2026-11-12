@@ -34,6 +34,7 @@ from hivememory.gateway.analysis import (
     UserQueryAnalysisResult,
 )
 from hivememory.gateway.context import CandidateTopics, GatewayContextProvider
+from hivememory.gateway.errors import DesignatedTopicUnavailableError
 from hivememory.gateway.workflow.state import GatewayStateSnapshot
 from hivememory.gateway.workflow.steps import (
     GatewayWorkflowStep,
@@ -58,6 +59,7 @@ class TopicRoutingInput:
     raw_message: str
     topic_snapshots: tuple[TopicSnapshot, ...]
     session_turns: tuple[GatewaySessionTurn, ...] = ()
+    designated_topic_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,14 @@ def build_gateway_workflow(
     async def invoke_topic_router(
         selected: TopicRoutingInput,
     ) -> TopicRoutingResult:
+        if selected.designated_topic_id is not None:
+            # 用户为这一轮指定了话题：在候选中就直接取用，不交给模型；不在候选中时拒绝，
+            # 这不是路由失败，不进入续接上一轮的兜底。
+            if any(t.topic_id == selected.designated_topic_id for t in selected.topic_snapshots):
+                return TopicRoutingResult(topic_id=selected.designated_topic_id)
+            raise DesignatedTopicUnavailableError(
+                details={"topic_id": selected.designated_topic_id}
+            )
         if not selected.raw_message.strip():
             # 用户消息为空的一轮（外部 harness 中被后台通知、子 Agent 交回等唤醒的
             # 续作）没有可供模型判断的内容，交给模型时它多半会新建话题；这样的续作
@@ -234,6 +244,7 @@ def _select_topic_routing_input(snapshot: GatewayStateSnapshot) -> TopicRoutingI
         raw_message=snapshot.raw_message,
         topic_snapshots=snapshot.candidate_topics.topic_snapshots,
         session_turns=snapshot.session_turns,
+        designated_topic_id=snapshot.designated_topic_id,
     )
 
 

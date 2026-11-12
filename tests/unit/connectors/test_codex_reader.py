@@ -102,10 +102,10 @@ def test_turn_without_end_record_is_closed_by_the_next_turn(tmp_path):
 
 
 def test_user_messages_of_one_turn_are_joined_without_injected_context(tmp_path):
-    """一轮中追加的用户消息按顺序拼接，模型输入中注入的环境上下文不算用户消息。"""
+    """一轮中追加的用户消息按顺序拼接；模型输入中注入的环境上下文与宿主附加的块不算用户消息。"""
     rollout = RolloutWriter(tmp_path)
     rollout.start("t1")
-    rollout.user("先看日志")
+    rollout.user("<system-reminder>\nLinked sessions now: ai (idle).\n</system-reminder>\n先看日志")
     rollout.user("再看配置")
 
     [turn] = reader.read(str(rollout.path), 0)

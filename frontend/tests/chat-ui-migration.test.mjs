@@ -14,3 +14,15 @@ test('持久化的终端标签迁移为引用记忆，记忆任务标签不变',
   assert.equal(migrateChatUiState({ workspaceVisionTab: 'terminal' }, 4).workspaceVisionTab, 'context');
   assert.equal(migrateChatUiState({ workspaceVisionTab: 'memory-runtime' }, 4).workspaceVisionTab, 'memory-runtime');
 });
+
+test('原来的通用设置与各子系统分类并入常用，管理类分类保持原样', () => {
+  assert.equal(migrateChatUiState({ settingsActiveCategory: 'engines' }, 5).settingsActiveCategory, 'common');
+  assert.equal(migrateChatUiState({ settingsActiveCategory: 'general' }, 5).settingsActiveCategory, 'common');
+  assert.equal(migrateChatUiState({ settingsActiveCategory: 'access' }, 5).settingsActiveCategory, 'access');
+});
+
+test('左栏停在模型配置时改为打开右栏的模型配置，左栏标签不再保存', () => {
+  const state = migrateChatUiState({ contextSidebarTab: 'config', isWorkspaceVisionCollapsed: true, workspaceVisionTab: 'context' }, 6);
+  assert.deepEqual(state, { isWorkspaceVisionCollapsed: true, workspaceVisionTab: 'model' });
+  assert.equal(migrateChatUiState({ contextSidebarTab: 'sessions', workspaceVisionTab: 'memory-runtime' }, 6).workspaceVisionTab, 'memory-runtime');
+});

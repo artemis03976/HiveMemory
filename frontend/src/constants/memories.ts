@@ -119,8 +119,8 @@ useEffect(() => {
 
 \`\`\`css
 .glass-card {
-  @apply bg-white/10 backdrop-blur-lg border border-white/20;
-  @apply shadow-lg hover:bg-white/20 transition-all;
+  @apply bg-ink/10 backdrop-blur-lg border border-line-strong;
+  @apply shadow-lg hover:bg-ink/20 transition-all;
 }
 \`\`\`
 
@@ -130,25 +130,25 @@ useEffect(() => {
 \`\`\`css
 /* 导航栏 - 重度模糊 */
 .glass-nav {
-  @apply bg-black/40 backdrop-blur-3xl border-r border-white/5;
+  @apply bg-field backdrop-blur-3xl border-r border-line;
   box-shadow: 2px 0 30px rgba(0, 0, 0, 0.5);
 }
 
 /* 侧边栏 - 中度模糊 */
 .glass-sidebar {
-  @apply bg-background/30 backdrop-blur-lg border-r border-white/5;
+  @apply bg-background/30 backdrop-blur-lg border-r border-line;
 }
 
 /* 卡片 - 轻度模糊 */
 .glass-card {
-  @apply bg-muted/20 backdrop-blur-lg border border-white/10;
+  @apply bg-muted/20 backdrop-blur-lg border border-line;
 }
 \`\`\`
 
 ### 2. 输入框增强
 \`\`\`css
 .glass-input {
-  @apply bg-background/50 backdrop-blur-xl border border-white/10;
+  @apply bg-background/50 backdrop-blur-xl border border-line;
   @apply focus:ring-1 focus:ring-primary/50 focus:border-primary/50;
   @apply focus:bg-background/70 transition-all;
 }

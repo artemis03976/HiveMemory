@@ -1,9 +1,9 @@
-/** 运行时事件流的连接状态：后端拒绝如实报错并给出原因，不能显示为事件流未启用。 */
+/** 运行时事件流的连接状态：后端拒绝如实报错，不能显示为事件流未启用；凭据失效的原因由顶部状态条给出。 */
 import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 
-let vite, initializeRuntimeEventStream;
+let vite;
 const originalFetch = globalThis.fetch;
 const originalWindow = globalThis.window;
 const originalEventSource = globalThis.EventSource;
@@ -24,7 +24,6 @@ before(async () => {
   globalThis.window = { location: { origin: 'http://localhost' } };
   globalThis.EventSource = FakeEventSource;
   vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' });
-  ({ initializeRuntimeEventStream } = await vite.ssrLoadModule('/src/stores/workspace/runtimeEventStream.ts'));
 });
 afterEach(() => { globalThis.fetch = originalFetch; });
 after(async () => {
@@ -32,6 +31,12 @@ after(async () => {
   globalThis.window = originalWindow;
   globalThis.EventSource = originalEventSource;
 });
+
+/** 凭据失效在整页生命周期内保留；每个场景重新加载模块，从正常的连接状况开始。 */
+async function freshStream() {
+  vite.moduleGraph.invalidateAll();
+  return (await vite.ssrLoadModule('/src/stores/workspace/runtimeEventStream.ts')).initializeRuntimeEventStream;
+}
 
 /** 最小的 store：状态写入时检查等待条件，不用固定时长等待状态落定。 */
 function workspace() {
@@ -59,9 +64,10 @@ function workspace() {
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const credentialRejected = () => json(
   { error: 'request.management_credential_invalid', detail: '管理接口需要管理凭据：缺少凭据或凭据不正确' }, 401);
-const CREDENTIAL_MESSAGE = '管理凭据缺失或已失效，请刷新页面后重试';
+const CREDENTIAL_MESSAGE = '数据暂不可用';
 
-test('状态接口被拒绝时报连接错误并给出原因', async () => {
+test('状态接口因凭据失效被拒绝时报连接错误，局部只说数据暂不可用', async () => {
+  const initializeRuntimeEventStream = await freshStream();
   const { set, get, until } = workspace();
   globalThis.fetch = async () => credentialRejected();
   initializeRuntimeEventStream(set, get);
@@ -76,6 +82,7 @@ test('浏览器放弃事件流后，按状态接口区分被拒绝、未启用�
     [() => json({ enabled: false }), 'disabled', null],
     [() => json({ enabled: true, buffer_size: 10 }), 'error', '事件流连接失败'],
   ]) {
+    const initializeRuntimeEventStream = await freshStream();
     const { set, get, until } = workspace();
     globalThis.fetch = async () => json({ enabled: true, buffer_size: 10 });
     initializeRuntimeEventStream(set, get);

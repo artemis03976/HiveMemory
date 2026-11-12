@@ -11,6 +11,7 @@ code_paths:
   - src/hivememory/alice/interface/cpu.py
   - src/hivememory/alice/interface/output.py
   - src/hivememory/server/routers/chat.py
+  - src/hivememory/server/models/chat.py
   - src/hivememory/server/routers/import_bus.py
   - src/hivememory/server/models/import_bus.py
   - src/hivememory/system/services/import_bus/events.py
@@ -29,7 +30,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-11
 ---
 
 # 公开路由与事件
@@ -78,7 +79,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `gateway.public.process` | `GatewayService.process` | message、`IdentityScope`、ingress mode、`session_turns: tuple[GatewaySessionTurn, ...] = ()`、可选 `request_timeout_ms` | `GatewayProcessResult`（命令结果只携带解析结果） |
+| `gateway.public.process` | `GatewayService.process` | message、`IdentityScope`、ingress mode、`session_turns: tuple[GatewaySessionTurn, ...] = ()`、可选 `request_timeout_ms`、可选 `designated_topic_id`（用户指定的话题；不在候选中时抛 `DesignatedTopicUnavailableError`） | `GatewayProcessResult`（命令结果只携带解析结果） |
 
 ### 2.2 Patchouli Chat / Retrieval
 
@@ -129,7 +130,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`AgentProfileCreation`（创建材料，alias 必填） | 持久化后的 `MemoryAtom` |
 | `patchouli.public.agent_profile.list` | `list_agent_profiles` | `identity_scope`、limit | profile atom 列表 |
 | `patchouli.public.agent_profile.seed_presets` | `seed_preset_agent_profiles` | `belong_to`（`WorkspaceIdentity`） | 写入的 alias 列表；以该 Workspace 的 `system` 写入缺少的预设 Profile，已存在的 alias 跳过，不经授权；只供初次部署 |
-| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要）、`enforce_actor_visibility`（默认真；假为管理读取，只校验 Workspace 归属，供任务进程以 root scope 加载执行者的图纸） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
+| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要）、`enforce_actor_visibility`（默认真；假为管理读取，只校验 Workspace 归属，供任务进程以 root scope 加载执行者的图纸） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失或越权抛 `ResourceNotFoundError`，类型不符、配置无效或已停用抛 `ProfileResolutionError`（[错误模型](./error-model.md#45-memory-输入校验与存储错误)） |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
 | `patchouli.public.topic.prepare` | `TopicManagementService.prepare_topic` | `identity_scope`、`target_topic_id`、新话题的 `new_topic_title` / `new_topic_summary` | 真实话题标识；已有话题确认存在并刷新驻留（不存在抛 `ResourceNotFoundError`），`NEW_TOPIC` 以标题与摘要建立新话题，池满时先按 LRU 结算（候选都被占用抛 `TopicBusyError`）；不检索 |
@@ -260,7 +261,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、导入）由请求体附加具体 `agent_id`；基础选择只经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop、导入请求体与 Topic、会话等管理路由都不接受 body 或 query 中的 user 与 Workspace 字段。
 - `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`；只含空白的身份请求头拒绝（400）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
 - 声明交给统一认证网关认证，得到工作 actor：Chat 由任务进程的注册入口认证执行者与系统的 root 工作 actor 并创建进程；管理操作、`/chat/stop` 与导入在入口认证，得到只在本次调用内使用的工作 actor。进入上述 route 的 `IdentityScope` 由授权点以执行者授权后组装。
-- Chat 请求体的 `message` 不能为空（空串以 422 拒绝），每轮交互记录因此都以序号 0 的用户消息事件开头；`session_id` 绑定会话资源，缺省自动创建；不进入身份构造，交互提交的标识仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
+- Chat 请求体的 `message` 不能为空（空串以 422 拒绝），每轮交互记录因此都以序号 0 的用户消息事件开头；`session_id` 绑定会话资源，缺省自动创建；不进入身份构造，交互提交的标识仍使用进程 ID；可选的 `topic_id` 为这一轮指定话题（空串以 422 拒绝），经任务进程交给 Gateway 的 `designated_topic_id`，同样不进入身份构造，话题已不在候选话题中时这一轮以 `error` 事件（`gateway.topic.designated_unavailable`）结束、不提交（[任务进程](../workspace/task-process.md#51-主动链路)）；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
 - `/chat/stop` 不是 Agent action：注册入口以请求方 (user, `system`) 的工作 actor 对进程的 Workspace 执行 root 授权，授权拒绝与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
 - 外部入口（导入与 MCP）不使用 server 的 principal：请求以 `X-Principal-ID` 声明调用来源、以 `Authorization: Bearer` 携带接入凭据，`resolve_principal_claim` 解析声明（缺省返回 400 `request.principal_required`），`bearer_credential` 取出凭据，两者交给统一认证网关核对；server 的 principal 只用于前端的管理、chat 与取消路由（[认证与访问登记](../workspace/authentication.md)）。
 - `/api/` 下除导入之外的 HTTP 与 WebSocket 路由，在进入路由之前先核对管理凭据，缺少或不一致时以 401 `request.management_credential_invalid` 拒绝，WebSocket 以 1008 关闭；它不改变上述身份声明与认证（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）。

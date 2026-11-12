@@ -50,6 +50,7 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.gateway.errors import DesignatedTopicUnavailableError
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.errors import InteractionAdmissionUnavailableError
 from hivememory.patchouli.contracts.interaction_submission import InteractionSubmitResult
@@ -342,6 +343,25 @@ async def test_pre_retrieval_follows_gateway_plan_and_delivers_through_read_view
     assert (retrieval.semantic_query, retrieval.keywords) == ("改写后的问题", ["部署", "回滚"])
     memory_refs = next(event for event in events if event["event"] == "memory_refs")
     assert [memory["title"] for memory in memory_refs["data"]["memories"]] == ["引用记忆"]
+
+
+@pytest.mark.asyncio
+async def test_designated_topic_reaches_gateway_and_its_rejection_submits_nothing() -> None:
+    """用户指定的话题交给 Gateway；Gateway 拒绝时这一轮以错误码失败，不提交交互。"""
+    bus = GlobalSystemBus()
+    gateway = AsyncMock(side_effect=DesignatedTopicUnavailableError(details={"topic_id": "t-gone"}))
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    _register_profile(bus)
+    stub = PatchouliTurnStub().install(bus)
+    service, composition = await _service(bus, ScriptedCPU())
+
+    events = await _run_once(
+        composition, service, "问题", process_id="process-designated", designated_topic_id="t-gone"
+    )
+
+    assert gateway.await_args.kwargs["designated_topic_id"] == "t-gone"
+    assert error_code(events) == "gateway.topic.designated_unavailable"
+    assert stub.submissions == []
 
 
 @pytest.mark.asyncio

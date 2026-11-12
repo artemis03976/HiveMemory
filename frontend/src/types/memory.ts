@@ -51,17 +51,6 @@ export interface MemoryFilters {
   status: 'all' | 'active' | 'archived';
 }
 
-// Memory type color mapping (七曜魔法)
-export const memoryTypeColors: Record<MemoryType, { color: string; name: string }> = {
-  CODE_SNIPPET: { color: 'hsl(190, 90%, 50%)', name: 'water' },
-  FACT: { color: 'hsl(150, 80%, 45%)', name: 'wood' },
-  URL_RESOURCE: { color: 'hsl(52, 82%, 73%)', name: 'metal' },
-  REFLECTION: { color: 'hsl(340, 80%, 60%)', name: 'fire' },
-  USER_PROFILE: { color: 'hsl(260, 80%, 65%)', name: 'moon' },
-  WORK_IN_PROGRESS: { color: 'hsl(45, 100%, 60%)', name: 'sun' },
-  TOOL: { color: 'hsl(30, 20%, 50%)', name: 'earth' }, // Added for TOOL type compatibility
-};
-
 // Memory type display names
 export const memoryTypeLabels: Record<MemoryType, string> = {
   CODE_SNIPPET: '代码',

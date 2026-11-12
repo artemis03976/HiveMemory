@@ -1,115 +1,104 @@
 import { useCallback, useState } from 'react';
-import { Brain, ThumbsDown, ThumbsUp } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useToastStore } from '@/stores';
 import { recordMemoryFeedback } from '@/services/memoryApi';
 import type { MemoryAtom } from '@/types';
+import MemoryTypeTile from '@/components/memory/MemoryTypeTile';
+import { memoryTypeLabels } from '@/types/memory';
 
 interface ReferencedMemoryTabProps {
   memories: MemoryAtom[];
 }
 
+const feedbackButtonCls =
+  'flex h-[26px] w-[26px] items-center justify-center rounded-[7px] transition-colors disabled:cursor-wait disabled:opacity-60';
+
+/** 本轮预检索命中的记忆；悬停或聚焦时可逐条反馈有没有帮助。 */
 export default function ReferencedMemoryTab({ memories }: ReferencedMemoryTabProps) {
   const addToast = useToastStore((state) => state.addToast);
   const [feedbackByMemory, setFeedbackByMemory] = useState<Record<string, boolean>>({});
   const [pendingFeedback, setPendingFeedback] = useState<Record<string, boolean>>({});
-  const safeMemories = Array.isArray(memories) ? memories : [];
 
   const handleFeedback = useCallback(async (memory: MemoryAtom, positive: boolean) => {
     setPendingFeedback((prev) => ({ ...prev, [memory.id]: true }));
-
     try {
       await recordMemoryFeedback(memory.id, positive);
       setFeedbackByMemory((prev) => ({ ...prev, [memory.id]: positive }));
-      addToast(positive ? '已记录正向记忆反馈' : '已记录负向记忆反馈', 'success', 1800);
+      addToast(positive ? '已记录：这条记忆有帮助' : '已记录：这条记忆不准确', 'success');
     } catch (error) {
       console.warn('Failed to record memory feedback:', error);
-      addToast('记忆反馈记录失败', 'error', 2400);
+      addToast('记忆反馈记录失败', 'error');
     } finally {
       setPendingFeedback((prev) => ({ ...prev, [memory.id]: false }));
     }
   }, [addToast]);
 
+  if (memories.length === 0) {
+    return (
+      <p className="mt-10 text-center text-[13px] leading-7 text-fg-3">
+        发送消息后，这里显示本轮
+        <br />
+        预检索命中的记忆
+      </p>
+    );
+  }
+
   return (
-    <div className="space-y-4">
-      <h4 className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest px-1">
-        当前话题参考记忆 (Top {safeMemories.length})
-      </h4>
-
-      {safeMemories.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-500">
-          <Brain className="w-8 h-8 opacity-30" />
-          <p className="text-sm">暂无引用记忆</p>
-          <p className="text-xs opacity-60">发送消息后，检索到的记忆将显示在此处</p>
-        </div>
-      ) : (
-        <AnimatePresence mode="popLayout">
-          {safeMemories.map((memory) => {
-            const feedback = feedbackByMemory[memory.id];
-            const isPending = pendingFeedback[memory.id] === true;
-
-            return (
-              <motion.div
-                key={memory.id}
-                layout
-                initial={{ opacity: 0, y: -20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
-                transition={{ duration: 0.4, type: 'spring', bounce: 0.2 }}
-                className="mb-4 p-4 rounded-xl bg-surface-container-high ghost-border group hover:bg-surface-container-highest focus-within:bg-surface-container-highest transition-all duration-300 relative overflow-hidden"
-              >
-                <div className="absolute right-3 top-3 z-20 flex items-center gap-1 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 transition-all duration-200 ease-out">
-                  <button
-                    type="button"
-                    onClick={() => handleFeedback(memory, true)}
-                    disabled={isPending}
-                    className={`p-1.5 rounded-md bg-black/20 border border-white/10 text-slate-400 shadow-sm backdrop-blur-sm hover:bg-emerald-500/15 hover:text-emerald-300 focus:outline-none focus:ring-1 focus:ring-emerald-300/50 disabled:cursor-wait disabled:opacity-60 transition-all ${
-                      feedback === true ? 'text-emerald-300 bg-emerald-500/15 border-emerald-300/20' : ''
-                    }`}
-                    title="这条记忆有帮助"
-                    aria-label={`标记记忆 ${memory.alias || memory.id} 有帮助`}
-                  >
-                    <ThumbsUp className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleFeedback(memory, false)}
-                    disabled={isPending}
-                    className={`p-1.5 rounded-md bg-black/20 border border-white/10 text-slate-400 shadow-sm backdrop-blur-sm hover:bg-red-500/15 hover:text-red-300 focus:outline-none focus:ring-1 focus:ring-red-300/50 disabled:cursor-wait disabled:opacity-60 transition-all ${
-                      feedback === false ? 'text-red-300 bg-red-500/15 border-red-300/20' : ''
-                    }`}
-                    title="这条记忆不准确"
-                    aria-label={`标记记忆 ${memory.alias || memory.id} 不准确`}
-                  >
-                    <ThumbsDown className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="flex items-start justify-between gap-16 mb-3 relative z-10">
-                  <code className="text-[11px] font-bold text-primary font-mono px-1.5 py-0.5 bg-primary/10 rounded truncate max-w-[150px]">
-                    {memory.alias || memory.id.slice(0, 8)}
-                  </code>
-                  {memory.confidence_score && (
-                    <span className="text-[10px] text-tertiary font-mono shrink-0">
-                      {(memory.confidence_score * 100).toFixed(0)}%
-                    </span>
-                  )}
-                </div>
-                <p className="text-[12px] leading-relaxed text-slate-300 font-inter mb-3 relative z-10">
-                  {memory.summary}
-                </p>
-                <div className="flex flex-wrap gap-1.5 relative z-10">
-                  {(Array.isArray(memory.tags) ? memory.tags : []).map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 rounded-md bg-white/5 text-slate-400 text-[9px] uppercase tracking-wider ghost-border">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-      )}
+    <div className="flex flex-col gap-2.5">
+      <span className="px-0.5 text-xs text-fg-3">本轮预检索命中 {memories.length} 条，悬停可逐条反馈</span>
+      {memories.map((memory) => {
+        const feedback = feedbackByMemory[memory.id];
+        const isPending = pendingFeedback[memory.id] === true;
+        const name = memory.alias || memory.id.slice(0, 8);
+        return (
+          <div key={memory.id} className="group flex flex-col gap-2 rounded-[14px] border border-line bg-surface-container p-3">
+            <div className="flex items-center gap-2.5">
+              <MemoryTypeTile type={memory.memory_type} />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-xs font-semibold text-fg-2">{memoryTypeLabels[memory.memory_type] ?? memory.memory_type}</span>
+                <span className="truncate font-mono text-xs text-fg-3">{name}</span>
+              </span>
+              <span className={`flex gap-0.5 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 ${feedback === undefined ? 'opacity-0' : ''}`}>
+                <button
+                  type="button"
+                  onClick={() => handleFeedback(memory, true)}
+                  disabled={isPending}
+                  aria-pressed={feedback === true}
+                  aria-label={`记忆 ${name} 有帮助`}
+                  title="这条记忆有帮助"
+                  className={`${feedbackButtonCls} ${feedback === true ? 'bg-primary/15 text-primary' : 'text-fg-3 hover:bg-surface-container-high hover:text-fg'}`}
+                >
+                  <ThumbsUp className="h-[13px] w-[13px]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFeedback(memory, false)}
+                  disabled={isPending}
+                  aria-pressed={feedback === false}
+                  aria-label={`记忆 ${name} 不准确`}
+                  title="这条记忆不准确"
+                  className={`${feedbackButtonCls} ${feedback === false ? 'bg-primary/15 text-primary' : 'text-fg-3 hover:bg-surface-container-high hover:text-fg'}`}
+                >
+                  <ThumbsDown className="h-[13px] w-[13px]" />
+                </button>
+              </span>
+            </div>
+            {memory.title && <span className="text-sm font-semibold leading-snug text-fg">{memory.title}</span>}
+            {memory.summary && <p className="line-clamp-3 text-[13px] leading-relaxed text-fg-2">{memory.summary}</p>}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-3">
+              {memory.vitality_score > 0 && (
+                <span title="生命力：被使用越多越高，长期不用会衰减">生命力 <b className="font-semibold text-fg-2">{Math.round(memory.vitality_score)}</b></span>
+              )}
+              {memory.confidence_score > 0 && (
+                <span title="置信度：生成时对内容可靠程度的判断">置信度 <b className="font-semibold text-fg-2">{(memory.confidence_score * 100).toFixed(0)}%</b></span>
+              )}
+              {memory.tags.slice(0, 3).map((tag) => (
+                <span key={tag} className="rounded-full bg-surface-container-high px-2 py-0.5 text-fg-2">#{tag}</span>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-11
 ---
 
 # Alice
@@ -94,9 +94,11 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 图纸不承载权限。Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达：它与 Profile 原子是否存在、由谁编辑无关，也同样适用于没有 Profile 原子的外部 Actor。Alice 把输入清单携带的操作快照翻译为 frame 的 MTP 动词集合，用它裁剪 MTP 教学并在 Koakuma 执行前检查动词；资源操作仍由 actor API 逐次授权（[MTP Runtime](./mtp-runtime.md#3-动词集合的三层检查)第 3 节）。若把权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它，因此提示词层只降低误用概率，执行层与 workspace 授权才是闸门。`agent_config` 中残留的旧权限键（`allowed_mtp_verbs`、`allowed_sys_tools`）在解析时被忽略。
 
-未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
+图纸可以停用：`agent_config.enabled`（`AgentProfile.enabled`，缺省为启用）为假时，Profile 解析拒绝这张图纸，以它发起对话或把它作为 CALL 目标都会失败（[检索](../patchouli/retrieval.md#22-中期记忆读取)）。停用只决定图纸能否用于执行，与操作权限无关；不加载 Profile 的外部 harness 不受影响。
 
-主 Agent 的 Profile 由任务进程在 PREPARE 开始时以系统的 root 授权、按管理语义读取（只检查 Workspace 归属，不按 Agent 的可见性裁剪），不要求任何 actor 操作，随主线程描述交给 Alice；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权、按调用方的可见性解析，再由线程表以被调用方准入后派生子线程。操作入口按 CPU 附上的线程句柄解析出线程的工作 actor，交给 actor API；actor API 以它在驻留 Workspace 授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，温度与 Top P 为空，运行时沿用注册表默认模型的参数。它和其他 Profile 一样不携带权限：能使用哪些操作，同样只由 Workspace 访问登记中它的 actor 操作白名单决定（上一段）。因此新增 MTP verb 或 syscall 不会因为选择了内置 Profile 而自动可用。
+
+主 Agent 的 Profile 由任务进程在 PREPARE 开始时以系统的 root 授权、按管理语义读取（只检查 Workspace 归属，不按 Agent 的可见性裁剪），不要求任何 actor 操作，随主线程描述交给 Alice；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权、按调用方的可见性解析，再由线程表以被调用方准入后派生子线程。操作入口按 CPU 附上的线程句柄解析出线程的工作 actor，交给 actor API；actor API 以它在驻留 Workspace 授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。显式 alias 不存在、越权、配置无效、已停用、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 

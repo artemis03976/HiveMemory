@@ -102,7 +102,7 @@ Owner 决定（2026-10-30）：int8 现在不是必要项，移出 v0.7.1，未�
 
 - 用真实模型实测：一条约 8000 token 的输入被截断为 1024 token，嵌入耗时 0.45 秒，进程峰值约 1.14 GB，结束后回落到 0.98 GB（截断前为 25 秒、峰值 9.26 GB）；重排连续两次推理后常驻内存不再增长。
 - 预下载脚本在本地以 `configs/config.yaml` 运行，解析出 `Xenova/bge-m3` 与 `BAAI/bge-reranker-base`，缓存目录均为 `data/model_cache`；本机没有 Docker，镜像构建未实际验证。
-- 前端设置页的主配置仍是旧的扁平结构（顶层 `embedding`、`retrieval.retriever.reranker`），根配置忽略未知的顶层键，这些表单项此前就不生效（已知限制见[管理页面](../frontend/management-views.md)第 3.3 节）。前端类型、mock 配置、校验与内部引擎页随之删除后端已不存在的字段：嵌入的 `device`、`batch_size`、`normalize_embeddings`、`dimension`，重排的 `device`、`use_fp16`；结构对齐不在本项范围内。
+- 前端设置页的主配置仍是旧的扁平结构（顶层 `embedding`、`retrieval.retriever.reranker`），根配置忽略未知的顶层键，这些表单项此前就不生效（2026-11-11 起设置页改为按字段路径读写后端的真实结构，见[管理页面](../frontend/management-views.md#34-常用与高级)第 3.4 节）。前端类型、mock 配置、校验与内部引擎页随之删除后端已不存在的字段：嵌入的 `device`、`batch_size`、`normalize_embeddings`、`dimension`，重排的 `device`、`use_fp16`；结构对齐不在本项范围内。
 
 **验证**
 

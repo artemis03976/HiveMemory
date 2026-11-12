@@ -1,100 +1,69 @@
-import { useEffect } from 'react';
-import { X, ChevronLeft, Database, Brain, ListChecks } from 'lucide-react';
+import { PanelRightClose, X } from 'lucide-react';
 import type { MemoryAtom } from '@/types';
 import MemoryRuntimeTab from './MemoryRuntimeTab';
+import ModelConfigTab from './ModelConfigTab';
 import ReferencedMemoryTab from './ReferencedMemoryTab';
-import { useChatUiStore, useWorkspaceStore, useMemoryTaskStore } from '@/stores';
+import { useChatUiStore, useMemoryTaskStore } from '@/stores';
+import type { WorkspaceVisionTab } from '@/stores/ui/appUiStore';
 
 interface WorkspaceVisionProps {
   memories: MemoryAtom[];
-  isCollapsed: boolean;
-  onToggleCollapse: () => void;
+  /** 窗口放不下右栏时，它作为抽屉覆盖在中间栏上。 */
+  overlay: boolean;
+  /** 行内时收起右栏，抽屉时关闭抽屉。 */
+  onHide: () => void;
 }
 
-export default function WorkspaceVision({
-  memories,
-  isCollapsed,
-  onToggleCollapse
-}: WorkspaceVisionProps) {
+/** 右栏：本轮引用的记忆、记忆生成任务与本会话的模型配置。 */
+export default function WorkspaceVision({ memories, overlay, onHide }: WorkspaceVisionProps) {
   const { workspaceVisionTab: activeTab, setWorkspaceVisionTab: setActiveTab } = useChatUiStore();
-  const connectRuntimeEvents = useWorkspaceStore((state) => state.connectRuntimeEvents);
-  const activeMemoryTaskCount = useMemoryTaskStore((state) =>
+  const activeTaskCount = useMemoryTaskStore((state) =>
     state.tasks.filter((task) => task.status === 'pending' || task.status === 'running').length,
   );
-  const panelWidth = activeTab === 'memory-runtime' ? 'w-[440px]' : 'w-80';
-  const tabIndicatorLeft = activeTab === 'context' ? '4px' : '50%';
 
-  useEffect(() => {
-    connectRuntimeEvents();
-  }, [connectRuntimeEvents]);
-
-  if (isCollapsed) {
-    return (
-      <aside className="w-12 glass-panel border-l border-white/5 flex flex-col h-full items-center py-4 transition-all duration-300">
-        <button 
-          onClick={onToggleCollapse}
-          className="p-2 text-slate-400 hover:text-primary transition-colors hover:bg-white/5 rounded-lg"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <div className="mt-8 flex flex-col gap-8 items-center">
-          <Database className="w-4 h-4 text-slate-600" />
-          <div className="[writing-mode:vertical-rl] text-[10px] font-bold tracking-[0.2em] uppercase text-slate-500 select-none">
-            工作区视界
-          </div>
-        </div>
-      </aside>
-    );
-  }
+  const tabs: { id: WorkspaceVisionTab; label: string }[] = [
+    { id: 'context', label: memories.length > 0 ? `引用记忆 · ${memories.length}` : '引用记忆' },
+    { id: 'memory-runtime', label: activeTaskCount > 0 ? `记忆任务 · ${activeTaskCount}` : '记忆任务' },
+    { id: 'model', label: '模型配置' },
+  ];
 
   return (
-    <aside 
-      className={`glass-panel border-l border-white/5 flex flex-col h-full transition-all duration-300 ${panelWidth}`}
+    <aside
+      aria-label="本轮上下文"
+      className={`flex h-full w-[360px] shrink-0 flex-col border-l border-line bg-surface-container-low ${
+        overlay ? 'absolute right-0 top-0 z-40 shadow-pop' : ''
+      }`}
     >
-      <div className="p-6 pb-2 border-b border-white/5 flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-manrope font-bold text-sm uppercase tracking-widest text-primary">工作区视界</h3>
-          <X 
-            onClick={onToggleCollapse}
-            className="w-4 h-4 text-slate-500 cursor-pointer hover:text-white transition-colors" 
-          />
+      <div className="flex items-center gap-2 px-3.5 pb-2.5 pt-3.5">
+        <div role="tablist" aria-label="右栏" className="flex flex-1 gap-0.5 rounded-[11px] border border-line bg-field p-[3px]">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`h-[30px] flex-1 whitespace-nowrap rounded-lg text-[13px] font-semibold transition-colors ${
+                activeTab === tab.id ? 'bg-surface-container-high text-fg' : 'text-fg-3 hover:text-fg'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-        
-        {/* Tabs 切换栏 */}
-        <div className="flex w-full bg-white/5 p-1 rounded-full ghost-border backdrop-blur-md relative">
-          <div
-            className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-primary/20 rounded-full shadow-[0_0_10px_rgba(197,154,255,0.2)] transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
-            style={{ left: tabIndicatorLeft }}
-          />
-          <button 
-            onClick={() => setActiveTab('context')}
-            className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 text-[11px] font-bold tracking-widest rounded-full transition-all duration-300 ${
-              activeTab === 'context' ? 'text-primary' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Brain className="w-3.5 h-3.5" /> 引用记忆
-          </button>
-          <button
-            onClick={() => setActiveTab('memory-runtime')}
-            className={`relative z-10 flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 text-[11px] font-bold tracking-widest rounded-full transition-all duration-300 ${
-              activeTab === 'memory-runtime' ? 'text-primary' : 'text-slate-400 hover:text-slate-200'
-            }`}
-            aria-label={`Memory Runtime${activeMemoryTaskCount > 0 ? `, ${activeMemoryTaskCount} active tasks` : ''}`}
-          >
-            <ListChecks className="w-3.5 h-3.5" />
-            <span>Runtime</span>
-            {activeMemoryTaskCount > 0 && (
-              <span className="absolute -right-0.5 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-magic-water/30 bg-surface-container-highest px-1 text-[9px] font-bold leading-none tracking-normal text-magic-water shadow-[0_0_8px_rgba(117,199,255,0.18)]">
-                {activeMemoryTaskCount > 99 ? '99+' : activeMemoryTaskCount}
-              </span>
-            )}
-          </button>
-        </div>
+        <button
+          onClick={onHide}
+          aria-label={overlay ? '关闭右栏' : '收起右栏'}
+          title={overlay ? '关闭右栏' : '收起右栏'}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] text-fg-3 transition-colors hover:bg-surface-container-high hover:text-fg"
+        >
+          {overlay ? <X className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
+      <div className="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto px-3.5 pb-[18px] pt-1">
         {activeTab === 'context' && <ReferencedMemoryTab memories={memories} />}
         {activeTab === 'memory-runtime' && <MemoryRuntimeTab />}
+        {activeTab === 'model' && <ModelConfigTab />}
       </div>
     </aside>
   );

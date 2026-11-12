@@ -12,7 +12,7 @@ interface InlineBlockListProps {
 export default function InlineBlockList({
   blocks,
   isStreaming = false,
-  textClassName = 'text-sm leading-relaxed text-on-surface',
+  textClassName = 'text-sm leading-relaxed text-fg',
   animateLastTextCursor = false,
 }: InlineBlockListProps) {
   let lastTextIdx = -1;

@@ -10,6 +10,7 @@ import { createAgent, saveAgent, deleteAgent } from '@/services/agentApi';
 const DEFAULT_CONFIG: AgentProfileConfig = {
   model_name: 'default',
   temperature: 0.7,
+  top_p: null,
   language: 'zh',
 };
 
@@ -24,12 +25,15 @@ function backendToAgentData(b: BackendAgent): AgentData {
     tags: b.tags ?? [],
     systemPrompt: b.content ?? '',
     model: cfg?.model_name ?? 'default',
-    status: 'Active',
+    status: cfg?.enabled === false ? 'Inactive' : 'Active',
     config: {
       model_name: cfg?.model_name ?? 'default',
       temperature: cfg?.temperature ?? 0.7,
+      top_p: cfg?.top_p ?? null,
       language: cfg?.language ?? 'zh',
     },
+    createdAt: b.created_at,
+    updatedAt: b.updated_at,
   };
 }
 
@@ -84,7 +88,7 @@ export function useAgentManagement() {
       tags: [],
       systemPrompt: '',
       model: 'default',
-      status: 'Inactive',
+      status: 'Active',
       config: { ...DEFAULT_CONFIG },
     };
     setAgents(prev => [newAgent, ...prev]);
@@ -97,11 +101,15 @@ export function useAgentManagement() {
     try {
       if (draftData.id.startsWith('pending_')) {
         const created = await createAgent(draftData);
-        setAgents(prev => prev.map(a => (a.id === draftData.id ? { ...draftData, id: created.id } : a)));
+        setAgents(prev => prev.map(a => (a.id === draftData.id
+          ? { ...draftData, id: created.id, createdAt: created.created_at, updatedAt: created.updated_at }
+          : a)));
         setSelectedId(created.id);
       } else {
         await saveAgent(draftData);
-        setAgents(prev => prev.map(a => (a.id === draftData.id ? draftData : a)));
+        // 保存接口不返回新的时间，以保存成功的时刻显示“最近保存”
+        const saved = { ...draftData, updatedAt: new Date().toISOString() };
+        setAgents(prev => prev.map(a => (a.id === draftData.id ? saved : a)));
       }
       addToast('保存成功', 'success');
     } catch (err) {

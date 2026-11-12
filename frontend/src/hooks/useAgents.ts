@@ -4,13 +4,15 @@ import { DEFAULT_AGENT_ID } from '@/constants/identity';
 import { ApiError, readApiError } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch, localErrorText } from '@/transports/connectionStatus';
 
 export interface AgentProfile {
   id: string;       // alias (used as agent_id in chat)
   name: string;     // title from backend
   description: string;
   avatarIcon: LucideIcon;
-  colorClass: string;
+  /** 停用的 Agent 不出现在对话的选择与 @ 提及中，消息里仍能显示它的名称。 */
+  enabled: boolean;
 }
 
 export interface BackendAgent {
@@ -23,22 +25,43 @@ export interface BackendAgent {
   agent_config?: {
     model_name?: string;
     temperature?: number;
+    top_p?: number | null;
     language?: string;
+    enabled?: boolean;
   } | null;
+  created_at: string;
+  updated_at: string;
 }
 
-const ICON_MAP: Record<string, { icon: LucideIcon; colorClass: string }> = {
-  omni_doll:     { icon: Bot,         colorClass: 'text-primary'     },
-  coder_doll:    { icon: Code2,       colorClass: 'text-blue-400'    },
-  reviewer_doll: { icon: CheckCircle, colorClass: 'text-emerald-400' },
-  designer_doll: { icon: Palette,     colorClass: 'text-pink-400'    },
+/** 内置人偶的图标；颜色只表示状态，Agent 图标一律用主色。 */
+export const AGENT_ICONS: Record<string, LucideIcon> = {
+  omni_doll: Bot,
+  coder_doll: Code2,
+  reviewer_doll: CheckCircle,
+  designer_doll: Palette,
 };
 
-const DEFAULT_ICON = { icon: Bot, colorClass: 'text-slate-400' };
+/** Agent 的图标：内置人偶各有图标，其余用默认图标。 */
+export function agentIcon(alias: string): LucideIcon {
+  return AGENT_ICONS[alias] ?? Bot;
+}
 
 function toAgentProfile(b: BackendAgent): AgentProfile {
-  const { icon, colorClass } = ICON_MAP[b.alias] ?? DEFAULT_ICON;
-  return { id: b.alias, name: b.title, description: b.summary, avatarIcon: icon, colorClass };
+  return {
+    id: b.alias,
+    name: b.title,
+    description: b.summary,
+    avatarIcon: agentIcon(b.alias),
+    enabled: b.agent_config?.enabled !== false,
+  };
+}
+
+/** 消息与选择器中的 Agent：取自 Profile 列表，不在列表中的显示默认图标与 agent_id。 */
+export function resolveChatAgent(agents: AgentProfile[], agentId: string | undefined): AgentProfile {
+  const found = agents.find((a) => a.id === agentId);
+  if (found) return found;
+  const id = agentId || DEFAULT_AGENT_ID;
+  return { id, name: id, description: '', avatarIcon: Bot, enabled: true };
 }
 
 /**
@@ -50,7 +73,7 @@ const BUILTIN_AGENT: AgentProfile = {
   name: '默认全能助手人偶',
   description: '内置的通用助手，无特定人设',
   avatarIcon: Bot,
-  colorClass: 'text-primary',
+  enabled: true,
 };
 
 /** 聊天可选的 Agent：内置图纸固定在首位，后端已有同名图纸时以后端为准。 */
@@ -66,7 +89,7 @@ export function useAgents() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(apiUrl('/api/v1/agents'), { headers: identityHeaders() })
+    backendFetch(apiUrl('/api/v1/agents'), { headers: identityHeaders() })
       .then(async (r) => {
         if (!r.ok) throw await readApiError(r, 'Agent 列表读取失败');
         return r.json();
@@ -77,8 +100,8 @@ export function useAgents() {
       })
       .catch((err) => {
         console.error('[AgentDebug][useAgents] failed to fetch /api/v1/agents', err);
-        // 后端拒绝时它给出的文案就是原因；连不上后端时只能提示检查后端。
-        setFetchError(err instanceof ApiError ? err.message : 'Agent 列表读取失败，请检查后端服务后刷新');
+        // 后端拒绝时它给出的文案就是原因。
+        setFetchError(localErrorText(err instanceof ApiError ? err.message : 'Agent 列表读取失败'));
       })
       .finally(() => setLoading(false));
   }, []);

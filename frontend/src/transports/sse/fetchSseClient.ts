@@ -1,5 +1,6 @@
 import { readApiError } from '@/services/apiError';
 import { SseStreamParser, type ParsedSseEvent } from './parseSse';
+import { backendFetch } from '@/transports/connectionStatus';
 
 export interface FetchSseClientOptions {
   onEvent: (event: ParsedSseEvent) => void;
@@ -14,7 +15,7 @@ export class FetchSseClient {
     this.abortController = new AbortController();
 
     try {
-      const response = await fetch(input, {
+      const response = await backendFetch(input, {
         ...init,
         signal: this.abortController.signal,
       });

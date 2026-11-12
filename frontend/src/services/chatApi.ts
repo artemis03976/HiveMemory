@@ -27,6 +27,7 @@ import type {
   ContextCompactionEvent,
 } from '@/types';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch } from '@/transports/connectionStatus';
 
 export class ChatSSEClient {
   private client = new FetchSseClient();
@@ -46,6 +47,7 @@ export class ChatSSEClient {
       attachments: params.attachments && params.attachments.length > 0
         ? params.attachments
         : undefined,
+      topic_id: params.topic_id,
     };
 
     await this.client.connect(
@@ -167,7 +169,7 @@ export async function stopProcess(processId: string): Promise<void> {
   try {
     // 取消不是 Agent action：只携带 process_id 与基础身份选择；后端以请求认证得到的
     // 身份对进程所在的 Workspace 做 root 授权后取消。
-    response = await fetch(apiUrl('/api/v1/chat/stop'), {
+    response = await backendFetch(apiUrl('/api/v1/chat/stop'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

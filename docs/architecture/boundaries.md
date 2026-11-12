@@ -23,7 +23,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/architecture/data-model.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # 系统边界与所有权
@@ -107,7 +107,7 @@ Gateway 的价值在于把不稳定、可能降级的入口分析收敛为一个
 
 ### 5.1 输入与输出
 
-Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括消息、`IdentityScope`、`GatewayIngressMode`、可选 `request_timeout_ms` 与最近轮次 `session_turns`（每轮只有用户与助手文本，以及该轮实际所在话题的 `topic_id`）；输出为命令终态或普通决策终态。Chat application 通过取消自己创建的 Gateway task 中断调用，不向 Gateway 传递控制句柄。
+Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括消息、`IdentityScope`、`GatewayIngressMode`、可选 `request_timeout_ms`、最近轮次 `session_turns`（每轮只有用户与助手文本，以及该轮实际所在话题的 `topic_id`）与可选的用户指定话题 `designated_topic_id`；输出为命令终态或普通决策终态。Chat application 通过取消自己创建的 Gateway task 中断调用，不向 Gateway 传递控制句柄。
 
 `GatewayDecision` 只表达下游需要的稳定事实：目标话题、查询重写、关键词、记忆写入信号、检索计划和主意图。Workflow 的 step、snapshot、fallback 原因与内部分析对象不越过公共边界。
 
@@ -115,6 +115,7 @@ Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括�
 
 - 候选话题失败：使用空候选集；
 - 话题路由失败：上一轮所在的话题仍在本次候选话题中时续接它，否则选择 `NEW_TOPIC`；
+- 用户指定的话题不在本次候选话题中：不降级，以 `DesignatedTopicUnavailableError` 拒绝这一轮，不替用户改选话题；
 - 已路由话题加载失败：使用空话题上下文；
 - 查询分析失败：保留原始查询，使用 `RAG + HYBRID`；
 - step 投影、状态提交或终态不变量失败：不使用局部 fallback，整个 workflow 失败；

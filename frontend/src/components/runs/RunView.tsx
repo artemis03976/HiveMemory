@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Pause, Play, Terminal, Trash2 } from 'lucide-react';
+import { AlertTriangle, Pause, Play, Trash2 } from 'lucide-react';
+import { PageTitle } from '@/components/common/PageHeader';
+import { useNow } from '@/hooks/useNow';
 import { useChatUiStore, useWorkspaceStore } from '@/stores';
 import { filterRuns, groupRuns } from '@/stores/runs';
 import type { RuntimeEvent } from '@/types/workspace';
@@ -13,15 +15,6 @@ type RunViewTab = 'runs' | 'logs';
 
 /** 进行中的耗时与"未见终态"的判定随时间变化，页面按这个间隔重算。 */
 const CLOCK_TICK_MS = 15_000;
-
-function useNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [intervalMs]);
-  return now;
-}
 
 /** 全局运行页：主视图把运行时事件按一次运行展示，第二个标签是后端日志。 */
 export default function RunView() {
@@ -42,7 +35,7 @@ export default function RunView() {
   };
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-background font-inter text-on-surface">
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-background font-inter text-fg">
       <RunViewHeader tab={tab} onTabChange={setTab} />
       {tab === 'runs' ? (
         <RunsTab onOpenLogs={openRunLogs} />
@@ -76,7 +69,7 @@ function RunViewHeader({ tab, onTabChange }: { tab: RunViewTab; onTabChange: (ta
       aria-selected={tab === value}
       onClick={() => onTabChange(value)}
       className={`rounded-md px-3.5 py-1.5 text-[13px] font-semibold transition-colors ${
-        tab === value ? 'bg-primary/20 text-on-surface' : 'text-slate-400 hover:text-slate-200'
+        tab === value ? 'bg-primary/20 text-fg' : 'text-fg-3 hover:text-fg'
       }`}
     >
       {label}
@@ -84,28 +77,25 @@ function RunViewHeader({ tab, onTabChange }: { tab: RunViewTab; onTabChange: (ta
   );
 
   return (
-    <header className="flex flex-wrap items-center gap-4 border-b border-white/5 bg-surface-container-low px-6 py-3.5">
-      <h1 className="flex items-center gap-3 text-2xl font-black tracking-tighter text-primary drop-shadow-[0_0_12px_rgba(197,154,255,0.3)]">
-        <Terminal className="h-6 w-6" aria-hidden="true" />
-        运行
-      </h1>
-      <div role="tablist" aria-label="运行页标签" className="flex gap-0.5 rounded-lg border border-white/10 bg-background p-0.5">
+    <header className="flex flex-wrap items-center gap-4 border-b border-line bg-surface-container-low px-6 py-3.5">
+      <PageTitle title="运行" size="section" />
+      <div role="tablist" aria-label="运行页标签" className="flex gap-0.5 rounded-lg border border-line bg-background p-0.5">
         {tabButton('runs', '运行')}
         {tabButton('logs', '后端日志')}
       </div>
       <span className="flex-1" />
-      <div className="flex flex-wrap items-center gap-2 text-[12px] text-slate-400">
-        <span className={`h-2 w-2 rounded-full ${connected ? 'bg-magic-wood' : 'bg-slate-500'}`} aria-hidden="true" />
+      <div className="flex flex-wrap items-center gap-2 text-[12px] text-fg-3">
+        <span className={`h-2 w-2 rounded-full ${connected ? 'bg-magic-wood' : 'bg-fg-3'}`} aria-hidden="true" />
         <span>{connectionLabel}</span>
         {tab === 'runs' && (
           <>
-            <span className="text-slate-600">·</span>
+            <span className="text-fg-3">·</span>
             <span>
               缓冲 {runtimeEvents.length} / {ui.maxBufferSize}
             </span>
             {earliest && (
               <>
-                <span className="text-slate-600">·</span>
+                <span className="text-fg-3">·</span>
                 <span>最早 {formatClock(Date.parse(earliest.timestamp))}</span>
               </>
             )}
@@ -119,7 +109,7 @@ function RunViewHeader({ tab, onTabChange }: { tab: RunViewTab; onTabChange: (ta
         <button
           type="button"
           onClick={togglePause}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-surface-container px-3 text-[12px] text-slate-300 hover:bg-surface-container-high"
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface-container px-3 text-[12px] text-fg-2 hover:bg-surface-container-high"
         >
           {ui.isPaused ? <Play className="h-3.5 w-3.5" aria-hidden="true" /> : <Pause className="h-3.5 w-3.5" aria-hidden="true" />}
           {ui.isPaused ? '继续' : '暂停'}
@@ -128,7 +118,7 @@ function RunViewHeader({ tab, onTabChange }: { tab: RunViewTab; onTabChange: (ta
           type="button"
           onClick={tab === 'runs' ? clearRuntimeEvents : clearLogs}
           title="只清空本页显示，不影响后端缓冲"
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-surface-container px-3 text-[12px] text-slate-300 hover:bg-surface-container-high"
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-line bg-surface-container px-3 text-[12px] text-fg-2 hover:bg-surface-container-high"
         >
           <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
           清空
@@ -164,8 +154,8 @@ function RunsTab({ onOpenLogs }: { onOpenLogs: (traceId: string) => void }) {
 
   if (connection.status === 'disabled') {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-slate-400">
-        <p className="text-[14px] font-semibold text-slate-200">运行时事件未启用</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-fg-3">
+        <p className="text-[14px] font-semibold text-fg">运行时事件未启用</p>
         <p className="text-[12px]">
           在 <code className="font-mono text-primary-light">configs/config.yaml</code> 中打开{' '}
           <code className="font-mono text-primary-light">runtime_events.enabled</code>；后端日志标签照常可用。
@@ -194,7 +184,7 @@ function RunsTab({ onOpenLogs }: { onOpenLogs: (traceId: string) => void }) {
       <div className="flex min-h-0 flex-1">
         <section
           aria-label="运行列表"
-          className={`min-h-0 w-[380px] shrink-0 border-r border-white/5 bg-surface-container-low max-[900px]:w-full max-[900px]:border-r-0 ${
+          className={`min-h-0 w-[380px] shrink-0 border-r border-line bg-surface-container-low max-[900px]:w-full max-[900px]:border-r-0 ${
             selected ? 'max-[900px]:hidden' : ''
           }`}
         >

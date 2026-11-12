@@ -128,11 +128,14 @@ def preparation_error_response(
             MTPErrorSeverity.AGENT_FAULT,
         )
     elif isinstance(error, ProfileResolutionError):
-        code, key = (
-            ("mtp.memory.type_mismatch", "mtp.call.profile_type_mismatch")
-            if error.details["reason"] == "type_mismatch"
-            else ("mtp.argument.invalid", "mtp.call.profile_invalid")
-        )
+        reason = error.details["reason"]
+        if reason == "type_mismatch":
+            code, key = ("mtp.memory.type_mismatch", "mtp.call.profile_type_mismatch")
+        elif reason == "profile_disabled":
+            # 停用的子 Agent 对调用方而言就是当前不可用，提示改用其他子 Agent。
+            code, key = ("mtp.permission.denied", "mtp.call.agent_unavailable")
+        else:
+            code, key = ("mtp.argument.invalid", "mtp.call.profile_invalid")
         severity = MTPErrorSeverity.AGENT_FAULT
     elif stage == "frame":
         return error_response(agent_alias, sub_agent_error_info(agent_alias, error))

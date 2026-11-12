@@ -11,11 +11,11 @@ import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import type { Topic } from '@/types';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch } from '@/transports/connectionStatus';
 
 export interface ApiTopicSnapshot {
   topic_id: string;
   topic_title?: string;
-  title?: string;
   topic_summary?: string;
   state_summary?: string;
   last_turn?: { user: string; assistant: string } | null;
@@ -31,22 +31,21 @@ interface ActiveTopicListResponse {
 }
 
 export function mapTopic(raw: ApiTopicSnapshot): Topic {
-  const title = raw.topic_title || raw.title || raw.topic_id;
-
   return {
     id: raw.topic_id,
-    title,
-    summary: raw.state_summary || raw.topic_summary || undefined,
-    // 从后端 model_used 字段读取真实使用的模型名，未设置时回落到默认文本
-    model: raw.model_used || 'Unknown',
+    title: raw.topic_title ?? '',
+    topicSummary: raw.topic_summary || undefined,
+    stateSummary: raw.state_summary || undefined,
+    lastTurn: raw.last_turn ?? undefined,
+    model: raw.model_used || undefined,
     lastActive: raw.last_update * 1000,
-    messageCount: raw.block_count ?? 0,
+    blockCount: raw.block_count ?? 0,
     totalTokens: raw.total_tokens ?? 0,
   };
 }
 
 export async function fetchTopics(): Promise<Topic[]> {
-  const res = await fetch(apiUrl('/api/v1/topics'), {
+  const res = await backendFetch(apiUrl('/api/v1/topics'), {
     headers: identityHeaders(),
   });
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'fetchTopics failed'));
@@ -55,7 +54,7 @@ export async function fetchTopics(): Promise<Topic[]> {
 }
 
 export async function settleTopic(topicId: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/v1/topics/${encodeURIComponent(topicId)}/settle`), {
+  const res = await backendFetch(apiUrl(`/api/v1/topics/${encodeURIComponent(topicId)}/settle`), {
     method: 'POST',
     headers: identityHeaders(),
   });
@@ -63,7 +62,7 @@ export async function settleTopic(topicId: string): Promise<void> {
 }
 
 export async function deleteTopic(topicId: string): Promise<void> {
-  const res = await fetch(apiUrl(`/api/v1/topics/${encodeURIComponent(topicId)}`), {
+  const res = await backendFetch(apiUrl(`/api/v1/topics/${encodeURIComponent(topicId)}`), {
     method: 'DELETE',
     headers: identityHeaders(),
   });

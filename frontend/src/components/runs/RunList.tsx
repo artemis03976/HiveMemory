@@ -65,29 +65,29 @@ export default function RunList({ runs, allRuns, filters, onFiltersChange, selec
         type="button"
         aria-pressed={active}
         onClick={() => onFiltersChange({ kind: key })}
-        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
           active
-            ? 'border-primary/50 bg-primary/15 text-on-surface'
-            : 'border-white/10 bg-surface-container text-slate-300 hover:bg-surface-container-high'
+            ? 'border-primary/50 bg-primary/15 text-fg'
+            : 'border-line bg-surface-container text-fg-2 hover:bg-surface-container-high'
         }`}
       >
         <Icon className="h-3 w-3" aria-hidden="true" />
         <span>{label}</span>
-        <span className="font-normal text-slate-500">{count}</span>
+        <span className="font-normal text-fg-3">{count}</span>
       </button>
     );
   };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-col gap-2.5 border-b border-white/5 px-4 pb-3 pt-4">
+      <div className="flex flex-col gap-2.5 border-b border-line px-4 pb-3 pt-4">
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="按种类筛选">
           {chip('all', '全部', List, allRuns.length)}
           {KIND_ORDER.map((kind) =>
             chip(kind, KIND_META[kind].label, KIND_META[kind].icon, allRuns.filter((run) => run.kind === kind).length),
           )}
         </div>
-        <div className="flex items-center gap-4 text-[12px] text-slate-400">
+        <div className="flex items-center gap-4 text-[12px] text-fg-3">
           <label className="flex cursor-pointer items-center gap-1.5">
             <input
               type="checkbox"
@@ -109,13 +109,13 @@ export default function RunList({ runs, allRuns, filters, onFiltersChange, selec
         </div>
         <label className="relative block">
           <span className="sr-only">按 trace、task、话题或 agent 筛选</span>
-          <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+          <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-fg-3" aria-hidden="true" />
           <input
             type="search"
             value={filters.query}
             onChange={(event) => onFiltersChange({ query: event.target.value })}
             placeholder="按 trace、task、话题或 agent 筛选"
-            className="w-full rounded-lg border border-white/10 bg-surface-container-lowest py-1.5 pl-8 pr-2 text-[12px] text-on-surface placeholder:text-slate-500 focus:border-primary/50 focus:outline-none"
+            className="w-full rounded-lg border border-line bg-surface-container-lowest py-1.5 pl-8 pr-2 text-[12px] text-fg placeholder:text-fg-3 focus:border-primary/50 focus:outline-none"
           />
         </label>
       </div>
@@ -125,7 +125,7 @@ export default function RunList({ runs, allRuns, filters, onFiltersChange, selec
           <button
             type="button"
             onClick={backToTop}
-            className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-primary/40 bg-surface-container-highest px-3 py-1 text-[11px] font-semibold text-primary-light shadow-lg"
+            className="absolute left-1/2 top-2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-primary/40 bg-surface-container-highest px-3 py-1 text-xs font-semibold text-primary-light shadow-lg"
           >
             <ArrowUp className="h-3 w-3" aria-hidden="true" />
             {newRunCount} 个新运行
@@ -150,7 +150,7 @@ export default function RunList({ runs, allRuns, filters, onFiltersChange, selec
             />
           ))}
           {runs.length === 0 && (
-            <p className="px-3 py-8 text-center text-[12px] text-slate-500">
+            <p className="px-3 py-8 text-center text-[12px] text-fg-3">
               {allRuns.length === 0 ? '缓冲中还没有事件' : '没有符合筛选条件的运行'}
             </p>
           )}
@@ -181,22 +181,22 @@ function RunRow({ run, selected, onSelect, now }: { run: Run; selected: boolean;
       }`}
     >
       <span
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-white/5 bg-surface-container-high"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-line bg-surface-container-high"
         title={kind.label}
       >
-        <KindIcon className="h-3.5 w-3.5 text-slate-300" aria-hidden="true" />
+        <KindIcon className="h-3.5 w-3.5 text-fg-2" aria-hidden="true" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-center gap-2">
-          <span className="truncate text-[13px] font-semibold text-on-surface">{run.title}</span>
+          <span className="truncate text-[13px] font-semibold text-fg">{run.title}</span>
           <span className="flex-1" />
-          <span className={`flex shrink-0 items-center gap-1.5 text-[11px] font-semibold ${status.text}`}>
+          <span className={`flex shrink-0 items-center gap-1.5 text-xs font-semibold ${status.text}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden="true" />
             {status.label}
           </span>
         </span>
-        {run.subtitle && <span className="truncate text-[12px] text-slate-400">{run.subtitle}</span>}
-        <span className="flex gap-2.5 font-mono text-[11px] text-slate-500">
+        {run.subtitle && <span className="truncate text-[12px] text-fg-3">{run.subtitle}</span>}
+        <span className="flex gap-2.5 font-mono text-xs text-fg-3">
           <span title={formatFullTime(run.startedAt)}>{formatClock(run.startedAt)}</span>
           <span>{runDuration(run, now)}</span>
           <span>{run.events.length} 条事件</span>

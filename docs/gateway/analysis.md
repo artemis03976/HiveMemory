@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # Gateway 话题与查询分析
@@ -65,6 +65,8 @@ Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tup
 话题路由失败（能力错误、步骤超时或整次请求 deadline 在这一步耗尽）时，workflow 的兜底是续接上一轮：`session_turns` 最近一轮的 `topic_id` 仍在本次候选话题中时，路由到该话题，标题与摘要为空；会话的第一轮、上一轮所在的话题未知、该话题已被驱逐或结算而不在候选中，或候选话题读取本身已降级为空时，按 `NEW_TOPIC`（标题与摘要为空）兜底。同一会话的相邻轮次大多仍在同一话题上，续接比每次失败都新建无标题话题归错的代价小；代价是用户恰在故障期间换话题时，这一轮会被归入旧话题。只认候选中的话题，保证兜底不会落到已经不存在的话题上。这一兜底在 Gateway 内实现，任务进程与 Import Bus 共用。
 
 用户消息去掉空白后为空时，workflow 不调用 Topic Router，按同样的判定续接上一轮仍在候选中的话题，否则新建话题，标题与摘要为空。这样的轮次来自外部 harness：agent 空闲时被后台任务的完成通知、子 Agent 交回的报告或宿主事件唤醒后的续作（[Import Bus](../system/import-bus.md#83-轮次的切分与映射)第 8.3 节），dsh 中被子 Agent 结算通知开启的轮次与 pi 中由其他扩展的消息开始的运行也是如此。空输入没有可供模型判断的内容，交给模型时它多半会新建话题，后台通知与 Monitor 事件因此会各占一个话题；而续作几乎总在处理上一轮发起的工作。这条规则不是降级，步骤不标记为 fallback；导入与写入时确定话题都经过它，续作中的写入与回流落在同一个话题。
+
+用户为这一轮指定了话题（chat 请求的 `topic_id`）时，workflow 先于上述规则处理，同样不调用 Topic Router：指定的话题在候选中就直接取用，否则这一轮以 `gateway.topic.designated_unavailable` 失败，不走续接上一轮的兜底（[固定工作流](./workflow.md#22-decision-前缀)第 2.2 节）。
 
 当 Topic Router 配置为禁用时，Engine 不调用模型，正常返回默认 `NEW_TOPIC`；这不是失败，不走兜底，也就不续接上一轮。当它启用但没有 LLM 服务或 Gateway 请求参数（组件未配置模型）时，Engine 报告能力不可用，workflow 走上述兜底。两条路径的观测原因不同，业务结果也可能不同。
 
@@ -171,7 +173,7 @@ WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限�
 ## 9. 验证入口
 
 - `tests/unit/gateway/test_context_provider.py`
-- `tests/unit/gateway/test_workflow.py`（话题路由失败或用户消息为空时续接上一轮）
+- `tests/unit/gateway/test_workflow.py`（话题路由失败或用户消息为空时续接上一轮；指定的话题在候选中时直接取用，不在时拒绝、不走兜底）
 - `tests/unit/gateway/test_analysis_resolver.py`
 - `tests/unit/engines/gateway/test_topic_router.py`
 - `tests/unit/engines/gateway/test_query_understanding.py`

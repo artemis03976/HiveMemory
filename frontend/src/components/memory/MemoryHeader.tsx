@@ -1,4 +1,5 @@
-import { Database, Plus, AlertCircle } from 'lucide-react';
+import { Plus, AlertCircle } from 'lucide-react';
+import PageHeader from '@/components/common/PageHeader';
 
 interface MemoryHeaderProps {
   totalMemories: number;
@@ -10,26 +11,19 @@ interface MemoryHeaderProps {
 
 export default function MemoryHeader({ totalMemories, loadedMemories, warnings, onNewMemory }: MemoryHeaderProps) {
   return (
-    <header className="flex items-center justify-between px-8 py-6 border-b border-white/5 bg-surface/30 backdrop-blur-md z-10 shrink-0">
-      <div>
-        <h1 className="text-2xl font-black tracking-tighter text-primary drop-shadow-[0_0_12px_rgba(197,154,255,0.3)] flex items-center gap-3">
-          <Database className="w-6 h-6" />
-          记忆图书馆
-        </h1>
-        <p className="text-sm text-slate-400 mt-1 font-medium">系统记忆库管理终端</p>
-      </div>
+    <PageHeader title="记忆图书馆" description="帕秋莉保管的长期记忆，以及对话中尚未结算的短期话题">
 
       {/* Garden Stats */}
-      <div className="flex items-center gap-6 text-xs font-mono text-slate-400 bg-black/20 px-4 py-2 rounded-xl border border-white/5">
+      <div className="flex items-center gap-6 text-xs font-mono text-fg-3 bg-field px-4 py-2 rounded-xl border border-line">
         <div className="flex items-center gap-2">
-          <span className="text-slate-500 uppercase tracking-widest text-[12px]">记忆总数</span>
+          <span className="text-fg-3 text-[12px]">记忆总数</span>
           <span className="text-primary font-bold">{totalMemories.toLocaleString()}</span>
           {loadedMemories < totalMemories && (
-            <span className="text-amber-400">（已加载 {loadedMemories.toLocaleString()}）</span>
+            <span className="text-magic-metal">（已加载 {loadedMemories.toLocaleString()}）</span>
           )}
         </div>
-        <div className="w-px h-4 bg-white/10" />
-        <div className={`flex items-center gap-2 ${warnings > 0 ? 'text-red-400' : 'text-slate-500'}`}>
+        <div className="w-px h-4 bg-ink/10" />
+        <div className={`flex items-center gap-2 ${warnings > 0 ? 'text-magic-fire' : 'text-fg-3'}`}>
           <AlertCircle className="w-3.5 h-3.5" />
           <span>{warnings} 冲突警告</span>
         </div>
@@ -37,11 +31,11 @@ export default function MemoryHeader({ totalMemories, loadedMemories, warnings, 
 
       <button 
         onClick={onNewMemory}
-        className="flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl border border-primary/30 transition-all shadow-[0_0_15px_rgba(197,154,255,0.2)] hover:shadow-[0_0_25px_rgba(197,154,255,0.4)] group"
+        className="flex h-9 items-center gap-1.5 rounded-xl bg-brand px-4 text-sm font-semibold text-white shadow-glow transition-transform active:scale-95"
       >
-        <Plus className="w-4 h-4 transition-transform group-hover:rotate-90 duration-300" />
-        <span className="text-sm font-bold tracking-wide">注入记忆</span>
+        <Plus className="h-4 w-4" />
+        注入记忆
       </button>
-    </header>
+    </PageHeader>
   );
 }

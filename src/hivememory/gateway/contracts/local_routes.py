@@ -29,6 +29,7 @@ class GatewayLocalRoutes:
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
         session_turns: tuple[GatewaySessionTurn, ...] = (),
+        designated_topic_id: str | None = None,
     ) -> GatewayProcessResult:
         """把一次 Gateway 请求完整委托给 Runtime 持有的 workflow。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。

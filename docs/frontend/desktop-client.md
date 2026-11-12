@@ -7,6 +7,7 @@ code_paths:
   - desktop/src/main.js
   - desktop/src/services.js
   - desktop/src/layout.js
+  - desktop/src/starting.html
   - desktop/scripts/package.mjs
   - src/hivememory/server/__main__.py
   - src/hivememory/server/management_credential.py
@@ -18,7 +19,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/system/configuration.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-11
 ---
 
 # 桌面客户端
@@ -55,6 +56,8 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 6. 等后端能响应 `/health`，把凭据放进窗口的内存会话，再等推理模型就绪（第 7 节），然后加载后端页面。
 
 后端与 Qdrant 以 detached 子进程启动：非 detached 的子进程会被放进随主进程结束而结束的 job，主进程被强制结束时，后端会在关闭中途被杀掉。后端用不带控制台的 `pythonw.exe`：venv 的 `python.exe` 只是转发器，detached 的转发器没有控制台，Windows 会给真正的解释器新开一个空的控制台窗口，用户关掉它时后端立即被结束。
+
+**启动页与窗口**：加载后端页面之前，窗口显示本地的启动页 `desktop/src/starting.html`，由主进程改写其中的状态文字（启动 Qdrant 与后端、等待推理模型，第 7 节）。启动页用与前端相同的深浅两套配色，随 Windows 的深浅色设置切换，不读取页面中保存的主题选择；带品牌标记与进度条，减少动效时进度条停止移动。标题用 Manrope：安装版取打包时复制进程序的文件（第 8 节），用 checkout 运行时取 `frontend/node_modules` 中的同一个文件，两处都没有时回退到系统字体。窗口最小为 1024×640：再小时对话页放不下，右栏与会话列表都已收为抽屉，中间栏仍需 560px。
 
 **关窗与退出**：关窗只隐藏到托盘。从托盘退出时：先销毁窗口（页面持有的事件流与 WebSocket 会让后端等待它们关闭），再关闭后端的 stdin，后端读到 stdin 结束时走与 Ctrl+C 相同的正常关闭；等后端退出后结束 Qdrant。后端退出不设时限、不强制结束。正常关闭只结算话题、不做生成，未执行的生成工作保存到磁盘，通常几秒内完成（[记忆生成](../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)）。Qdrant 先写 WAL 再确认写入，直接结束后下次启动能够恢复。
 
@@ -130,6 +133,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 - **Python**：uv 管理的独立 CPython（与仓库 `.venv` 同版本），安装在 `desktop\.cache\python`，不写入用户的 uv 目录、PATH 与注册表。锁定的运行依赖由 `uv export --frozen --no-dev` 导出，直接装进这个解释器，不建 venv：venv 记录基础解释器的绝对路径，无法随安装位置移动。
 - **后端与前端**：后端源码按仓库布局放在 `resources\backend`，经 `PYTHONPATH` 导入，不安装成包，按源码位置找到随程序发布的配置与前端；打包前构建前端。
+- **启动页字体**：electron-builder 的 `files` 把前端依赖 `@fontsource-variable/manrope` 中的字体文件复制到程序内启动页旁的 `fonts`，与前端打包进页面的是同一个文件，启动页不另带字体副本。
 - **Qdrant**：取自开发环境 `.hivememory\dev.env` 的 `QDRANT_BIN`，与开发时同一个版本。
 - **安装包**：electron-builder 生成按用户安装的 NSIS 安装包，默认装在 `%LOCALAPPDATA%\Programs\HiveMemory`，版本号取自 `_version.py`。
 
@@ -153,11 +157,12 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 - 模型只从 HuggingFace 下载，没有镜像或离线包；网络不通时首次启动无法完成。
 - Qdrant 跨小版本的升级策略还没有定，随包的 Qdrant 与已有数据同为 1.19.x。
 - 管理凭据留在主进程与后端的内存中，同一系统用户读取进程内存仍能拿到；harness 接入凭据只防误用。
+- 窗口的会话分区不落盘（第 4 节），页面保存在浏览器存储中的界面偏好（主题、Chat 两栏的收起、视图与筛选、当前会话与 Agent 的选择）只在一次运行内有效，重启桌面客户端后回到缺省值；保存在后端的数据不受影响。主题的持久化与自定义背景一起处理，见 [Todo](../todo/custom-background-and-preference-persistence.md)。
 - 桌面主进程没有自动化测试，打包与安装行为以手动验收为准。
 
 ## 11. 代码与测试入口
 
-- 主进程与服务管理：`desktop/src/main.js`、`desktop/src/services.js`、`desktop/src/layout.js`；打包：`desktop/scripts/package.mjs`。
+- 主进程与服务管理：`desktop/src/main.js`、`desktop/src/services.js`、`desktop/src/layout.js`；启动页：`desktop/src/starting.html`；打包：`desktop/scripts/package.mjs`。
 - 后端桌面模式、删除记忆数据的一次性模式：`src/hivememory/server/__main__.py`，测试 `tests/unit/server/test_main.py`；凭据：`server/management_credential.py`，测试 `tests/unit/server/test_management_credential.py`、`tests/unit/server/routers/test_app_lifespan.py`。
 - 数据根：`src/hivememory/config/files.py`，测试 `tests/unit/system/test_access_registration_files.py`、`tests/unit/system/test_config_agent_runtime.py`。
 - 预设 Agent：门面 `system/system.py`，Patchouli `application/agent_profile_management_service.py`，测试 `tests/unit/system/test_hivememory_system.py`、`tests/unit/patchouli/application/test_agent_profile_management_service.py`。

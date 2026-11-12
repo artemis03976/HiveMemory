@@ -15,6 +15,7 @@ code_paths:
   - src/hivememory/core/mtp/models.py
   - src/hivememory/core/mtp/formatter.py
   - src/hivememory/core/protocol/gateway.py
+  - src/hivememory/gateway/errors.py
   - src/hivememory/system/services/import_bus/errors.py
   - src/hivememory/components/bus/async_bus.py
   - src/hivememory/system/access/
@@ -30,7 +31,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-11
 ---
 
 # 跨边界错误模型
@@ -182,9 +183,12 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 
 - 外层 task cancellation：由 Chat application 取消 Gateway child task，原生 `asyncio.CancelledError` 直接传播；
 - `GatewayTimeoutError`：总 deadline 无法形成完整终态；
-- workflow 内部不变量或 step 投影失败：保留原异常并发布 failed RuntimeEvent。
+- workflow 内部不变量或 step 投影失败：保留原异常并发布 failed RuntimeEvent；
+- `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，`gateway/errors.py`）：用户为这一轮指定的话题（chat 请求的 `topic_id`）已不在本次候选话题中，例如已结算或被驱逐，`details` 带 `topic_id`。
 
 局部 invoke 的 timeout 或 `RecoverableGatewayError` 可以使用该 step 声明的 fallback。其他异常、投影错误和状态不变量错误不属于可恢复调用失败。
+
+指定话题不可用是对用户选择的受控拒绝，不是能力失败：它是 Workspace 领域错误，不进入话题路由续接上一轮的兜底，否则这一轮会悄悄落到用户没有选的话题上。任务进程在 Gateway 阶段以它失败收口，不进入 PREPARE、不提交、不写会话；SSE `error` 事件的 `code` 与 `chat.run.failed` 的 `reason` 都是这个错误码，前端据此提示话题已结算或不在短期话题池中、请重新选择（[Gateway 工作流](../gateway/workflow.md#22-decision-前缀)）。Import Bus 不指定话题，不会遇到它。
 
 Gateway Context Provider 只包装 `StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`；超时直接交给 workflow。两个分析 Engine 只把 `ModelProviderError`（含超窗）与 `JSONParseError`/显式输出校验失败转换为能力错误；SDK 异常由 LLM 服务在边界转换（第 4.6 节），引擎不识别 SDK 类型。JSON 输出要求只在 SDK 明确报告不支持该参数时去掉格式参数再请求一次，其他失败直接传播。缺失 route、参数接线、投影和未知程序错误不会进入局部 fallback。
 
@@ -268,7 +272,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少对应操作时抛 `OperationDeniedError`（`operation_not_allowed`）——READ 与 CALL 的 `context_refs` 缺少 `memory.read`、SEARCH 缺少 `memory.search`、RUN 的记忆目标缺少 `memory.run`、WRITE 缺少 `memory.write`、UPDATE 缺少 `memory.update`、CALL 目标读取缺少 `agent.call`（包括内置目标）；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 
-CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧的子工作 actor 准入抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。子线程试图再派生抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`；冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`（见下文）。
+CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧的子工作 actor 准入抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用，建议改用其他子 Agent 或不调用子 Agent 继续），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。目标 Profile 已停用时，准入之前的图纸解析即以 `ProfileResolutionError`（`profile_disabled`，第 4.5 节）拒绝，Alice 映射为同一组 code 与文案键：对调用方而言，停用的子 Agent 同样是当前不可用。子线程试图再派生抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`；冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`（见下文）。
 
 线程已结束时，操作入口、CALL 派生与 actor API 的同步段抛 `ThreadEndedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread.ended`）：线程已结束（子线程随 CALL 返回，或 Actor 阶段收尾），所属进程已收到停止，或进程已经关闭、线程句柄指向的进程已不在进程表中，都属于这一种生命周期拒绝，六项 actor 操作得到同一种错误。未知请求类型（包括请求级提交收到它不开放的请求类型，或派发话题的回调与请求类型不符）抛 `TypeError`，是接线违规；两者都与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程结束呈现为 `mtp.system.fault`，文案键 `mtp.system.thread_ended`：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。线程结束只是同步标记，不取消其他在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 取得派发话题时先判定线程存活，在授权、基础校验与取得派发话题之后、登记之前的同步段再解析一次线程，跨越线程结束或停止时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
 
@@ -301,7 +305,7 @@ Memory 领域模型的 `validate_assignment` 使构造与就地赋值执行同�
 
 存储适配器仅将已知 SDK/连接故障转换为 `StorageOfflineError`（`storage.offline`）、`StorageReadError`（`storage.read_failed`）或 `StorageWriteError`（`storage.write_failed`），保留操作上下文与 cause。检索故障不返回空成功；写入故障不证明副作用未发生。局部模型、payload 解码与程序异常不冒充离线，取消原样传播。
 
-Profile 缺失和不可见统一隐藏为 `ResourceNotFoundError`；已找到但类型/配置不适用时为 `ProfileResolutionError`，reason 仅为 `type_mismatch` / `invalid_config`，必须携带 `agent_alias`。CALL 在出口转为既有 MTP 类别，CPU 分配按失败收尾，两者都不回退默认 Profile。`ProfileResolutionError` 是 Workspace 领域错误：chat 中 SSE `error` 事件的 `code` 与 `chat.run.failed` 的 `reason` 都是 `patchouli.profile.resolution_failed`，原因在事件的 `data.error_reason`，不按系统错误呈现。
+Profile 缺失和不可见统一隐藏为 `ResourceNotFoundError`；已找到但类型/配置不适用或已停用时为 `ProfileResolutionError`，reason 仅为 `type_mismatch` / `invalid_config` / `profile_disabled`（`AgentProfile.enabled` 为假），必须携带 `agent_alias`。CALL 在出口转为既有 MTP 类别（停用映射为目标不可用，第 4.4 节），CPU 分配按失败收尾，两者都不回退默认 Profile。`ProfileResolutionError` 是 Workspace 领域错误：chat 中 SSE `error` 事件的 `code` 与 `chat.run.failed` 的 `reason` 都是 `patchouli.profile.resolution_failed`，原因在事件的 `data.error_reason`，不按系统错误呈现。
 
 Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明确的容量/停止接纳使用 `TopicSettleAdmissionError`。任务进程的交互提交没有跨过成功边界时，进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败：`stage` 为 `interaction_admission` 时接纳被拒，`reason` 取 `capacity_rejected` / `queue_stopped`；为 `interaction_apply` 时接纳后没有应用成功，`reason` 为 `apply_failed`（异常类名放在诊断字段 `error_class`），不设时限的等待停在应用之前只会因队列停止，`reason` 为 `queue_stopped`。其他提交异常原样传播，不能据此声称没有副作用。交互没有应用成功时（含提交异常），会话仍保存这一轮，话题为空；进程按失败收口。这个错误是 `workspace.contracts.errors` 中的 Workspace 领域错误：`stage`、`reason` 与 `error_class` 在 `details` 中，`chat.run.failed` 的 `reason` 与 SSE `error` 事件的 `code` 都是 `patchouli.interaction.finalization_failed`，前端据此提示会话已保存这一轮、记忆没有提交成功。生成任务的明确拒绝仅覆盖接纳前 codec、lane、容量与停止错误；任意 TypeError/ValueError、重复任务或未知队列失败保留 UNKNOWN 与原句柄结算权。
 
@@ -384,7 +388,7 @@ SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP sta
 5. 为重试/取消/降级边界增加测试；
 6. 同步更新[MTP 契约](./mtp.md)和调用方文档。
 
-验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/infrastructure/test_litellm_service.py`、`tests/unit/engines/generation/test_extractor.py`、`tests/unit/gateway/test_workflow.py`、`tests/unit/system/services/import_bus/`、`tests/unit/server/routers/test_import_bus.py`、`tests/unit/server/test_error_handlers.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/infrastructure/test_litellm_service.py`、`tests/unit/engines/generation/test_extractor.py`、`tests/unit/gateway/test_workflow.py`、`tests/unit/alice/orchestration/call/test_response.py`、`tests/unit/patchouli/services/test_profile_resolution.py`、`tests/unit/system/services/import_bus/`、`tests/unit/server/routers/test_import_bus.py`、`tests/unit/server/test_error_handlers.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。
 
 
 ## 10. v0.7.0 兼容迁移

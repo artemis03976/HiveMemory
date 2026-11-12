@@ -1,56 +1,50 @@
 import { AnimatePresence, motion } from 'motion/react';
 import { useToastStore } from '@/stores';
-import { CheckCircle, AlertCircle, Info, AlertTriangle, X } from 'lucide-react';
+import { Check, X, Info, AlertTriangle } from 'lucide-react';
 
+/** 右上角、页面头部之下的提示，不压住页面标题；错误提示带关闭按钮。 */
 export default function DynamicToast() {
   const { toasts, removeToast } = useToastStore();
 
   return (
-    <div className="fixed top-6 left-1/2 -translate-x-1/2 z-100 flex flex-col items-center gap-3 pointer-events-none">
+    <div className="pointer-events-none fixed right-6 top-20 z-100 flex flex-col items-end gap-2" role="status" aria-live="polite">
       <AnimatePresence>
         {toasts.map((toast) => {
-          const Icon = 
-            toast.type === 'success' ? CheckCircle :
-            toast.type === 'error' ? AlertCircle :
-            toast.type === 'warning' ? AlertTriangle : 
+          const Icon =
+            toast.type === 'success' ? Check :
+            toast.type === 'error' ? X :
+            toast.type === 'warning' ? AlertTriangle :
             Info;
-          
-          const iconColor = 
-            toast.type === 'success' ? 'text-magic-wood' :
-            toast.type === 'error' ? 'text-magic-fire' :
-            toast.type === 'warning' ? 'text-magic-metal' :
-            'text-magic-water';
+
+          const tone =
+            toast.type === 'success' ? 'bg-magic-wood/15 text-magic-wood' :
+            toast.type === 'error' ? 'bg-magic-fire/15 text-magic-fire' :
+            toast.type === 'warning' ? 'bg-magic-metal/15 text-magic-metal' :
+            'bg-magic-water/15 text-magic-water';
 
           return (
             <motion.div
               key={toast.id}
               layout
-              initial={{ opacity: 0, y: -40, scale: 0.8 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20, scale: 0.9 }}
-              transition={{ 
-                type: 'spring', 
-                stiffness: 500, 
-                damping: 30, 
-                mass: 2 
-              }}
-              className="pointer-events-auto flex items-center gap-3 px-4 py-3 min-w-75 max-w-md rounded-full shadow-2xl backdrop-blur-xl bg-surface/90 border border-white/10 group cursor-default"
+              initial={{ opacity: 0, x: 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 24 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 36 }}
+              className="pointer-events-auto flex max-w-md min-w-72 items-center gap-2.5 rounded-xl border border-line-strong bg-surface-container px-3 py-2.5 shadow-pop"
             >
-              <div className={`shrink-0 ${iconColor} bg-white/5 p-1.5 rounded-full`}>
-                <Icon className="w-4 h-4" />
-              </div>
-              
-              <span className="flex-1 text-sm font-medium tracking-wide text-on-surface line-clamp-2">
-                {toast.message}
+              <span className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full ${tone}`}>
+                <Icon className="h-3.5 w-3.5" strokeWidth={2.6} />
               </span>
-
-              <button
-                onClick={() => removeToast(toast.id)}
-                className="shrink-0 p-1.5 rounded-full text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-white/10 hover:text-white transition-all duration-200"
-                aria-label="关闭提示"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+              <span className="line-clamp-2 flex-1 text-sm text-fg">{toast.message}</span>
+              {toast.type === 'error' && (
+                <button
+                  onClick={() => removeToast(toast.id)}
+                  className="shrink-0 rounded-md p-1 text-fg-3 transition-colors hover:bg-ink/10 hover:text-fg"
+                  aria-label="关闭提示"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </motion.div>
           );
         })}

@@ -24,7 +24,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-11
 ---
 
 # 多 Agent 编排
@@ -110,7 +110,7 @@ current frame emits CALL
 
 ### 3.1 Profile 解析
 
-未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 对当前 verb/tool 使用显式白名单，因此后续新增能力不会自动穿透 fallback 边界。
+未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 和其他 Profile 一样不携带权限，frame 可用的 verb 只由执行线程的操作快照决定，操作快照取自访问登记的白名单；因此后续新增能力不会因为使用内置 Profile 而自动可用。
 
 所有 alias，包括未指定、`default` 与 `omni_doll`，都由 CallContextProvider 经调用方句柄的 `derive_child` 提交 `DeriveCallThreadRequest`：workspace 的操作入口以调用方的线程授权 `agent.call` 并解析目标图纸，再由线程表以被调用方（Profile 的 `agent_id`，内置图纸为 `omni_doll`）做 Workspace 准入、派生并登记子线程；CPU 驱动把子线程绑定为它自己的句柄，CallContextProvider 只拿到该句柄，它交出的子线程描述包含目标 Profile、被调用方的操作快照与被调用方的观测标签。`context_refs` 另以调用方的 READ 请求逐项解析，需要调用方的 `memory.read`，仅缺失引用或明确的冷读依赖故障被跳过，授权、线程结束与程序错误传播到 CALL 出口，已派生的子线程随之结束。读取视图统一承担 Profile 解析、Workspace/alias 坐标定位、当前 actor 命中重验与 canonical 源变更失效。Patchouli 作为 Profile atom 所有者执行 Workspace ownership 和资源 policy 校验，再解析 persona、模型与语言。Alice 不保存另一份 Profile cache；管理入口修改源原子后，下一次 CALL 会通过失效视图读取新配置。子 frame 的 `FrameExecutionPolicy` 按每次 CALL 由被调用方的操作快照翻译后去掉 CALL 得到，不从 Profile 派生，也不进入 cache。
 
@@ -123,6 +123,7 @@ current frame emits CALL
 | alias 不存在或源原子不可见 | `mtp.alias.not_found` | `mtp.call.profile_not_found` |
 | 缺少 `agent.call` 操作授权 | `mtp.permission.denied` | `mtp.permission.verb_denied` |
 | alias 类型不符 / Profile 配置无效 | `mtp.memory.type_mismatch` / `mtp.argument.invalid` | `mtp.call.profile_type_mismatch` / `mtp.call.profile_invalid` |
+| Profile 已停用，或被调用方在本 Workspace 没有准入 | `mtp.permission.denied` | `mtp.call.agent_unavailable` |
 | Profile route 或读取失败 | 对应 `mtp.system.*` | `mtp.call.profile_load_failed` 或底层稳定 key |
 | Profile 引用的模型不可用 | `mtp.system.service_unavailable` | `mtp.call_response.model_unavailable` |
 

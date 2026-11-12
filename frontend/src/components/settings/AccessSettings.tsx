@@ -56,11 +56,11 @@ function toggleIn<T>(list: T[], value: T, on: boolean): T[] {
   return on ? [...list.filter((v) => v !== value), value] : list.filter((v) => v !== value);
 }
 
-const chipCls = 'text-[10px] font-bold px-1.5 py-0.5 rounded tracking-wide';
+const chipCls = 'text-xs font-bold px-1.5 py-0.5 rounded tracking-wide';
 const buttonCls =
   'px-4 py-1.5 text-sm font-bold bg-primary/20 hover:bg-primary/30 text-primary rounded-lg border border-primary/30 transition-all disabled:opacity-50';
 const iconButtonCls =
-  'p-2 text-slate-400 hover:text-primary hover:bg-white/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed';
+  'p-2 text-fg-3 hover:text-primary hover:bg-ink/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed';
 
 /** 凭据明文只在登记与轮换后出现一次，关闭后无法再看到。 */
 function CredentialNotice({ result, onClose }: { result: PrincipalCredential; onClose: () => void }) {
@@ -75,24 +75,24 @@ function CredentialNotice({ result, onClose }: { result: PrincipalCredential; on
     }
   };
   return (
-    <div className="mb-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-sm text-slate-300">
+    <div className="mb-4 rounded-2xl border border-magic-metal/30 bg-magic-metal/5 p-5 text-sm text-fg-2">
       <div className="flex items-start justify-between gap-4">
-        <div className="font-bold text-amber-300">
+        <div className="font-bold text-magic-metal">
           {result.principal.principal_id} 的新凭据：只显示这一次
         </div>
-        <button onClick={onClose} className={iconButtonCls} title="关闭">
+        <button onClick={onClose} className={iconButtonCls} title="关闭" aria-label="关闭">
           <X className="w-4 h-4" />
         </button>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <code className="flex-1 break-all rounded-lg bg-black/30 px-3 py-2 font-mono text-xs text-slate-200">
+        <code className="flex-1 break-all rounded-lg bg-field px-3 py-2 font-mono text-xs text-fg">
           {result.credential}
         </code>
-        <button onClick={copy} className={iconButtonCls} title="复制">
+        <button onClick={copy} className={iconButtonCls} title="复制" aria-label="复制">
           <Copy className="w-4 h-4" />
         </button>
       </div>
-      <p className="mt-3 text-xs leading-relaxed text-slate-400">
+      <p className="mt-3 text-xs leading-relaxed text-fg-3">
         把它写进 harness 一侧读取凭据的环境变量
         {envName ? <span className="font-mono">（{envName}）</span> : null}
         ，然后重启 harness。旧凭据已经失效；错过这次显示时，可以再次轮换。
@@ -125,9 +125,9 @@ function PrincipalEditor({
   onCancel: () => void;
 }) {
   const rowCls = 'flex items-center justify-between gap-4 py-2';
-  const labelCls = 'text-sm text-slate-300 shrink-0 w-32';
+  const labelCls = 'text-sm text-fg-2 shrink-0 w-32';
   return (
-    <div className="bg-black/20 border border-primary/20 rounded-2xl p-5 space-y-1 ghost-border">
+    <div className="bg-field border border-primary/20 rounded-2xl p-5 space-y-1 border border-line">
       <div className="text-sm font-bold text-primary mb-3">
         {isNew ? '登记外部 harness' : `修改 ${draft.principal_id}`}
       </div>
@@ -145,7 +145,7 @@ function PrincipalEditor({
         <span className={labelCls}>接入方式</span>
         <div className="flex gap-4">
           {ADAPTERS.map((a) => (
-            <label key={a.value} className="flex items-center gap-2 text-sm text-slate-300">
+            <label key={a.value} className="flex items-center gap-2 text-sm text-fg-2">
               <input
                 type="checkbox"
                 checked={draft.adapters.includes(a.value)}
@@ -171,7 +171,7 @@ function PrincipalEditor({
           <span className={labelCls}>为这些 Agent 授予</span>
           <div className="flex flex-wrap justify-end gap-3">
             {OPERATIONS.map((op) => (
-              <label key={op.value} className="flex items-center gap-1.5 text-xs text-slate-300">
+              <label key={op.value} className="flex items-center gap-1.5 text-xs text-fg-2">
                 <input
                   type="checkbox"
                   checked={draft.operations.includes(op.value)}
@@ -185,7 +185,7 @@ function PrincipalEditor({
         </div>
       )}
       <div className="flex justify-end gap-2 pt-3">
-        <button onClick={onCancel} disabled={saving} className="px-4 py-1.5 text-sm text-slate-400 hover:text-white transition-colors disabled:opacity-50">
+        <button onClick={onCancel} disabled={saving} className="px-4 py-1.5 text-sm text-fg-3 hover:text-fg transition-colors disabled:opacity-50">
           取消
         </button>
         <button onClick={onSubmit} disabled={saving} className={buttonCls}>
@@ -199,7 +199,7 @@ function PrincipalEditor({
 function CredentialSummary({ principal }: { principal: AccessPrincipal }) {
   if (principal.credential_source === 'env') {
     return (
-      <span className="flex items-center gap-1 text-amber-400">
+      <span className="flex items-center gap-1 text-magic-metal">
         <Lock className="w-3 h-3" />
         环境变量 <span className="font-mono">{principal.credential_env}</span>
       </span>
@@ -208,7 +208,7 @@ function CredentialSummary({ principal }: { principal: AccessPrincipal }) {
   if (principal.credential_source === 'generated') {
     return <span className="font-mono">生成凭据 {principal.credential_masked}</span>;
   }
-  return <span className="text-red-400">没有可用凭据，认证会被拒绝</span>;
+  return <span className="text-magic-fire">没有可用凭据，认证会被拒绝</span>;
 }
 
 function PrincipalRow({
@@ -228,16 +228,16 @@ function PrincipalRow({
 }) {
   const external = principal.editable;
   return (
-    <div className="flex items-center justify-between gap-4 p-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+    <div className="flex items-center justify-between gap-4 p-4 border-b border-line last:border-0 hover:bg-ink/2 transition-colors">
       <div className="flex items-start gap-3 min-w-0">
-        <KeyRound className="w-4 h-4 mt-0.5 text-slate-500 shrink-0" />
+        <KeyRound className="w-4 h-4 mt-0.5 text-fg-3 shrink-0" />
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-slate-200 font-mono">{principal.principal_id}</span>
-            {!external && <span className={`${chipCls} text-slate-400 bg-white/5`}>进程内 · 只读</span>}
-            {!principal.enabled && <span className={`${chipCls} text-red-400 bg-red-400/10`}>已禁用</span>}
+            <span className="text-sm font-medium text-fg font-mono">{principal.principal_id}</span>
+            {!external && <span className={`${chipCls} text-fg-3 bg-ink/5`}>进程内 · 只读</span>}
+            {!principal.enabled && <span className={`${chipCls} text-magic-fire bg-magic-fire/10`}>已禁用</span>}
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-fg-3">
             {principal.adapters.join(' · ')}
             {external && (
               <>
@@ -249,7 +249,7 @@ function PrincipalRow({
             )}
           </div>
           {external && (
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-fg-3">
               <CredentialSummary principal={principal} />
             </div>
           )}
@@ -257,8 +257,8 @@ function PrincipalRow({
       </div>
       {external && (
         <div className="flex items-center gap-1 shrink-0">
-          <Toggle checked={principal.enabled} onChange={onToggle} disabled={busy} />
-          <button onClick={onEdit} disabled={busy} className={iconButtonCls} title="修改">
+          <Toggle checked={principal.enabled} onChange={onToggle} disabled={busy} label="允许接入" />
+          <button onClick={onEdit} disabled={busy} className={iconButtonCls} title="修改" aria-label="修改">
             <Pencil className="w-4 h-4" />
           </button>
           <button
@@ -266,10 +266,11 @@ function PrincipalRow({
             disabled={busy || principal.credential_source === 'env'}
             className={iconButtonCls}
             title={principal.credential_source === 'env' ? '凭据来自环境变量，请修改 .env' : '轮换凭据'}
+            aria-label="轮换凭据"
           >
             <RotateCw className="w-4 h-4" />
           </button>
-          <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-red-400`} title="删除">
+          <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-magic-fire`} title="删除" aria-label="删除">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -292,16 +293,16 @@ function ActorRecordRow({
 }) {
   const userLevel = record.agent_id === null;
   return (
-    <div className="flex items-center justify-between gap-4 p-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+    <div className="flex items-center justify-between gap-4 p-4 border-b border-line last:border-0 hover:bg-ink/2 transition-colors">
       <div className="min-w-0 w-48 shrink-0">
-        <div className="text-sm font-medium text-slate-200 font-mono truncate">
+        <div className="text-sm font-medium text-fg font-mono truncate">
           {userLevel ? '其余所有 Agent' : record.agent_id}
         </div>
-        <div className="text-xs text-slate-500">{userLevel ? '用户级记录' : '精确记录，优先于用户级记录'}</div>
+        <div className="text-xs text-fg-3">{userLevel ? '用户级记录' : '精确记录，优先于用户级记录'}</div>
       </div>
       <div className="flex flex-1 flex-wrap items-center gap-3">
         {OPERATIONS.map((op) => (
-          <label key={op.value} className={`flex items-center gap-1.5 text-xs ${record.enabled ? 'text-slate-300' : 'text-slate-600'}`}>
+          <label key={op.value} className={`flex items-center gap-1.5 text-xs ${record.enabled ? 'text-fg-2' : 'text-fg-3'}`}>
             <input
               type="checkbox"
               checked={record.allowed_operations.includes(op.value)}
@@ -318,11 +319,12 @@ function ActorRecordRow({
           <Toggle
             checked={record.enabled}
             disabled={busy}
+            label="允许进入"
             // 禁用的记录不能带白名单：关闭准入时一并清空操作。
             onChange={(enabled) => onSave(enabled, enabled ? record.allowed_operations : [])}
           />
         </span>
-        <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-red-400`} title="删除记录">
+        <button onClick={onDelete} disabled={busy} className={`${iconButtonCls} hover:text-magic-fire`} title="删除记录" aria-label="删除记录">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
@@ -461,7 +463,7 @@ export function AccessSettings() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <section className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-white">外部接入</h2>
+          <h2 className="text-lg font-bold text-fg">外部接入</h2>
           <button
             onClick={() => { setEditing(null); setDraft({ ...EMPTY_DRAFT }); }}
             disabled={draft !== null || busy}
@@ -484,7 +486,7 @@ export function AccessSettings() {
             />
           </div>
         )}
-        <div className="bg-surface-container-low border border-white/5 rounded-2xl overflow-hidden ghost-border">
+        <div className="bg-surface-container-low border border-line rounded-2xl overflow-hidden border border-line">
           {principals.map((p) => (
             <PrincipalRow
               key={p.principal_id}
@@ -518,15 +520,15 @@ export function AccessSettings() {
             />
           ))}
         </div>
-        <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+        <p className="text-xs text-fg-3 mt-3 leading-relaxed">
           外部 harness 以登记的来源标识与凭据接入，凭据由这里生成，也可以继续写在 .env 中（环境变量优先，只读）。
           进程内来源关系到本页面、对话与导入本身，只能修改登记文件后重启。修改立即生效并写回登记文件。
         </p>
       </section>
 
       <section className="mb-8">
-        <h2 className="text-lg font-bold text-white mb-4">Agent 操作权限</h2>
-        <div className="bg-surface-container-low border border-white/5 rounded-2xl overflow-hidden ghost-border">
+        <h2 className="text-lg font-bold text-fg mb-4">Agent 操作权限</h2>
+        <div className="bg-surface-container-low border border-line rounded-2xl overflow-hidden border border-line">
           {records.map((r) => (
             <ActorRecordRow
               key={r.agent_id ?? '__user__'}
@@ -550,7 +552,7 @@ export function AccessSettings() {
               <select
                 value=""
                 onChange={(e) => setNewAgent(e.target.value)}
-                className="bg-black/20 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white"
+                className="bg-field border border-line rounded-lg px-3 py-1.5 text-sm text-fg"
               >
                 <option value="">从已有 Agent 中选择</option>
                 {profileAgents.map((alias) => <option key={alias} value={alias}>{alias}</option>)}
@@ -561,7 +563,7 @@ export function AccessSettings() {
             </button>
           </div>
         </div>
-        <p className="text-xs text-slate-500 mt-3 leading-relaxed">
+        <p className="text-xs text-fg-3 mt-3 leading-relaxed">
           每次检索、读取、写入等操作都按这里的权限即时判定。进行中的对话里，收回的操作仍会出现在本轮的工具说明中，
           调用时被拒绝；新授予的操作从下一轮开始出现。
         </p>

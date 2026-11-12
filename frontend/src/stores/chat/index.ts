@@ -1,2 +1,2 @@
-export { useChatStore } from './chatStore';
+export { useChatStore, userMessageBefore } from './chatStore';
 export { useChatRuntimeConfigStore } from './runtimeConfigStore';

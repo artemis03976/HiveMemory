@@ -41,6 +41,8 @@ class ProcessRequest:
     enable_memory_retrieval: bool = True
     model_selection: ModelSelection | None = None
     attachments: tuple[AttachmentSelectionRequest, ...] = ()
+    #: 用户为这一轮指定的话题，交给 Gateway 的话题路由直接取用；不指定时由路由决定。
+    designated_topic_id: str | None = None
 
 
 @dataclass(eq=False, kw_only=True)

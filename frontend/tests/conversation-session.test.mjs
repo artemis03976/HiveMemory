@@ -88,6 +88,36 @@ test('有输出的取消保持正文、话题和结局，浏览器不保存消�
   assert.deepEqual(JSON.parse(stored.get('chat-store')).state, { currentSessionId: 's1', currentAgentId: initial.currentAgentId });
 });
 
+test('重新生成按原轮次的请求重发附件、指定话题、记忆检索开关、模型选择与 Agent', async () => {
+  reset({ currentSessionId: 's1', currentAgentId: 'alice' });
+  const sent = [];
+  globalThis.fetch = async (url, options) => {
+    if (url === '/api/v1/sessions') return new Response('[]');
+    sent.push(JSON.parse(options.body));
+    return new Response('event: done\ndata: {"status":"completed","final_text":"回答","topic_id":"t9"}\n\n',
+      { headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  await useChatStore.getState().sendMessage('问题', {
+    enable_memory_retrieval: false, topic_id: 't9', model_selection: { model_id: 'm2', temperature: 0.3 },
+    attachments: [{ asset_ref: { asset_id: 'a1' }, representation_id: 'r1', revision: 2, content_hash: 'h1' }],
+  });
+  useChatStore.getState().setCurrentAgentId('other');
+  await useChatStore.getState().retryMessage(useChatStore.getState().messages[1].id);
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[1], sent[0]);
+  assert.equal(sent[1].agent_id, 'alice');
+  assert.equal(useChatStore.getState().messages[3].agent_id, 'alice');
+});
+
+test('从会话历史恢复的轮次没有记下请求，重新生成不发出', async () => {
+  reset({ currentSessionId: 's1', messages: sessionMessages({ ...summary, turns: [turn] }) });
+  let sent = false;
+  globalThis.fetch = async url => { if (url !== '/api/v1/sessions') sent = true; return new Response('[]'); };
+  await useChatStore.getState().retryMessage('p1-assistant');
+  assert.equal(sent, false);
+  assert.equal(useChatStore.getState().messages.length, 2);
+});
+
 test('恢复 WRITE ACK 是成功，未完成操作不能继续显示执行中', () => {
   const messages = sessionMessages({ ...summary, turns: [{ ...turn, payload: { ...turn.payload,
     turn_events: [

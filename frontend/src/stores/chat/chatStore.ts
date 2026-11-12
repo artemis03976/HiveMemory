@@ -9,7 +9,8 @@ import { chatFailureMessage } from './failureMessage';
 import { createChatSSECallbacks } from './streamHandlers';
 import { applyDone, applyStreamError } from './messageReducers';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
-import type { Message, ChatConnectionState, ChatRequestParams, ChatRunStatus, ContextCompactionEvent, MemoryAtom } from '@/types';
+import type { Message, ChatConnectionState, ChatRunStatus, ContextCompactionEvent, DesignatedTopic, MemoryAtom } from '@/types';
+import { localErrorText } from '@/transports/connectionStatus';
 
 interface ChatStore {
   messages: Message[];
@@ -28,15 +29,20 @@ interface ChatStore {
   historyReady: boolean;
   draft: string;
   setDraft: (text: string) => void;
+  /** 用户为下一轮指定的话题：发送时随请求带上，发出后清除；记忆图书馆的“在对话中引用”也设定它。 */
+  designatedTopic: DesignatedTopic | null;
+  setDesignatedTopic: (topic: DesignatedTopic | null) => void;
   initializeSessions: () => Promise<void>;
   refreshSessions: () => Promise<void>;
   selectSession: (id: string) => Promise<void>;
   newSession: () => Promise<void>;
   renameSession: (id: string, title: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
-  sendMessage: (content: string, options?: Partial<ChatRequestParams>) => Promise<void>;
+  /** 发出一轮；选项缺省 Agent 时取当前选择。 */
+  sendMessage: (content: string, options?: Message['request']) => Promise<void>;
   stopStreaming: () => void;
   clearMessages: () => void;
+  /** 按回复之前那条用户消息记下的请求原样再发一轮；没有记下请求时不发。 */
   retryMessage: (messageId: string) => Promise<void>;
   setCurrentAgentId: (id: string) => void;
   _sseClient: ChatSSEClient | null;
@@ -46,6 +52,13 @@ interface ChatStore {
   _historyRevision: number;
 }
 const errorText = (error: unknown) => error instanceof Error ? error.message : '会话操作失败';
+
+/** 回复之前最近的那条用户消息；它记下的请求决定这条回复能否原样重新生成。 */
+export function userMessageBefore(messages: Message[], replyId: string): Message | undefined {
+  const index = messages.findIndex(m => m.id === replyId);
+  if (index < 0) return undefined;
+  return messages.slice(0, index).reverse().find(m => m.role === 'user');
+}
 
 // 后端等交互应用完成没有时限；前端只等到能给出结论为止，超过上限交给用户稍后查看。
 const RELEASE_POLL_MS = 1000;
@@ -74,10 +87,11 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
   isStreaming: false, runStatus: 'idle', lastRunReason: null,
   compactionProgress: null, compactionCheckpoint: null,
   currentSessionId: null, currentAgentId: DEFAULT_AGENT_ID, retrievedMemories: [],
-  sessions: [], sessionError: null, isLoadingHistory: false, historyReady: false, draft: '',
+  sessions: [], sessionError: null, isLoadingHistory: false, historyReady: false, draft: '', designatedTopic: null,
   _sseClient: null, _currentStreamingMessageId: null, _currentProcessId: null, _listRequest: 0,
   _historyRevision: 0,
   setDraft: (draft) => set({ draft }),
+  setDesignatedTopic: (designatedTopic) => set({ designatedTopic }),
   setCurrentAgentId: (currentAgentId) => set({ currentAgentId }),
 
   refreshSessions: async () => {
@@ -88,7 +102,7 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
       // 多个刷新并发时，只接受最后一次请求，避免旧列表覆盖重命名或删除。
       if (get()._listRequest === request) set({ sessions });
     } catch (error) {
-      if (get()._listRequest === request) set({ sessionError: errorText(error) });
+      if (get()._listRequest === request) set({ sessionError: localErrorText(errorText(error)) });
     }
   },
   initializeSessions: async () => {
@@ -110,7 +124,7 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
         set({ currentSessionId: null, messages: [], retrievedMemories: [], compactionCheckpoint: null,
           sessionError: '会话已不存在，请新建或选择会话。' });
         await get().refreshSessions();
-      } else set({ sessionError: errorText(error) });
+      } else set({ sessionError: localErrorText(errorText(error)) });
     } finally { set({ isLoadingHistory: false }); }
   },
   newSession: async () => {
@@ -155,15 +169,16 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
   sendMessage: async (content, options = {}) => {
     const state = get();
     if (state.isStreaming || state.isLoadingHistory || (state.currentSessionId && !state.historyReady)) return;
+    const request = { ...options, agent_id: options.agent_id ?? state.currentAgentId };
     const userId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
     const client = new ChatSSEClient();
     const revision = state._historyRevision + 1;
     set({
       messages: [...state.messages,
-        { id: userId, role: 'user', content, timestamp: Date.now() },
+        { id: userId, role: 'user', content, timestamp: Date.now(), request },
         { id: assistantMessageId, role: 'assistant', content: '', contentBlocks: [],
-          timestamp: Date.now(), isStreaming: true, agent_id: state.currentAgentId }],
+          timestamp: Date.now(), isStreaming: true, agent_id: request.agent_id }],
       isStreaming: true, runStatus: 'preparing', lastRunReason: null, sessionError: null,
       compactionProgress: null, _historyRevision: revision,
       connection: { status: 'connecting', error: null }, retrievedMemories: [],
@@ -245,7 +260,7 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
       void get().refreshSessions();
     };
     try {
-      await client.connect({ ...options, message: content, session_id: state.currentSessionId, agent_id: state.currentAgentId }, callbacks);
+      await client.connect({ ...request, message: content, session_id: state.currentSessionId }, callbacks);
       await endWithoutTerminal(new Error('连接提前结束，本轮未保存'));
       const sessionId = get().currentSessionId;
       if (compactionFinished && sessionId && get()._historyRevision === revision) {
@@ -275,9 +290,8 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
   retryMessage: async (id) => {
     const state = get();
     if (state.isStreaming || state.isLoadingHistory) return;
-    const index = state.messages.findIndex(m => m.id === id);
-    const user = state.messages.slice(0, index).reverse().find(m => m.role === 'user');
-    if (index >= 0 && user) await get().sendMessage(user.content);
+    const user = userMessageBefore(state.messages, id);
+    if (user?.request) await get().sendMessage(user.content, user.request);
   },
 }), {
   name: 'chat-store', version: 4,

@@ -2,6 +2,7 @@
 Agents 路由单元测试
 """
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
@@ -95,6 +96,33 @@ def test_list_agents_returns_200_and_passes_limit():
     assert response.status_code == 200
     # limit=100 由 router/service 层透传；stub 内部的 filter 属于 stub 自身行为，不在此处断言
     assert storage.get_all_memories.call_args.kwargs["limit"] == 100
+
+
+def test_list_agents_returns_creation_and_update_times():
+    created = datetime(2026, 10, 12, 8, 0, tzinfo=UTC)
+    updated = datetime(2026, 11, 9, 14, 20, tzinfo=UTC)
+    meta = make_memory_metadata(source_agent_id="system", user_id="u1").model_copy(
+        update={"created_at": created, "updated_at": updated}
+    )
+    atom = MemoryAtom(
+        meta=meta,
+        index=IndexLayer(
+            title="Reviewer Doll",
+            summary="严格的代码审查专家",
+            memory_type=MemoryType.AGENT_PROFILE,
+            alias="reviewer_doll",
+        ),
+        payload=PayloadLayer(content="只指出能复现的问题"),
+    )
+    storage = MagicMock()
+    storage.get_all_memories.return_value = [atom]
+
+    response = TestClient(_create_test_app(storage)).get("/api/v1/agents")
+
+    assert response.status_code == 200
+    (profile,) = response.json()
+    assert datetime.fromisoformat(profile["created_at"]) == created
+    assert datetime.fromisoformat(profile["updated_at"]) == updated
 
 
 def test_create_agent_rejects_blank_title_with_422():

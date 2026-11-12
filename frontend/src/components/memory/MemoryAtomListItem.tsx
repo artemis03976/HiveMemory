@@ -1,132 +1,96 @@
-import { Clock, BrainCircuit, Pin, Flame, Edit2, Trash2, AtSign } from 'lucide-react';
+import { Flame, Target, Pin, Edit2, Trash2 } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
-import { memoryTypeColors, memoryTypeLabels } from '../../types/memory';
-import { formatVitalityScore, isHighVitality } from '../../utils/memoryScores';
+import { memoryTypeLabels } from '../../types/memory';
+import { formatVitalityScore } from '../../utils/memoryScores';
+import { formatFullDateTime, formatListTime } from '../../utils/dateTime';
+import MemoryTypeTile from './MemoryTypeTile';
+import { activateOnKey } from '@/utils/activateOnKey';
 
 interface MemoryAtomListItemProps {
   atom: MemoryAtom;
   onClick?: () => void;
   onView?: (id: string) => void;
   onEdit?: (id: string) => void;
-  onPin?: (id: string) => void;
   onDelete?: (id: string) => void;
 }
 
-export default function MemoryAtomListItem({ atom, onClick, onView, onEdit, onPin, onDelete }: MemoryAtomListItemProps) {
-  const typeConfig = memoryTypeColors[atom.memory_type] || { color: 'hsl(220, 10%, 50%)', name: 'unknown' };
+/** 列表视图的一行：类型图标块、标题与摘要、标签、带标签的指标与时间。 */
+export default function MemoryAtomListItem({ atom, onClick, onView, onEdit, onDelete }: MemoryAtomListItemProps) {
   const typeLabel = memoryTypeLabels[atom.memory_type] || atom.memory_type;
-  const highVitality = isHighVitality(atom.vitality_score);
-  
+  const updatedMs = Date.parse(atom.updated_at || atom.created_at);
+  const open = () => {
+    if (onClick) onClick();
+    if (onView) onView(atom.id);
+  };
+
   return (
-    <div 
-      onClick={() => {
-        if (onClick) onClick();
-        if (onView) onView(atom.id);
-      }}
-      className="group relative flex items-center gap-6 p-4 border-b border-white/5 bg-surface/30 hover:bg-surface-container-high transition-all duration-300 cursor-pointer overflow-hidden"
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={atom.title}
+      onClick={open}
+      onKeyDown={activateOnKey(open)}
+      className="group relative flex cursor-pointer items-center gap-4 border-b border-line px-4 py-3 transition-colors hover:bg-surface-container-high"
     >
-      
-      {/* 类型图标/标识 */}
-      <div className="flex flex-col items-center justify-center shrink-0 w-16 gap-1.5">
-        <div 
-          className="w-8 h-8 rounded-xl flex items-center justify-center bg-surface-container shadow-inner border border-white/5"
-        >
-          <div 
-            className="w-3 h-3 rounded-full shadow-[0_0_10px_currentColor]"
-            style={{ backgroundColor: typeConfig.color, color: typeConfig.color }}
-          />
+      <MemoryTypeTile type={atom.memory_type} />
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <h3 className="truncate text-sm font-semibold text-fg">{atom.title}</h3>
+          <span className="shrink-0 text-xs text-fg-3">{typeLabel}</span>
         </div>
-        <span className="text-[10px] font-bold tracking-wider uppercase text-slate-400 group-hover:text-slate-300 transition-colors">
-          {typeLabel}
-        </span>
+        <p className="truncate text-[13px] text-fg-2">{atom.summary}</p>
+        <span className="font-mono text-xs text-fg-3">{atom.alias || `mem_${atom.id.replace(/-/g, '').slice(0, 8)}`}</span>
       </div>
 
-      {/* 主要内容 */}
-      <div className="flex-1 min-w-0 py-1">
-        <div className="flex items-center gap-3 mb-1">
-          <h3 className="text-base font-bold text-slate-100 truncate group-hover:text-white transition-colors">
-            {atom.title}
-          </h3>
-          {atom.isPinned && <Pin className="w-3.5 h-3.5 text-primary fill-primary/20 shrink-0" />}
-        </div>
-        
-        {/* 别名 */}
-        <div className="flex items-center gap-1.5 mb-1.5">
-          {atom.alias ? (
-            <>
-              <AtSign className="w-3.5 h-3.5 text-primary/70" />
-              <span className="text-xs font-mono text-primary/80 truncate">{atom.alias}</span>
-            </>
-          ) : (
-            <>
-              <AtSign className="w-3.5 h-3.5 text-slate-600" />
-              <span className="text-xs font-mono text-slate-500">暂无别名</span>
-            </>
-          )}
-        </div>
-
-        <p className="text-sm text-slate-400 truncate pr-8">
-          {atom.summary}
-        </p>
-      </div>
-
-      {/* 标签 */}
-      <div className="hidden md:flex items-center gap-1.5 w-56 shrink-0 overflow-hidden">
-        {atom.tags.slice(0, 2).map(tag => (
-          <span 
-            key={tag} 
-            className="px-2 py-0.5 rounded-md bg-black/20 border border-white/5 text-xs text-slate-400 font-mono truncate max-w-[80px] shrink-0"
-          >
-            #{tag}
-          </span>
+      <div className="hidden w-52 shrink-0 items-center gap-1.5 overflow-hidden md:flex">
+        {atom.tags.slice(0, 2).map((tag) => (
+          <span key={tag} className="max-w-[90px] shrink-0 truncate rounded-full bg-surface-container-high px-2 py-0.5 text-xs text-fg-2">#{tag}</span>
         ))}
         {atom.tags.length > 2 && (
-          <span className="px-2 py-0.5 rounded-md bg-black/20 border border-white/5 text-xs text-slate-500 font-mono shrink-0">
-            +{atom.tags.length - 2}
-          </span>
+          <span className="shrink-0 rounded-full bg-surface-container-high px-2 py-0.5 text-xs text-fg-3">+{atom.tags.length - 2}</span>
         )}
       </div>
 
-      {/* 统计信息 */}
-      <div className="hidden lg:flex items-center gap-6 shrink-0 text-xs font-mono text-slate-500 w-64 justify-end pr-4">
-        <div className="flex items-center gap-1.5" title="活力值 (Vitality Score)">
-          <Flame className={`w-4 h-4 ${highVitality ? 'text-amber-400' : ''}`} />
-          <span className={highVitality ? 'text-amber-400/80 font-bold' : ''}>
-            {formatVitalityScore(atom.vitality_score)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5" title="置信度 (Confidence)">
-          <BrainCircuit className="w-4 h-4" />
-          {atom.confidence_score.toFixed(2)}
-        </div>
-        <div className="flex items-center gap-1.5 w-16 justify-end">
-          <Clock className="w-3.5 h-3.5" />
-          {new Date(atom.created_at).toLocaleDateString()}
-        </div>
+      <div className="hidden shrink-0 items-center gap-4 text-xs text-fg-3 lg:flex">
+        <span className="flex items-center gap-1" title="生命力：被使用越多越高，长期不用会衰减">
+          <Flame className="h-3.5 w-3.5" aria-hidden="true" />
+          生命力 <b className="font-semibold text-fg-2">{formatVitalityScore(atom.vitality_score)}</b>
+        </span>
+        <span className="flex items-center gap-1" title="置信度：生成时对内容可靠程度的判断">
+          <Target className="h-3.5 w-3.5" aria-hidden="true" />
+          置信度 <b className="font-semibold text-fg-2">{Math.round(atom.confidence_score * 100)}%</b>
+        </span>
+        {Number.isFinite(updatedMs) && (
+          <span className="w-24 text-right" title={formatFullDateTime(updatedMs)}>{formatListTime(updatedMs)}</span>
+        )}
       </div>
 
-      {/* 操作 */}
-      <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pr-2">
-        <button 
-          onClick={(e) => { e.stopPropagation(); if(onPin) onPin(atom.id); }} 
-          className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${atom.isPinned ? 'text-primary' : 'text-slate-400'}`}
-          title="固定/取消固定"
+      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <button
+          disabled
+          onClick={(e) => e.stopPropagation()}
+          className="cursor-not-allowed rounded-md p-1.5 text-fg-3 opacity-50"
+          title="Pin 尚未提供"
+          aria-label="Pin 尚未提供"
         >
-          <Pin className="w-4 h-4" />
+          <Pin className="h-4 w-4" />
         </button>
-        <button 
-          onClick={(e) => { e.stopPropagation(); if(onEdit) onEdit(atom.id); }} 
-          className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+        <button
+          onClick={(e) => { e.stopPropagation(); if (onEdit) onEdit(atom.id); }}
+          className="rounded-md p-1.5 text-fg-3 transition-colors hover:bg-ink/10 hover:text-fg"
           title="编辑"
+          aria-label="编辑"
         >
-          <Edit2 className="w-4 h-4" />
+          <Edit2 className="h-4 w-4" />
         </button>
-        <button 
-          onClick={(e) => { e.stopPropagation(); if(onDelete) onDelete(atom.id); }} 
-          className="p-1.5 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors"
+        <button
+          onClick={(e) => { e.stopPropagation(); if (onDelete) onDelete(atom.id); }}
+          className="rounded-md p-1.5 text-fg-3 transition-colors hover:bg-magic-fire/15 hover:text-magic-fire"
           title="删除"
+          aria-label="删除"
         >
-          <Trash2 className="w-4 h-4" />
+          <Trash2 className="h-4 w-4" />
         </button>
       </div>
     </div>

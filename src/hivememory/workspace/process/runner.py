@@ -274,6 +274,7 @@ class TaskProcessRunner:
                     ]
                 ),
                 request_timeout_ms=self._gateway_request_timeout_ms,
+                designated_topic_id=request.designated_topic_id,
             ),
         )
         if gateway_result.kind == "command":

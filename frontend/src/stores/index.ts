@@ -1,5 +1,5 @@
 export { useAttachmentStore } from './attachment';
-export { useChatRuntimeConfigStore, useChatStore } from './chat';
+export { useChatRuntimeConfigStore, useChatStore, userMessageBefore } from './chat';
 export { useWorkspaceStore } from './workspace';
 export { useMemoryTaskStore, useMemoryViewStore } from './memory';
 export { useTopicStore } from './topic';

@@ -12,6 +12,7 @@ import { ATTACHMENT_ACCEPT_ATTR } from '@/constants/attachments';
 import type { ChatModelSelection } from '@/types/chat';
 import { motion, AnimatePresence } from 'motion/react';
 import AttachmentQueue from './AttachmentQueue';
+import TopicPicker from './TopicPicker';
 
 export default function OmniInput() {
   const { draft: message, setDraft: setMessage, isLoadingHistory, historyReady, currentSessionId } = useChatStore();
@@ -20,8 +21,9 @@ export default function OmniInput() {
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [topicPickerOpen, setTopicPickerOpen] = useState(false);
 
-  const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId } = useChatStore();
+  const { sendMessage, stopStreaming, isStreaming, runStatus, currentAgentId, setCurrentAgentId, designatedTopic, setDesignatedTopic } = useChatStore();
   const { enqueueFiles } = useAttachmentUpload();
   const attachmentItems = useAttachmentStore((state) => state.items);
   const selectedAttachmentIds = useAttachmentStore((state) => state.selectedIds);
@@ -30,7 +32,9 @@ export default function OmniInput() {
 
   const modelSelection = useChatRuntimeConfigStore((state) => state.modelSelection);
   const overrideParams = useChatRuntimeConfigStore((state) => state.overrideParams);
-  const { agents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
+  const { agents: allAgents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
+  // 停用的 Agent 不出现在选择与 @ 提及中
+  const agents = allAgents.filter((a) => a.enabled);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -81,10 +85,17 @@ export default function OmniInput() {
 
   const handleMessageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
+    const cursorPos = e.target.selectionStart;
+
+    // 在词首输入 # 时打开话题选择，# 本身不留在消息里
+    if (val.length === message.length + 1 && val[cursorPos - 1] === '#' && (cursorPos === 1 || /\s/.test(val[cursorPos - 2]))) {
+      setMessage(val.slice(0, cursorPos - 1) + val.slice(cursorPos));
+      setTopicPickerOpen(true);
+      return;
+    }
     setMessage(val);
 
     // simple @ mention detection
-    const cursorPos = e.target.selectionStart;
     const textBeforeCursor = val.slice(0, cursorPos);
     const lastAtPos = textBeforeCursor.lastIndexOf('@');
     
@@ -144,8 +155,10 @@ export default function OmniInput() {
         enable_memory_retrieval: enableMemory,
         model_selection: selection,
         attachments,
+        topic_id: designatedTopic?.id,
       });
       setMessage('');
+      setDesignatedTopic(null);
       if (attachments.length > 0) {
         clearAttachmentSelection();
       }
@@ -160,7 +173,7 @@ export default function OmniInput() {
       ? '正在整理本轮结果...'
       : isStreaming
         ? '正在思考...'
-        : '向智能体提问... (输入 @ 呼叫特定角色)';
+        : '输入消息，@ 选择 Agent，# 引用话题';
   const stopTitle = isCancelling
     ? '正在请求停止'
     : isFinalizing
@@ -212,12 +225,12 @@ export default function OmniInput() {
       <div className="mb-2 relative" ref={menuRef}>
         <button 
           onClick={() => setIsAgentMenuOpen(!isAgentMenuOpen)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-high border border-white/10 hover:border-primary/50 hover:bg-white/5 transition-all text-xs font-medium text-slate-300 shadow-lg"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-high border border-line hover:border-primary/50 hover:bg-ink/5 transition-all text-xs font-medium text-fg-2 shadow-lg"
         >
-          <span className="text-slate-500">当前对话:</span>
-          {currentAgent && <currentAgent.avatarIcon className={`w-3.5 h-3.5 ${currentAgent.colorClass}`} />}
+          <span className="text-fg-3">当前对话:</span>
+          {currentAgent && <currentAgent.avatarIcon className={`w-3.5 h-3.5 text-primary`} />}
           <span>{currentAgent?.name ?? '...'}</span>
-          <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${isAgentMenuOpen ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`w-3 h-3 text-fg-3 transition-transform ${isAgentMenuOpen ? 'rotate-180' : ''}`} />
         </button>
 
         <AnimatePresence>
@@ -227,7 +240,7 @@ export default function OmniInput() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               transition={{ duration: 0.15 }}
-              className="absolute bottom-full left-0 mb-2 w-64 bg-surface-container-highest border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 origin-bottom-left"
+              className="absolute bottom-full left-0 mb-2 w-64 bg-surface-container-highest border border-line rounded-xl shadow-2xl overflow-hidden z-50 origin-bottom-left"
             >
               <div className="p-1">
                 {agents.length > 0 ? (
@@ -239,20 +252,20 @@ export default function OmniInput() {
                         setIsAgentMenuOpen(false);
                       }}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                        currentAgentId === agent.id ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-slate-300'
+                        currentAgentId === agent.id ? 'bg-primary/20 text-fg' : 'hover:bg-ink/5 text-fg-2'
                       }`}
                     >
-                      <div className={`p-1.5 rounded-md ${currentAgentId === agent.id ? 'bg-primary/20' : 'bg-white/5'}`}>
-                        <agent.avatarIcon className={`w-4 h-4 ${agent.colorClass}`} />
+                      <div className={`p-1.5 rounded-md ${currentAgentId === agent.id ? 'bg-primary/20' : 'bg-ink/5'}`}>
+                        <agent.avatarIcon className={`w-4 h-4 text-primary`} />
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <div className="text-sm font-medium truncate">{agent.name}</div>
-                        <div className="text-xs text-slate-500 truncate mt-0.5">{agent.description}</div>
+                        <div className="text-xs text-fg-3 truncate mt-0.5">{agent.description}</div>
                       </div>
                     </button>
                   ))
                 ) : (
-                  <div className="px-3 py-4 text-center text-sm text-slate-400">
+                  <div className="px-3 py-4 text-center text-sm text-fg-3">
                     当前还没有自定义Agent
                   </div>
                 )}
@@ -262,7 +275,7 @@ export default function OmniInput() {
         </AnimatePresence>
       </div>
 
-      <div className="glass-panel ghost-border rounded-2xl p-2 flex flex-col shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-300 focus-within:shadow-[0_0_5px_rgba(149,71,247,0.4),0_12px_40px_rgba(0,0,0,0.5)] focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 relative">
+      <div className="bg-surface-container-low border border-line rounded-2xl p-2 flex flex-col shadow-pop transition-all duration-300 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 relative">
         
         {/* @ Mention Popup */}
         <AnimatePresence>
@@ -271,15 +284,15 @@ export default function OmniInput() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className="absolute bottom-full left-4 mb-2 w-64 bg-surface-container-highest border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 origin-bottom-left"
+              className="absolute bottom-full left-4 mb-2 w-64 bg-surface-container-highest border border-line rounded-xl shadow-2xl overflow-hidden z-50 origin-bottom-left"
             >
-              <div className="px-3 py-2 border-b border-white/10 text-xs font-medium text-slate-400 bg-black/20 flex items-center gap-2">
+              <div className="px-3 py-2 border-b border-line text-xs font-medium text-fg-3 bg-field flex items-center gap-2">
                 <span>呼叫智能体...</span>
                 {mentionQuery && <span className="text-primary truncate">@{mentionQuery}</span>}
               </div>
               <div className="p-1 max-h-60 overflow-y-auto scrollbar-hide">
                 {agents.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-sm text-slate-400">
+                  <div className="px-3 py-4 text-center text-sm text-fg-3">
                     当前还没有自定义Agent
                   </div>
                 ) : filteredAgents.length > 0 ? (
@@ -288,20 +301,20 @@ export default function OmniInput() {
                       key={agent.id}
                       onClick={() => applyMention(agent.id)}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                        mentionIndex === idx ? 'bg-primary/20 text-white' : 'hover:bg-white/5 text-slate-300'
+                        mentionIndex === idx ? 'bg-primary/20 text-fg' : 'hover:bg-ink/5 text-fg-2'
                       }`}
                     >
-                      <div className={`p-1.5 rounded-md ${mentionIndex === idx ? 'bg-primary/20' : 'bg-white/5'}`}>
-                        <agent.avatarIcon className={`w-4 h-4 ${agent.colorClass}`} />
+                      <div className={`p-1.5 rounded-md ${mentionIndex === idx ? 'bg-primary/20' : 'bg-ink/5'}`}>
+                        <agent.avatarIcon className={`w-4 h-4 text-primary`} />
                       </div>
                       <div className="flex-1 overflow-hidden">
                         <div className="text-sm font-medium truncate">{agent.name}</div>
-                        <div className="text-xs text-slate-500 truncate mt-0.5">{agent.description}</div>
+                        <div className="text-xs text-fg-3 truncate mt-0.5">{agent.description}</div>
                       </div>
                     </button>
                   ))
                 ) : (
-                  <div className="px-3 py-4 text-center text-sm text-slate-400">
+                  <div className="px-3 py-4 text-center text-sm text-fg-3">
                     未找到匹配的Agent
                   </div>
                 )}
@@ -310,10 +323,40 @@ export default function OmniInput() {
           )}
         </AnimatePresence>
 
+        {topicPickerOpen && (
+          <TopicPicker
+            onPick={(topic) => {
+              setDesignatedTopic(topic);
+              setTopicPickerOpen(false);
+              textareaRef.current?.focus();
+            }}
+            onClose={() => {
+              setTopicPickerOpen(false);
+              textareaRef.current?.focus();
+            }}
+          />
+        )}
+
+        {designatedTopic && (
+          <div className="flex px-3 pt-1.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 py-0.5 pl-2.5 pr-1 text-xs font-semibold text-accent">
+              <Hash className="h-3 w-3" aria-hidden="true" />
+              {designatedTopic.title}
+              <button
+                onClick={() => setDesignatedTopic(null)}
+                aria-label="移除话题引用"
+                className="rounded-full px-1 leading-none hover:bg-accent/20"
+              >
+                ×
+              </button>
+            </span>
+          </div>
+        )}
+
         {/* 输入区 */}
         <textarea
           ref={textareaRef}
-          className="w-full bg-transparent border-none focus:ring-0 text-sm py-3 px-4 resize-none placeholder-slate-500 outline-none scrollbar-hide"
+          className="w-full bg-transparent border-none focus:ring-0 text-sm py-3 px-4 resize-none placeholder-fg-3 outline-none scrollbar-hide"
           placeholder={inputPlaceholder}
           rows={1}
           value={message}
@@ -329,7 +372,7 @@ export default function OmniInput() {
             {/* 上传是独立于 Chat SSE run 的资产命令，生成期间仍可继续上传附件 */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+              className="p-2 text-fg-3 hover:text-fg hover:bg-ink/5 rounded-lg transition-all"
               title="上传附件"
               aria-label="上传附件"
             >
@@ -348,24 +391,30 @@ export default function OmniInput() {
                 e.target.value = '';
               }}
             />
-            <button className="p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all" title="话题引用">
+            <button
+              onClick={() => setTopicPickerOpen((open) => !open)}
+              aria-expanded={topicPickerOpen}
+              className="flex items-center gap-1 rounded-lg p-2 text-[13px] text-fg-3 transition-all hover:bg-ink/5 hover:text-fg"
+              title="为这一轮指定话题（也可以在消息中输入 #）"
+            >
               <Hash className="w-4 h-4" />
+              话题
             </button>
 
-            <div className="w-px h-4 bg-white/10 mx-2"></div>
+            <div className="w-px h-4 bg-ink/10 mx-2"></div>
 
             {/* 记忆预检索开关 */}
             <div 
-              className={`flex items-center gap-2 px-2 py-1 rounded-lg transition-all cursor-pointer select-none ${isStreaming ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/5'}`}
+              className={`flex items-center gap-2 px-2 py-1 rounded-lg transition-all cursor-pointer select-none ${isStreaming ? 'opacity-50 cursor-not-allowed' : 'hover:bg-ink/5'}`}
               onClick={() => !isStreaming && setEnableMemory(!enableMemory)}
               title="在对话前进行记忆预检索"
             >
-              <BrainCircuit className={`w-4 h-4 transition-colors ${enableMemory ? 'text-primary' : 'text-slate-500'}`} />
-              <span className={`text-xs font-medium transition-colors ${enableMemory ? 'text-slate-300' : 'text-slate-500'}`}>
+              <BrainCircuit className={`w-4 h-4 transition-colors ${enableMemory ? 'text-primary' : 'text-fg-3'}`} />
+              <span className={`text-xs font-medium transition-colors ${enableMemory ? 'text-fg-2' : 'text-fg-3'}`}>
                 记忆预检索
               </span>
               <div className="scale-[0.65] origin-left flex items-center" onClick={(e) => e.stopPropagation()}>
-                <Toggle checked={enableMemory} onChange={setEnableMemory} disabled={isStreaming} />
+                <Toggle checked={enableMemory} onChange={setEnableMemory} disabled={isStreaming} label="记忆预检索" />
               </div>
             </div>
           </div>
@@ -377,8 +426,8 @@ export default function OmniInput() {
               disabled={isCancelling || isFinalizing}
               className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
                 isCancelling
-                  ? 'bg-magic-metal/20 text-magic-metal cursor-wait animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.25)]'
-                  : 'bg-red-500/20 text-red-400 hover:bg-red-500/30 hover:text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.3)]'
+                  ? 'bg-magic-metal/20 text-magic-metal cursor-wait animate-pulse'
+                  : 'bg-magic-fire/20 text-magic-fire hover:bg-magic-fire/30 hover:text-magic-fire'
               }`}
               title={stopTitle}
               aria-label={stopTitle}
@@ -389,10 +438,11 @@ export default function OmniInput() {
             <button
               disabled={!message.trim() || isLoadingHistory || (!!currentSessionId && !historyReady)}
               onClick={handleSend}
+              aria-label="发送"
               className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
                 message.trim()
-                  ? 'bg-primary-dim text-on-primary-container shadow-[0_0_10px_rgba(149,71,247,0.4)] hover:shadow-[0_0_10px_rgba(149,71,247,0.6)] hover:bg-primary/90'
-                  : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
+                  ? 'bg-primary-dim text-on-primary-container hover:bg-primary/90'
+                  : 'bg-ink/5 text-fg-3 hover:bg-ink/10 hover:text-fg-2'
               }`}
             >
               <Send className="w-4 h-4" />
@@ -402,10 +452,10 @@ export default function OmniInput() {
       </div>
       
       {/* 快捷键提示 */}
-      <div className="text-center mt-4 text-[11px] text-slate-500/60 font-medium tracking-wide">
-        <span className="bg-white/5 px-1.5 py-0.5 rounded text-[10px] mr-1 border border-white/5">Enter</span> 发送 
+      <div className="text-center mt-4 text-xs text-fg-3/60 font-medium tracking-wide">
+        <span className="bg-ink/5 px-1.5 py-0.5 rounded text-xs mr-1 border border-line">Enter</span> 发送
         <span className="mx-2">•</span> 
-        <span className="bg-white/5 px-1.5 py-0.5 rounded text-[10px] mr-1 border border-white/5">Shift + Enter</span> 换行
+        <span className="bg-ink/5 px-1.5 py-0.5 rounded text-xs mr-1 border border-line">Shift + Enter</span> 换行
       </div>
     </div>
   );

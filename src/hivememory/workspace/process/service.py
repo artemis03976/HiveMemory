@@ -151,6 +151,7 @@ class TaskProcessService:
         model_selection: ModelSelection | None = None,
         attachments: list[AttachmentSelectionRequest] | None = None,
         session_id: str | None = None,
+        designated_topic_id: str | None = None,
     ) -> ProcessHandle:
         """注册步骤：认证执行者与系统、创建进程并登记（流式响应开始前完成）。
 
@@ -213,6 +214,7 @@ class TaskProcessService:
                 enable_memory_retrieval=enable_memory_retrieval,
                 model_selection=model_selection,
                 attachments=tuple(attachments or ()),
+                designated_topic_id=designated_topic_id,
             )
             process = TaskProcess(record=record, request=request, trace_id=trace_id)
             self._process_table.register(process)

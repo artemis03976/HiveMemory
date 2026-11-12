@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-11
 ---
 
 # Archived Plans
@@ -19,6 +19,7 @@ last_reviewed: 2026-11-10
 
 ## 版本之外
 
+- [前端 UI 优化与空入口接线](./frontend-ui-and-entry-wiring.md)：2026-11-11，PR #216；[前端](../../frontend/README.md)、[管理页面](../../frontend/management-views.md)
 - [Electron 桌面客户端](./desktop-client.md)：2026-11-10，PR #214；[桌面客户端](../../frontend/desktop-client.md)、[使用桌面客户端](../../help/desktop-client.md)
 - [退出时保存待生成的记忆工作](./shutdown-pending-generation-persistence.md)：2026-11-10，PR #213；[Patchouli 生成](../../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)、[Patchouli](../../patchouli/README.md#42-维护任务与关闭)
 - [主配置的个人覆盖与热更新](./config-overrides-and-hot-reload.md)：2026-11-09，PR #210；[System 配置](../../system/configuration.md#21-个人覆盖与保存)、[配置指南](../../help/configuration.md#5-主配置与生效边界)

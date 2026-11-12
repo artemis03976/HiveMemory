@@ -1,170 +1,58 @@
 import type { HiveMemoryConfig } from '@/types/config';
 
-// Mock data for development when backend is offline
+/**
+ * 调试模式下读不到后端配置时，设置页使用的配置。结构与后端主配置一致，
+ * 只含前端读取的字段，取值为 configs/config.yaml 的默认值。
+ */
 export const MOCK_CONFIG: HiveMemoryConfig = {
-  system: {
-    server_principal_id: 'hivememory:http-server',
-  },
-  logging: {
-    level: 'INFO',
-    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    file_path: null,
-    console_output: true,
+  logging: { level: 'INFO' },
+  i18n: { default_language: 'zh' },
+  runtime_events: { enabled: true },
+  scheduler: {
+    tasks: { enable_lifecycle_gc: true, lifecycle_gc_interval_hours: 24 },
   },
   shared: {
-    embedding: {
-      default: {
-        cache_dir: null,
-      },
-    },
-  },
-  patchouli: {
-    llm: { model_id: null, temperature: 0.3, top_p: null, max_tokens: 32768 },
-  },
-  qdrant: {
-    host: 'localhost',
-    port: 6333,
-    grpc_port: 6334,
-    api_key: null,
-    collection_name: 'hivememory_main',
-    distance_metric: 'Cosine',
-    on_disk_payload: true,
+    embedding: { default: { residency: 'idle_unload', idle_timeout_seconds: 1800 } },
   },
   gateway: {
-    llm: { model_id: null, temperature: 0.0, top_p: null, max_tokens: 512 },
-    interceptor: {
-      enabled: true,
-      enable_system: true,
-      enable_chat: true,
-      custom_system_patterns: [],
-      custom_chat_patterns: [],
-    },
-    analyzer: {
-      enabled: true,
-      context_window: 5,
-    },
+    llm: { model_id: 'deepseek-chat', temperature: 0.0, top_p: null, max_tokens: 512 },
+    workflow: { default_request_timeout_ms: 8000 },
   },
-  perception: {
-    engine: {
-      enable: true,
-      idle_timeout_seconds: 900,
-      scan_interval_seconds: 30,
-      fold_token_threshold: 32768,
-      fold_retain_recent_blocks: 5,
-      max_resident_topics: 10,
-      relay: {
-        enable: true,
-        engine: {
-          type: 'simple',
-        },
-      },
-    },
+  import_bus: { apply_wait_seconds: 30 },
+  memory_compiler: {
+    retrieval_context: { strategy: { max_memory_tokens: 2000 } },
   },
-  generation: {
-    extractor: {
-      enabled: true,
-      system_prompt: null,
-      user_prompt: null,
+  patchouli: {
+    llm: { model_id: 'deepseek-chat', temperature: 0.3, top_p: null, max_tokens: 32768 },
+    storage: { host: '127.0.0.1', collection_name: 'hivememory_main' },
+    perception: {
+      idle_timeout_seconds: 3600,
+      engine: { max_resident_topics: 5, fold_token_threshold: 131072, fold_retain_recent_blocks: 2 },
     },
-    deduplicator: {
-      enabled: true,
-      high_similarity_threshold: 0.95,
-      low_similarity_threshold: 0.75,
-      content_similarity_threshold: 0.85,
-      enable_vitality_tracking: true,
+    generation: {
+      extractor: { enabled: true },
+      deduplicator: { high_similarity_threshold: 0.95, low_similarity_threshold: 0.75 },
+      queue_max_concurrency: 2,
     },
-  },
-  retrieval: {
-    renderer: {
-      type: 'full',
-      render_format: 'markdown',
-      max_tokens: 2000,
-      max_content_length: 500,
-      show_artifacts: false,
-      stale_days: 90,
-    },
-    retriever: {
-      type: 'hybrid',
-      top_k: 5,
-      score_threshold: 0.5,
-      enable_parallel: true,
-      dense: {
-        enabled: true,
-        top_k: 10,
-        score_threshold: 0.5,
-        enable_time_decay: true,
-        time_decay_days: 30,
-        enable_confidence_boost: true,
-      },
-      sparse: {
-        enabled: true,
-        top_k: 10,
-        score_threshold: 0.3,
-      },
-      fusion: {
-        type: 'rrf',
-        rrf_k: 60,
-        dense_weight: 1.0,
-        sparse_weight: 0.3,
-        final_top_k: 5,
-      },
-      reranker: {
-        enabled: true,
-        model_name: 'BAAI/bge-reranker-v2-m3',
-        cache_dir: 'data/model_cache',
-        batch_size: 16,
+    retrieval: {
+      retriever: {
         top_k: 5,
-        normalize_scores: true,
+        dense: { score_threshold: 0.5, enable_time_decay: true, time_decay_days: 30 },
       },
+      reranker: { enabled: true, residency: 'idle_unload', idle_timeout_seconds: 600 },
+    },
+    lifecycle: {
+      vitality_calculator: { decay_lambda: 0.01 },
+      garbage_collector: { low_watermark: 20 },
     },
   },
-  lifecycle: {
-    vitality_calculator: {
-      code_snippet_weight: 1.0,
-      fact_weight: 0.9,
-      url_resource_weight: 0.8,
-      reflection_weight: 1.2,
-      user_profile_weight: 1.5,
-      work_in_progress_weight: 1.5,
-      default_weight: 1.0,
-      max_access_boost: 5.0,
-      points_per_access: 0.1,
-      decay_lambda: 0.01,
-    },
-    reinforcement: {
-      enable_event_history: true,
-      event_history_limit: 10,
-      citation_boost: 20.0,
-      positive_feedback_boost: 50.0,
-      negative_feedback_penalty: 50.0,
-      negative_confidence_multiplier: 0.8,
-    },
-    archiver: {
-      archive_dir: 'data/archives',
-      compression: true,
-    },
-    garbage_collector: {
-      low_watermark: 20.0,
-      batch_size: 100,
-      enable_schedule: false,
-      interval_hours: 24,
-    },
+  alice: {
+    compaction: { enabled: true, trigger_ratio: 0.75 },
+    runtime: { max_loop_iterations: 10, default_context_window: 65536 },
   },
-  koakuma: {
-    execution_timeout_seconds: 300,
-    max_recursion_depth: 5,
-    tool_cache_size: 100,
-    python_repl_timeout_seconds: 30,
-    workspace_path: './workspace',
-    file_read_max_bytes: 1048576,
-    file_write_max_bytes: 1048576,
-    web_search_timeout_seconds: 15,
-    mtp_prompt: {
-      enabled: true,
-      language: 'zh',
-      role: 'default',
-      include_demo: true,
-      include_error_handling: true,
-    },
+  attachment_parser: { max_raw_bytes: 10485760 },
+  attachment_compiler: { max_total_context_chars: 48000 },
+  workspace: {
+    sessions: { max_sessions_per_workspace: 128, max_turns_per_session: 512 },
   },
 };

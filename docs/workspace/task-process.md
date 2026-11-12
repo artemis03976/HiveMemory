@@ -27,7 +27,7 @@ related_docs:
   - docs/system/application-services.md
   - docs/system/attachments.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # 任务进程
@@ -129,6 +129,8 @@ TaskProcessService.run_process(handle)：创建进程 task；流式交付订阅�
 
 Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit` 轮的用户与助手文本，连同每轮在会话中记录的所在话题 `topic_id`（交互没有应用成功的轮次为空），随 `session_turns` 交给 Gateway（[Gateway 分析](../gateway/analysis.md)）。所在话题只在话题路由失败时使用：Gateway 续接上一轮的话题（该话题仍在本次的候选话题中时），否则新建话题；同一会话的相邻轮次大多仍在同一话题上，续接比每次失败都新建无标题话题归错的代价小。
 
+chat 请求可以用 `topic_id` 为这一轮指定话题（前端的 `#` 话题引用）。HTTP 入口把它作为注册参数 `designated_topic_id` 交给注册入口，记入任务参数 `ProcessRequest`，Gateway 阶段原样交给 Gateway 的同名参数。话题仍在候选话题中时，Gateway 直接取用、不调用话题路由模型，之后与 Gateway 指向已有话题相同，在 PREPARE 中确认（第 5.3 节）；已不在候选中时，Gateway 以 `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`）拒绝，进程在 Gateway 阶段按 Workspace 领域错误失败收口：不进入 PREPARE，不预检索、不调用 CPU、不提交、不写会话，流式交付的 `error` 事件与 `chat.run.failed` 都带这个错误码，由用户重新选择话题。进程不自行校验指定的话题，也不在被拒后改由话题路由决定：话题是否可用只由 Gateway 的候选话题判定（[Gateway 工作流](../gateway/workflow.md#22-decision-前缀)）。
+
 ### 5.2 阶段调用
 
 阶段调用是进程在四个阶段中跨边界的调用，每次调用都以本进程注册时通过认证的 Workspace 为目标、按真正执行它的身份授权，授权返回的 `IdentityScope` 只交给紧随的路由或端口（规则与理由见[身份与授权](./identity-and-authorization.md#4-操作授权)）：
@@ -160,7 +162,7 @@ scope 不保存在工作集中等待使用，也不进入 CPU 输入清单、线
 
 CPU 分配（Profile 解析、附件租借与编译、记忆与中立提示词编译、清单组装）由 `CPUAllocator`（`workspace/process/allocation.py`）完成，它取得的附件租借也由它在进程关闭时释放。
 
-**Profile 解析**：Agent Profile 属于 CPU 分配，但在 PREPARE 开始时解析：主线程以这份图纸派生，预检索与已有话题的确认都由主线程执行，Profile 缺失的请求因此在检索与刷新话题之前失败。加载哪份图纸取自注册时认证得到的执行者，不取自请求输入。Profile 经 root 授权后由组合根注入的读取视图（`ProfileResolver`）按管理语义解析，不经能力层：只检查 Workspace 归属，不按 Agent 的可见性裁剪，指向其他 Agent 的 PRIVATE 图纸也能被它自己的进程加载（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）；正式原子变更会失效解析缓存。
+**Profile 解析**：Agent Profile 属于 CPU 分配，但在 PREPARE 开始时解析：主线程以这份图纸派生，预检索与已有话题的确认都由主线程执行，Profile 缺失或已停用（[检索](../patchouli/retrieval.md#22-中期记忆读取)）的请求因此在检索与刷新话题之前失败。加载哪份图纸取自注册时认证得到的执行者，不取自请求输入。Profile 经 root 授权后由组合根注入的读取视图（`ProfileResolver`）按管理语义解析，不经能力层：只检查 Workspace 归属，不按 Agent 的可见性裁剪，指向其他 Agent 的 PRIVATE 图纸也能被它自己的进程加载（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）；正式原子变更会失效解析缓存。
 
 **编译与清单**：CPU 分配接收预检索返回的未编译原子与经 root API 读取的存储健康。进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再由 `prompts.compilation.compile_prompt_input` 按 Profile 语言（缺省时使用进程默认值）定稿中立提示词：环境通知（存储不可用时的离线提示由存储健康决定）与人设组成 `instructions`，记忆与附件组成 `turn_context`。两段文本、解析好的 `language`、话题 `topic_id`、会话全量历史 `session_history` 与已有 `compaction_checkpoint` 一起组装为输入清单，经 CPU 端口交给 CPU。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)。
 
@@ -275,7 +277,7 @@ chat 路由订阅流式交付，不轮询断连，也不为每个事件创建 ta
 - 封口：与 Import Bus 共用的 [`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；
 - 公共契约：[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)、[`workspace/contracts/process.py`](../../src/hivememory/workspace/contracts/process.py)；HTTP 入口：[`server/routers/chat.py`](../../src/hivememory/server/routers/chat.py)；
 - 测试：
-  - `tests/unit/workspace/process/test_gateway_chat_flow.py`（系统阶段以 root scope 执行、提交的参与者是执行者；预检索按 Gateway 的计划经读取视图交付，执行者没有 `memory.search` 或请求关闭检索时不检索；已有话题在 CPU 分配前确定，新话题且没有写入时由提交建立，CPU 返回时写入仍在建立话题则提交先等它结束、提交到同一话题；提交没有成功时会话仍有这一轮、话题为空；检索命中随预检索以执行者的 scope 记录；PREPARE 中停止拒绝预检索；Actor 中停止在等 CPU 与阻塞于通道写入时的响应，以及 Gateway 之前的模型预取）；
+  - `tests/unit/workspace/process/test_gateway_chat_flow.py`（系统阶段以 root scope 执行、提交的参与者是执行者；预检索按 Gateway 的计划经读取视图交付，执行者没有 `memory.search` 或请求关闭检索时不检索；已有话题在 CPU 分配前确定，新话题且没有写入时由提交建立，CPU 返回时写入仍在建立话题则提交先等它结束、提交到同一话题；提交没有成功时会话仍有这一轮、话题为空；检索命中随预检索以执行者的 scope 记录；PREPARE 中停止拒绝预检索；Actor 中停止在等 CPU 与阻塞于通道写入时的响应，以及 Gateway 之前的模型预取；请求指定的话题交给 Gateway，被拒时以错误码失败、不提交）；
   - `tests/unit/workspace/process/test_chat_run_control_contract.py`（注册的两次认证与失败时不登记、取消的 root 授权、输出通道的容量与离开语义、订阅者暂停时进程仍推进、五种结局的唯一退出路径、交付方离开不等待关闭）；
   - `tests/unit/workspace/process/test_cpu_allocation.py`（Profile 的管理读取与附件租借以 root scope 执行、准入失效或 Profile 解析失败时先于预检索与话题失败、租借释放与关闭顺序）；
   - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局与执行异常）；

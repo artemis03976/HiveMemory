@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # Memory Tool Protocol (MTP)
@@ -159,7 +159,7 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 - TARGET 和 `task` 必填；`context_refs` 可选；
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
 - Alice RunExecutor 通过协程调用栈挂起 caller frame，经调用方句柄的 `derive_child` 提交 `DeriveCallThreadRequest`（workspace 授权 `agent.call`、解析目标图纸并派生子线程）、以调用方的 `ResolveReferencesRequest` 解析共享上下文，递归运行 callee frame，再以 `MTPCallResponse` 回填；
-- 派生要求调用方的 `agent.call`，内置 Profile 也不跳过；被调用方须在本 Workspace 有准入，未准入或为保留的 `system` 时回填 `mtp.permission.denied`（文案键 `mtp.call.agent_unavailable`），不启动子 frame；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
+- 派生要求调用方的 `agent.call`，内置 Profile 也不跳过；被调用方须在本 Workspace 有准入，未准入或为保留的 `system` 时回填 `mtp.permission.denied`（文案键 `mtp.call.agent_unavailable`），不启动子 frame；目标 Profile 已停用（`AgentProfile.enabled` 为假）时，解析图纸即被拒绝，回填同一组 code 与文案键；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
 - callee frame 以被调用方身份运行：资源操作按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；
 - 子线程随 CALL 返回结束：callee frame 以任何终态收尾、取消沿递归栈清理 CALL，以及派生之后子帧开始运行之前的失败，都同步结束子线程，之后以子线程提交的请求以线程已结束拒绝；子线程已提交的写入不受影响；
 - CALL 只允许 root frame 发起；callee frame 的 `FrameExecutionPolicy` 由被调用方的操作快照翻译并显式移除 CALL，防止递归爆炸；被调用方 Profile 只提供 persona、模型与语言；
@@ -187,7 +187,7 @@ RUN 始终在动词集合中，因为系统工具不设权限；没有 `memory.r
 - **提示层**：只教学集合内的动词，同时裁剪提及集合外动词的行为准则、错误恢复与演示；系统工具菜单始终完整；
 - **执行层**：Koakuma 在分发前以 frame 的 `FrameExecutionPolicy` 检查动词，集合外的动词在提交任何操作请求之前被拒绝。
 
-资源操作仍由 actor API 按访问登记逐次授权；动词集合是线程派生时的快照，只描述可用能力，不是授权依据。权限拒绝属于 `agent_fault`，稳定代码为 `mtp.permission.denied`（文案键 `mtp.permission.verb_denied`；CALL 目标未准入时为 `mtp.call.agent_unavailable`），Agent 可以调整方案，但不能通过换写法绕过许可。
+资源操作仍由 actor API 按访问登记逐次授权；动词集合是线程派生时的快照，只描述可用能力，不是授权依据。权限拒绝属于 `agent_fault`，稳定代码为 `mtp.permission.denied`（文案键 `mtp.permission.verb_denied`；CALL 目标未准入或 Profile 已停用时为 `mtp.call.agent_unavailable`），Agent 可以调整方案，但不能通过换写法绕过许可。
 
 MTP 是否应该出现，取决于当前行动门槛，而不是“能调用工具就调用”：信息存在缺口时先 SEARCH/READ；动作产生副作用或需要执行资产时才 RUN；内容确有跨会话长期价值时才 WRITE/UPDATE；委派能形成明确子任务时才 CALL。Agent 不得臆造 alias，也不得把错误响应理解为持续试探权限的邀请。错误应该驱动修正查询、参数或计划；权限拒绝则意味着停止该能力路径。
 

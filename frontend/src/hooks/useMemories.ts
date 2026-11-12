@@ -17,6 +17,7 @@ import {
   updateMemory as updateMemoryApi,
   type UpdateMemoryPatch,
 } from '@/services/memoryApi';
+import { localErrorText } from '@/transports/connectionStatus';
 
 /** 语义检索的状态：idle 表示当前没有进行语义检索。 */
 export type SemanticSearchStatus = 'idle' | 'loading' | 'done' | 'error';
@@ -130,7 +131,7 @@ export function useMemories(): UseMemoriesReturn {
       // 读取失败如实显示，不保留上一次的列表，避免把旧数据当成当前结果。
       setRawMemories([]);
       setTotal(0);
-      setError(err instanceof Error ? err.message : '记忆读取失败');
+      setError(localErrorText(err instanceof Error ? err.message : '记忆读取失败'));
     } finally {
       setLoading(false);
     }
@@ -164,7 +165,7 @@ export function useMemories(): UseMemoriesReturn {
       .catch((err: unknown) => {
         if (cancelled) return;
         setSemanticResults([]);
-        setSemanticError(err instanceof Error ? err.message : '语义检索失败');
+        setSemanticError(localErrorText(err instanceof Error ? err.message : '语义检索失败'));
         setSemanticStatus('error');
       });
     return () => { cancelled = true; };

@@ -95,6 +95,7 @@ async def chat(
         enable_memory_retrieval=body.enable_memory_retrieval,
         model_selection=body.model_selection,
         attachments=body.attachments,
+        designated_topic_id=body.topic_id,
     )
     started = False
 

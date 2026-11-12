@@ -1,5 +1,7 @@
 """主配置接口：读取期望配置，保存只把差异写进个人覆盖文件，立即生效的字段写入运行配置。"""
 
+import re
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -179,3 +181,28 @@ def test_default_config_query_keeps_process_default_language():
 
     assert response.status_code == 200
     assert get_default_language() == "en"
+
+
+_SETTINGS_SCHEMA = (
+    Path(__file__).resolve().parents[4] / "frontend" / "src" / "constants" / "settingsSchema.ts"
+)
+
+
+def test_every_settings_page_field_exists_in_the_main_config() -> None:
+    """设置页的常用与高级两层按字段路径读写本接口的配置树，每条路径都必须真实存在。
+
+    字段改名或删除时，设置页会静默地读到空值、写出无效的覆盖；这里在后端一侧拦住。
+    """
+    defaults = HiveMemoryConfig().model_dump(mode="json")
+    paths = re.findall(r"path: '([a-z_.]+)'", _SETTINGS_SCHEMA.read_text(encoding="utf-8"))
+
+    def exists(path: str) -> bool:
+        node: object = defaults
+        for key in path.split("."):
+            if not isinstance(node, dict) or key not in node:
+                return False
+            node = node[key]
+        return True
+
+    assert paths, "设置页没有可读写的字段，检查字段表的格式是否变化"
+    assert [path for path in paths if not exists(path)] == []

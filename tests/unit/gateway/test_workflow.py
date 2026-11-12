@@ -32,6 +32,7 @@ from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.engines.gateway.topic_router import TopicRouterError
 from hivememory.gateway.analysis import UserQueryAnalysisResult
 from hivememory.gateway.context import CandidateTopics
+from hivememory.gateway.errors import DesignatedTopicUnavailableError
 from hivememory.gateway.workflow import (
     GatewayExecutionState,
     GatewayWorkflowStep,
@@ -344,6 +345,43 @@ async def test_empty_message_continues_previous_topic_without_asking_the_router(
     assert result.kind == "decision"
     assert result.decision.target_topic_id == expected_target
     assert result.decision.new_topic_title is None
+    router.route.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_designated_candidate_topic_is_used_without_asking_the_router() -> None:
+    """用户指定的话题仍在候选中时，话题路由直接取用，不调用话题路由模型。"""
+    router = _Router()
+    workflow = _make_workflow(provider=_Provider(), router=router, resolver=_Resolver())
+
+    result = await workflow.run(
+        "接着上次的话题聊",
+        identity_scope=make_identity_scope(user_id="u1"),
+        ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+        designated_topic_id="topic-1",
+    )
+
+    assert result.kind == "decision"
+    assert result.decision.target_topic_id == "topic-1"
+    router.route.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_designated_topic_outside_candidates_is_rejected_not_rerouted() -> None:
+    """用户指定的话题已不在候选中时拒绝这一轮，不进入续接上一轮的兜底。"""
+    router = _Router()
+    workflow = _make_workflow(provider=_Provider(), router=router, resolver=_Resolver())
+
+    with pytest.raises(DesignatedTopicUnavailableError) as raised:
+        await workflow.run(
+            "接着上次的话题聊",
+            identity_scope=make_identity_scope(user_id="u1"),
+            ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+            session_turns=(GatewaySessionTurn(user_message="上一轮", topic_id="topic-1"),),
+            designated_topic_id="topic-settled",
+        )
+
+    assert raised.value.code == "gateway.topic.designated_unavailable"
     router.route.assert_not_awaited()
 
 

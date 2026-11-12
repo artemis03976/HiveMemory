@@ -114,7 +114,17 @@ await builder.build({
     extraMetadata: { version: appVersion() },
     electronDist: join(DESKTOP_DIR, 'node_modules', 'electron', 'dist'),
     directories: { output: 'dist' },
-    files: ['src/**/*', 'assets/**/*', 'package.json'],
+    files: [
+      'src/**/*',
+      'assets/**/*',
+      'package.json',
+      // 启动页的字体取自前端依赖，与前端打包进页面的是同一个文件。
+      {
+        from: '../frontend/node_modules/@fontsource-variable/manrope/files',
+        to: 'src/fonts',
+        filter: ['manrope-latin-wght-normal.woff2'],
+      },
+    ],
     extraResources: [
       { from: 'build/python', to: 'python' },
       { from: 'build/backend', to: 'backend' },

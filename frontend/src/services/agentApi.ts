@@ -1,7 +1,9 @@
 import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import type { AgentData } from '@/types';
+import type { BackendAgent } from '@/hooks/useAgents';
 import { apiUrl } from '@/transports/backendUrl';
+import { backendFetch } from '@/transports/connectionStatus';
 
 /** 显式组装编辑器支持的图纸字段，避免回写存量配置中的废弃字段。 */
 function toPayload(agent: AgentData) {
@@ -14,13 +16,15 @@ function toPayload(agent: AgentData) {
     agent_config: {
       model_name: agent.config.model_name,
       temperature: agent.config.temperature,
+      top_p: agent.config.top_p,
       language: agent.config.language,
+      enabled: agent.status === 'Active',
     },
   };
 }
 
-export async function createAgent(agent: AgentData) {
-  const res = await fetch(apiUrl('/api/v1/agents'), {
+export async function createAgent(agent: AgentData): Promise<BackendAgent> {
+  const res = await backendFetch(apiUrl('/api/v1/agents'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -33,7 +37,7 @@ export async function createAgent(agent: AgentData) {
 }
 
 export async function saveAgent(agent: AgentData) {
-  const res = await fetch(apiUrl(`/api/v1/memories/${agent.id}`), {
+  const res = await backendFetch(apiUrl(`/api/v1/memories/${agent.id}`), {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -45,7 +49,7 @@ export async function saveAgent(agent: AgentData) {
 }
 
 export async function deleteAgent(agentId: string) {
-  const res = await fetch(apiUrl(`/api/v1/memories/${agentId}`), {
+  const res = await backendFetch(apiUrl(`/api/v1/memories/${agentId}`), {
     method: 'DELETE',
     headers: identityHeaders(),
   });

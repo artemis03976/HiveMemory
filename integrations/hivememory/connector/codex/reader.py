@@ -16,7 +16,7 @@
   其中工具参数是 hook 改写前的，不读取。``turn_context`` 的 ``payload.model``
   是这一轮使用的模型。
 - 条目映射：``UserMessage`` 的文本是用户消息（一轮中有多条时按顺序以空行
-  拼接，图片写占位）；``AgentMessage`` → 助手消息；``Reasoning`` → 思考
+  拼接，图片写占位，去掉宿主附加的块）；``AgentMessage`` → 助手消息；``Reasoning`` → 思考
   （有原文时取原文，否则取摘要，都没有时跳过）；``McpToolCall``、
   ``CommandExecution``、``DynamicToolCall``、``FileChange``、``WebSearch`` →
   工具调用（标识、工具名与参数，结局取条目状态）；``CollabAgentToolCall`` 中
@@ -45,6 +45,7 @@ from connector.core.config import Harness
 from connector.core.memory_tools import MEMORY_TOOLS, tool_call_fields
 from connector.core.state import Outcome
 from connector.core.transcript import TranscriptTurn, complete_size, read_entries
+from connector.core.user_message import strip_injected
 
 HARNESS = Harness(
     source="codex",
@@ -234,7 +235,7 @@ def _apply_entry(
 def _apply_item(turn: _TurnBuilder, item: dict[str, Any]) -> None:
     item_type = item.get("type")
     if item_type == "UserMessage":
-        text = _user_text(item.get("content"))
+        text = strip_injected(_user_text(item.get("content")))
         if text:
             turn.user_messages.append(text)
     elif item_type == "AgentMessage":

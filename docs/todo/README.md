@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # Todo
@@ -12,6 +12,10 @@ last_reviewed: 2026-11-09
 
 当前事项：
 
+- [自定义背景，以及桌面端界面偏好的持久化](./custom-background-and-preference-persistence.md)（2026-11-11 由前端 UI 优化收尾登记：自定义背景与毛玻璃没有做；桌面客户端的会话分区不落盘，主题等界面偏好每次重启后回到缺省值；owner 决定主题持久化与自定义背景一起做，未排期）；
+- [前端细节优化：动效、响应速度与自适应布局](./frontend-ui-polish.md)（2026-11-11 由前端 UI 优化计划收尾登记：计划完成后剩下的细节，owner 决定单独处理，未排期）；
+- [保存后修改 Agent 别名，并实时更新所有引用](./agent-alias-rename.md)（2026-11-11 由前端 UI 优化计划登记：别名同时是 Profile 解析、访问登记、接入声明、对话与 CALL 中 Agent 的标识，改名时这些引用不会随之更新，Agent 页暂时只允许在草稿中修改别名；owner 决定改名时引用要实时更新，未排期）；
+- [引用记忆面板的“相关度”](./referenced-memory-relevance.md)（2026-11-11 由前端 UI 优化计划登记：样稿中的相关度条没有数据来源，预检索结果经操作入口交出时已经只剩记忆本身、不带分数；owner 决定之后结合后端一起加回，未排期）；
 - [WorkspaceAsset Store 中没有生产调用方的方法](./workspace-asset-store-unused-methods.md)（2026-11-06 由 WorkspaceAsset 归属拆分计划的评审登记：`resolve_asset`、`list_workspace_assets`、`create_asset`、`register_raw_representation`、`remove_asset` 只在测试中调用，REMOVED 状态因此没有生产来源；owner 决定保留，逐个检查是补上使用方还是删除，未排期）；
 - [并发合并同一条记忆时，后写回的合并失败并留下重复](./merge-version-conflict.md)（2026-11-04 随 v0.7.3 收尾由收敛 Idea 第 4.4 节移入：同一次结算的两条草稿命中同一条记忆时，后写回的合并以版本冲突放弃，留下重复；话题内主动写入优先之后仍出现一次；是否重做等以原因码记录的真实失败再判断，未排期）；
 - [多条提取后被动提取的记忆膨胀与低留存](./passive-extraction-volume-and-retention.md)（2026-11-03 由记忆增长统计登记：多条提取后每次结算的 Mode A 新建从 1 条变为平均 5.2 条，其中仅 52% 留存，owner 手动清理；owner 的目标是全自主记忆维护，本 Todo 保留证据与度量，可合进任一 Idea 或计划）；

@@ -9,7 +9,7 @@ export default function SessionCompactionBoundary({ interactionId, checkpoint }:
   const summarized = checkpoint.summarized_through === interactionId;
   const reduced = checkpoint.reduced_through === interactionId;
   if (!summarized && !reduced) return null;
-  return <div className="border-t border-primary/20 pt-3 space-y-2 text-xs text-slate-400">
+  return <div className="border-t border-primary/20 pt-3 space-y-2 text-xs text-fg-3">
     {summarized && <details>
       <summary className="cursor-pointer text-primary/80">以上对话已纳入摘要 · 查看摘要（原文保留）</summary>
       <p className="mt-3 whitespace-pre-wrap break-words">{checkpoint.summary}</p>

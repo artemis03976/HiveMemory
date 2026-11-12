@@ -9,6 +9,7 @@ import {
   deleteProvider,
 } from '@/services/providerRegistryApi';
 import type { RegisteredProvider, ProviderUpsertPayload } from '@/types/provider';
+import { localErrorText } from '@/transports/connectionStatus';
 
 /** 编辑器草稿：新增与编辑共用 */
 interface ProviderDraft {
@@ -36,10 +37,10 @@ function ProviderEditor({
   onCancel: () => void;
 }) {
   const rowCls = 'flex items-center justify-between gap-4 py-2';
-  const labelCls = 'text-sm text-slate-300 shrink-0 w-28';
+  const labelCls = 'text-sm text-fg-2 shrink-0 w-28';
 
   return (
-    <div className="bg-black/20 border border-primary/20 rounded-2xl p-5 space-y-1 ghost-border">
+    <div className="bg-field border border-primary/20 rounded-2xl p-5 space-y-1 border border-line">
       <div className="text-sm font-bold text-primary mb-3">
         {isNew ? '添加提供商' : `编辑提供商: ${draft.name}`}
       </div>
@@ -79,7 +80,7 @@ function ProviderEditor({
         <button
           onClick={onCancel}
           disabled={saving}
-          className="px-4 py-1.5 text-sm text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+          className="px-4 py-1.5 text-sm text-fg-3 hover:text-fg transition-colors disabled:opacity-50"
         >
           取消
         </button>
@@ -106,27 +107,27 @@ function ProviderRow({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between p-4 border-b border-white/5 last:border-0 hover:bg-white/2 transition-colors">
+    <div className="flex items-center justify-between p-4 border-b border-line last:border-0 hover:bg-ink/2 transition-colors">
       <div className="flex items-center gap-3 min-w-0">
-        <KeyRound className="w-4 h-4 text-slate-500 shrink-0" />
+        <KeyRound className="w-4 h-4 text-fg-3 shrink-0" />
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-200 font-mono">{provider.name}</span>
+            <span className="text-sm font-medium text-fg font-mono">{provider.name}</span>
             {provider.is_from_env && (
-              <span className="flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded uppercase tracking-wide">
+              <span className="flex items-center gap-1 text-xs font-bold text-magic-metal bg-magic-metal/10 px-1.5 py-0.5 rounded tracking-wide">
                 <Lock className="w-2.5 h-2.5" />
                 环境变量
               </span>
             )}
           </div>
-          <div className="text-xs text-slate-500 mt-0.5 font-mono">
+          <div className="text-xs text-fg-3 mt-0.5 font-mono">
             {provider.api_key_masked ? (
               <span>{provider.api_key_masked}</span>
             ) : (
-              <span className="text-slate-600 italic">未配置 API Key</span>
+              <span className="text-fg-3 italic">未配置 API Key</span>
             )}
             {provider.api_base && (
-              <span className="ml-2 text-slate-600">· {provider.api_base}</span>
+              <span className="ml-2 text-fg-3">· {provider.api_base}</span>
             )}
           </div>
         </div>
@@ -136,16 +137,18 @@ function ProviderRow({
         <button
           onClick={onEdit}
           disabled={provider.is_from_env}
-          className="p-2 text-slate-400 hover:text-primary hover:bg-white/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-2 text-fg-3 hover:text-primary hover:bg-ink/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           title={provider.is_from_env ? '来自环境变量，请直接修改 .env 文件' : '编辑'}
+          aria-label="编辑"
         >
           <Pencil className="w-4 h-4" />
         </button>
         <button
           onClick={onDelete}
           disabled={provider.is_from_env}
-          className="p-2 text-slate-400 hover:text-red-400 hover:bg-white/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-2 text-fg-3 hover:text-magic-fire hover:bg-ink/5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           title={provider.is_from_env ? '来自环境变量，无法通过 UI 删除' : '删除'}
+          aria-label="删除"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -168,7 +171,7 @@ export function ProviderSettings() {
     try {
       setProviders(await fetchProviders());
     } catch (err) {
-      addToast('加载提供商列表失败: ' + (err instanceof Error ? err.message : '未知错误'), 'error');
+      addToast('加载提供商列表失败：' + localErrorText(err instanceof Error ? err.message : '未知错误'), 'error');
     } finally {
       setLoading(false);
     }
@@ -233,7 +236,7 @@ export function ProviderSettings() {
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       <section className="mb-8">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-white flex items-center gap-2">提供商凭证</h2>
+          <h2 className="text-lg font-bold text-fg flex items-center gap-2">提供商凭证</h2>
           <button
             onClick={startCreate}
             disabled={draft !== null}
@@ -257,13 +260,13 @@ export function ProviderSettings() {
           </div>
         )}
 
-        <div className="bg-surface-container-low border border-white/5 rounded-2xl overflow-hidden ghost-border">
+        <div className="bg-surface-container-low border border-line rounded-2xl overflow-hidden border border-line">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-primary">
               <RefreshCw className="w-6 h-6 animate-spin" />
             </div>
           ) : providers.length === 0 ? (
-            <div className="py-12 text-center text-sm text-slate-500">
+            <div className="py-12 text-center text-sm text-fg-3">
               暂无提供商凭证。点击"添加提供商"配置 API Key。
             </div>
           ) : (
@@ -278,13 +281,13 @@ export function ProviderSettings() {
           )}
         </div>
 
-        <div className="text-xs text-slate-500 mt-3 leading-relaxed space-y-1">
+        <div className="text-xs text-fg-3 mt-3 leading-relaxed space-y-1">
           <p>
             凭证按 Provider 名称（如 <span className="font-mono">deepseek</span>、<span className="font-mono">openai</span>）
             存储，与模型注册表中的 <span className="font-mono">provider</span> 字段对应。
           </p>
           <p>
-            标记为 <span className="text-amber-400">环境变量</span> 的提供商来自
+            标记为 <span className="text-magic-metal">环境变量</span> 的提供商来自
             <span className="font-mono"> HIVEMEMORY__PROVIDERS__&lt;NAME&gt;__API_KEY</span>，
             优先级高于此处配置，只读（请直接修改 <span className="font-mono">.env</span> 文件）。
           </p>

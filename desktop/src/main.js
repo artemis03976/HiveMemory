@@ -263,6 +263,9 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
+    // 再小时聊天页的三栏放不下：右栏与会话列表都已收为抽屉，中间栏仍需 560px。
+    minWidth: 1024,
+    minHeight: 640,
     show: false,
     title: PRODUCT_TITLE,
     icon: ICON_PATH,

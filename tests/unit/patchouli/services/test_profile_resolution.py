@@ -164,10 +164,11 @@ def test_missing_profile_does_not_fallback():
     [
         (MemoryType.FACT, {}, "type_mismatch"),
         (MemoryType.AGENT_PROFILE, {"top_p": 2.0}, "invalid_config"),
+        (MemoryType.AGENT_PROFILE, {"enabled": False}, "profile_disabled"),
     ],
 )
 def test_invalid_profile_has_constrained_resolution_reason(memory_type, config, reason):
-    """类型和配置失败有不同的中立原因，不把坏 Profile 当作默认配置继续执行。"""
+    """类型、配置与停用各有中立原因，不把这些 Profile 当作默认配置继续执行。"""
     scope = make_identity_scope()
     _, atom = _profile_atom(agent_config=config)
     atom.index.memory_type = memory_type

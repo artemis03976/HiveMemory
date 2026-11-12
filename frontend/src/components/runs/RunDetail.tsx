@@ -41,29 +41,29 @@ export default function RunDetail({ run, runsByKey, now, onSelectRun, onFilterTo
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-col gap-2.5 border-b border-white/5 px-7 pb-4 pt-5">
+      <div className="flex flex-col gap-2.5 border-b border-line px-7 pb-4 pt-5">
         <button
           type="button"
           onClick={onBack}
-          className="flex w-fit items-center gap-1 text-[12px] text-slate-400 hover:text-on-surface min-[900px]:hidden"
+          className="flex w-fit items-center gap-1 text-[12px] text-fg-3 hover:text-fg min-[900px]:hidden"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> 返回列表
         </button>
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="flex items-center gap-1.5 rounded-md border border-white/5 bg-surface-container-highest px-2 py-0.5 text-[11px] font-bold tracking-wide text-slate-300">
+          <span className="flex items-center gap-1.5 rounded-md border border-line bg-surface-container-highest px-2 py-0.5 text-xs font-bold tracking-wide text-fg-2">
             <KindIcon className="h-3 w-3" aria-hidden="true" />
             {kind.label}
           </span>
-          <h2 className="font-manrope text-[18px] font-bold text-on-surface">{run.title}</h2>
+          <h2 className="font-manrope text-[18px] font-bold text-fg">{run.title}</h2>
           <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${status.text} ${status.badge}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} aria-hidden="true" />
             {status.label}
             {run.reason && <span className="font-mono font-normal">· {run.reason}</span>}
           </span>
           <span className="flex-1" />
-          <span className="font-mono text-[13px] text-slate-300">{duration}</span>
+          <span className="font-mono text-[13px] text-fg-2">{duration}</span>
         </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-slate-400">
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[12px] text-fg-3">
           <span className="flex items-center gap-1.5">
             {traceId ? 'trace' : run.taskId ? 'task' : '标识'}
             <button
@@ -78,16 +78,16 @@ export default function RunDetail({ run, runsByKey, now, onSelectRun, onFilterTo
           </span>
           {run.agentId && (
             <span>
-              Agent <span className="text-on-surface">{run.agentId}</span>
+              Agent <span className="text-fg">{run.agentId}</span>
             </span>
           )}
           {run.workspaceId && (
             <span>
-              Workspace <span className="text-on-surface">{run.workspaceId}</span>
+              Workspace <span className="text-fg">{run.workspaceId}</span>
             </span>
           )}
           <span>
-            开始 <span className="font-mono text-on-surface" title={formatFullTime(run.startedAt)}>{formatClock(run.startedAt, true)}</span>
+            开始 <span className="font-mono text-fg" title={formatFullTime(run.startedAt)}>{formatClock(run.startedAt, true)}</span>
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -140,10 +140,10 @@ function LinkChip({
       type="button"
       onClick={onClick}
       title={title}
-      className="flex max-w-[320px] items-center gap-1.5 rounded-full border border-white/10 bg-surface-container px-2.5 py-1 text-[12px] text-slate-200 hover:bg-surface-container-high"
+      className="flex max-w-[320px] items-center gap-1.5 rounded-full border border-line bg-surface-container px-2.5 py-1 text-[12px] text-fg hover:bg-surface-container-high"
     >
-      <Icon className="h-3 w-3 shrink-0 text-slate-400" aria-hidden="true" />
-      <span className="shrink-0 text-slate-400">{label}</span>
+      <Icon className="h-3 w-3 shrink-0 text-fg-3" aria-hidden="true" />
+      <span className="shrink-0 text-fg-3">{label}</span>
       <span className="truncate font-mono">{value}</span>
     </button>
   );
@@ -158,11 +158,11 @@ function TimelineItem({ event, startedAt }: { event: RuntimeEvent; startedAt: nu
 
   return (
     <li className="flex">
-      <span className="w-[72px] shrink-0 pr-3.5 pt-2.5 text-right font-mono text-[12px] text-slate-500" title={formatFullTime(Date.parse(event.timestamp))}>
+      <span className="w-[72px] shrink-0 pr-3.5 pt-2.5 text-right font-mono text-[12px] text-fg-3" title={formatFullTime(Date.parse(event.timestamp))}>
         +{formatDuration(offset)}
       </span>
       <span className="relative flex w-4 shrink-0 justify-center" aria-hidden="true">
-        <span className="absolute bottom-0 top-0 w-px bg-white/10" />
+        <span className="absolute bottom-0 top-0 w-px bg-ink/10" />
         <span className={`relative mt-3.5 h-2 w-2 rounded-full ring-4 ring-background ${tone.dot}`} />
       </span>
       <div className="min-w-0 flex-1 py-1 pl-2.5">
@@ -175,13 +175,13 @@ function TimelineItem({ event, startedAt }: { event: RuntimeEvent; startedAt: nu
           <span className="flex items-baseline gap-2.5">
             <span className={`text-[13px] font-semibold ${tone.text}`}>{description.text}</span>
             <span className="flex-1" />
-            <span className="whitespace-nowrap font-mono text-[11px] text-slate-500">{event.event_type}</span>
+            <span className="whitespace-nowrap font-mono text-xs text-fg-3">{event.event_type}</span>
           </span>
-          {description.detail && <span className="break-all text-[12px] text-slate-400">{description.detail}</span>}
+          {description.detail && <span className="break-all text-[12px] text-fg-3">{description.detail}</span>}
         </button>
         {isGatewayTerminal && <GatewaySteps event={event} />}
         {expanded && (
-          <pre className="mx-2.5 my-1.5 whitespace-pre-wrap break-all rounded-lg border border-white/5 bg-surface-container-lowest p-3 font-mono text-[11px] leading-relaxed text-slate-300">
+          <pre className="mx-2.5 my-1.5 whitespace-pre-wrap break-all rounded-lg border border-line bg-surface-container-lowest p-3 font-mono text-xs leading-relaxed text-fg-2">
             {JSON.stringify(event, null, 2)}
           </pre>
         )}
@@ -197,22 +197,22 @@ function GatewaySteps({ event }: { event: RuntimeEvent }) {
   const slowest = Math.max(...steps.map((step) => step.durationMs), 1);
 
   return (
-    <div className="mx-2.5 my-1.5 flex flex-col gap-1.5 rounded-lg border border-white/5 bg-surface-container-low px-3 py-2.5">
+    <div className="mx-2.5 my-1.5 flex flex-col gap-1.5 rounded-lg border border-line bg-surface-container-low px-3 py-2.5">
       {steps.map((step) => {
         // 最慢的一步（通常是话题路由）用 primary 标出，其余为中性色。
         const highlighted = step.durationMs === slowest && slowest > 10;
         return (
           <div key={step.stepId} className="flex items-center gap-2.5 text-[12px]">
-            <span className={`w-24 shrink-0 ${highlighted ? 'text-on-surface' : 'text-slate-400'}`} title={step.stepId}>
+            <span className={`w-24 shrink-0 ${highlighted ? 'text-fg' : 'text-fg-3'}`} title={step.stepId}>
               {step.label}
             </span>
-            <span className="h-2 flex-1 overflow-hidden rounded bg-white/5">
+            <span className="h-2 flex-1 overflow-hidden rounded bg-ink/5">
               <span
-                className={`block h-full rounded ${highlighted ? 'bg-primary' : 'bg-slate-500/50'}`}
+                className={`block h-full rounded ${highlighted ? 'bg-primary' : 'bg-fg-3/50'}`}
                 style={{ width: `${Math.max(2, Math.round((step.durationMs / slowest) * 100))}%` }}
               />
             </span>
-            <span className={`w-16 shrink-0 text-right font-mono ${highlighted ? 'text-on-surface' : 'text-slate-400'}`}>
+            <span className={`w-16 shrink-0 text-right font-mono ${highlighted ? 'text-fg' : 'text-fg-3'}`}>
               {formatDuration(step.durationMs)}
             </span>
           </div>

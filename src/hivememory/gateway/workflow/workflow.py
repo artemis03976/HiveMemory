@@ -59,6 +59,7 @@ class GatewayWorkflow:
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
         session_turns: tuple[GatewaySessionTurn, ...] = (),
+        designated_topic_id: str | None = None,
     ) -> GatewayProcessResult:
         """执行 Entry、固定 topic 前缀和唯一 analysis 分支。
 
@@ -72,6 +73,7 @@ class GatewayWorkflow:
             identity_scope=require_identity_scope(identity_scope),
             ingress_mode=ingress_mode,
             session_turns=session_turns,
+            designated_topic_id=designated_topic_id,
         )
         workspace_id = state.identity_scope.workspace_identity.workspace_id
         current_step_id: str | None = None

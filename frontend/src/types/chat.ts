@@ -167,6 +167,8 @@ export interface ChatRequestParams {
   model_selection?: ChatModelSelection;
   /** 发送时冻结的附件选择快照；空数组与缺省等价 */
   attachments?: ChatAttachmentSelection[];
+  /** 用户以 # 为这一轮指定的话题；缺省时由 Gateway 路由。 */
+  topic_id?: string;
 }
 
 /**

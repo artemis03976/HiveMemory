@@ -3,33 +3,26 @@ import { devtools, persist } from 'zustand/middleware';
 import type { NavTab } from '@/types';
 import type { RunFilters } from '@/stores/runs';
 import { CHAT_UI_STORE_VERSION, migrateChatUiState } from '@/stores/ui/chatUiMigration';
+import type { ThemeMode } from '@/stores/ui/theme';
 
-type ContextSidebarTab = 'sessions' | 'config';
-type WorkspaceVisionTab = 'context' | 'memory-runtime';
-type ThemeMode = 'dark' | 'light';
+export type WorkspaceVisionTab = 'context' | 'memory-runtime' | 'model';
 
 interface ChatUiStore {
   // Global navigation
   activeNavTab: NavTab;
   setActiveNavTab: (tab: NavTab) => void;
 
-  // Theme
+  // 主题选项；已保存的深色或浅色保持不变，新安装默认跟随系统
   theme: ThemeMode;
-  toggleTheme: () => void;
+  setTheme: (theme: ThemeMode) => void;
 
-  // Chat layout panels
+  // 聊天页两栏的收起状态：只在窗口放得下该栏时生效，放不下时两栏改为抽屉
   isContextSidebarCollapsed: boolean;
-  setContextSidebarCollapsed: (collapsed: boolean) => void;
   toggleContextSidebar: () => void;
-
   isWorkspaceVisionCollapsed: boolean;
-  setWorkspaceVisionCollapsed: (collapsed: boolean) => void;
   toggleWorkspaceVision: () => void;
 
-  // Sidebar tabs
-  contextSidebarTab: ContextSidebarTab;
-  setContextSidebarTab: (tab: ContextSidebarTab) => void;
-
+  // 聊天页右栏的标签
   workspaceVisionTab: WorkspaceVisionTab;
   setWorkspaceVisionTab: (tab: WorkspaceVisionTab) => void;
 
@@ -53,24 +46,18 @@ export const useChatUiStore = create<ChatUiStore>()(
         activeNavTab: 'chat',
         setActiveNavTab: (tab) => set({ activeNavTab: tab }),
 
-        theme: 'dark',
-        toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
+        theme: 'system',
+        setTheme: (theme) => set({ theme }),
 
         isContextSidebarCollapsed: false,
-        setContextSidebarCollapsed: (collapsed) => set({ isContextSidebarCollapsed: collapsed }),
         toggleContextSidebar: () => set((s) => ({ isContextSidebarCollapsed: !s.isContextSidebarCollapsed })),
-
         isWorkspaceVisionCollapsed: false,
-        setWorkspaceVisionCollapsed: (collapsed) => set({ isWorkspaceVisionCollapsed: collapsed }),
         toggleWorkspaceVision: () => set((s) => ({ isWorkspaceVisionCollapsed: !s.isWorkspaceVisionCollapsed })),
-
-        contextSidebarTab: 'sessions',
-        setContextSidebarTab: (tab) => set({ contextSidebarTab: tab }),
 
         workspaceVisionTab: 'context',
         setWorkspaceVisionTab: (tab) => set({ workspaceVisionTab: tab }),
 
-        settingsActiveCategory: 'general',
+        settingsActiveCategory: 'common',
         setSettingsActiveCategory: (category) => set({ settingsActiveCategory: category }),
 
         enableMemory: true,

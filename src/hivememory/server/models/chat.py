@@ -34,6 +34,14 @@ class ChatRequest(BaseModel):
         default_factory=list,
         description="本轮显式选择的附件坐标数组；空数组表示不使用附件",
     )
+    topic_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description=(
+            "用户为这一轮指定的话题；缺少时由 Gateway 路由。话题已不在候选中时这一轮以"
+            " gateway.topic.designated_unavailable 失败、不提交"
+        ),
+    )
 
     @model_validator(mode="after")
     def _reject_duplicate_asset_refs(self) -> "ChatRequest":

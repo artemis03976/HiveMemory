@@ -1,37 +1,62 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;600;800&family=Inter:wght@300;400;500;600&display=swap');
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/manrope";
 @import "tailwindcss";
 
+/*
+ * 主题令牌。组件只使用这里的语义颜色，深浅两套主题各自取值，浅色不由深色反转而来。
+ * 颜色的分工：
+ * - 七曜状态色（magic-*）只表示状态：水为进行中，木为完成，火为失败，金为等待与警示；
+ * - 记忆类型色（type-*）只用在记忆类型的图标块上，与状态靠形状区分（状态总是圆点加文字）；
+ * - 主色是紫色，樱花粉（accent）只作点缀，不表示任何状态；
+ * - ink 是叠加用的前景色，配合透明度做悬停底色与细分隔，两套主题下都朝“更显眼”的方向叠加。
+ */
 @theme {
-  /* 七曜魔法状态色*/
-  --color-magic-water: hsl(190 90% 50%);
-  --color-magic-wood: hsl(150 80% 45%);
-  --color-magic-fire: hsl(340 80% 60%);
-  --color-magic-earth: hsl(30 20% 50%);
-  --color-magic-metal: hsl(52 82% 73%);
-  --color-magic-moon: hsl(260 70% 65%);
-  --color-magic-sun: hsl(45 100% 60%);
-  
-  --font-manrope: "Manrope", sans-serif;
-  --font-inter: "Inter", sans-serif;
+  --color-magic-water: #4cc9f0;
+  --color-magic-wood: #3ddc97;
+  --color-magic-fire: #ff6a4d;
+  --color-magic-metal: #f4d06f;
 
-  --color-background: #0e0e12;
-  --color-surface: #0e0e12;
-  --color-surface-dim: #0e0e12;
-  --color-surface-container: #19191e;
-  --color-surface-container-low: #131317;
-  --color-surface-container-lowest: #0a0a0e;
-  --color-surface-container-high: #1f1f25;
-  --color-surface-container-highest: #25252b;
-  --color-on-surface: #fcf8fe;
-  --color-primary: #c59aff;
-  --color-primary-dim: #9547f7;
-  --color-primary-light: #dabcff;
-  --color-primary-container: #4f378b;
-  --color-on-primary-container: #eaddff;
-  --color-secondary-container: #454652;
+  --color-type-water: #4cc9f0;
+  --color-type-wood: #3ddc97;
+  --color-type-metal: #f4d06f;
+  --color-type-fire: #ff6b9d;
+  --color-type-moon: #a98bff;
+  --color-type-sun: #ffc23d;
+  --color-type-earth: #c2a78c;
+
+  --font-manrope: "Manrope Variable", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-inter: "Inter Variable", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  --color-background: #0e0c15;
+  --color-surface: #0e0c15;
+  --color-surface-dim: #0b0911;
+  --color-surface-container-lowest: #0b0911;
+  --color-surface-container-low: #14111d;
+  --color-surface-container: #1a1726;
+  --color-surface-container-high: #231f33;
+  --color-surface-container-highest: #2b2640;
+  --color-field: #110e19;
+  --color-code: #0b0911;
+  --color-scrim: rgb(6 5 10 / 0.62);
+  --color-ink: #e2d6ff;
+  --color-line: rgb(226 214 255 / 0.08);
+  --color-line-strong: rgb(226 214 255 / 0.16);
+
+  --color-fg: #efebf8;
+  --color-fg-2: #b9b2cc;
+  --color-fg-3: #8d86a3;
+
+  --color-primary: #b38bff;
+  --color-primary-dim: #9d6bff;
+  --color-primary-light: #cdb2ff;
+  --color-primary-container: #3b2a66;
+  --color-on-primary-container: #efe6ff;
+  --color-secondary-container: #2b2640;
   --color-on-secondary-container: #d0cfde;
-  --color-outline: #76757a;
+  --color-outline: #6f6888;
   --color-tertiary: #a1faff;
+  --color-accent: #ff9cc6;
 
   --animate-cursor-blink: cursor-blink 1s step-end infinite;
 
@@ -46,79 +71,89 @@
 
 :root {
   color-scheme: dark;
+  --hm-brand: linear-gradient(135deg, #9d6bff 0%, #d27ff0 55%, #ff9cc6 100%);
+  --hm-glow: 0 0 18px rgb(157 107 255 / 0.45);
+  --hm-pop: 0 10px 30px rgb(0 0 0 / 0.45);
+  --hm-atmo:
+    radial-gradient(900px 520px at 100% -10%, rgb(255 156 198 / 0.07), transparent 70%),
+    radial-gradient(900px 600px at -5% 105%, rgb(157 107 255 / 0.10), transparent 70%);
+  --hm-bubble: linear-gradient(135deg, rgb(157 107 255 / 0.22), rgb(255 156 198 / 0.16));
 }
 
-/* ===== 浅色主题令牌 ===== */
-/* 原理：Tailwind v4 的工具类（含 white/*、slate-*）均引用 CSS 变量，
-   在此统一覆盖即可全局切换，无需逐组件修改 */
 :root[data-theme="light"] {
   color-scheme: light;
 
-  /* 表面色系（带轻微冷紫色调，呼应品牌色） */
-  --color-background: #f7f7fb;
-  --color-surface: #f7f7fb;
-  --color-surface-dim: #e8e8f0;
-  --color-surface-container: #e6e6ee;
-  --color-surface-container-low: #efeff5;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-high: #dedde7;
-  --color-surface-container-highest: #d5d4df;
-  --color-on-surface: #1b1b21;
+  --color-magic-water: #026aa2;
+  --color-magic-wood: #087a50;
+  --color-magic-fire: #cf3f1d;
+  --color-magic-metal: #9a6400;
 
-  /* 品牌色（加深以保证浅色背景上的对比度） */
-  --color-primary: #7c3aed;
-  --color-primary-dim: #6d28d9;
-  --color-primary-light: #8b5cf6;
-  --color-primary-container: #ece5ff;
-  --color-on-primary-container: #ffffff;
-  --color-secondary-container: #dcdce6;
-  --color-on-secondary-container: #3e3e4a;
-  --color-outline: #79757f;
+  --color-type-water: #0b7db4;
+  --color-type-wood: #0d8a5c;
+  --color-type-metal: #9a6c00;
+  --color-type-fire: #c8336b;
+  --color-type-moon: #6b46d6;
+  --color-type-sun: #b06800;
+  --color-type-earth: #7d6650;
+
+  --color-background: #f6f3fc;
+  --color-surface: #f6f3fc;
+  --color-surface-dim: #ece7f6;
+  --color-surface-container-lowest: #f4f1fa;
+  --color-surface-container-low: #fbfaff;
+  --color-surface-container: #ffffff;
+  --color-surface-container-high: #efeaf9;
+  --color-surface-container-highest: #e6e0f4;
+  --color-field: #ffffff;
+  --color-code: #f4f1fa;
+  --color-scrim: rgb(30 25 48 / 0.34);
+  --color-ink: #2a2140;
+  --color-line: #e6e0f2;
+  --color-line-strong: #d4cae8;
+
+  --color-fg: #1e1930;
+  --color-fg-2: #4d4664;
+  --color-fg-3: #6f6888;
+
+  --color-primary: #6e3fdc;
+  --color-primary-dim: #5b2ec8;
+  --color-primary-light: #5b2ec8;
+  --color-primary-container: #efe8ff;
+  --color-on-primary-container: #3b2280;
+  --color-secondary-container: #e6e0f4;
+  --color-on-secondary-container: #3e3a52;
+  --color-outline: #8d86a3;
   --color-tertiary: #0891b2;
+  --color-accent: #c2357a;
 
-  /* 中性色反转：white/* 工具类（边框、悬停底色、文字）自动适配浅色 */
-  --color-white: #23222b;
-
-  /* slate 刻度整体反转：slate-300/400 等暗色主题的弱文本色在浅色下自动变深 */
-  --color-slate-50: #020617;
-  --color-slate-100: #0f172a;
-  --color-slate-200: #1e293b;
-  --color-slate-300: #334155;
-  --color-slate-400: #475569;
-  --color-slate-500: #64748b;
-  --color-slate-600: #94a3b8;
-  --color-slate-700: #cbd5e1;
-  --color-slate-800: #e2e8f0;
-  --color-slate-900: #f1f5f9;
-  --color-slate-950: #f8fafc;
+  --hm-brand: linear-gradient(135deg, #6e3fdc 0%, #a94fd0 55%, #e2609f 100%);
+  --hm-glow: 0 4px 14px rgb(110 63 220 / 0.25);
+  --hm-pop: 0 1px 2px rgb(30 25 48 / 0.05), 0 8px 24px rgb(30 25 48 / 0.08);
+  --hm-atmo:
+    radial-gradient(900px 520px at 100% -10%, rgb(226 96 159 / 0.07), transparent 70%),
+    radial-gradient(900px 600px at -5% 105%, rgb(110 63 220 / 0.07), transparent 70%);
+  --hm-bubble: linear-gradient(135deg, #efe8ff, #fde8f2);
 }
 
-/* ===== 浅色主题下的自定义工具类适配 ===== */
-[data-theme="light"] .glass-panel {
-  background: rgba(255, 255, 255, 0.6);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.9),
-    inset 1px 0 1px rgba(255, 255, 255, 0.5),
-    inset 0 -1px 1px rgba(0, 0, 0, 0.05),
-    0 4px 12px rgba(0, 0, 0, 0.08);
+/* 品牌渐变只用在少数焦点上：品牌标记、导航当前项、每个视图最主要的按钮、页面标题的装饰线 */
+@utility bg-brand {
+  background-image: var(--hm-brand);
 }
-
-[data-theme="light"] .ghost-border {
-  border: 0.5px solid rgba(124, 58, 237, 0.25);
+@utility shadow-glow {
+  box-shadow: var(--hm-glow);
 }
-
-[data-theme="light"] .scrollbar-thin {
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+@utility shadow-pop {
+  box-shadow: var(--hm-pop);
 }
-[data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2);
+@utility bg-atmo {
+  background-image: var(--hm-atmo);
 }
-[data-theme="light"] .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.3);
+@utility bg-bubble {
+  background-image: var(--hm-bubble);
 }
 
 @layer utilities {
-  /* 定义光标的基础样式和闪烁动画 */
+  /* 流式输出末尾的光标 */
   .typing-cursor:empty::after,
   .typing-cursor > *:last-child:not(ul):not(ol):not(.code-block-wrapper):not(blockquote)::after,
   .typing-cursor > ul:last-child > li:last-child::after,
@@ -133,31 +168,14 @@
     vertical-align: -0.1em;
     margin-left: 4px;
     border-radius: 2px;
-    box-shadow: 0 0 8px rgba(197, 154, 255, 0.6);
     animation: var(--animate-cursor-blink);
   }
 
-  /* 移除代码块外层容器的默认光标（防止光标掉到代码块下方） */
+  /* 代码块外层容器不带光标，免得光标掉到代码块下方 */
   .typing-cursor > .code-block-wrapper:last-child::after {
     display: none;
   }
 
-  .nebula-glow {
-    text-shadow: 0 0 15px rgba(197, 154, 255, 0.4);
-  }
-  .glass-panel {
-    background: rgba(31, 31, 37, 0.6);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    box-shadow: 
-      inset 0 1px 1px rgba(255, 255, 255, 0.15),   /* 顶部锐利高光 */
-      inset 1px 0 1px rgba(255, 255, 255, 0.05),   /* 左侧微弱侧光 */
-      inset 0 -1px 1px rgba(0, 0, 0, 0.4),         /* 底部暗部截断 */
-      0 4px 12px rgba(0, 0, 0, 0.2);               /* 基础环境光遮蔽 (AO) */
-  }
-  .ghost-border {
-    border: 0.5px solid rgba(197, 154, 255, 0.15);
-  }
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -166,27 +184,27 @@
     display: none;
   }
 
-  /* Thin scrollbar for code blocks */
+  /* 细滚动条：长列表与代码块都用它，保持可见 */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+    scrollbar-color: var(--color-line-strong) transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
   .scrollbar-thin::-webkit-scrollbar-track {
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
+    background-color: var(--color-line-strong);
+    border-radius: 8px;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.3);
+    background-color: var(--color-outline);
   }
 
-  /* Agent processing border animation */
+  /* Agent 处理中时卡片边框上流动的光带 */
   .agent-processing-border {
     position: relative;
     z-index: 0;
@@ -198,18 +216,18 @@
     inset: -1px;
     border-radius: inherit;
     padding: 1.5px;
-    /* 改为线性渐变+位移动画，解决 conic-gradient 在长方形下线速度不均的问题 */
+    /* 线性渐变加位移动画：conic-gradient 在长方形上线速度不均 */
     background-image: linear-gradient(
       115deg,
       transparent 30%,
       var(--color-primary) 48%,
-      #ff9a9e 50%,
+      var(--color-accent) 50%,
       var(--color-primary) 52%,
       transparent 70%
     );
     background-size: 2000px 2000px;
-    -webkit-mask: 
-      linear-gradient(#fff 0 0) content-box, 
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
       linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -230,7 +248,7 @@
     75% { content: "..."; }
     100% { content: ""; }
   }
-  
+
   .thinking-dots {
     display: inline-block;
     width: 1.5em;
@@ -243,6 +261,19 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 body {
-  @apply bg-background text-on-surface font-inter antialiased;
+  @apply bg-background text-fg font-inter antialiased;
 }
