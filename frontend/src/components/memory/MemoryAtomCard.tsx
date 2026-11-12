@@ -1,10 +1,11 @@
-import { Flame, Target, Pin, Edit2, Trash2 } from 'lucide-react';
+import { Flame, Target, Pin, Edit2, Trash2, Lock } from 'lucide-react';
 import type { MemoryAtom } from '../../types/memory';
 import { memoryTypeLabels } from '../../types/memory';
 import { formatVitalityScore } from '../../utils/memoryScores';
 import { formatFullDateTime, formatListTime } from '../../utils/dateTime';
 import MemoryTypeTile from './MemoryTypeTile';
 import { activateOnKey } from '@/utils/activateOnKey';
+import { policyTarget } from '@/utils/memoryVisibility';
 
 interface MemoryAtomCardProps {
   atom: MemoryAtom;
@@ -12,11 +13,14 @@ interface MemoryAtomCardProps {
   onView?: (id: string) => void;
   onEdit?: (id: string) => void;
   onDelete?: (id: string) => void;
+  /** 只对某个 Agent 可见、而这个 Agent 已不在候选列表中。 */
+  visibilityTargetUnlisted?: boolean;
 }
 
 /** 记忆卡片：高度随内容，正文限制行数；底部的指标与时间始终可见。 */
-export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onDelete }: MemoryAtomCardProps) {
+export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onDelete, visibilityTargetUnlisted = false }: MemoryAtomCardProps) {
   const typeLabel = memoryTypeLabels[atom.memory_type] || atom.memory_type;
+  const visibilityTarget = policyTarget(atom.access_policy);
   const updatedMs = Date.parse(atom.updated_at || atom.created_at);
   const open = () => {
     if (onClick) onClick();
@@ -32,7 +36,8 @@ export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onDelete
       onKeyDown={activateOnKey(open)}
       className="group relative flex min-w-0 cursor-pointer flex-col gap-2.5 rounded-2xl border border-line bg-surface-container p-4 transition-all duration-200 hover:-translate-y-px hover:border-primary/40"
     >
-      <div className="flex min-w-0 items-center gap-2.5 pr-20">
+      {/* 右上角留给悬停时出现的操作按钮：有可见范围标记时由标记占住这块位置，悬停或聚焦时让位。 */}
+      <div className={`flex min-w-0 items-center gap-2.5 ${visibilityTarget ? '' : 'pr-20'}`}>
         <MemoryTypeTile type={atom.memory_type} />
         <span className="flex min-w-0 flex-col">
           <span className="text-xs font-semibold text-fg-2">{typeLabel}</span>
@@ -40,6 +45,19 @@ export default function MemoryAtomCard({ atom, onClick, onView, onEdit, onDelete
             {atom.alias || `mem_${atom.id.replace(/-/g, '').slice(0, 8)}`}
           </span>
         </span>
+        {visibilityTarget && (
+          <span className="ml-auto flex min-w-20 max-w-[45%] shrink-0 justify-end transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+            <span
+              title={visibilityTargetUnlisted ? `只对 ${visibilityTarget} 可见，但这个 Agent 已不在列表中` : `只有 ${visibilityTarget} 能检索与读取`}
+              className={`flex h-6 min-w-0 items-center gap-1 rounded-full px-2.5 text-xs font-semibold ${
+                visibilityTargetUnlisted ? 'bg-magic-metal/12 text-magic-metal' : 'bg-surface-container-high text-fg-2'
+              }`}
+            >
+              <Lock className="h-3 w-3 shrink-0" aria-hidden="true" />
+              <span className="truncate font-mono">{visibilityTarget}</span>
+            </span>
+          </span>
+        )}
       </div>
 
       <div className="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">

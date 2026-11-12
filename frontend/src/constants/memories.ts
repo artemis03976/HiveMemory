@@ -38,6 +38,7 @@ export const MOCK_MEMORIES: MemoryAtom[] = [
     vitality_score: 88.5,
     user_id: 'user-001',
     access_count: 12,
+    access_policy: { visibility: 'PUBLIC' },
   },
   {
     id: 'mock-2',
@@ -105,6 +106,7 @@ useEffect(() => {
     vitality_score: 75.2,
     user_id: 'user-001',
     access_count: 8,
+    access_policy: { visibility: 'PUBLIC' },
   },
   {
     id: 'mock-3',
@@ -159,6 +161,7 @@ useEffect(() => {
     vitality_score: 62.8,
     user_id: 'user-001',
     access_count: 5,
+    access_policy: { visibility: 'PUBLIC' },
   },
   {
     id: 'mock-4',
@@ -224,6 +227,7 @@ results = client.search(
     vitality_score: 55.0,
     user_id: 'user-001',
     access_count: 3,
+    access_policy: { visibility: 'PUBLIC' },
   },
   {
     id: 'mock-5',
@@ -262,6 +266,7 @@ results = client.search(
     vitality_score: 45.5,
     user_id: 'user-001',
     access_count: 15,
+    access_policy: { visibility: 'PUBLIC' },
   },
   {
     id: 'mock-6',
@@ -304,5 +309,6 @@ results = client.search(
     vitality_score: 92.0,
     user_id: 'user-001',
     access_count: 1,
+    access_policy: { visibility: 'PUBLIC' },
   },
 ];

@@ -30,6 +30,12 @@ export const DEFAULT_WORKSPACE_ID = 'main_workspace';
 export const DEFAULT_AGENT_ID = 'omni_doll';
 
 /**
+ * 保留的 system：后端以它标记非 Agent 的操作来源，不是可以选择的 Agent，
+ * 也不能作为记忆可见范围的目标。
+ */
+export const SYSTEM_AGENT_ID = 'system';
+
+/**
  * 测试用户 ID - 仅用于单元测试和集成测试
  */
 export const TEST_USER_ID = 'test_user';

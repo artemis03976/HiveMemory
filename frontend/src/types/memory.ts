@@ -11,6 +11,14 @@ export type MemoryType =
 
 export type MemoryStatus = 'Active' | 'Archived';
 
+/**
+ * Agent 读取策略：PUBLIC 对 Workspace 内所有 Agent 可见，PRIVATE 只对 target_agent_id 可见。
+ * 管理接口不开放 TEAM，页面也只呈现这两种。策略只约束 Agent 的检索与读取，管理页始终能看到全部记忆。
+ */
+export type MemoryAccessPolicy =
+  | { visibility: 'PUBLIC'; target_agent_id?: null }
+  | { visibility: 'PRIVATE'; target_agent_id: string };
+
 // This acts as the main Memory model, combining new-frontend UI needs with backend schema
 export interface MemoryAtom {
   id: string;
@@ -26,6 +34,7 @@ export interface MemoryAtom {
   vitality_score: number;
   user_id: string;
   access_count: number;
+  access_policy: MemoryAccessPolicy;
   
   // UI Specific extensions from new-frontend
   status?: MemoryStatus;
