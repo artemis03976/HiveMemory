@@ -7,13 +7,14 @@ code_paths:
   - src/hivememory/gateway/service.py
   - src/hivememory/gateway/workflow/
   - src/hivememory/gateway/runtime/core.py
+  - src/hivememory/gateway/errors.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # Gateway 固定工作流
@@ -41,7 +42,7 @@ GatewayWorkflow
 
 `GatewayWorkflow` 是请求级执行协调者，`GatewayExecutionState` 只由它持有。Engine、Provider 和 Resolver 可以替换，但不能改变公共终态结构；拓扑若发生变化，应显式修改 `build_gateway_workflow()` 和当前文档，而不是让某个 Engine 私下跳转到另一步。
 
-`GatewayService.process()` 会先收敛请求 timeout：调用方可以给出更短的 `request_timeout_ms`，但不能用它扩大配置中的 `default_request_timeout_ms`。随后 Service 将消息、完整的 `IdentityScope`、入口模式和有效 deadline 交给 workflow；Gateway 不接收 Chat Run 控制对象或取消参数。
+`GatewayService.process()` 会先收敛请求 timeout：调用方可以给出更短的 `request_timeout_ms`，但不能用它扩大配置中的 `default_request_timeout_ms`。随后 Service 将消息、完整的 `IdentityScope`、入口模式、最近轮次、可选的指定话题和有效 deadline 交给 workflow；Gateway 不接收 Chat Run 控制对象或取消参数。
 
 ## 2. 当前固定拓扑
 
@@ -78,6 +79,8 @@ Decision 分支固定经过三个步骤：
 
 `session_turns` 随公开/本地 process 路由进入 workflow，作为受保护的入口字段保存在 state/snapshot，steps 不得覆盖。Topic Routing、它的兜底与 User Query Analysis 都消费它，最终投影不输出它。近期轮数与各轮所在的话题由调用方（任务进程、Import Bus）按配置裁剪并附上，workflow 不读取 workspace 会话服务，也不查询 Patchouli 的交互状态。
 
+`designated_topic_id` 是用户为这一轮指定的话题，同样是受保护的入口字段；只有任务进程传入它（chat 请求的 `topic_id`，见[任务进程](../workspace/task-process.md#51-主动链路)），Import Bus 不传。给出它时，`topic_routing` 不调用 Topic Router：指定的话题在本次候选话题中就直接作为路由结果（标题与摘要为空），后续步骤照常进行；不在候选中时抛出 `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，`gateway/errors.py`，Workspace 领域错误，`details` 带 `topic_id`），这一轮在 Gateway 阶段失败。这个拒绝不是话题路由失败：它不是 `RecoverableGatewayError`，不进入续接上一轮的兜底（第 6 节）。用户明确选了话题，把这一轮悄悄落到上一轮的话题或新话题上，比让用户重新选择更难察觉、也更难纠正；只认候选中的话题，又保证指定不会落到已经结算或驱逐的话题上。
+
 ## 3. Step 是一次受控提交
 
 每个 `GatewayWorkflowStep` 都遵循相同协议：
@@ -98,7 +101,7 @@ state.snapshot()
 - `project` 把能力输出转换为允许提交的字段；
 - `_apply_step_result()` 是唯一写入口，先校验字段集合，再提交结果。
 
-`raw_message`、`identity_scope` 和 `ingress_mode` 是初始化字段，任何 Step 都不能覆盖。未知字段会被拒绝；`flow_end_reason` 只能设置一次；状态完成后不允许继续提交。这不是数据库事务或跨子系统 rollback，而是请求内的单写入口：它防止 Engine 在调用途中留下半份 Gateway 状态。
+`raw_message`、`identity_scope`、`ingress_mode`、`session_turns` 和 `designated_topic_id` 是初始化字段，任何 Step 都不能覆盖。未知字段会被拒绝；`flow_end_reason` 只能设置一次；状态完成后不允许继续提交。这不是数据库事务或跨子系统 rollback，而是请求内的单写入口：它防止 Engine 在调用途中留下半份 Gateway 状态。
 
 `GatewayStepResult.is_fallback` 与 `fallback_reason` 只用于观测本次提交，不进入公共 `GatewayDecision`。reason 使用请求 deadline、步骤 timeout 或依赖不可用的稳定码，失败事件使用固定说明，异常类名仅作诊断；取值见[事件契约](../contracts/routes-and-events.md#44-失败与降级观测)。下游不应通过猜测 fallback 原因改变业务行为。
 
@@ -147,7 +150,7 @@ Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat app
 | `simple_chat_defaults` | 原文、`CHAT`、写入 `SKIP`、检索 `SKIP` | 寒暄不值得因分析能力失败阻塞入口 |
 | `user_query_analysis` | 原文、`RAG`、写入 `UNKNOWN`、`HYBRID` | 保留检索机会，不把未知误判为明确写入或跳过 |
 
-只有 `TimeoutError` 与 `RecoverableGatewayError` 会触发 Step fallback。类型错误、输入选择错误、投影错误、未知状态字段和 finalize 不变量失败都会原样失败。这个边界非常重要：fallback 用来隔离能力不可用，不用来掩盖代码或契约错误。
+只有 `TimeoutError` 与 `RecoverableGatewayError` 会触发 Step fallback。类型错误、输入选择错误、投影错误、未知状态字段和 finalize 不变量失败都会原样失败；用户指定的话题不在候选中时的 `DesignatedTopicUnavailableError` 同样原样传播（第 2.2 节）。这个边界非常重要：fallback 用来隔离能力不可用，不用来掩盖代码或契约错误，也不替用户改选话题。
 
 ## 7. 观测不是控制面
 
@@ -162,6 +165,7 @@ RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入�
 - fallback 不会回滚已经完成的外部只读调用；
 - `NEW_TOPIC` fallback 可以没有标题和摘要，下游必须把它视为保守路由，而不是完整的模型生成元数据；
 - 话题路由兜底续接上一轮时，用户恰在故障期间换了话题，这一轮会被归入旧话题；
+- 指定话题只认本次候选话题（与话题池列表一样默认不含空话题）：候选话题读取降级为空（例如存储暂时不可用）时，任何指定都以 `gateway.topic.designated_unavailable` 拒绝，调用方无法把它与话题确实已结算区分开；
 - 取消依赖被调用协程正确响应 asyncio cancellation，不能保证终止外部提供商已经接收的请求；
 - RuntimeEvent 可以解释发生了 fallback，但公共调用方不会直接得到逐 Step 诊断。
 

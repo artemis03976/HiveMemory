@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-11
 ---
 
 # HiveMemory 故障排查
@@ -112,20 +112,18 @@ debug 模式下的典型迹象：
 - 后端日志没有对应 list 请求成功记录；
 - Memory 显示固定示例内容，页面却没有错误；
 - Agent 出现演示 Profile；
-- Settings 显示旧版完整配置，但保存报错；
+- Settings 显示 `configs/config.yaml` 的默认值，保存报错；
 - task 面板显示固定任务。
 
 debug 模式的页面没有 mock 标识。验证后端能力时不要设置 `VITE_DEBUG`；确认真实后端可达并重新加载页面后再判断数据是否存在，不要在 mock 页面上执行删除或编辑。
 
-## 7. Settings 某些分类空白或报错
+## 7. Settings 显示“设置暂不可用”或找不到某个配置项
 
-当前前端主配置类型仍是旧扁平结构，后端 `/api/v1/config` 已使用新的嵌套配置树，多组分类尚未对齐。Provider 与 Model Registry 使用独立 API，通常不受此问题影响。
+设置页的“常用”与“高级”两层读取 `GET /api/v1/config`，按字段路径显示与保存；提供商凭证、模型注册表与接入与权限使用各自的 API，不受主配置读取影响。
 
-在对齐完成前：
-
-- 直接编辑 `configs/config.local.yaml`，只写要改的字段，层级与 `config.yaml` 相同；
-- 或使用能够提交完整 `HiveMemoryConfig` 新结构的 API 客户端，保存只把与默认值不同的字段写进 `config.local.yaml`；
-- 保存后，`GET /api/v1/config` 的 `pending_restart` 列出的字段在重启后生效，重启后重新检查 readiness。
+- 两层页面只显示“设置暂不可用”：主配置没有读到。页面顶部的状态条会说明原因（连不上后端，或管理凭据失效需要刷新页面），按它处理后再打开设置页。
+- 找不到某个配置项：设置页只列出常用与高级两层中登记的字段。其余字段直接编辑 `configs/config.local.yaml`，只写要改的字段，层级与 `config.yaml` 相同。
+- 保存后不确定是否生效：每项旁边写明“立即生效”或“重启后生效”；已保存、等待重启的字段在页面顶部汇总（即 `GET /api/v1/config` 的 `pending_restart`），重启 HiveMemory 后按新值运行。
 
 ## 8. Chat 看不到会话历史
 

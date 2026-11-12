@@ -12,7 +12,7 @@ code_paths:
   - frontend/src/components/chat/ReferencedMemoryTab.tsx
 related_docs:
   - ../frontend/chat-view.md
-  - ../plans/frontend-ui-and-entry-wiring.md
+  - ../archive/plans/frontend-ui-and-entry-wiring.md
 last_reviewed: 2026-11-11
 ---
 

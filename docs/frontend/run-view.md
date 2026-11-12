@@ -7,12 +7,13 @@ code_paths:
   - frontend/src/components/runs/
   - frontend/src/stores/runs/
   - frontend/src/stores/workspace/
+  - frontend/src/transports/connectionStatus.ts
   - src/hivememory/server/routers/runtime_events.py
 related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/components/observability.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # 全局运行页
@@ -25,7 +26,7 @@ last_reviewed: 2026-11-09
 
 - **顶栏**：标题、"运行"与"后端日志"两个标签、当前标签对应的连接状态；"运行"标签另显示缓冲占用（"缓冲 412 / 1000"）与最早一条事件的时间，让人知道历史有多长。暂停后不再追加日志与事件，Memory Runtime 的任务投影照常更新；清空只清本页显示，不影响后端缓冲。
 - **左栏**（380px）：运行列表与筛选，最新开始的在上。
-- **右栏**：所选运行的详情。没有选中时显示概览：最近一小时各种类运行的次数，以及缓冲内失败、推迟、拒绝与未见终态的运行。
+- **右栏**：所选运行的详情。没有选中时显示概览：最近一小时各种类运行的次数排成一行紧凑的统计条，下面列出缓冲内失败、推迟、拒绝与未见终态的运行。
 - 视口窄于 900px 时两栏改为切换：选中运行后只显示详情，带"返回列表"按钮。
 
 ## 2. 运行的派生
@@ -50,7 +51,7 @@ last_reviewed: 2026-11-09
 
 ## 3. 运行列表
 
-每行左侧是种类图标，第一行是标题与状态，第二行是副标题，第三行是开始时间（今天只显示时分秒，悬停显示完整时间）、耗时与事件数。进行中的状态点脉动，失败行带淡红底色。
+每行左侧是种类图标，第一行是标题与状态，第二行是副标题，第三行是开始时间（今天只显示时分秒，悬停显示完整时间）、耗时与事件数。进行中的状态点脉动，失败行带浅的失败色底色。
 
 新运行出现在顶部，已选中的运行保持选中。列表滚离顶部后不再跟随，顶部出现"N 个新运行"的提示，点击回到顶部。列表获得焦点时，上下方向键移动选择，Esc 取消选择。
 
@@ -62,7 +63,7 @@ last_reviewed: 2026-11-09
 - **描述**：`stores/runs/describeEvent.ts` 为每个事件类型拼一句描述，只用事件的字段（原因码、计数、别名、阶段等），不显示事件的 `message`；未知类型回退为类型名。
 - **Gateway 的步骤**：`gateway.workflow.completed` 与 `failed` 的 `step_durations_ms` 画成一组水平条，最长的一步高亮；`fallbacks` 非空时在条下标出降级的步骤与原因。
 
-颜色只表示状态，沿用七曜状态色在前端已有的对应：进行中为水，完成为木，失败为火，推迟、拒绝与未见终态为金，取消、跳过与重复为 slate。种类不用颜色，由中性色的图标（`MessageSquare`、`ArrowDownToLine`、`Plug`、`Sparkles`、`Wrench`、`Hash`、`Power`）与标题前缀辨认：七曜色在其他页面已经表示状态，分给种类会让同一行出现两套颜色含义，异常也不再醒目。`primary` 只用于页面主标题（与其他页面一致）、选中、焦点、时间线上运行的起点与 Gateway 最慢一步的耗时条。
+运行页的颜色全部取自前端共用的设计令牌（[应用外壳](./application-shell.md)），不另设调色板，深浅两套主题下含义相同。颜色只表示状态，沿用七曜状态色在前端已有的对应：进行中为水，完成为木，失败为火，推迟、拒绝与未见终态为金，取消、跳过与重复为中性的弱文字色。种类不用颜色，由中性色的图标（`MessageSquare`、`ArrowDownToLine`、`Plug`、`Sparkles`、`Wrench`、`Hash`、`Power`）与标题前缀辨认：七曜色在其他页面已经表示状态，分给种类会让同一行出现两套颜色含义，异常也不再醒目。`primary` 只用于选中、焦点、可点击的标识与跳转（trace、"查看这次运行的日志"、新运行与新日志的提示）、时间线上运行的起点与 Gateway 最慢一步的耗时条；页面标题与其他页面一样用统一的页头，不着主色。
 
 ## 5. 后端日志
 
@@ -75,8 +76,8 @@ last_reviewed: 2026-11-09
 - **连接时机**：运行页挂载时建立日志 WebSocket 与事件流；Chat 页的 Workspace Vision 挂载时也建立事件流。离开运行页不断开，Memory Runtime 仍需要事件流。多窗口沿用主窗口持有连接、经 BroadcastChannel 同步的机制（[状态与传输](./state-and-transports.md#5-多窗口日志同步)）。
 - **有限历史**：前端连接前请求 `/runtime-events/status`，以返回的 `buffer_size` 作为 `/runtime-events/stream` 的 `replay_last`，所以打开或刷新页面时取回后端缓冲内的全部事件。前端上限 `maxBufferSize` 为 1000，与后端缓冲一致，超出时丢掉最旧的事件。历史只到后端缓冲为止，事件记录文件不提供查询接口。
 - **断档**：续传时后端找不到回放点会先发 `event.stream.gap`，列表上方提示"事件流曾中断，{时间} 之前的部分事件已经不在缓冲中"；运行的状态照常显示，不因断档改写。
-- **未启用**：`runtime_events.enabled` 为 false 时，"运行"标签显示"运行时事件未启用"与配置项名称，日志标签照常可用。事件流连接失败时显示提示与重试按钮；后端拒绝连接时（例如管理凭据失效），提示显示后端给出的原因，不显示为未启用（[状态与传输](./state-and-transports.md#31-http-错误解析)）。
+- **未启用**：`runtime_events.enabled` 为 false 时，"运行"标签显示"运行时事件未启用"与配置项名称，日志标签照常可用。事件流连接失败时显示提示与重试按钮；后端拒绝连接时，提示显示后端给出的原因，不显示为未启用（[状态与传输](./state-and-transports.md#31-http-错误解析)）。连不上后端或管理凭据失效时，主区域顶部的连接状态条已经写明原因与办法，这里只写"数据暂不可用"，不重复连接类的原因（`transports/connectionStatus.ts` 的 `localErrorText`，在捕获错误时取当时的连接状况）。
 
 ## 7. 验证入口
 
-分组、挂接、状态与描述的逻辑都在纯函数中，由 `frontend/tests/run-grouping.test.mjs` 覆盖；组件以 lint 与构建守护。`replay_last` 的回放行为由 `tests/unit/server/routers/test_runtime_events.py` 覆盖。
+分组、挂接、状态与描述的逻辑都在纯函数中，由 `frontend/tests/run-grouping.test.mjs` 覆盖；局部错误何时只写"数据暂不可用"由 `frontend/tests/connection-status.test.mjs` 覆盖；组件以 lint 与构建守护。`replay_last` 的回放行为由 `tests/unit/server/routers/test_runtime_events.py` 覆盖。

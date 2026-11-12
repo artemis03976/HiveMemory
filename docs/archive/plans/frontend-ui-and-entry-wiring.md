@@ -1,6 +1,9 @@
 ---
 title: 前端 UI 优化与空入口接线
-status: active
+status: archived
+archived_at: 2026-11-11
+implemented_by: 提交 2999a055–56ddf89f（分支 feat/frontend-ui-and-entry-wiring）
+superseded_by: docs/frontend/README.md
 owner: frontend
 target: v1.0 范围（候选清单 D-05、D-07、D-13、D-15）
 scope: mockups-design-tokens-theme-layout-shell-page-polish-settings-tiers-and-empty-entry-wiring
@@ -33,7 +36,9 @@ related_docs:
 
 # 前端 UI 优化与空入口接线
 
-本计划改善前端五个页面的排版、配色、清晰度与交互，重新设计浅色主题，把设置页分为常用与高级两层，并把仍然只有外观的入口逐项接上。实施先在运行页样稿的设计画布上补齐其他页面的样稿，owner 定稿后再改代码；验收在打包后的桌面端中进行（[桌面客户端归档计划](../archive/plans/desktop-client.md)第 4.7 节）。
+> **状态**：Archived（2026-11-11，已实施，实施记录见第 10 节）。当前事实见[前端](../../frontend/README.md)、[应用外壳](../../frontend/application-shell.md)、[Chat 视图](../../frontend/chat-view.md)与[管理页面](../../frontend/management-views.md)。以下为实施时的计划原文，链接已按归档位置改正。第 4 节中的自定义背景与毛玻璃没有实现；动效、响应速度与自适应布局等细节转入[Todo](../../todo/frontend-ui-polish.md)。第 7 节在打包后的桌面端中的验收由 owner 在日常使用中进行，不阻塞归档。对应 [ROADMAP](../../ROADMAP.md) 第 4.2 节。
+
+本计划改善前端五个页面的排版、配色、清晰度与交互，重新设计浅色主题，把设置页分为常用与高级两层，并把仍然只有外观的入口逐项接上。实施先在运行页样稿的设计画布上补齐其他页面的样稿，owner 定稿后再改代码；验收在打包后的桌面端中进行（[桌面客户端归档计划](./desktop-client.md)第 4.7 节）。
 
 ## 1. 背景和问题
 
@@ -78,7 +83,7 @@ related_docs:
   - 用户头像是固定的外部图片；
   - Agent 的启用与停用只是前端字段。
 
-  见 [Chat 视图](../frontend/chat-view.md)与[管理视图](../frontend/management-views.md)第 2.2 节。
+  见 [Chat 视图](../../frontend/chat-view.md)与[管理视图](../../frontend/management-views.md)第 2.2 节。
 - **设置页**（D-15）：
   - 12 个分类中 7 个（基础设施、全局网关、记忆感知、记忆生成、记忆检索、生命周期、MTP 引擎）只显示“尚未对齐”；
   - 主配置整页保存，接入与权限逐项保存；
@@ -87,7 +92,7 @@ related_docs:
   - 离开时没有未保存提醒；
   - 切换分类有 0.5 秒的进入动画。
 
-  后端已经返回完整配置树与 `immediate_fields`、`pending_restart`（[主配置归档计划](../archive/plans/config-overrides-and-hot-reload.md)第 4.5、4.6 节）。
+  后端已经返回完整配置树与 `immediate_fields`、`pending_restart`（[主配置归档计划](./config-overrides-and-hot-reload.md)第 4.5、4.6 节）。
 
 ### 1.1 owner 决定
 
@@ -140,7 +145,7 @@ related_docs:
 - **界面文案的多语言**（D-12）：本计划只把文案统一为中文。
 - **可分离导航栏**（D-14，v1.0 之后），以及客户端路由与深链接。
 - **记忆 Pin**：它需要生命周期上的语义（是否免于衰减与归档），属于记忆核心。本计划把按钮改为禁用并说明“尚未提供”，不再弹出“施工中”。
-- **Agent Profile 的模型字段改为 `ModelSelection`**（[Todo](../todo/agent-profile-model-selection.md)）：本计划只把编辑页的自由文本换成注册表选择，Profile 的字段不变。
+- **Agent Profile 的模型字段改为 `ModelSelection`**（[Todo](../../todo/agent-profile-model-selection.md)）：本计划只把编辑页的自由文本换成注册表选择，Profile 的字段不变。
 - **MTP 执行轨迹的树形可视化与等待标语**（CI-05）。
 - **运行页的功能变化**：运行页只换配色与排版。
 - **把删除数据、更改数据目录从托盘移进设置页**：renderer 只用公开 API，这需要主进程桥接，另行决定。
@@ -204,7 +209,7 @@ related_docs:
   - 紫色仍是主色，用于选中、焦点与主要操作，樱花粉是第二强调色；
   - 紫到粉的渐变只用在少数焦点上：品牌标记、导航当前项的指示、每个视图里最主要的一个按钮、页面主标题的装饰线；
   - 大面积的背景与卡片保持中性，不铺渐变。
-- **颜色只表示状态**（沿用[运行页](../frontend/run-view.md)的规则）：
+- **颜色只表示状态**（沿用[运行页](../../frontend/run-view.md)的规则）：
   - 七曜色继续表示进行中、完成、失败与警告，樱花粉不表示任何状态；
   - 现在的失败色 `magic-fire`（`hsl(340 80% 60%)`）与樱花粉色相相近，改为偏橙的红（取值以样稿为准），使“失败”不会被看成装饰；
   - 记忆的类型是例外：记忆图书馆与引用记忆卡片中，类型用七曜色的图标块表示（图标着色，底为同色的浅底，类型名是中性文字），卡片背景与边框不带类型色；状态始终是圆点加文字，两者靠形状区分。类型色是独立的一组令牌，反思保留原来偏粉的红，不与新的失败色混淆。
@@ -325,7 +330,7 @@ related_docs:
 ### 4.7 设置页（D-15）
 
 - **结构**：左侧导航分三组。
-  - **常用**：一页，按[主配置归档计划](../archive/plans/config-overrides-and-hot-reload.md)第 4.5 节“常用设置”的分组（模型、记忆、对话、附件、系统）排成若干小节，另加外观一节（主题与自定义背景）。
+  - **常用**：一页，按[主配置归档计划](./config-overrides-and-hot-reload.md)第 4.5 节“常用设置”的分组（模型、记忆、对话、附件、系统）排成若干小节，另加外观一节（主题与自定义背景）。
   - **高级**：一页，按同一节“高级设置”的分组排列；存储地址与集合名只读展示。
   - **管理**：提供商凭证、模型注册表、接入与权限三个分类保持现有的独立页面。
 - **取代的分类**：
@@ -358,7 +363,7 @@ related_docs:
 
 ### 4.9 运行页
 
-- 运行页只换成新令牌，功能与[运行页](../frontend/run-view.md)现有的设计不变。
+- 运行页只换成新令牌，功能与[运行页](../../frontend/run-view.md)现有的设计不变。
 - 概览中“最近一小时”的统计改为一行紧凑的统计条，不再排成 6 加 1。
 
 ### 4.10 基本可用性（D-07）
@@ -464,31 +469,31 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 
 ## 9. 完成时必须更新的当前文档
 
-- [前端索引](../frontend/README.md)：第 6 节的总体限制（未接线入口、Settings 未对齐）。
-- [应用外壳](../frontend/application-shell.md)：
+- [前端索引](../../frontend/README.md)：第 6 节的总体限制（未接线入口、Settings 未对齐）。
+- [应用外壳](../../frontend/application-shell.md)：
   - 导航提示与头像菜单；
   - 三栏断点与抽屉；
   - 令牌与主题（含跟随系统、随包字体、自定义背景）；
   - 连接状态条与 toast；
   - 第 7 节的当前限制。
-- [Chat 视图](../frontend/chat-view.md)：
+- [Chat 视图](../../frontend/chat-view.md)：
   - 滚动与空状态；
   - 消息操作与 `#` 话题引用；
   - 话题标题；
   - 删去“尚未接线”中已接上的项。
-- [管理视图](../frontend/management-views.md)：
+- [管理视图](../../frontend/management-views.md)：
   - 记忆卡片；
   - Agent 的启用与模型选择；
   - 设置页的常用与高级两层；
   - 删去第 2.2 节中已解决的限制。
-- [运行页](../frontend/run-view.md)：视觉一节改为引用令牌。
-- [状态与传输](../frontend/state-and-transports.md)：主题与自定义背景的本地持久化。
-- [桌面客户端](../frontend/desktop-client.md)：启动页与窗口最小尺寸。
-- [Gateway 工作流](../gateway/workflow.md)：用户指定话题时的话题路由。
-- [任务进程](../workspace/task-process.md)：请求中的 `topic_id`。
-- [Patchouli 检索](../patchouli/retrieval.md)：Profile 解析拒绝停用的 Profile。
-- [错误模型](../contracts/error-model.md)：新的错误码与原因。
-- [ROADMAP](../ROADMAP.md)：前端一节与本计划的一行。
+- [运行页](../../frontend/run-view.md)：视觉一节改为引用令牌。
+- [状态与传输](../../frontend/state-and-transports.md)：主题与自定义背景的本地持久化。
+- [桌面客户端](../../frontend/desktop-client.md)：启动页与窗口最小尺寸。
+- [Gateway 工作流](../../gateway/workflow.md)：用户指定话题时的话题路由。
+- [任务进程](../../workspace/task-process.md)：请求中的 `topic_id`。
+- [Patchouli 检索](../../patchouli/retrieval.md)：Profile 解析拒绝停用的 Profile。
+- [错误模型](../../contracts/error-model.md)：新的错误码与原因。
+- [ROADMAP](../../ROADMAP.md)：前端一节与本计划的一行。
 
 ## 10. 实施记录
 
@@ -507,7 +512,7 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
   - 左栏只剩会话列表，按今天、昨天、更早分组，行内显示相对时间、轮数与运行中，重命名与删除在悬停或聚焦时出现；原来的刷新按钮与左栏的模型配置标签删除。
   - 右栏为“引用记忆 / 记忆任务 / 模型配置”三个标签，标签上带条数；模型配置合成一张卡片（模型选择、单独设置参数的开关、当前生效的值或滑块）；记忆任务改为带状态胶囊的卡片，底部一行写开始时间、用时或失败原因，详情与取消仍在展开后。
   - 收起（owner 要求保留，样式自行设计）：两栏头部各有一个收起按钮，收起后由中间栏头部的按钮展开（左侧图标按钮、右侧“引用记忆 · 条数”）；窗口放不下时同一个按钮改为打开抽屉，点遮罩或按 Esc 关闭。收起状态继续持久化，只在行内生效；左栏标签在迁移中删除，原来停在左栏模型配置的改为右栏的模型配置。
-  - 引用记忆卡片仍用类型图标块；样稿中的“相关度”条没有数据来源（预检索命中不带分数），owner 决定之后结合后端一起加回，登记为 [Todo](../todo/referenced-memory-relevance.md)。
+  - 引用记忆卡片仍用类型图标块；样稿中的“相关度”条没有数据来源（预检索命中不带分数），owner 决定之后结合后端一起加回，登记为 [Todo](../../todo/referenced-memory-relevance.md)。
 - 短期话题池（owner 2026-11-11 要求补样稿并定稿，样稿在画布“记忆图书馆 · 短期话题池”一行）：
   - 记忆图书馆以“长期记忆 / 短期话题池”两个标签切换，选中的标签随视图偏好保存；话题池一侧的工具栏显示驻留数与容量、自动结算的规则与刷新。容量、空闲时长与折叠阈值读主配置（`patchouli.perception.*`），读不到时不写具体数值。
   - 左侧是话题列表，右侧是选中话题的详情：在聊什么、目前进展、最近一轮，侧栏写上下文用量（对比折叠阈值）、自动结算的估算与基本信息。自动结算按最近一次写入估算，十分钟内以警示色标出；1280 以下列表变窄，信息卡排到正文之后。
@@ -518,7 +523,7 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 - Agent 页补齐样稿（owner 2026-11-11）：
   - 左栏 300 宽：标题与说明、搜索与新建，列表行写图标、名称、别名与状态（启用、已停用、草稿）。
   - 右侧按卡片排列：名称与描述、启用开关与保存；停用时的说明条；模型（注册表选择、温度、Top P）；系统指令（字数）；标签；“操作权限不在这里设置”并可跳到接入与权限；底部写创建与最近保存的时间，删除放在最后。
-  - 别名只在新建的草稿中可以修改，保存后只读（对话与访问登记以别名指代 Agent）；owner 决定保存后也要能改名并实时更新引用，登记为 [Todo](../todo/agent-alias-rename.md)。
+  - 别名只在新建的草稿中可以修改，保存后只读（对话与访问登记以别名指代 Agent）；owner 决定保存后也要能改名并实时更新引用，登记为 [Todo](../../todo/agent-alias-rename.md)。
   - Top P 进入编辑与保存（`agent_config.top_p`，为空时沿用模型定义），原来保存时不提交它；对话页“当前生效”把为空的 Top P 视为模型默认。
   - 后端 `AgentProfileResponse` 增加 `created_at`、`updated_at`（取自记忆的元数据）。样稿中的“内置”标记没有做：内置的默认 Agent 由后端代码提供，不在列表接口中。
 - 导入的用户消息去掉宿主附加的块（owner 2026-11-11 选定做法：连接器中一张共用的表）：
@@ -526,3 +531,4 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
   - `integrations/hivememory/connector/core/user_message.py` 列出这三种块，Claude Code（由人发出的消息与派生会话的交接说明）与 Codex 的用户消息都经它去掉；只去掉从行首开始的完整块，代码块与 `<pasted_content>` 中的内容原样保留，`<pasted_content>` 保留标签以区分粘贴与本人的话。Codex 的 `<send_user_message_question_reply>` 是对提问工具的回答（JSON），保留原样。
   - `scripts/transcript_stats.py` 列出导入为用户消息的条目中的行首标签，标出是否被去掉，宿主新附加的块以 `kept` 出现，确认后再加入表中。
   - 在本机全部 703 轮 Claude Code 会话上核对，导入的用户消息中不再有这三种块。已经导入的轮次不改写。收尾时同步 Import Bus 文档中 Claude Code 读取用户消息的描述。
+- 收尾（owner 2026-11-11 决定收尾）：剩下的动效、响应速度与自适应布局等细节单独记为 [Todo](../../todo/frontend-ui-polish.md)，并在候选清单中登记为 D-16；第 9 节列出的当前文档，连同 Import Bus、契约与路由文档中受本计划影响的部分，按最终代码改写；计划归档。

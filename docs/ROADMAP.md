@@ -130,7 +130,7 @@ last_reviewed: 2026-11-11
 | 外部 harness 的 controller 模式 | Candidate / 不绑定版本（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | 第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md) |
 | 记忆价值体系重新设计 | Candidate / 不绑定版本 | owner 重新设计价值体系，不在现有信号上增补 | 第 4.7 节 |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 随受影响的 API 并行；[Frontend](./frontend/README.md)与第 4.8 节 Todo |
-| 前端 UI 优化与空入口接线 | Active（2026-11-11 开始实施，样稿已通过）/ v1.0 范围（候选清单 D-05、D-07、D-13、D-15）；保留东方/魔法命名与紫色霓虹，加入樱花粉点缀，先出样稿、owner 定稿后实施（owner，2026-11-11） | 浅色主题独立配色、设计令牌与随包字体、三栏断点与全局连接状态条、各页排版与文案、设置页分常用与高级两层、空入口逐项接线 | [计划](./plans/frontend-ui-and-entry-wiring.md) |
+| 前端 UI 优化与空入口接线 | Completed（2026-11-11 收尾）/ v1.0 范围（候选清单 D-05、D-07、D-15；D-13 只完成了浅色主题的配色）；保留东方/魔法命名与紫色霓虹，加入樱花粉点缀，先出样稿、owner 定稿后实施（owner，2026-11-11）；自定义背景与毛玻璃未做，动效、响应速度与自适应布局等细节单独记为 Todo（owner，2026-11-11） | 浅色主题独立配色、设计令牌与随包字体、三栏断点与全局连接状态条、各页排版与文案、设置页分常用与高级两层、短期话题池与 Agent 页按样稿重做、空入口逐项接线 | [前端](./frontend/README.md)、[应用外壳](./frontend/application-shell.md)、[管理页面](./frontend/management-views.md)、[归档计划](./archive/plans/frontend-ui-and-entry-wiring.md)、[细节优化 Todo](./todo/frontend-ui-polish.md) |
 | Electron 桌面客户端 | Completed（2026-11-10 收尾）/ v1.0 范围；不签名、不自动升级、提供二次确认的删除记忆数据入口、不做备份（owner，2026-11-10）；随包发布与版本号随 v1.0 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 第 5.1 节；[桌面客户端](./frontend/desktop-client.md)、[使用桌面客户端](./help/desktop-client.md)、[归档计划](./archive/plans/desktop-client.md) |
 
 ### 4.3 v0.7.3：主动写入与被动提取的收敛
@@ -192,7 +192,7 @@ Frontend 已部分落地，后续优化按可用性和资源操作体验推进�
 
 - **近期可靠性**：统一身份状态，明确真实/stale/error，修复失败披露和乐观更新，覆盖请求终态；HTTP、SSE 与 WebSocket 的连接目标已统一由 `VITE_BACKEND_ORIGIN` 配置（2026-11-07）。
 - **资源操作体验**：Memory Garden 真实语义检索、可见性策略、附件/来源检查、导入预览与失败重试。Workspace 选择 UI 只在对应后端能力真实可用后开放。
-- **交互和视觉完善**：布局、导航、窄屏、可访问性、空状态及主题；避免将未接线的入口或研究页面显示成已有功能。Terminal 入口已是全局运行页（[归档计划](./archive/plans/run-view.md)）。
+- **交互和视觉完善**：布局、导航、窄屏、可访问性、空状态与主题已随前端 UI 优化完成（2026-11-11，[归档计划](./archive/plans/frontend-ui-and-entry-wiring.md)），空入口逐项接上，不再有显示成已有功能的空入口；Terminal 入口已是全局运行页（[归档计划](./archive/plans/run-view.md)）。动效、响应速度与自适应布局等细节见下表的 Todo。
 
 Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事项视为新需求：
 
@@ -204,6 +204,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [日志与运行时事件](./governance/observability/logs-and-events.md)（原 RuntimeEvent 生产端迁移 Todo，2026-11-03 转入治理主题 W6） | 版本之外的工作（owner，2026-11-03），随时可以开始 | 保持事件只做观测，不以事件投递成功控制业务状态 |
 | [Mock fallback 披露（归档）](./archive/todo/frontend-mock-fallback-disclosure.md) | Completed / Archived（2026-11-07）：owner 决定 mock 数据只在 debug 模式下启用 | 默认读取失败如实显示，不以 mock 数据冒充真实结果 |
 | [Memory 管理页列表与检索（归档）](./archive/todo/frontend-memory-library-listing.md) | Completed / Archived（2026-11-02）：列表跟随游标取全，语义检索请求后端 | 列表取全并显示真实总量；语义检索复用真实后端能力，保留失败和空结果 |
+| [前端细节优化](./todo/frontend-ui-polish.md) | 未排期（owner，2026-11-11） | 动效、响应速度与自适应布局；验收在打包后的桌面端中进行 |
 | [Memory visibility policy UI](./todo/memory-visibility-policy-ui.md) | 后端契约稳定后进入资源体验 | UI 编辑策略不能替代后端授权 |
 | [会话 /compact 指令](./todo/conversation-compact-command.md) | 会话与 Alice 自动压缩已完成，仍依赖命令运行位置与命令系统接回 | compact 只作用于 CPU 的会话上下文，不改写 Session 记录与 Topic；后台 Topic 的 page folding 是另一个问题 |
 | [Work Queue 多 lane 拓扑](./todo/work-queue-runtime-lane-topology.md) | 保持 Deferred | 只有共享 Store、跨 lane 调度或可复现故障触发才重评 |

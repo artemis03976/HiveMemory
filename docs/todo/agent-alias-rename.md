@@ -13,7 +13,7 @@ code_paths:
 related_docs:
   - ../frontend/management-views.md
   - ../workspace/identity-and-authorization.md
-  - ../plans/frontend-ui-and-entry-wiring.md
+  - ../archive/plans/frontend-ui-and-entry-wiring.md
 last_reviewed: 2026-11-11
 ---
 

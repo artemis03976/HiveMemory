@@ -24,7 +24,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-11
 ---
 
 # 多 Agent 编排
@@ -123,6 +123,7 @@ current frame emits CALL
 | alias 不存在或源原子不可见 | `mtp.alias.not_found` | `mtp.call.profile_not_found` |
 | 缺少 `agent.call` 操作授权 | `mtp.permission.denied` | `mtp.permission.verb_denied` |
 | alias 类型不符 / Profile 配置无效 | `mtp.memory.type_mismatch` / `mtp.argument.invalid` | `mtp.call.profile_type_mismatch` / `mtp.call.profile_invalid` |
+| Profile 已停用，或被调用方在本 Workspace 没有准入 | `mtp.permission.denied` | `mtp.call.agent_unavailable` |
 | Profile route 或读取失败 | 对应 `mtp.system.*` | `mtp.call.profile_load_failed` 或底层稳定 key |
 | Profile 引用的模型不可用 | `mtp.system.service_unavailable` | `mtp.call_response.model_unavailable` |
 

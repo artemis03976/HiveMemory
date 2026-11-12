@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # 子系统公共契约
@@ -58,10 +58,13 @@ process(
     ingress_mode: GatewayIngressMode,
     request_timeout_ms: int | None = None,
     session_turns: tuple[GatewaySessionTurn, ...] = (),
+    designated_topic_id: str | None = None,
 ) -> GatewayProcessResult
 ```
 
 `GatewaySessionTurn`（`core.protocol.gateway`）是交给 Gateway 的最近若干轮：`user_message`、`assistant_text` 与该轮实际所在话题的 `topic_id`（不知道时为空）。它不携带会话 ID 或授权身份；`topic_id` 不进入模型提示词，只在话题路由失败时使用：Gateway 续接最近一轮的话题（该话题仍在本次的候选话题中时），否则按新话题兜底。任务进程从会话轮次的话题标注取得所在的话题；Import Bus 取上一轮写入时确定的话题，否则由 root API 在提交或确定话题的方法内查询上一轮的交互进度，取得它应用成功后实际所在的话题（第 3.6 节）。
+
+`designated_topic_id` 是用户为这一轮指定的话题，只由任务进程从 chat 请求的 `topic_id` 传入，Import Bus 不传。它在本次候选话题中时，决定的 `target_topic_id` 就是它，不调用话题路由模型；不在候选中时 Gateway 抛出 `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，Workspace 领域错误），不返回决定，也不按话题路由失败兜底（[Gateway 工作流](../gateway/workflow.md#22-decision-前缀)、[错误模型](./error-model.md#42-gateway)）。
 
 `GatewayProcessResult` 是不可变判别联合：
 
@@ -161,7 +164,7 @@ Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，�
 
 `MemoryGenerationTaskSpec`、只读快照 `MemoryGenerationTask` 与跨子系统请求 `PendingAtomMaterializeTask` 均独立保存必需的 `belong_to`、`from_actor`。WRITE/UPDATE 保留提交 Agent；手动、idle、LRU 和 shutdown SETTLE 统一使用 `system_actor_for_workspace(belong_to)`（owner 用户、保留的 system、无 Team），参与内容的 Agent 只记入贡献者，结算查重只看到本 Workspace 的 PUBLIC 记忆。`TopicMaterializeTask` 与 Topic lease 只保存资源归属，不保留最近访问者。
 
-Profile、Topic 与交互提交的公共失败定义在 `patchouli.contracts.errors`；会话、意图与任务进程交互提交的失败定义在 `workspace.contracts.errors`，共享访问、资源和存储类型位于 `core.errors`。调用者按类型处理，HTTP/MTP 在各自出口呈现；完整分类见[错误模型](./error-model.md)。Profile 不可见与缺失同样隐藏，类型或配置损坏显式失败，不回退内置 Profile。任务进程的交互提交没有跨过接纳或应用时，由进程以 Workspace 领域错误 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败，`details` 中的 `stage` 区分接纳与应用；接纳被拒以外的提交异常原样传播，不声称没有副作用。
+Profile、Topic 与交互提交的公共失败定义在 `patchouli.contracts.errors`；会话、意图与任务进程交互提交的失败定义在 `workspace.contracts.errors`，共享访问、资源和存储类型位于 `core.errors`。调用者按类型处理，HTTP/MTP 在各自出口呈现；完整分类见[错误模型](./error-model.md)。Profile 不可见与缺失同样隐藏，类型或配置损坏、或 Profile 已停用（`AgentProfile.enabled` 为假）显式失败，不回退内置 Profile。任务进程的交互提交没有跨过接纳或应用时，由进程以 Workspace 领域错误 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败，`details` 中的 `stage` 区分接纳与应用；接纳被拒以外的提交异常原样传播，不声称没有副作用。
 
 ### 3.5 工作 actor 与操作授权
 
