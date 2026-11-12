@@ -2,7 +2,7 @@
 title: 前端 UI 优化与空入口接线
 status: archived
 archived_at: 2026-11-11
-implemented_by: 提交 2999a055–56ddf89f（分支 feat/frontend-ui-and-entry-wiring）
+implemented_by: PR #216
 superseded_by: docs/frontend/README.md
 owner: frontend
 target: v1.0 范围（候选清单 D-05、D-07、D-13、D-15）
@@ -532,3 +532,4 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
   - `scripts/transcript_stats.py` 列出导入为用户消息的条目中的行首标签，标出是否被去掉，宿主新附加的块以 `kept` 出现，确认后再加入表中。
   - 在本机全部 703 轮 Claude Code 会话上核对，导入的用户消息中不再有这三种块。已经导入的轮次不改写。收尾时同步 Import Bus 文档中 Claude Code 读取用户消息的描述。
 - 收尾（owner 2026-11-11 决定收尾）：剩下的动效、响应速度与自适应布局等细节单独记为 [Todo](../../todo/frontend-ui-polish.md)，并在候选清单中登记为 D-16；第 9 节列出的当前文档，连同 Import Bus、契约与路由文档中受本计划影响的部分，按最终代码改写；计划归档。
+- 收尾之后（owner 2026-11-11）：重新生成原来只重发消息文本，改为按原轮次记下的请求原样重发（Agent、附件快照、指定话题、记忆预检索开关与模型选择），从会话历史恢复的轮次不显示重新生成；第 8 节“重新生成是否带上原附件”由此关闭。桌面端的主题等界面偏好每次重启后回到缺省值，owner 决定与自定义背景一起处理，登记为 [Todo](../../todo/custom-background-and-preference-persistence.md)。Alice 文档中 Omni-Doll 带有内置能力白名单的旧描述同时改正。
