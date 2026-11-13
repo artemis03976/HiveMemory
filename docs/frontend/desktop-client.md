@@ -93,7 +93,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 ## 5. 数据根
 
-环境变量 `HIVEMEMORY_DATA_ROOT` 指定数据根（[System 配置](../system/configuration.md#2-来源与优先级)）。设置后，个人配置在 `<数据根>\configs`：`config.local.yaml`、`models.yaml`、`providers.secrets.yaml`、两份访问登记与 `principals.secrets.yaml`；随包的 `config.yaml` 与各模板仍从程序目录读取。`.env` 与相对路径的数据目录按工作目录解析，桌面端以数据根为工作目录启动后端，所以数据根之下的布局与仓库根相同：`configs\`、`data\`（模型缓存、长期归档）、`.hivememory\`（记忆库、Artifact、日志、保存的生成工作）。不设置时与仓库布局相同。
+环境变量 `HIVEMEMORY_DATA_ROOT` 指定数据根（[System 配置](../system/configuration.md#2-来源与优先级)）。设置后，个人配置在 `<数据根>\configs`：`config.local.yaml`、`models.yaml`、`providers.secrets.yaml`、两份访问登记与 `principals.secrets.yaml`；随包的 `config.yaml` 与各模板仍从程序目录读取。`.env` 与相对路径的数据目录按工作目录解析，桌面端以数据根为工作目录启动后端，所以数据根之下的布局与仓库根相同：`configs\`、`data\`（模型缓存、长期归档）、`.hivememory\`（记忆库、Artifact、日志、关闭时写盘的生成工作、写入句柄与生成任务历史）。不设置时与仓库布局相同。
 
 安装版第一次启动时选择数据根：默认位置，或已有的目录（例如仓库的 checkout，不需要搬动文件）。选择记在 userData 的 `desktop-settings.json`（`%APPDATA%\HiveMemory`），之后沿用。数据根的路径不能超过 100 个字符：`qdrant.exe` 不支持超过 260 个字符的路径，记忆库的文件在数据根之下最深约 142 个字符，数据根更长时建集合失败、后端起不来。
 
@@ -109,7 +109,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 | 删除 | 保留 |
 |:---|:---|
-| 记忆库（Qdrant 存储，包括全部记忆与 Agent Profile）、Artifact、长期归档、关闭时保存的生成工作与读不回的 rejected 文件、预设 Agent 的写入标记 | 配置、Provider 密钥、harness 接入凭据、推理模型缓存、日志 |
+| 记忆库（Qdrant 存储，包括全部记忆与 Agent Profile）、Artifact、长期归档、关闭时写盘的生成工作、写入句柄与生成任务历史（各含读不回的 rejected 文件）、预设 Agent 的写入标记 | 配置、Provider 密钥、harness 接入凭据、推理模型缓存、日志 |
 
 步骤：主进程正常关闭后端与 Qdrant，删除 Qdrant 存储目录，再以一次性模式 `python -m hivememory.server --delete-memory-data` 运行后端，按配置删除后端拥有的路径（相对路径按数据根解析），然后重启应用。重启后记忆库为空，预设 Agent 重新写入。只删除上面列出的路径，不删除数据根本身：数据根指向 checkout 时，仓库文件、随仓库发布的 `configs\` 文件与 `.hivememory\dev.env` 都不受影响。
 

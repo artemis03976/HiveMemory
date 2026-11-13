@@ -37,21 +37,29 @@ async def test_settled_publishes_canonical_payload_once() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("method", "event"),
+    ("method", "kwargs", "event", "extra"),
     [
-        ("failed", PatchouliLocalEvents.PENDING_ATOM_FAILED),
-        ("cancelled", PatchouliLocalEvents.PENDING_ATOM_CANCELLED),
+        (
+            "failed",
+            {"reason": "model_provider_failed"},
+            PatchouliLocalEvents.PENDING_ATOM_FAILED,
+            {"reason": "model_provider_failed"},
+        ),
+        ("cancelled", {}, PatchouliLocalEvents.PENDING_ATOM_CANCELLED, {}),
     ],
 )
-async def test_alias_terminals_publish_canonical_payload_once(method: str, event: str) -> None:
+async def test_alias_terminals_publish_canonical_payload_once(
+    method: str, kwargs: dict, event: str, extra: dict
+) -> None:
+    """失败事件带上生成任务的原因码，取消事件只有 alias 与 intent_id。"""
     bus = AsyncMock()
     settler = PendingAtomSettler(bus)
 
-    await getattr(settler, method)("draft_memory", "intent_draft_memory")
-    await getattr(settler, method)("draft_memory", "intent_draft_memory")
+    await getattr(settler, method)("draft_memory", "intent_draft_memory", **kwargs)
+    await getattr(settler, method)("draft_memory", "intent_draft_memory", **kwargs)
 
     bus.publish.assert_awaited_once_with(
-        event, pending_alias="draft_memory", intent_id="intent_draft_memory"
+        event, pending_alias="draft_memory", intent_id="intent_draft_memory", **extra
     )
 
 
@@ -68,7 +76,7 @@ async def test_first_terminal_event_wins_across_concurrent_callers() -> None:
     payload = {"pending_alias": "draft_memory", "intent_id": "intent_draft_memory"}
     assert bus.publish.await_count == 1
     assert bus.publish.await_args in (
-        call(PatchouliLocalEvents.PENDING_ATOM_FAILED, **payload),
+        call(PatchouliLocalEvents.PENDING_ATOM_FAILED, **payload, reason=None),
         call(PatchouliLocalEvents.PENDING_ATOM_CANCELLED, **payload),
     )
 
@@ -88,6 +96,7 @@ async def test_settlement_publish_failure_falls_back_to_failed() -> None:
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_memory",
             intent_id="intent_draft_memory",
+            reason=None,
         ),
     ]
     await settler.failed("draft_memory", "intent_draft_memory")
@@ -121,6 +130,7 @@ async def test_bounded_retention_allows_evicted_alias_to_be_published_again() ->
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias=alias,
             intent_id=f"intent_{alias}",
+            reason=None,
         )
 
     assert bus.publish.await_args_list == [failed("first"), failed("second"), failed("first")]

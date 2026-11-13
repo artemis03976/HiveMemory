@@ -87,11 +87,14 @@ class MemoryIntentSubmissionService:
             )
             source_verb = "WRITE"
         else:
+            if intent.base_version is None:
+                raise ValueError("update 意图需要 base_version")
             focus = UpdateFocus(
                 instruction=intent.instruction or "",
                 content=intent.content,
                 base_uuid=intent.base_uuid or "",
                 base_alias=intent.base_alias or "",
+                base_version=intent.base_version,
             )
             source_verb = "UPDATE"
         return PendingAtomMaterializeTask(

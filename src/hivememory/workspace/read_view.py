@@ -6,11 +6,14 @@
 
 独立工作：库不可达时 L1 命中与交付授权照常，L2 冷读显式失败，
 不以过期条目伪装新鲜成功。canonical 变更事件内联失效双缓存并推进代次。
+写入意图登记在关闭时写盘，由组合根在订阅结算事件之前读回。
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from hivememory.workspace.cache.atom import AtomCache
@@ -38,13 +41,17 @@ class WorkspaceReadView:
         backing: CanonicalReadBackend,
         atom_capacity: int,
         profile_capacity: int,
+        intent_record_file: Path,
+        intent_retention: timedelta,
         max_stale_retries: int = 2,
     ) -> None:
         self._epochs = WorkspaceEpochs()
         self._guard = ColdReadGuard(self._epochs, max_stale_retries=max_stale_retries)
         self._atom_cache = AtomCache(atom_capacity)
         self._profile_cache = ProfileCache(profile_capacity)
-        self._intents = WriteIntentRegistry()
+        self._intents = WriteIntentRegistry(
+            record_file=intent_record_file, retention=intent_retention
+        )
         self._invalidator = CacheInvalidator(
             atom_cache=self._atom_cache, profile_cache=self._profile_cache, epochs=self._epochs
         )
@@ -90,14 +97,16 @@ class WorkspaceReadView:
         return self._guard.is_closed
 
     def close(self) -> tuple[int, int]:
-        """停止新读，清理仅属于缓存的派生值，返回 (原子条目数, Profile 条目数)。
+        """停止新读，写盘写入意图登记并清理仅属于缓存的派生值，返回 (原子条目数, Profile 条目数)。
 
-        在途冷读的结果仍交还原调用方但不再回填；不触碰 Pending、Session 或
-        canonical 数据。重复调用返回 ``(0, 0)``。
+        System 在 Patchouli 停止之后关闭读取视图：关闭过程中结算的写入意图先经事件
+        落到登记上，解除订阅之后再写盘。在途冷读的结果仍交还原调用方但不再回填；
+        不触碰 Session 或 canonical 数据。重复调用返回 ``(0, 0)``。
         """
         if self._guard.is_closed:
             return 0, 0
         self.unsubscribe()
+        self._intents.save()
         self._guard.close()
         atoms = self._atom_cache.clear()
         profiles = self._profile_cache.clear()

@@ -1,7 +1,9 @@
 ---
 title: 统一语言设置与外部 Agent 文字的英文版
-status: idea
-horizon: candidate
+status: archived
+archived_at: 2026-11-12
+implemented_by: 计划“统一语言设置与外部 Agent 文字的英文版”（PR #220）
+superseded_by: docs/system/i18n.md
 owner: system
 scope: one-language-setting-for-hivememory-prompts-mcp-text-http-error-text-and-the-plugin-skill
 code_paths:
@@ -29,20 +31,20 @@ last_reviewed: 2026-11-12
 
 # 统一语言设置与外部 Agent 文字的英文版
 
-**文档状态**：Idea（候选）。方向来自候选清单 D-12（[Epic #42](https://github.com/artemis03976/HiveMemory/issues/42) 的剩余部分）。2026-11-12 先起草为计划，同日 owner 决定先做[桌面端安装插件](../archive/plans/desktop-plugin-installation.md)。skill 怎样交到 harness 手中取决于插件随安装包交付的方式，前提因此改变，计划退回本 Idea（[文档治理规范](../DOCUMENTATION.md)第 8.4 节）。第 2 节是 owner 决定，其余是候选设计。两份前置计划完成后，2026-11-12 重新写成计划[统一语言设置与外部 Agent 文字的英文版](../plans/language-setting-unification.md)，设计以计划为准；第 5.5 节按落地后的事实补充的细节写在计划第 4.5 节。
+**文档状态**：Archived（2026-11-12）。本 Idea 经计划[统一语言设置与外部 Agent 文字的英文版](../plans/language-setting-unification.md)实施（PR #220），当前事实见[全局 i18n](../../system/i18n.md)。以下为归档时的原文：第 2 节是 owner 决定，其余是候选设计；实施时与它不同的地方见计划的实施记录。其中第 7 节把记忆正文的语言随设置变化列为风险，owner 2026-11-12 明确这是要求的行为。
 
 ## 1. 问题
 
-Epic #42 要求用全局配置统一 Agent 提示词的语言。配置项 `i18n.default_language` 与中英两套提示词已经存在（[全局 i18n](../system/i18n.md)），但语言实际上有好几个来源，外部 harness 读到的文字也只有中文：
+Epic #42 要求用全局配置统一 Agent 提示词的语言。配置项 `i18n.default_language` 与中英两套提示词已经存在（[全局 i18n](../../system/i18n.md)），但语言实际上有好几个来源，外部 harness 读到的文字也只有中文：
 
 - **Profile 语言把全局设置挡住了**：解析优先级是“显式值 > Profile 语言 > 组件语言 > 进程默认值”。
-  - Agent Profile 的 `language` 字段缺省为 `"zh"`；内置的 omni_doll、两个预设 Agent，以及前端新建 Agent 的初始图纸都写的是 `zh`；管理页又不能修改这个字段（[管理页面](../frontend/management-views.md)）。所以它总有值。
-  - 设置页说“默认语言”是“提示词与系统消息使用的语言”。但改为 `en` 之后，只有 Gateway、记忆生成、会话压缩和记忆编译的缺省语言换成了英文。对话 Agent 主帧与 CALL 子帧的 MTP 教学、人设标题、会话摘要和执行期回填仍是中文（[compilation.py](../../src/hivememory/prompts/compilation.py)、[coordinator.py](../../src/hivememory/alice/orchestration/call/coordinator.py)）。
+  - Agent Profile 的 `language` 字段缺省为 `"zh"`；内置的 omni_doll、两个预设 Agent，以及前端新建 Agent 的初始图纸都写的是 `zh`；管理页又不能修改这个字段（[管理页面](../../frontend/management-views.md)）。所以它总有值。
+  - 设置页说“默认语言”是“提示词与系统消息使用的语言”。但改为 `en` 之后，只有 Gateway、记忆生成、会话压缩和记忆编译的缺省语言换成了英文。对话 Agent 主帧与 CALL 子帧的 MTP 教学、人设标题、会话摘要和执行期回填仍是中文（[compilation.py](../../../src/hivememory/prompts/compilation.py)、[coordinator.py](../../../src/hivememory/alice/orchestration/call/coordinator.py)）。
 - **没有调用方的优先级**：“组件语言”一档没有任何调用方传入；`FALLBACK_LANGUAGE` 只被导出，没有使用方。
 - **配置值宽松**：`default_language` 是自由字符串，经别名归一化后，未知值（例如 `fr`）会静默按 `zh` 运行。
 - **外部 harness 读到的文字只有中文**：
-  - MCP 的服务说明、四个工具描述、参数说明与结果文本都写死为中文（[server.py](../../src/hivememory/mcp_server/server.py)）。dsh 与 pi 的插件直接沿用服务给出的描述；
-  - MCP 工具出错时复用 HTTP 出口的错误投影，说明文字来自 [error_handlers.py](../../src/hivememory/server/error_handlers.py) 中只有中文的错误表；
+  - MCP 的服务说明、四个工具描述、参数说明与结果文本都写死为中文（[server.py](../../../src/hivememory/mcp_server/server.py)）。dsh 与 pi 的插件直接沿用服务给出的描述；
+  - MCP 工具出错时复用 HTTP 出口的错误投影，说明文字来自 [error_handlers.py](../../../src/hivememory/server/error_handlers.py) 中只有中文的错误表；
   - 插件 skill（`integrations/hivememory/skills/hivememory/SKILL.md`）只有中文，description 中的触发词也是中文；
   - dsh 插件在没有进行中的一轮时，会报一条中文错误。
 - **两个结构约束**：
@@ -132,7 +134,7 @@ Epic #42 要求用全局配置统一 Agent 提示词的语言。配置项 `i18n.
 
 - **两份正文**：现有 skill 移到 `integrations/hivememory/skill-languages/zh/SKILL.md`，新增英文版 `skill-languages/en/SKILL.md`，两份都受版本控制。英文版的措辞决定 Agent 何时检索、写入与修正记忆，需要 owner 审阅。
 - **后端启动时写入**：四个 harness 读取的 `skills/hivememory/SKILL.md` 改为不受版本控制。
-  - 后端每次启动、读取配置之后，如果插件目录与后端在同一个布局中，就把语言设置对应的那一份复制过去。同一布局指仓库 checkout，或[桌面端安装插件](../archive/plans/desktop-plugin-installation.md)之后的安装目录。
+  - 后端每次启动、读取配置之后，如果插件目录与后端在同一个布局中，就把语言设置对应的那一份复制过去。同一布局指仓库 checkout，或[桌面端安装插件](../plans/desktop-plugin-installation.md)之后的安装目录。
   - 不需要单独的准备步骤，`/health` 也不需要公开语言。
 - **为什么放在后端启动时**：升级发布版本和改语言都必须重启后端，而且重启在 harness 重新加载或更新插件之前。所以在重启时写入，就满足第 2 节“随发布版本自动更新”的要求。
   - 链接安装的 dsh 与 pi，重新打开就会读到新文件；
@@ -180,5 +182,5 @@ Epic #42 要求用全局配置统一 Agent 提示词的语言。配置项 `i18n.
 
 ## 8. 升级为 Plan 的条件
 
-- [桌面端安装插件](../archive/plans/desktop-plugin-installation.md)完成，插件目录随安装包交付成为事实（2026-11-12 已完成）；
+- [桌面端安装插件](../plans/desktop-plugin-installation.md)完成，插件目录随安装包交付成为事实（2026-11-12 已完成）；
 - 第 5.5 节按那份计划落地后的事实核对一遍，尤其是安装版的插件更新方式。

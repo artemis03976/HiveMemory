@@ -10,7 +10,14 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.models import ActorIdentity
+from hivememory.core.contracts.events import GlobalEvents
+from hivememory.core.models import (
+    ActorIdentity,
+    PendingAtomResolution,
+    PendingAtomSettlement,
+    PendingAtomStatus,
+    WriteFocus,
+)
 from hivememory.patchouli.application import InteractionSubmissionService
 from hivememory.patchouli.contracts.errors import InteractionAdmissionUnavailableError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -29,7 +36,11 @@ from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.sessions import make_interaction_payload
-from tests.helpers.workspace import make_identity_scope, make_workspace_read_view
+from tests.helpers.workspace import (
+    make_identity_scope,
+    make_workspace_read_view,
+    make_write_intent_registry,
+)
 
 
 def _build_runtime_with_local_bus():
@@ -244,6 +255,46 @@ class TestHiveMemorySystemLifecycle:
                 interaction_id="after_stop",
             )
         assert rejected.value.details["reason"] == "queue_stopped"
+
+    @pytest.mark.asyncio
+    async def test_write_settled_while_patchouli_stops_is_saved_settled(
+        self, system_factory, mock_patchouli, global_bus
+    ):
+        """关闭时正在写入的项在 Patchouli 停止期间结算：登记在此之后才写盘，下次启动读回结算后的句柄。"""
+        system = system_factory()
+        system.workspace_read_view.subscribe(global_bus)
+        scope = make_identity_scope()
+        pending = system.workspace_read_view.intents.register_write(
+            WriteFocus(content="写入正文"),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+        )
+
+        async def settle_during_drain():
+            await global_bus.publish(
+                GlobalEvents.PENDING_ATOM_SETTLED,
+                settlement=PendingAtomSettlement(
+                    pending_alias=pending.pending_alias,
+                    intent_id=pending.intent_id,
+                    resolution=PendingAtomResolution.CREATED,
+                    canonical_alias="fact_written",
+                    canonical_uuid="uuid-written",
+                ),
+            )
+            return {"success": True}
+
+        mock_patchouli.runtime.shutdown_drain = AsyncMock(side_effect=settle_during_drain)
+
+        await system.start()
+        await system.stop()
+
+        restored = make_write_intent_registry()
+        restored.load()
+        handle = restored.get(pending.pending_alias, scope.workspace_identity)
+        assert (handle.status, handle.settlement.canonical_alias) == (
+            PendingAtomStatus.SETTLED,
+            "fact_written",
+        )
 
     @pytest.mark.asyncio
     async def test_stop_without_start_is_noop(self, system_factory, mock_patchouli):

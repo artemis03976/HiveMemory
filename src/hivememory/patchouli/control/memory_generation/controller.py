@@ -9,7 +9,7 @@ import uuid
 from collections import Counter, OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from hivememory.components.events.bus import NullRuntimeEventSink
@@ -54,6 +54,10 @@ from hivememory.patchouli.control.memory_generation.saved_work import (
     take_saved_work,
     write_rejected_work,
     write_saved_work,
+)
+from hivememory.patchouli.control.memory_generation.task_history import (
+    take_task_history,
+    write_task_history,
 )
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -121,6 +125,9 @@ class MemoryGenerationTaskController:
         )
 
         self._entries: OrderedDict[str, _MemoryTaskEntry] = OrderedDict()
+        # 上次运行结束的任务快照，按结束时间从早到晚：只供任务列表与单个任务的读取，
+        # 不能取消，也不参与接纳的幂等判重；同一任务 ID 以本进程的任务为准。
+        self._history: OrderedDict[str, MemoryGenerationTask] = OrderedDict()
         self._submission_lock = asyncio.Lock()
         # 话题 ID → 该话题的主动写入（WRITE/UPDATE，以及它们被合并后的保留对象）
         # 已结算到的正式记忆 ID。只在进程内：话题结算时取出并清除；进程崩溃时随进程
@@ -426,20 +433,20 @@ class MemoryGenerationTaskController:
                 )
 
     async def get_task(self, task_id: str) -> MemoryGenerationTask | None:
-        """按任务标识查询当前只读领域快照。"""
+        """按任务标识查询当前只读领域快照，本进程没有时查读回的历史。"""
 
         entry = self._entries.get(task_id)
         if entry is None:
-            return None
+            return self._history.get(task_id)
         return await self._snapshot_entry(entry)
 
     async def list_tasks(self) -> list[MemoryGenerationTask]:
-        """列出控制器当前仍保留的任务快照。"""
+        """列出读回的历史与本进程仍保留的任务快照，同一任务 ID 以本进程的为准。"""
 
-        snapshots: list[MemoryGenerationTask] = []
-        for entry in self._entries.values():
-            snapshots.append(await self._snapshot_entry(entry))
-        return snapshots
+        snapshots = dict(self._history)
+        for task_id, entry in self._entries.items():
+            snapshots[task_id] = await self._snapshot_entry(entry)
+        return list(snapshots.values())
 
     async def _snapshot_entry(self, entry: _MemoryTaskEntry) -> MemoryGenerationTask:
         """从终态缓存或最新 ``WorkRecord`` 构造领域快照。"""
@@ -677,6 +684,48 @@ class MemoryGenerationTaskController:
             rejected_file=rejected_file,
         )
 
+    def restore_task_history(self, path: Path, *, retention: timedelta) -> None:
+        """读回上次正常关闭时写盘的已结束任务；在读回保存的生成工作之前调用。
+
+        只保留结束于 ``retention`` 之内的最近若干条（与已结束任务的保留条数相同）。
+        """
+        cutoff = datetime.now(UTC) - retention
+        tasks = sorted(
+            (task for task in take_task_history(path) if _finished_at(task) > cutoff),
+            key=_finished_at,
+        )
+        for task in tasks[-self._queue.terminal_retention :]:
+            self._history[task.task_id] = task
+
+    def save_task_history(self, path: Path, *, retention: timedelta) -> None:
+        """把已结束的任务写盘，供下次启动读回；在生成队列停止之后调用。
+
+        关闭时保存的工作（取消原因 ``shutdown_persisted``）不算已结束：它在下次启动后
+        继续执行，写入与更新以同一任务 ID 重新出现在列表中。只写结束于 ``retention``
+        之内的最近若干条；没有可写的任务时不写文件，写盘失败只记日志。
+        """
+        cutoff = datetime.now(UTC) - retention
+        finished = dict(self._history)
+        for task_id, entry in self._entries.items():
+            snapshot = entry.final_snapshot
+            if snapshot is not None and snapshot.cancel_reason != SHUTDOWN_PERSISTED_REASON:
+                finished[task_id] = snapshot
+        tasks = sorted(
+            (task for task in finished.values() if _finished_at(task) > cutoff),
+            key=_finished_at,
+        )[-self._queue.terminal_retention :]
+        if not tasks:
+            return
+        try:
+            write_task_history(path, tasks)
+        except OSError:
+            logger.error(
+                "记忆生成任务历史写盘失败: reason=task_history_write_failed, path=%s, count=%d",
+                path,
+                len(tasks),
+                exc_info=True,
+            )
+
     def _spec_to_save(self, spec: MemoryGenerationTaskSpec) -> MemoryGenerationTaskSpec:
         """结算任务带上本话题主动写入的记录：它只在内存中，执行时据此不改写这些记忆。"""
 
@@ -700,12 +749,15 @@ class MemoryGenerationTaskController:
         return outcome.record.state if outcome is not None else None
 
     def _retain_terminal_entries(self) -> None:
-        """按队列保留策略淘汰最早的领域终态及进程内结果。"""
+        """按队列保留策略淘汰最早的领域终态及进程内结果，读回的历史计入同一上限、先淘汰。"""
 
         terminal_ids = [
             task_id for task_id, entry in self._entries.items() if entry.final_snapshot is not None
         ]
-        excess = len(terminal_ids) - self._queue.terminal_retention
+        excess = len(terminal_ids) + len(self._history) - self._queue.terminal_retention
+        while excess > 0 and self._history:
+            self._history.popitem(last=False)
+            excess -= 1
         for task_id in terminal_ids[: max(0, excess)]:
             entry = self._entries.pop(task_id)
             if entry.handle is not None:
@@ -750,7 +802,11 @@ class MemoryGenerationTaskController:
                 if snapshot.cancel_reason != SHUTDOWN_PERSISTED_REASON:
                     await self._pending_atom_settler.cancelled(pending_alias, intent_id)
             elif snapshot.status == MemoryGenerationTaskStatus.FAILED:
-                await self._pending_atom_settler.failed(pending_alias, intent_id)
+                await self._pending_atom_settler.failed(
+                    pending_alias,
+                    intent_id,
+                    reason=failure.message if failure is not None else None,
+                )
 
         self._task_events.terminal(
             snapshot,
@@ -786,6 +842,11 @@ class MemoryGenerationTaskController:
                 )
             else:
                 await self._pending_atom_settler.settled(result.settlement)
+
+
+def _finished_at(task: MemoryGenerationTask) -> datetime:
+    """已结束任务的结束时间；领域终态总带结束时间，缺少时以创建时间排序。"""
+    return task.finished_at or task.created_at
 
 
 def _with_topic_writes(

@@ -26,20 +26,14 @@ class PendingAtomStatus(str, Enum):
     """PendingAtom 生命周期阶段。
 
     登记即进入 MATERIALIZING：意图在 actor 操作内被提交给生成队列，之后由
-    结算推进为 SETTLED、FAILED 或 CANCELLED。EXPIRED 是三者共同的永久终态；
-    当前没有转入它的触发，结算后的句柄保留到进程重启。
+    结算推进为 SETTLED、FAILED 或 CANCELLED，三者都是终态。句柄登记满保留期后
+    从登记中删除，过期不是一个状态：读取时由读取器按已过期交付。
     """
 
     MATERIALIZING = "materializing"
     SETTLED = "settled"
     FAILED = "failed"
-    EXPIRED = "expired"
     CANCELLED = "cancelled"
-
-    @property
-    def is_terminal(self) -> bool:
-        """终态：不可再迁移。EXPIRED 是唯一永久终态；其余终态仍可迁入 EXPIRED。"""
-        return self == PendingAtomStatus.EXPIRED
 
     @property
     def is_in_flight(self) -> bool:
@@ -70,10 +64,9 @@ _TRANSITIONS: dict[PendingAtomStatus, frozenset[PendingAtomStatus]] = {
             PendingAtomStatus.CANCELLED,
         }
     ),
-    PendingAtomStatus.SETTLED: frozenset({PendingAtomStatus.EXPIRED}),
-    PendingAtomStatus.FAILED: frozenset({PendingAtomStatus.EXPIRED}),
-    PendingAtomStatus.EXPIRED: frozenset(),
-    PendingAtomStatus.CANCELLED: frozenset({PendingAtomStatus.EXPIRED}),
+    PendingAtomStatus.SETTLED: frozenset(),
+    PendingAtomStatus.FAILED: frozenset(),
+    PendingAtomStatus.CANCELLED: frozenset(),
 }
 
 
@@ -107,13 +100,16 @@ class UpdateFocus(BaseModel):
     """UPDATE 指令的 Agent 提交参数（纯 DTO，不含关联键）。
 
     关联键（pending_alias / intent_id / belong_to / from_actor）由 PendingAtom 持有，
-    通过 PendingAtomMaterializeTask 出境；Focus 只承载 Agent 提交的参数。
+    通过 PendingAtomMaterializeTask 出境；Focus 只承载 Agent 提交的参数，以及登记时
+    读到的基础记忆坐标。``base_version`` 是登记时基础记忆的内容版本：写回前基础的
+    版本与它不同，说明排队期间基础被修改过，修订不写回。
     """
 
     instruction: str
     content: str | None = None
     base_uuid: str
     base_alias: str
+    base_version: int
     model_config = ConfigDict(frozen=True)
 
 
@@ -183,7 +179,8 @@ class PendingAtom(BaseModel):
     同一 Workspace 的 Agent 可通过 pending_alias 回读。``process_id`` 与
     ``thread_id`` 记录发起写入的任务进程与执行线程，只作观测归因（同一进程
     两次 CALL 同一个 Agent 时以线程区分），不参与回读或授权；不建进程的请求级
-    提交没有进程与线程，二者为空。
+    提交没有进程与线程，二者为空。``failure_reason`` 是生成侧失败事件带来的原因码，
+    只在 FAILED 时可能有值；派发时被拒绝的失败没有原因码。
     """
 
     pending_alias: str
@@ -200,6 +197,7 @@ class PendingAtom(BaseModel):
 
     # 结算跟踪
     settlement: PendingAtomSettlement | None = None
+    failure_reason: str | None = None
 
 
 __all__ = [

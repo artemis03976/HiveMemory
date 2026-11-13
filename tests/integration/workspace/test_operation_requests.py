@@ -43,7 +43,12 @@ from hivememory.workspace.contracts import (
 from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_access_composition, make_actor_access_record
+from tests.helpers.workspace import (
+    INTENT_RECORD_FILE,
+    INTENT_RETENTION,
+    make_access_composition,
+    make_actor_access_record,
+)
 
 
 class _OperationHarness:
@@ -68,7 +73,11 @@ class _OperationHarness:
         self.events = RecordingRuntimeEventSink()
         self.backing = BusCanonicalReadBackend(self.bus)
         self.runtime = WorkspaceReadView(
-            backing=self.backing, atom_capacity=32, profile_capacity=16
+            backing=self.backing,
+            atom_capacity=32,
+            profile_capacity=16,
+            intent_record_file=INTENT_RECORD_FILE,
+            intent_retention=INTENT_RETENTION,
         )
         self.registry = self.runtime.intents
         for route, handler in (
@@ -226,6 +235,7 @@ async def test_update_request_resolves_base_and_registers_supplied_instruction_o
     assert stored.focus == UpdateFocus(
         base_alias="base",
         base_uuid=str(harness.memories["base"].id),
+        base_version=harness.memories["base"].meta.version,
         instruction="更新指令",
         content="更新正文",
     )
@@ -267,6 +277,7 @@ async def test_write_and_update_dispatch_every_focus_field_with_registered_ident
             content="更新正文",
             base_alias="base",
             base_uuid=str(harness.memories["base"].id),
+            base_version=harness.memories["base"].meta.version,
         ),
     ]
 
@@ -372,6 +383,7 @@ async def test_update_with_only_memory_update_resolves_base_without_citation(
     assert stored.focus == UpdateFocus(
         base_alias="base",
         base_uuid=str(harness.memories["base"].id),
+        base_version=harness.memories["base"].meta.version,
         instruction="更新指令",
     )
     assert stored.status == PendingAtomStatus.MATERIALIZING

@@ -93,6 +93,12 @@ class MemoryMergeAbortedError(WorkspaceDomainError):
     code = "workspace.memory.merge_aborted"
 
 
+class MemoryUpdateBaseChangedError(WorkspaceDomainError):
+    """UPDATE 的基础记忆在排队期间被修改：写回前的内容版本与登记时读到的不同，修订不写回。"""
+
+    code = "workspace.memory.update_base_changed"
+
+
 class MemoryAliasConflictError(WorkspaceDomainError):
     """同一 Workspace 中期库内的 Memory alias 唯一性不变量被破坏。
 
@@ -124,4 +130,5 @@ __all__ = [
     "ResourceUnavailableError",
     "MemoryAliasConflictError",
     "MemoryMergeAbortedError",
+    "MemoryUpdateBaseChangedError",
 ]

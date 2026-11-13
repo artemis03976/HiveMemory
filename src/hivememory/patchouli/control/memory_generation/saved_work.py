@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
-from hivememory.config.files import write_atomically
+from hivememory.config.files import rejected_path, write_atomically
 
 SAVED_WORK_FORMAT_VERSION = 1
 
@@ -74,7 +73,7 @@ def take_saved_work(path: Path) -> list[object] | None:
         if not isinstance(items, list):
             raise ValueError("saved work document has no work list")
     except (OSError, UnicodeDecodeError, ValueError) as error:
-        rejected = _rejected_path(path)
+        rejected = rejected_path(path)
         path.replace(rejected)
         raise SavedWorkFileError(rejected) from error
     path.unlink()
@@ -83,15 +82,10 @@ def take_saved_work(path: Path) -> list[object] | None:
 
 def write_rejected_work(path: Path, items: list[object]) -> Path:
     """把读不回或接纳被拒绝的工作项写到保存文件旁边，返回写入的路径。"""
-    rejected = _rejected_path(path)
+    rejected = rejected_path(path)
     document = {"format_version": SAVED_WORK_FORMAT_VERSION, "work": items}
     write_atomically(rejected, json.dumps(document, ensure_ascii=False).encode("utf-8"))
     return rejected
-
-
-def _rejected_path(path: Path) -> Path:
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    return path.with_name(f"{path.stem}.rejected-{stamp}{path.suffix}")
 
 
 __all__ = [

@@ -80,6 +80,7 @@ def _update_task(base_uuid: str, alias="draft_update"):
             content="new content",
             base_uuid=base_uuid,
             base_alias="memory_alias",
+            base_version=1,
         ),
     )
 
@@ -341,6 +342,7 @@ class TestMemoryGenerationCoordinator:
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_update",
             intent_id="intent_draft_update",
+            reason=None,
         )
 
     @pytest.mark.asyncio
@@ -408,6 +410,7 @@ class TestMemoryGenerationCoordinator:
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_update",
             intent_id="intent_draft_update",
+            reason=None,
         )
 
     @pytest.mark.asyncio
@@ -471,6 +474,7 @@ class TestMemoryGenerationCoordinator:
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_a",
             intent_id="intent_draft_a",
+            reason=None,
         )
 
     def test_negative_recent_block_limit_is_rejected(self):

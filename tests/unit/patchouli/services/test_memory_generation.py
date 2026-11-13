@@ -24,6 +24,7 @@ import pytest
 
 from hivememory.core.errors import (
     MemoryMergeAbortedError,
+    MemoryUpdateBaseChangedError,
     ModelProviderError,
     ResourceNotFoundError,
 )
@@ -38,7 +39,7 @@ from hivememory.core.models import (
     WorkspaceIdentity,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryEventType
-from hivememory.core.models.pending import WriteFocus
+from hivememory.core.models.pending import UpdateFocus, WriteFocus
 from hivememory.engines.artifacts.interaction import InteractionArtifactBuilder
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
@@ -167,6 +168,26 @@ def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_inter
         pending_alias="test",
     )
     return spec
+
+
+def _with_update_focus(
+    spec: MemoryGenerationTaskSpec, base: MemoryAtom
+) -> MemoryGenerationTaskSpec:
+    """修订任务：UPDATE 结果只来自带 update_focus 的任务，基础版本取登记时读到的版本。"""
+    return replace(
+        spec,
+        source=MemoryGenerationSource.UPDATE,
+        request=GenerationRequest(
+            context=GenerationContext(),
+            update_focus=UpdateFocus(
+                instruction="revise",
+                base_uuid=str(base.id),
+                base_alias=base.index.alias or "",
+                base_version=base.meta.version,
+            ),
+            existing_memory=base.model_copy(deep=True),
+        ),
+    )
 
 
 def _familiar_with(gen_engine: Mock, mid_term: Mock) -> MemoryGenerationFamiliar:
@@ -480,20 +501,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
-        request = GenerationRequest(
-            context=GenerationContext(),
-            write_focus=WriteFocus(content="test"),
-        )
-        spec = _make_spec()
-        spec = MemoryGenerationTaskSpec(
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
-            topic_id=spec.topic_id,
-            label=spec.label,
-            source=spec.source,
-            request=request,
-            interaction_input=None,
-        )
+        spec = _with_update_focus(_make_spec(include_interaction_input=False), atom)
 
         await familiar._run_generation(
             spec, interaction_ref=None, on_commit_started=_ignore_commit_start
@@ -525,20 +533,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
-        request = GenerationRequest(
-            context=GenerationContext(),
-            write_focus=WriteFocus(content="test"),
-        )
-        spec = _make_spec()
-        spec = MemoryGenerationTaskSpec(
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
-            topic_id=spec.topic_id,
-            label=spec.label,
-            source=spec.source,
-            request=request,
-            interaction_input=None,
-        )
+        spec = _with_update_focus(_make_spec(include_interaction_input=False), atom)
 
         await familiar._run_generation(
             spec, interaction_ref=None, on_commit_started=_ignore_commit_start
@@ -648,19 +643,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
 
-        spec = _make_spec()
-        spec = MemoryGenerationTaskSpec(
-            belong_to=spec.belong_to,
-            from_actor=spec.from_actor,
-            topic_id=spec.topic_id,
-            label=spec.label,
-            source=spec.source,
-            request=GenerationRequest(
-                context=GenerationContext(),
-                write_focus=WriteFocus(content="test"),
-            ),
-            interaction_input=None,
-        )
+        spec = _with_update_focus(_make_spec(include_interaction_input=False), atom)
 
         await familiar._run_generation(
             spec, interaction_ref=None, on_commit_started=_ignore_commit_start
@@ -811,7 +794,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
     @pytest.mark.asyncio
     async def test_run_generation_builds_updated_settlement_for_active_update(self):
         atom = _make_memory_atom()
-        spec = _make_spec(source=MemoryGenerationSource.UPDATE)
+        spec = _with_update_focus(_make_spec(), atom)
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
             return_value=[_make_outcome(action=GenerationAction.UPDATE, atom=atom)]
@@ -1569,7 +1552,7 @@ def _update_case():
         artifact_engine=_memory_artifact_engine(),
         now=lambda: FIXED_NOW,
     )
-    spec = _make_spec(source=MemoryGenerationSource.UPDATE, include_interaction_input=False)
+    spec = _with_update_focus(_make_spec(include_interaction_input=False), base)
     return familiar, store, spec, base
 
 
@@ -1584,6 +1567,21 @@ async def test_update_write_back_keeps_policy_changed_after_task_was_built():
 
     assert store.memories[base.id].payload.content == "revised content"
     assert store.memories[base.id].meta.access_policy == changed
+
+
+@pytest.mark.asyncio
+async def test_update_write_back_rejects_base_changed_while_queued():
+    """排队期间基础的内容被修改（版本推进）时不写回，期间的修改不被修订覆盖。"""
+    familiar, store, spec, base = _update_case()
+    edited = store.memories[base.id]
+    edited.payload.content = "edited while queued"
+    edited.meta.version += 1
+
+    with pytest.raises(MemoryUpdateBaseChangedError):
+        await familiar.execute(spec, on_commit_started=_ignore_commit_start)
+
+    assert store.memories[base.id].payload.content == "edited while queued"
+    assert store.operations == []
 
 
 @pytest.mark.asyncio

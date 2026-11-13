@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-12
 ---
 
 # 数据模型与可变性边界
@@ -113,7 +113,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.4 PendingAtom 状态机
 
-`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作观测关联的 `process_id`、`thread_id`（发起写入的任务进程与执行线程，回读与授权不读取它们；外部 harness 经 MCP 的请求级提交没有进程与线程，二者为空）；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记即进入 MATERIALIZING，随后推进为 SETTLED、FAILED 或 CANCELLED；EXPIRED 是三者共同的永久终态，当前没有转入它的触发，终态句柄保留到进程重启。
+`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作观测关联的 `process_id`、`thread_id`（发起写入的任务进程与执行线程，回读与授权不读取它们；外部 harness 经 MCP 的请求级提交没有进程与线程，二者为空）；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记即进入 MATERIALIZING，随后推进为 SETTLED、FAILED 或 CANCELLED，三者都是终态；FAILED 可带生成侧失败事件的原因码 `failure_reason`。登记在正常关闭时写盘、启动时读回，句柄自登记起保留 7 天（默认）后删除，过期不是状态，只是读取时的解析结果（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)）。UPDATE 的 `UpdateFocus` 带登记时基础原子的内容版本 `base_version`。
 
 登记与解析器均交付深复制结果，调用方修改返回对象不会改写权威登记或缓存。`ReferenceResolution` 是 core 中立 dataclass，携带逐项状态、独立的 pending/atom 与结算视图；redirect 目标不可读时清空引用并省略 pending，避免 UPDATE focus 泄露基础 UUID。actor API 提交携带登记标识与内容的 `MemoryIntent`，物化任务由 Patchouli 意图服务内部构造，独立携带归属与发起者。
 

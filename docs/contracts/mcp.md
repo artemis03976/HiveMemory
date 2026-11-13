@@ -29,7 +29,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-12
 ---
 
 # MCP 记忆访问
@@ -79,7 +79,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 - **参数**：检索不开放条数、过滤与关键词，使用默认条数。参数名 `query` 与生成视图读取 SEARCH 查询的参数名（`tool_args["query"]`）一致；`aliases`、`alias` 由连接器移为 READ、UPDATE 的作用对象，回声标记（第 6 节）因此得到带查询或 alias 的一行摘要。
 - **轮次信息 `turn`**：写入与更新带一个可选参数 `turn`，类型即 Import Bus 的在途轮次模型（`source`、`external_conversation_id`、`external_turn_id`、`user_message`、`recent_turns`，校验规则与导入请求的同名字段相同）。它由连接器的 `PreToolUse` hook 在调用前填写（第 6 节），参数说明写明不要由模型自行填写。SDK 的工具参数模型会丢弃输入 schema 之外的键，因此它声明在 schema 中，而不是作为隐藏参数。操作请求只携带操作参数，不携带 `turn` 或话题。
 - **编译**：检索结果与 Alice 的 MTP SEARCH 使用同一检索上下文信封与配置的检索策略，但关闭信封的头尾（编译选项 `include_header_footer=False`）：头尾是提示词中预检索上下文的引导，不适用于工具结果。读取以 `READ_RESULT` 目标逐项编译，哪些解析结果可以交付与 MTP READ 共用 `engines.memory_compiler.readable_source`；`memory_read` 用于取得检索结果中摘要之外的全文，`READ_RESULT` 交付正式原子的全文。编译文本中指引下一步操作的句子只写能力，不写任何协议的指令或工具名（[记忆编译](../patchouli/memory-compiler.md)）。
-- **在途句柄**：写入与更新返回的 pending alias 经 `memory_read` 回读时，交付登记中的状态；生成链结算后，读取重定向到正式记忆（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。
+- **在途句柄**：写入与更新返回的 pending alias 经 `memory_read` 回读时，交付登记中的状态；生成链结算后，读取重定向到正式记忆（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。句柄跨正常重启保留，自写入起保留 7 天（默认）；之后读取交付“句柄不存在或已过期”的说明，不列入未解析的 alias。UPDATE 的基础在排队期间被修改时句柄失败，读取时说明需要重新读取后再更新。
 - **说明文字**：工具说明与 MCP 服务说明（instructions）写明何时检索（回答涉及项目历史、此前的决定或用户偏好的问题之前）、结果是带日期的历史证据（引用前先核实）、仓库中的代码与文档以及 harness 自己的指令与记忆文件优先于检索结果、检索得到的 alias 可以用 `memory_read` 读取全文；何时写入（用户要求记住的事、做出的决定及理由、验证过的结论、偏好与经验，在成立时写入，一次写一件事，只写结果、不把对话或工作的过程复述成记忆）与更新（已有记忆过时或有误，以检索得到的正式 alias 为对象，不能是 `draft_`、`rev_` 句柄）；以及写入与更新返回的是句柄。写入的判据不区分以聊天为主还是长时间执行任务：同一个会话两种情形都可能出现，服务对所有调用方给出同一份说明。主动写入与被动提取写出相似的内容由生成处理（[生成](../patchouli/generation.md#42-本话题的主动写入)第 4.2 节），说明文字因此不以对话会归档作为少写的理由，也不要求 agent 为避免重复而少写。
 - **语言**：服务说明、工具与参数描述和结果文本按 HiveMemory 的语言设置给出中文或英文，两份含义一致；工具名、参数名与 `draft_`/`rev_` 前缀不变（[全局 i18n](../system/i18n.md)）。改语言要重启后端，连接中的客户端重新取得说明后才看到新的文字。
 - **标注**：检索与读取标注为只读（MCP 的 `readOnlyHint`），检索会记录命中、读取会记录引用，但都不改变记忆内容；写入不是只读、也不破坏已有内容（`destructiveHint=false`）；更新改写一条已有记忆的当前版本，标注为破坏性。
@@ -110,7 +110,7 @@ MCP 入口复用 HTTP 出口的 `project_error` 投影，不另建映射；投�
 | 读取的 alias 全部未解析；更新的基础 alias 不存在或不可见 | `ResourceNotFoundError` | `workspace.resource.not_found` |
 | 更新的基础仍是在途句柄 | `PendingUpdateNotAllowedError` | `workspace.memory.intent.pending_update_not_allowed`（409） |
 | 生成队列拒绝接纳 | `IntentDispatchRejectedError`，句柄已标记 FAILED | `workspace.memory.intent.dispatch_rejected`（503） |
-| 派发结果未知 | `IntentDispatchUnknownError`，句柄保留 MATERIALIZING | `workspace.memory.intent.dispatch_unknown`（500） |
+| 派发结果未知（以同一意图重试后仍然不明） | `IntentDispatchUnknownError`，句柄保留 MATERIALIZING | `workspace.memory.intent.dispatch_unknown`（500） |
 | 确定话题暂时无法完成 | `ImportBusUnavailableError`：Gateway 暂不可用（`gateway_unavailable`）、这一轮已提交仍在应用（`apply_pending`）、服务正在关闭（`shutting_down`） | `import_bus.unavailable`，带 reason，可稍后重试 |
 | 建立新话题时活跃池已满且 LRU 候选都被占用 | `TopicBusyError` | `patchouli.topic.busy`（409），可稍后重试 |
 | 存储不可用 | `StorageOfflineError`、`StorageReadError` | `storage.offline`、`storage.read_failed` |

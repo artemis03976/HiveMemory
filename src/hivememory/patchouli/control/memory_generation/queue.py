@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any, cast
 
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import (
@@ -116,14 +118,14 @@ def _require_exact_keys(
 
 
 class _MemoryGenerationWorkAdapter:
-    """Memory Generation 私有工作信封 1.1 的队列适配器。
+    """Memory Generation 私有工作信封 1.2 的队列适配器。
 
     适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
     重建独立的领域任务对象。
     """
 
     kind = "patchouli.memory_generation"
-    schema_version = "1.1"
+    schema_version = "1.2"
 
     @staticmethod
     def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
@@ -325,6 +327,24 @@ class MemoryGenerationHandle(TaskHandle[MemoryGenerationResults]):
         self._commit_started = True
 
 
+class _SavedWorkV11Adapter(_MemoryGenerationWorkAdapter):
+    """只用于读回升级前以 1.1 保存的工作：那时修订的 ``update_focus`` 还没有 ``base_version``。
+
+    补上任务构建时读到的基础记忆（``existing_memory``）的版本：修订以这一版为底计算，此后基础
+    再被修改时照常拒绝写回。其余字段与 1.2 相同，补齐后按 1.2 的规则严格解码；结构不对的载荷
+    在这里或严格解码时被拒绝，由读回方写进 rejected 文件。
+    """
+
+    schema_version = "1.1"
+
+    def decode(self, payload: object) -> _MemoryGenerationWork:
+        upgraded = cast(dict[str, Any], copy.deepcopy(payload))
+        request = upgraded["spec"]["request"]
+        if request["update_focus"] is not None:
+            request["update_focus"]["base_version"] = request["existing_memory"]["meta"]["version"]
+        return super().decode(upgraded)
+
+
 def memory_generation_failure_reason(error: Exception) -> str:
     """把生成数据面抛出的异常映射为稳定原因码，只用于观测与诊断，不驱动重试。
 
@@ -428,6 +448,8 @@ class MemoryGenerationQueue:
         self._adapter = _MemoryGenerationWorkAdapter()
         self._codecs = WorkPayloadCodecRegistry()
         self._codecs.register(self._adapter)
+        # 升级前保存的工作仍按 1.1 读回；新工作只以当前版本编码。
+        self._codecs.register(_SavedWorkV11Adapter())
         self._handles: dict[str, MemoryGenerationHandle] = {}
         self._handler = MemoryGenerationHandler(
             execute_generation,

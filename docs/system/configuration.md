@@ -46,7 +46,7 @@ last_reviewed: 2026-11-12
 | `import_bus` | `config.import_bus` | 导入请求体上限、提交后等待应用的时限 | System Import Bus |
 | `memory_compiler` | `config.memory_compiler` | 编译策略 | MemoryCompiler 所有者；由组合根注入 workspace 任务进程（检索结果编译）与 Alice（MTP 输出编译） |
 | `attachment_parser` / `attachment_compiler` | `config.attachments` | 附件解析资源限制；附件编译预算 | 附件解析器 / AttachmentCompiler；`attachment_compiler` 由组合根注入 workspace 任务进程 |
-| `workspace` | `config.workspace` | 读取视图缓存容量与会话容量 | workspace |
+| `workspace` | `config.workspace` | 读取视图缓存容量、会话容量、任务进程关闭等待与写入句柄登记 | workspace |
 | `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置；Patchouli 另有 Librarian 的模型选择与生成参数（`llm`） | 对应子系统 |
 
 访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 Import Bus 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace](../workspace/README.md)。
@@ -72,6 +72,8 @@ last_reviewed: 2026-11-12
 升级注意（写入意图实时派发）：WRITE/UPDATE 的 ACK 现在等待生成队列接纳，可能在 ACK 前返回明确拒绝或未知结果；后续运行失败或取消不撤回已提交写入。SSE done 与 `chat.run.completed` 删除 `memory_task_ids`，消费者改用任务事件与 list/get。该次迁移删除了 payload 的 `materialize_tasks`（当前 codec 版本见下方会话升级说明）；当前队列为进程内队列，不提供旧版本重放。
 
 会话配置为 `workspace.sessions.max_sessions_per_workspace=128` 与 `max_turns_per_session=512`，均要求至少 1。达到上限时显式拒绝创建或进程认领，不清理历史。`gateway.context_preparation.session_turn_limit=3` 控制 Gateway 的近期会话轮数（至少 1；任务进程从会话轮次截取，Import Bus 从请求的 `recent_turns` 截取）；Alice 始终接收全量原文，自行按 `alice.compaction` 构建预算受限的视图，不受该项与 Topic 的 `context_block_limit` 影响。`workspace.process.shutdown_wait_seconds=10`（至少 0）是 System 关闭时以 `system_shutdown` 停止在途任务进程后、等待进程 task 结束的上限，超时后硬取消进程 task 并等待它收尾。
+
+写入句柄登记由 `workspace.write_intents` 配置：`record_file`（默认 `.hivememory/write_intents.json`，相对工作目录）是正常关闭时写盘、启动时读回的文件，`retention_days`（默认 7，至少 1）是句柄自登记起保留的天数（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)）。记忆生成任务的历史在 `patchouli.shutdown`：`task_history_file`（默认 `.hivememory/memory_tasks.json`）是正常关闭时写入已结束任务的文件，`task_history_retention_days`（默认 7，至少 1）是已结束任务自结束起保留的天数，条数另受最近 100 条限制（[Patchouli 生成](../patchouli/generation.md#6-后台任务与终态)第 6 节）。四项都有默认值，随仓库发布的 `configs/config.yaml` 不写它们。
 
 会话升级后 `session_id` 实际绑定资源；缺省仍自动新建。SSE 首个事件回传会话 ID，done 以 `topic_id` 标注本轮材料归属；`topic_info` 与 `pool_topics` 已删除。Interaction codec 5 增加 `outcome`，旧版本不重放；会话仅在内存中，后端重启后前端需重新新建。
 

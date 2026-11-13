@@ -2,11 +2,14 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import timedelta
+from pathlib import Path
 
 from hivememory.agent_runtime.frame import RuntimeScope
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.config.workspace import WorkspaceWriteIntentsConfig
 from hivememory.core.access import CallerPrincipal, WorkingActor, WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
@@ -313,6 +316,19 @@ def make_access_composition(
     )
 
 
+# 写入意图登记的默认设置；默认文件路径由根 conftest 改到每个测试自己的临时目录。
+INTENT_RECORD_FILE = Path(WorkspaceWriteIntentsConfig().record_file)
+INTENT_RETENTION = timedelta(days=WorkspaceWriteIntentsConfig().retention_days)
+
+
+def make_write_intent_registry(**overrides):
+    """按默认设置构造写入意图登记；``now`` 等参数可覆盖。"""
+    from hivememory.workspace.intents import WriteIntentRegistry
+
+    settings = {"record_file": INTENT_RECORD_FILE, "retention": INTENT_RETENTION, **overrides}
+    return WriteIntentRegistry(**settings)
+
+
 def make_workspace_read_view(
     global_bus=None, *, atom_capacity: int = 16, profile_capacity: int = 16
 ):
@@ -325,6 +341,8 @@ def make_workspace_read_view(
         backing=BusCanonicalReadBackend(global_bus or GlobalSystemBus()),
         atom_capacity=atom_capacity,
         profile_capacity=profile_capacity,
+        intent_record_file=INTENT_RECORD_FILE,
+        intent_retention=INTENT_RETENTION,
     )
 
 

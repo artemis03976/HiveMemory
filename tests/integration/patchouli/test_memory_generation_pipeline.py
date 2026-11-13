@@ -128,6 +128,7 @@ def _update_task(base_uuid: str, alias="draft_update") -> PendingAtomMaterialize
             content="new content",
             base_uuid=base_uuid,
             base_alias="memory_alias",
+            base_version=1,
         ),
     )
 

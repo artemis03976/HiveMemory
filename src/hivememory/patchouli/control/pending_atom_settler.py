@@ -58,8 +58,13 @@ class PendingAtomSettler:
             )
             await self._fallback_failed(pending_alias, settlement.intent_id)
 
-    async def failed(self, pending_alias: str, intent_id: str) -> None:
-        """为指定写入意图发布一次 best-effort 失败事件。"""
+    async def failed(
+        self, pending_alias: str, intent_id: str, *, reason: str | None = None
+    ) -> None:
+        """为指定写入意图发布一次 best-effort 失败事件。
+
+        ``reason`` 是生成任务失败的原因码；接纳前的确定性拒绝没有原因码。
+        """
 
         if not await self._reserve(pending_alias, "failed"):
             return
@@ -68,6 +73,7 @@ class PendingAtomSettler:
             terminal="FAILED",
             pending_alias=pending_alias,
             intent_id=intent_id,
+            reason=reason,
         )
 
     async def merged(self, settlement: PendingAtomSettlement, *, absorbed_memory_uuid: str) -> None:
@@ -128,6 +134,7 @@ class PendingAtomSettler:
             terminal="FAILED",
             pending_alias=pending_alias,
             intent_id=intent_id,
+            reason=None,
         )
 
     async def _publish_alias_event(
@@ -137,9 +144,12 @@ class PendingAtomSettler:
         terminal: str,
         pending_alias: str,
         intent_id: str,
+        **payload: Any,
     ) -> None:
         try:
-            await self._bus.publish(event, pending_alias=pending_alias, intent_id=intent_id)
+            await self._bus.publish(
+                event, pending_alias=pending_alias, intent_id=intent_id, **payload
+            )
         except asyncio.CancelledError:
             logger.warning(
                 "PendingAtom %s event publish cancelled: pending_alias=%s",

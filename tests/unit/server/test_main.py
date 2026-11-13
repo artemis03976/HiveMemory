@@ -145,22 +145,31 @@ def test_desktop_mode_without_credential_exits_before_serving(monkeypatch, deskt
 
 
 def test_delete_memory_data_removes_only_memory_paths(tmp_path):
-    """只删 Artifact、长期归档、保存的生成工作与预设 Agent 标记；配置、模型缓存与其他文件保留。"""
-    saved_work = tmp_path / ".hivememory" / "pending_generation.json"
+    """只删 Artifact、长期归档、关闭时写盘的三份文件（保存的生成工作、写入句柄、生成任务历史，
+    各含 rejected 文件）与预设 Agent 标记；配置、模型缓存与其他文件保留。"""
+    data = tmp_path / ".hivememory"
     config = HiveMemoryConfig(
-        system={"preset_agent_profiles_marker": str(tmp_path / ".hivememory" / "seeded")},
+        system={"preset_agent_profiles_marker": str(data / "seeded")},
+        workspace={"write_intents": {"record_file": str(data / "write_intents.json")}},
         patchouli={
-            "artifacts": {"root_dir": str(tmp_path / ".hivememory" / "artifacts")},
+            "artifacts": {"root_dir": str(data / "artifacts")},
             "lifecycle": {"archiver": {"archive_dir": str(tmp_path / "data" / "archived")}},
-            "shutdown": {"pending_work_file": str(saved_work)},
+            "shutdown": {
+                "pending_work_file": str(data / "pending_generation.json"),
+                "task_history_file": str(data / "memory_tasks.json"),
+            },
         },
     )
     memory_files = [
-        tmp_path / ".hivememory" / "artifacts" / "a" / "artifact.json",
+        data / "artifacts" / "a" / "artifact.json",
         tmp_path / "data" / "archived" / "atom.json",
-        saved_work,
-        tmp_path / ".hivememory" / "pending_generation.rejected-20261110T000000Z.json",
-        tmp_path / ".hivememory" / "seeded",
+        data / "pending_generation.json",
+        data / "pending_generation.rejected-20261110T000000Z.json",
+        data / "write_intents.json",
+        data / "write_intents.rejected-20261112T000000Z.json",
+        data / "memory_tasks.json",
+        data / "memory_tasks.rejected-20261112T000000Z.json",
+        data / "seeded",
     ]
     kept_files = [
         tmp_path / "configs" / "config.local.yaml",

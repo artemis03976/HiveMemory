@@ -19,6 +19,8 @@ last_reviewed: 2026-11-12
 
 ## 版本之外
 
+- [写入句柄的可靠性](./write-intent-handle-reliability.md)：2026-11-12，PR #221；[读取视图与写入意图](../../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)、[Patchouli 生成](../../patchouli/generation.md#6-后台任务与终态)
+- [统一语言设置与外部 Agent 文字的英文版](./language-setting-unification.md)：2026-11-12，PR #220；[全局 i18n](../../system/i18n.md)、[配置指南](../../help/configuration.md#54-语言)
 - [日常实例与开发实例分开](./daily-and-dev-instance-separation.md)：2026-11-12，PR #219；[安装与启动](../../help/setup.md#47-与桌面安装版同时开发)、[桌面客户端](../../frontend/desktop-client.md)
 - [桌面端安装插件](./desktop-plugin-installation.md)：2026-11-12，PR #218；[桌面客户端](../../frontend/desktop-client.md#8-打包与升级)、[管理页面](../../frontend/management-views.md#35-插件)
 - [管理页修改记忆可见性](./memory-visibility-management.md)：2026-11-11，PR #217；[管理页面](../../frontend/management-views.md#111-可见范围)、[MemoryLibrary](../../patchouli/memory-library.md#12-中期当前可检索书库)

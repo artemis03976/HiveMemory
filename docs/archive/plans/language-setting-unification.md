@@ -1,6 +1,9 @@
 ---
 title: 统一语言设置与外部 Agent 文字的英文版
-status: active
+status: archived
+archived_at: 2026-11-12
+implemented_by: PR #220
+superseded_by: docs/system/i18n.md
 owner: system
 target: v1.0 范围（外部 Agent 读到的文字有英文版）
 scope: one-language-setting-for-hivememory-prompts-mcp-text-http-error-text-and-the-plugin-skill
@@ -45,30 +48,30 @@ related_docs:
 
 # 统一语言设置与外部 Agent 文字的英文版
 
-> **状态**：Active（2026-11-12 起草并开始实施；同日代码与当前文档完成，英文 skill 的措辞待 owner 审阅）。方向来自候选清单 D-12（[Epic #42](https://github.com/artemis03976/HiveMemory/issues/42) 的剩余部分），依据[统一语言设置 Idea](../ideas/language-setting-unification.md)。owner 的决定（2026-11-12）：
+> **状态**：Archived（2026-11-12，已实施，实施记录见第 10 节）。当前事实见[全局 i18n](../../system/i18n.md)、[MCP 记忆访问](../../contracts/mcp.md)与[配置指南](../../help/configuration.md#54-语言)第 5.4 节。以下为实施时的计划原文，链接已按归档位置改正。方向来自候选清单 D-12（[Epic #42](https://github.com/artemis03976/HiveMemory/issues/42) 的剩余部分），依据[统一语言设置 Idea](../ideas/language-setting-unification.md)。owner 的决定（2026-11-12）：
 >
 > - 只做进入外部 Agent 上下文的文字：MCP 的服务说明、工具与参数描述、结果文本与错误说明，以及插件 skill。前端界面、桌面客户端与 Gateway 命令回复以后再做。
 > - HiveMemory 只有一个语言设置，配置键为 `i18n.language`，不再有“默认语言”的概念；Agent Profile 不再携带语言。
 > - MCP 文字在运行时跟随这个设置；skill 在安装时二选一，同样由这个设置决定。
 > - skill 的更新随发布版本走：升级到新的发布版本之后要能自动更新；两次发布之间的开发更新不要求自动跟上。
-> - [桌面端安装插件](../archive/plans/desktop-plugin-installation.md)与[日常实例与开发实例分开](../archive/plans/daily-and-dev-instance-separation.md)完成之后推进这一项。
+> - [桌面端安装插件](./desktop-plugin-installation.md)与[日常实例与开发实例分开](./daily-and-dev-instance-separation.md)完成之后推进这一项。
 > - CALL 子帧沿用调用方帧的语言，CPU 内部不读进程的语言设置（第 4.2 节）。
 >
 > 其余内容是候选设计，不是 owner 决定，可在评审时调整。英文 skill 的措辞要 owner 审阅。
 
 ## 1. 背景和问题
 
-Epic #42 要求用全局配置统一 Agent 提示词的语言。配置项 `i18n.default_language` 与中英两套提示词已经存在（[全局 i18n](../system/i18n.md)），但语言实际上有好几个来源，外部 harness 读到的文字也只有中文：
+Epic #42 要求用全局配置统一 Agent 提示词的语言。配置项 `i18n.default_language` 与中英两套提示词已经存在（[全局 i18n](../../system/i18n.md)），但语言实际上有好几个来源，外部 harness 读到的文字也只有中文：
 
 - **Profile 语言挡住了全局设置**：
   - 解析优先级是“显式值 > Profile 语言 > 组件语言 > 进程默认值”。
   - Agent Profile 的 `language` 字段缺省为 `"zh"`。内置的 omni_doll、两个预设 Agent 和前端新建 Agent 的初始图纸都写 `zh`，管理页又不能修改它，所以这个字段总有值。
-  - 设置页把“默认语言”说成“提示词与系统消息使用的语言”。但改成 `en` 之后，只有 Gateway、记忆生成、会话压缩和记忆编译的缺省语言变成英文。对话 Agent 主帧与 CALL 子帧的 MTP 教学、人设标题、会话摘要和执行期回填仍是中文（[compilation.py](../../src/hivememory/prompts/compilation.py)、[coordinator.py](../../src/hivememory/alice/orchestration/call/coordinator.py)）。
+  - 设置页把“默认语言”说成“提示词与系统消息使用的语言”。但改成 `en` 之后，只有 Gateway、记忆生成、会话压缩和记忆编译的缺省语言变成英文。对话 Agent 主帧与 CALL 子帧的 MTP 教学、人设标题、会话摘要和执行期回填仍是中文（[compilation.py](../../../src/hivememory/prompts/compilation.py)、[coordinator.py](../../../src/hivememory/alice/orchestration/call/coordinator.py)）。
 - **没有调用方的优先级**：“组件语言”一档没有任何调用方传入；`FALLBACK_LANGUAGE` 只被导出，没有使用方。
 - **配置值宽松**：`default_language` 是自由字符串，未知值（例如 `fr`）经别名归一化后静默按 `zh` 运行。
 - **外部 harness 读到的文字只有中文**：
-  - MCP 的服务说明、四个工具描述、参数说明与结果文本都写死为中文（[server.py](../../src/hivememory/mcp_server/server.py)）。dsh 与 pi 的插件直接沿用服务给出的描述；
-  - MCP 工具出错时复用 HTTP 出口的错误投影，说明文字来自 [error_handlers.py](../../src/hivememory/server/error_handlers.py) 中只有中文的错误表；
+  - MCP 的服务说明、四个工具描述、参数说明与结果文本都写死为中文（[server.py](../../../src/hivememory/mcp_server/server.py)）。dsh 与 pi 的插件直接沿用服务给出的描述；
+  - MCP 工具出错时复用 HTTP 出口的错误投影，说明文字来自 [error_handlers.py](../../../src/hivememory/server/error_handlers.py) 中只有中文的错误表；
   - 插件 skill（`integrations/hivememory/skills/hivememory/SKILL.md`）只有中文，description 中的触发词也是中文；
   - dsh 插件在没有进行中的一轮时，报一条中文错误。
 - **两个结构约束**：
@@ -247,12 +250,31 @@ cd integrations/hivememory && npm test
 
 ## 9. 完成时必须更新的当前文档
 
-- [全局 i18n](../system/i18n.md)：一个语言设置、解析链、MCP 与 HTTP 错误两个文本域；
-- [System 配置](../system/configuration.md)与[配置指南](../help/configuration.md)：`i18n.language` 与旧键；
-- [MCP 记忆访问](../contracts/mcp.md)：说明文字随语言设置；
-- [子系统公共契约](../contracts/subsystem-contracts.md)、[Agent 运行时](../alice/agent-runtime.md)与[任务进程](../workspace/task-process.md)中关于 Profile 语言的描述；
-- [管理页面](../frontend/management-views.md)：设置页的语言字段，Agent 不再有语言；
-- [桌面客户端](../frontend/desktop-client.md)：首次部署写入初始值，打包时不带生成的 skill；
+- [全局 i18n](../../system/i18n.md)：一个语言设置、解析链、MCP 与 HTTP 错误两个文本域；
+- [System 配置](../../system/configuration.md)与[配置指南](../../help/configuration.md)：`i18n.language` 与旧键；
+- [MCP 记忆访问](../../contracts/mcp.md)：说明文字随语言设置；
+- [子系统公共契约](../../contracts/subsystem-contracts.md)、[Agent 运行时](../../alice/agent-runtime.md)与[任务进程](../../workspace/task-process.md)中关于 Profile 语言的描述；
+- [管理页面](../../frontend/management-views.md)：设置页的语言字段，Agent 不再有语言；
+- [桌面客户端](../../frontend/desktop-client.md)：首次部署写入初始值，打包时不带生成的 skill；
 - 四份插件帮助：skill 的语言随设置、改语言后重新安装；
-- [ROADMAP](../ROADMAP.md) 的对应行；
-- 本计划与 Idea 移入 `archive/`，从 [Plans](./README.md) 与 [Ideas](../ideas/README.md) 中删除，在归档索引中登记。
+- [ROADMAP](../../ROADMAP.md) 的对应行；
+- 本计划与 Idea 移入 `archive/`，从 [Plans](../../plans/README.md) 与 [Ideas](../../ideas/README.md) 中删除，在归档索引中登记。
+
+## 10. 实施记录
+
+2026-11-12 在分支 `feat/language-setting-unification` 实施第 4 节，以 PR #220 合并。英文 skill 的措辞由 owner 同日审阅通过。与计划不同，或计划没有写到的地方：
+
+- **记忆正文的语言**（owner，2026-11-12）：语言改为 `en` 之后，新生成的记忆随之使用英文，这是要求的行为，不是风险。第 2.2 节与第 8 节原把它列为非目标与风险，以此为准。
+- **CALL 子帧的语言**（owner，2026-11-12）：子帧沿用调用方帧的语言，不读进程的语言设置，已写回第 4.2 节。
+- **skill 的写入位置**：计划写在 `HiveMemorySystem` 启动时，实施改为插件服务的 `write_skill`，由 server 的 lifespan 在系统启动之后、复制安装插件的自动更新之前调用。插件服务持有插件目录，测试中是临时目录，单元测试因此不会往仓库写文件。
+- **MCP 服务的构造**：`/mcp` 路由在导入时登记一个端点对象，lifespan 构造 MCP 应用后交给它。SDK 构造时为 `basicConfig` 挂的占位 handler 已删除：服务在日志配置之后构造，根 logger 总有 handler。
+- **连接器的错误**：除 dsh“没有进行中的一轮”那条之外，Node 连接器“后端不可达”的错误也改为英文；中文 skill 的错误表随之引用英文原文。
+- **测试中的配置替身**：`set_language` 拒绝 `zh`、`en` 以外的值，组合根测试中替身配置的语言改为真实的 `I18nConfig`。
+- **设置页**：只改字段路径与说明，没有样稿。
+
+实测（2026-11-12）：
+
+- 后端门槛 3389 项通过、1 项跳过，覆盖率 94.71%；ruff 与 black 通过；mypy 按 Windows 与 Linux 两个平台检查均通过；前端 lint、83 项测试与构建通过；插件的 Node 测试 72 项通过。
+- 开发实例启动时按语言设置写入了中文 skill，与正文一致；`/mcp` 的 initialize 与 tools/list 正常返回；设置页显示“语言”字段。
+
+没有实测的是：把语言切到英文跑完整一轮对话，以及非中文系统上桌面端首次部署写入初始值。

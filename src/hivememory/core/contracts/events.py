@@ -23,7 +23,7 @@ class GlobalEvents:
     PATCHOULI_MEMORY_CHANGED = "patchouli.events.memory.changed"
     # 写入意图的终态由 Patchouli 发布、workspace 写入意图登记订阅。settled 的
     # settlement 与 failed/cancelled 的载荷都带 pending_alias 与 intent_id，
-    # 登记按两者严格匹配。
+    # 登记按两者严格匹配；failed 另带可选的原因码 reason，接纳前的拒绝没有原因码。
     PENDING_ATOM_SETTLED = "patchouli.events.pending_atom.settled"
     PENDING_ATOM_MERGED = "patchouli.events.pending_atom.merged"
     PENDING_ATOM_FAILED = "patchouli.events.pending_atom.failed"

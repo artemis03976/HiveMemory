@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # Memory Tool Protocol (MTP)
@@ -90,7 +90,7 @@ SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”�
 ```
 
 - 不支持 wildcard；
-- alias 经 workspace 读取视图解析为正式 atom、pending、redirect 或 discarded/failed 终态；模型与编译器保留 expired 终态种类，当前登记不产生它；
+- alias 经 workspace 读取视图解析为正式 atom、pending、redirect 或 discarded/failed 终态；登记中没有的 `draft_`/`rev_` 句柄解析为 expired，说明句柄不存在或已过期；基础在排队期间被修改而失败的 UPDATE 句柄，读取时提示重新读取后再更新；
 - 每类结果均经 MemoryCompiler 的 `READ_RESULT` target 编译（MCP 的 `memory_read` 共用），输出按请求中 alias 的顺序逐项排列；
 - 正式 atom 交付正文全文，不截断；
 - 全部 alias 未命中时返回 error；
@@ -132,9 +132,9 @@ RUN 被保留在记忆协议中，是因为一部分记忆不仅需要被阅读�
 - 建立话题失败（例如活跃池已满且 LRU 候选都被占用）时这次写入以 `mtp.system.fault` 回填，不登记意图，下一次写入重新建立；
 - CPU 结果与 `InteractionPayload` 都不携带物化任务，交互提交不派发写入。
 
-ACK 表示意图已在 workspace 登记并被生成队列接纳，不表示长期记忆已经持久化。确定性拒绝返回 `mtp.memory.intent_rejected`（agent_fault），句柄为 FAILED；结果未知返回 `mtp.memory.intent_unknown`（system_fault），句柄保持 MATERIALIZING，若实际已接纳可继续收到结算。两类错误都不返回 ACK，详见[错误模型](./error-model.md)。为这一轮确定话题时话题正忙（新话题时活跃池已满且 LRU 候选都被占用，`TopicBusyError`）返回 `mtp.memory.topic_busy`（agent_fault）：写入在登记之前失败，没有句柄，可以稍后重试，与 MCP 的 `patchouli.topic.busy` 对应。
+ACK 表示意图已在 workspace 登记并被生成队列接纳，不表示长期记忆已经持久化。确定性拒绝返回 `mtp.memory.intent_rejected`（agent_fault），句柄为 FAILED；结果未知返回 `mtp.memory.intent_unknown`（system_fault）：workspace 已以同一意图重试仍然不明，句柄保持 MATERIALIZING，若实际已接纳可继续收到结算。两类错误都不返回 ACK，详见[错误模型](./error-model.md)。为这一轮确定话题时话题正忙（新话题时活跃池已满且 LRU 候选都被占用，`TopicBusyError`）返回 `mtp.memory.topic_busy`（agent_fault）：写入在登记之前失败，没有句柄，可以稍后重试，与 MCP 的 `patchouli.topic.busy` 对应。
 
-显式保存意图不再等待整轮完成：长时间运行的 Agent 可以及时提交阶段成果，随后 CPU 失败、取消或进程关闭都不撤回它。PendingAtom 支持在正式提取、去重与持久化之前引用刚提交的内容，正式 MemoryAtom 仍由 Patchouli 生成链创建。结算句柄保留到重启；队列接纳是进程内承诺，不是跨重启耐久承诺。
+显式保存意图不再等待整轮完成：长时间运行的 Agent 可以及时提交阶段成果，随后 CPU 失败、取消或进程关闭都不撤回它。PendingAtom 支持在正式提取、去重与持久化之前引用刚提交的内容，正式 MemoryAtom 仍由 Patchouli 生成链创建。句柄在正常关闭时随登记写盘、启动时读回，自登记起保留 7 天（默认），之后读取得到 expired；队列接纳与登记都不是崩溃安全的耐久承诺。
 
 ### 3.5 UPDATE
 

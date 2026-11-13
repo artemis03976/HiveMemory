@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
@@ -9,7 +11,11 @@ import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
+from hivememory.components.work_queue import (
+    QueuePolicy,
+    WorkQueueCapacityError,
+    WorkQueueStoppedError,
+)
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import MemoryMergeAbortedError
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
@@ -31,8 +37,10 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
     MemoryGenerationTaskSpec,
     MemoryGenerationTaskStatus,
+    memory_task_from_spec,
 )
 from hivememory.patchouli.control.memory_generation.saved_work import write_saved_work
+from hivememory.patchouli.control.memory_generation.task_history import write_task_history
 from tests.helpers.memory import make_memory_identity_scope
 
 
@@ -174,6 +182,7 @@ class TestMemoryGenerationTaskController:
                 PatchouliLocalEvents.PENDING_ATOM_FAILED,
                 pending_alias="draft-failed",
                 intent_id="intent-failed",
+                reason=None,
             )
         finally:
             await controller.stop()
@@ -257,7 +266,8 @@ class TestMemoryGenerationTaskController:
 
     @pytest.mark.asyncio
     async def test_failed_task_events_carry_the_work_record_reason_code(self):
-        """工作记录、work.failed 与 memory.task.failed 带同一个原因码，任务事件载荷带异常类名。"""
+        """工作记录、work.failed、memory.task.failed 与写入意图的失败事件带同一个原因码，
+        任务事件载荷带异常类名。"""
         recorder = RecordingRuntimeEventSink()
         bus = Mock()
         bus.request = AsyncMock(
@@ -271,12 +281,24 @@ class TestMemoryGenerationTaskController:
         )
         await controller.start()
 
-        memory_task = await controller.submit_generation(_spec())
+        memory_task = await controller.submit_generation(
+            _spec(
+                source=MemoryGenerationSource.WRITE,
+                intent_id="intent_reason",
+                pending_alias="draft_reason",
+            )
+        )
         await controller.wait_task(memory_task.task_id)
         record = await controller.queue.get(controller.queue.work_id_for(memory_task.task_id))
 
         reason = "merge_aborted.version_changed"
         assert record.last_error.message == reason
+        bus.publish.assert_awaited_once_with(
+            PatchouliLocalEvents.PENDING_ATOM_FAILED,
+            pending_alias="draft_reason",
+            intent_id="intent_reason",
+            reason=reason,
+        )
         (work_failed,) = [
             e for e in recorder.events if e.event_type == RuntimeEventType.WORK_FAILED
         ]
@@ -1027,3 +1049,86 @@ async def test_saved_settlement_keeps_topic_write_records_across_restart(tmp_pat
         assert settlement.request.topic_write_memory_ids == frozenset({"memory-from-write"})
     finally:
         await second.stop()
+
+
+@pytest.mark.asyncio
+async def test_finished_tasks_survive_restart_but_work_saved_at_shutdown_does_not(tmp_path):
+    """正常关闭时已结束的任务写进历史，下次启动读回后照常列出与查询；关闭时保存的工作不算已结束，
+    它在下次启动后以同一任务 ID 继续执行。"""
+    history = tmp_path / "memory_tasks.json"
+
+    async def execute(route, spec, on_commit_started):
+        if spec.label == "broken":
+            raise RuntimeError("generation error")
+        return []
+
+    first = MemoryGenerationTaskController(
+        bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    )
+    await first.start()
+    try:
+        done = await first.submit_generation(_spec(topic_id="ta", label="done"))
+        broken = await first.submit_generation(_spec(topic_id="tb", label="broken"))
+        await first.wait_many([done.task_id, broken.task_id])
+        await first.stop_dispatch()
+        await first.submit_generation(_spec(topic_id="tc", label="saved"))
+        await first.save_unfinished(tmp_path / "pending_generation.json")
+    finally:
+        await first.stop()
+    first.save_task_history(history, retention=timedelta(days=7))
+    finished = {
+        task_id: await first.get_task(task_id) for task_id in (done.task_id, broken.task_id)
+    }
+
+    second = MemoryGenerationTaskController(bus=Mock())
+    second.restore_task_history(history, retention=timedelta(days=7))
+
+    assert {task.task_id: task for task in await second.list_tasks()} == finished
+    assert await second.get_task(broken.task_id) == finished[broken.task_id]
+    assert [finished[done.task_id].status, finished[broken.task_id].status] == [
+        MemoryGenerationTaskStatus.COMPLETED,
+        MemoryGenerationTaskStatus.FAILED,
+    ]
+    assert not history.exists()
+
+
+def _finished_task(task_id: str, *, days_ago: float) -> MemoryGenerationTask:
+    finished_at = datetime.now(UTC) - timedelta(days=days_ago)
+    created = memory_task_from_spec(task_id, _spec(), created_at=finished_at - timedelta(hours=1))
+    return replace(created, status=MemoryGenerationTaskStatus.COMPLETED, finished_at=finished_at)
+
+
+@pytest.mark.asyncio
+async def test_restored_history_keeps_recent_tasks_within_the_terminal_cap(tmp_path):
+    """读回只保留结束于保留期内的最近若干条；历史计入已结束任务的上限，新任务结束时先淘汰最早的历史。"""
+    history = tmp_path / "memory_tasks.json"
+    write_task_history(
+        history,
+        [
+            _finished_task("stale", days_ago=8),
+            _finished_task("older", days_ago=3),
+            _finished_task("old", days_ago=2),
+            _finished_task("recent", days_ago=1),
+        ],
+    )
+    controller = MemoryGenerationTaskController(
+        bus=Mock(request=AsyncMock(return_value=[]), publish=AsyncMock()),
+        queue_policy=QueuePolicy(
+            capacity=8, max_concurrency=1, timeout_seconds=5.0, max_attempts=1, terminal_retention=2
+        ),
+    )
+
+    controller.restore_task_history(history, retention=timedelta(days=7))
+
+    assert [task.task_id for task in await controller.list_tasks()] == ["old", "recent"]
+    await controller.start()
+    try:
+        task = await controller.submit_generation(_spec())
+        await controller.wait_task(task.task_id)
+
+        assert [listed.task_id for listed in await controller.list_tasks()] == [
+            "recent",
+            task.task_id,
+        ]
+    finally:
+        await controller.stop()

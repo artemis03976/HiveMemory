@@ -23,12 +23,12 @@ from hivememory.workspace.contracts import (
     ResolveRunTargetRequest,
     RetrieveRequest,
 )
-from hivememory.workspace.intents import WriteIntentRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
+    make_write_intent_registry,
 )
 
 
@@ -50,7 +50,7 @@ class _StaticReader:
     """读取器替身：每次检索按序交付给定的结果。"""
 
     # 能力层经读取视图取得写入意图登记；本替身不登记意图。
-    intents = WriteIntentRegistry()
+    intents = make_write_intent_registry()
 
     def __init__(self, *results: list[MemoryAtom]) -> None:
         self._results = list(results)
@@ -101,7 +101,7 @@ class TestActorMemoryService:
             """捕获能力层构造的检索请求与调用 scope 的替身读取器。"""
 
             # 能力层经读取视图取得写入意图登记；本测试不登记意图。
-            intents = WriteIntentRegistry()
+            intents = make_write_intent_registry()
 
             async def search(self, request, *, scope):
                 captured["request"] = request
@@ -212,7 +212,7 @@ class TestActorMemoryService:
         class ReferenceReader:
             """把任何 alias 解析为同一条正式原子。"""
 
-            intents = WriteIntentRegistry()
+            intents = make_write_intent_registry()
 
             async def resolve_references(self, aliases, *, scope):
                 return [ReferenceResolution(kind="atom", requested_alias=aliases[0], atom=atom)]
@@ -256,7 +256,7 @@ class TestActorMemoryService:
             """隔离读取视图，仅提供能力层所需的中立解析结果。"""
 
             def __init__(self):
-                self.intents = WriteIntentRegistry()
+                self.intents = make_write_intent_registry()
 
             async def resolve_references(self, aliases, *, scope):
                 return [

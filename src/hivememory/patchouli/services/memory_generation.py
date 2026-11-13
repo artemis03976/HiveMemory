@@ -15,6 +15,7 @@ from hivememory.components.cancellation import join_shielded
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     MemoryMergeAbortedError,
+    MemoryUpdateBaseChangedError,
     ResourceNotFoundError,
     WorkspaceDomainError,
     WorkspaceMismatchError,
@@ -447,21 +448,26 @@ class MemoryGenerationFamiliar:
         )
         for outcome in outcomes:
             if outcome.action == GenerationAction.UPDATE and outcome.atom is not None:
-                await self._adopt_current_policy(spec, outcome.atom)
+                await self._recheck_update_base(spec, outcome.atom)
         return await self._commit_uninterrupted(
             self._commit_generation(spec, outcomes, commit_now, interaction_ref),
             on_commit_started,
         )
 
-    async def _adopt_current_policy(
+    async def _recheck_update_base(
         self, spec: MemoryGenerationTaskSpec, revised: MemoryAtom
     ) -> None:
-        """修订以任务构建时读到的基础记忆为底；写回前重读，沿用此刻的读取策略。
+        """修订写回前重读基础记忆：内容版本须与登记 UPDATE 时相同，并沿用此刻的读取策略。
 
-        任务可能排队很久，期间用户在管理页修改的策略不能被整条写回改回去。
-        基础记忆已被删除或对发起者不可读时不写回：发起者不能修订它读不到的
-        记忆，写回也会让已删除的记忆重新出现。缺失与不可读同样按不存在处理。
+        任务可能排队很久。期间基础的内容被修改过（另一个 UPDATE、管理页编辑）时不写回，
+        以 ``MemoryUpdateBaseChangedError`` 失败：修订是对登记时那一版内容的指令，写回会
+        静默覆盖期间的修改。策略变动不推进内容版本，用户在管理页修改的策略沿用此刻的值，
+        不被整条写回改回去。基础记忆已被删除或对发起者不可读时不写回：发起者不能修订
+        它读不到的记忆，写回也会让已删除的记忆重新出现。缺失与不可读同样按不存在处理。
         """
+        focus = spec.request.update_focus
+        if focus is None:
+            raise RuntimeError("只有修订产生 UPDATE，任务规范缺少 update_focus")
         current = await self._mid_term.get_by_key(
             WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=revised.id)
         )
@@ -471,6 +477,14 @@ class MemoryGenerationFamiliar:
             raise ResourceNotFoundError(
                 "修订的基础记忆已不存在或不可读",
                 details={"memory_id": str(revised.id)},
+            )
+        if current.meta.version != focus.base_version:
+            raise MemoryUpdateBaseChangedError(
+                details={
+                    "memory_id": str(revised.id),
+                    "base_version": focus.base_version,
+                    "current_version": current.meta.version,
+                }
             )
         revised.meta.access_policy = current.meta.access_policy.model_copy(deep=True)
 

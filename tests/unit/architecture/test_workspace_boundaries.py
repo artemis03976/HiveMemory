@@ -99,6 +99,11 @@ def test_workspace_access_and_read_modules_depend_only_on_core():
         )
         and not (path == WORKSPACE_PACKAGE / "registry.py" and module == "hivememory.config.access")
         and not (
+            # 写入意图登记在关闭时写盘，沿用数据文件的原子写入与 rejected 命名。
+            path == WORKSPACE_PACKAGE / "intents" / "registry.py"
+            and module == "hivememory.config.files"
+        )
+        and not (
             (path in SHARED_EVENT_SUBSCRIBERS or WORKSPACE_PACKAGE / "intents" in path.parents)
             and module.startswith("hivememory.components")
         )

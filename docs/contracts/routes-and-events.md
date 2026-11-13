@@ -157,7 +157,7 @@ Alice 不缓存交互事件，背压由进程的输出通道施加：通道写�
 |:---|:---|:---|:---|
 | `patchouli.events.memory.changed` | PatchouliBridge | workspace CacheInvalidator | `payload: MemoryChangeEvent`（`belong_to`、`memory_id`、`operation: upsert/patch/delete`） |
 | `patchouli.events.pending_atom.settled` | PatchouliBridge | workspace WriteIntentRegistry | `settlement`（含 `pending_alias`、`intent_id`） |
-| `patchouli.events.pending_atom.failed` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias`、`intent_id` |
+| `patchouli.events.pending_atom.failed` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias`、`intent_id`、`reason`（生成任务失败的原因码，接纳前的拒绝为空） |
 | `patchouli.events.pending_atom.cancelled` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias`、`intent_id` |
 | `patchouli.events.pending_atom.merged` | PatchouliBridge | workspace WriteIntentRegistry | `settlement`（`MERGED`，指向保留的记忆，含 `pending_alias`、`intent_id`）、`absorbed_memory_uuid` |
 

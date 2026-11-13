@@ -52,32 +52,10 @@ def _render_redirect_read(unit: MemoryUnitIR, options: MemoryCompileOptions) -> 
 
 
 def _render_pending_read(unit: MemoryUnitIR, language: str | None = None) -> str:
-    status = unit.status
-
-    if not status.is_terminal:
-        if status.source_verb == "UPDATE":
-            return _render_pending_revision_read(unit, language)
-        return _render_pending_draft_read(unit, language)
-
-    if status.is_discarded:
-        return _render_pending_discarded_read(unit, language)
-    if status.source_state == "failed":
-        return _render_pending_failed_read(unit, language)
-    if status.source_state == "cancelled":
-        return _pending_text("pending_read_cancelled", language).format(
-            pending_alias=unit.identity.alias,
-        )
-    if status.source_state == "settled":
-        return _pending_text("pending_read_settled", language).format(
-            pending_alias=unit.identity.alias,
-            canonical_alias=format_optional_field(
-                unit.metadata.get("canonical_alias"),
-                language,
-            ),
-        )
-    return _pending_text("pending_read_expired", language).format(
-        pending_alias=unit.identity.alias,
-    )
+    """在途写入意图的读取文本；终态句柄经 ``render_resolve_terminal`` 交付。"""
+    if unit.status.source_verb == "UPDATE":
+        return _render_pending_revision_read(unit, language)
+    return _render_pending_draft_read(unit, language)
 
 
 def _render_pending_draft_read(unit: MemoryUnitIR, language: str | None = None) -> str:
@@ -97,25 +75,6 @@ def _render_pending_revision_read(unit: MemoryUnitIR, language: str | None = Non
         status=unit.status.source_state,
         instruction=format_optional_field(unit.content.instruction, language),
         content=content,
-    )
-
-
-def _render_pending_discarded_read(unit: MemoryUnitIR, language: str | None = None) -> str:
-    return (
-        _pending_text("pending_read_discarded", language)
-        .format(
-            pending_alias=unit.identity.alias,
-            message=format_optional_field(unit.status.message, language),
-            reason=format_optional_field(unit.status.reason, language),
-        )
-        .rstrip()
-    )
-
-
-def _render_pending_failed_read(unit: MemoryUnitIR, language: str | None = None) -> str:
-    return _pending_text("pending_read_failed", language).format(
-        pending_alias=unit.identity.alias,
-        error=format_optional_field(unit.status.error, language),
     )
 
 

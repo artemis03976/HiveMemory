@@ -15,8 +15,8 @@ class MemoryIntent:
     ``intent_id`` 与 ``pending_alias`` 是 workspace 登记写入意图时产生的标识，
     Patchouli 原样使用：结算事件按它们回到登记的同一句柄，``intent_id`` 同时是
     生成任务的幂等键。``kind="write"`` 需要 ``content``；``kind="update"`` 需要
-    ``instruction`` 以及 ``base_alias`` + ``base_uuid``（UPDATE 的业务前提是调用方
-    已持有当前 base 的坐标）。
+    ``instruction`` 以及 ``base_alias`` + ``base_uuid`` + ``base_version``（UPDATE 的
+    业务前提是调用方已持有当前 base 的坐标与内容版本，写回前版本不同则不写回）。
     """
 
     kind: Literal["write", "update"]
@@ -29,18 +29,24 @@ class MemoryIntent:
     instruction: str | None = None
     base_alias: str | None = None
     base_uuid: str | None = None
+    base_version: int | None = None
 
     def __post_init__(self) -> None:
         if self.kind == "write":
             if not self.content:
                 raise ValueError("write 意图需要 content")
-            if self.instruction or self.base_alias or self.base_uuid:
+            if (
+                self.instruction
+                or self.base_alias
+                or self.base_uuid
+                or self.base_version is not None
+            ):
                 raise ValueError("write 意图不得携带 update 字段")
         elif self.kind == "update":
             if not self.instruction:
                 raise ValueError("update 意图需要 instruction")
-            if not self.base_alias or not self.base_uuid:
-                raise ValueError("update 意图需要 base_alias 与 base_uuid")
+            if not self.base_alias or not self.base_uuid or self.base_version is None:
+                raise ValueError("update 意图需要 base_alias、base_uuid 与 base_version")
         else:
             raise ValueError(f"不支持的意图类型: {self.kind!r}")
         for name in ("topic_id", "intent_id", "pending_alias"):

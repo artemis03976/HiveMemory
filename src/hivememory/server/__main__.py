@@ -79,21 +79,27 @@ def _shutdown_when_stdin_closes(server: uvicorn.Server) -> None:
 def _delete_memory_data(config: HiveMemoryConfig) -> list[Path]:
     """删除后端拥有的记忆数据，返回实际删除的路径。
 
-    包括 Artifact、长期归档、关闭时保存的生成工作（含读不回的 rejected 文件）与预设
-    Agent 的写入标记；删除标记后，下次启动重新写入预设 Agent。由桌面端在关闭后端与
-    Qdrant 之后调用，记忆库的 Qdrant 存储由桌面端删除。配置、密钥、接入凭据、模型缓存与
-    日志保留。相对路径按工作目录（数据根）解析；只删这些路径，不删数据根本身，数据根
-    指向仓库 checkout 时仓库文件不受影响。
+    包括 Artifact、长期归档、关闭时写盘的三份文件（保存的生成工作、写入句柄登记、生成
+    任务历史，各含读不回的 rejected 文件）与预设 Agent 的写入标记：句柄与任务都指向
+    记忆库中的内容，记忆删除后不能留下；删除标记后，下次启动重新写入预设 Agent。由
+    桌面端在关闭后端与 Qdrant 之后调用，记忆库的 Qdrant 存储由桌面端删除。配置、密钥、
+    接入凭据、模型缓存与日志保留。相对路径按工作目录（数据根）解析；只删这些路径，不删
+    数据根本身，数据根指向仓库 checkout 时仓库文件不受影响。
     """
     patchouli = config.patchouli
-    saved_work = Path(patchouli.shutdown.pending_work_file)
+    shutdown_files = [
+        Path(patchouli.shutdown.pending_work_file),
+        Path(config.workspace.write_intents.record_file),
+        Path(patchouli.shutdown.task_history_file),
+    ]
     targets = [
         Path(patchouli.artifacts.root_dir),
         Path(patchouli.lifecycle.archiver.archive_dir),
-        saved_work,
-        *saved_work.parent.glob(f"{saved_work.stem}.rejected-*{saved_work.suffix}"),
         Path(config.system.preset_agent_profiles_marker),
     ]
+    for path in shutdown_files:
+        targets.append(path)
+        targets.extend(path.parent.glob(f"{path.stem}.rejected-*{path.suffix}"))
     deleted: list[Path] = []
     for target in targets:
         if target.is_dir():
@@ -116,7 +122,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--delete-memory-data",
         action="store_true",
-        help="删除记忆数据后退出：Artifact、长期归档、保存的生成工作与预设 Agent 标记",
+        help=(
+            "删除记忆数据后退出：Artifact、长期归档、保存的生成工作、写入句柄、生成任务历史"
+            "与预设 Agent 标记"
+        ),
     )
     args = parser.parse_args(argv)
 
