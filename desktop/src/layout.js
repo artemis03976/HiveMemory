@@ -51,6 +51,8 @@ export function installedLayout(resourcesDir, dataRoot) {
       PYTHONNOUSERSITE: '1',
       HIVEMEMORY_DATA_ROOT: dataRoot,
       HIVEMEMORY__SYSTEM__PLUGIN_INSTALLATION_ENABLED: 'true',
+      // 字节码缓存写到数据根，不写进安装目录：安装目录与安装包一致，覆盖安装不必多删几千个 .pyc。
+      PYTHONPYCACHEPREFIX: join(dataRoot, '.hivememory', 'pycache'),
     },
     frontendIndex: join(programRoot, 'frontend', 'dist', 'index.html'),
     qdrantBin: join(resourcesDir, 'qdrant', 'qdrant.exe'),

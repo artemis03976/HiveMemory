@@ -19,6 +19,7 @@ from qdrant_client.models import (
     Filter,
     MatchValue,
     Modifier,
+    OptimizersConfigDiff,
     PointStruct,
     SparseVectorParams,
     VectorParams,
@@ -46,6 +47,12 @@ _compiler = MemoryCompiler()
 
 def _key_of(memory: MemoryAtom) -> WorkspaceMemoryKey:
     return WorkspaceMemoryKey(workspace_identity=memory.workspace_identity, memory_id=memory.id)
+
+
+#: 集合按一个 segment 优化。Qdrant 缺省按 CPU 核数分 segment，每个 segment 为稠密向量、稀疏向量与
+#: payload 各预分配 32 MB：475 条记忆在 24 核的机器上分成 8 个 segment、占 865 MB 磁盘，一个 segment
+#: 约 160 MB。个人规模的记忆量用不上多个 segment 的并行检索。
+_SEGMENT_NUMBER = 1
 
 
 class QdrantMemoryStore:
@@ -104,6 +111,7 @@ class QdrantMemoryStore:
                     await self.client.delete_collection(self.collection_name)
             else:
                 logger.info("集合已存在且有稀疏向量配置: %s", self.collection_name)
+                await self._ensure_segment_number()
                 return
 
         vectors_config = {
@@ -119,9 +127,25 @@ class QdrantMemoryStore:
                 vectors_config=vectors_config,
                 sparse_vectors_config=sparse_config,
                 on_disk_payload=self.qdrant_config.on_disk_payload,
+                optimizers_config=OptimizersConfigDiff(default_segment_number=_SEGMENT_NUMBER),
             )
 
         logger.info("✓ 成功创建集合: %s (Dense + Sparse)", self.collection_name)
+
+    async def _ensure_segment_number(self) -> None:
+        """按 Qdrant 缺省配置建立的已有集合改为一个 segment，由 Qdrant 的优化器在后台合并。"""
+        with storage_operation("get_collection"):
+            info = await self.client.get_collection(self.collection_name)
+        if info.config.optimizer_config.default_segment_number == _SEGMENT_NUMBER:
+            return
+        with storage_operation("update_collection", write=True):
+            await self.client.update_collection(
+                collection_name=self.collection_name,
+                optimizers_config=OptimizersConfigDiff(default_segment_number=_SEGMENT_NUMBER),
+            )
+        logger.info(
+            "集合改为按 %d 个 segment 优化: collection=%s", _SEGMENT_NUMBER, self.collection_name
+        )
 
     async def upsert_memory(
         self, memory: MemoryAtom, use_sparse: bool = True, recompute_vectors: bool = True

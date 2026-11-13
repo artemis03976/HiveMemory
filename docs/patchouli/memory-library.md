@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # MemoryLibrary 与存储层
@@ -50,7 +50,7 @@ MemoryLibrary
 
 ### 1.2 中期：当前可检索书库
 
-中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。它提供完整原子提交 `upsert(memory, recompute_vectors=...)`、受限局部更新 `patch_payload(key, patch)`、UUID/alias 读取、删除、scroll、计数、维护遍历以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
+中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。集合按一个 segment 优化：Qdrant 缺省按 CPU 核数分 segment，每个 segment 为稠密向量、稀疏向量与 payload 各预分配 32 MB，475 条记忆在 24 核的机器上分成 8 个、占 865 MB 磁盘，一个 segment 约 160 MB；个人规模的记忆量用不上多个 segment 的并行检索。新集合按此建立，按缺省配置建立的已有集合在启动时改为一个 segment，由 Qdrant 的优化器在后台合并。它提供完整原子提交 `upsert(memory, recompute_vectors=...)`、受限局部更新 `patch_payload(key, patch)`、UUID/alias 读取、删除、scroll、计数、维护遍历以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
 
 scroll 按 Qdrant 的 point ID 顺序读取一页，返回本页与下一页的游标（取完时为空），顺序与写入时间无关；需要完整列表的调用方跟随游标取全后自行排序。计数与 scroll 使用同一组归属、可见性与业务过滤条件；业务过滤可以排除指定类型，排除在存储侧完成，所以每页条数与计数都不受影响。管理列表以此排除 Agent Profile。
 

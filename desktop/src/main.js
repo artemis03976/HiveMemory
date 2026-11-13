@@ -21,6 +21,9 @@ const MODEL_DOWNLOAD_HINT = '约 1.6 GB'
 const MAX_DATA_ROOT_LENGTH = 100
 // 登录 Windows 时启动的应用带上这个参数，只进托盘、不弹出窗口。
 const HIDDEN_ARG = '--hidden'
+// 安装程序覆盖安装或卸载之前以这个参数再启动一次：运行中的实例收到后正常退出，
+// 后端结算话题、把待生成的工作写盘，不被安装程序直接结束。
+const QUIT_ARG = '--quit'
 const PRODUCT_TITLE = `HiveMemory ${app.getVersion()}`
 
 let logDir = null
@@ -37,8 +40,14 @@ function log(message) {
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
+} else if (process.argv.includes(QUIT_ARG)) {
+  // 没有运行中的实例可以通知：什么都不启动。
+  app.quit()
 } else {
-  app.on('second-instance', showWindow)
+  app.on('second-instance', (_event, argv) => {
+    if (argv.includes(QUIT_ARG)) app.quit()
+    else showWindow()
+  })
   // 托盘常驻：窗口全部关闭时不退出。
   app.on('window-all-closed', () => {})
   app.on('before-quit', (event) => {

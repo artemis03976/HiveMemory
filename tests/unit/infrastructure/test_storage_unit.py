@@ -123,6 +123,35 @@ class TestQdrantMemoryStore:
         call_kwargs = storage.client.create_collection.call_args.kwargs
         assert call_kwargs["collection_name"] == "test"
         assert "dense_text" in call_kwargs["vectors_config"]
+        # 缺省按 CPU 核数分 segment，每个 segment 预分配上百 MB；新集合只用一个。
+        assert call_kwargs["optimizers_config"].default_segment_number == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("configured", "updated"), [(0, True), (1, False)])
+    async def test_ensure_ready_moves_an_existing_collection_to_one_segment(
+        self, storage, configured, updated
+    ):
+        """按缺省配置建立的已有集合改为一个 segment，已经是一个时不再改动。"""
+        storage.client.info = AsyncMock(return_value=MagicMock())
+        storage.client.get_collections = AsyncMock(
+            return_value=MagicMock(collections=[MagicMock(name="collection")])
+        )
+        storage.client.get_collections.return_value.collections[0].name = "test"
+        info = MagicMock()
+        info.config.optimizer_config.default_segment_number = configured
+        storage.client.get_collection = AsyncMock(return_value=info)
+        storage.client.update_collection = AsyncMock()
+        storage.client.create_collection = AsyncMock()
+
+        await storage.ensure_ready()
+
+        storage.client.create_collection.assert_not_awaited()
+        if updated:
+            kwargs = storage.client.update_collection.call_args.kwargs
+            assert kwargs["collection_name"] == "test"
+            assert kwargs["optimizers_config"].default_segment_number == 1
+        else:
+            storage.client.update_collection.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_upsert_memory_dense_only(self, storage):

@@ -38,6 +38,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、封口交互、运行时与被动事件接入 | 原子事件流、长 turn 分段、封口、跨入口与恢复；CPU 检查点与 Patchouli 摄入水位分别推进，通用压缩与证据保存见各自 Idea |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 已完成的取消最小闭环、SSE 与 run registry | 哪些候选具有独立收益，是否值得分别立项，而不是实施一次性大重构 |
 | [复合意图分解](./composite-intent-decomposition.md) | `COMPOSITE` 分类信号与私有 `sub_intents` | 真实样本能否证明单主意图路径存在稳定缺口，以及 envelope、消费所有权与 fallback 如何冻结 |
+| [轻量化：模型依赖、运行内存与包体](./lightweight-footprint.md) | 2026-11-12 实测基线：后端带两个模型约 2.4 GB 内存，模型下载 1.67 GB，安装后 1.6 万个文件、覆盖安装一到两分钟，475 条记忆的 Qdrant 占 865 MB；owner 决定先做不需要研究的减量（第 4.1 节） | 检索评测集与资源指标；重排模型 int8 或关闭、替换 litellm、更轻的嵌入方案与嵌入式存储的质量损失是否可以接受 |
 | [全项目时间使用统一规范](./project-wide-time-semantics-standardization.md) | A2-P 已统一 Memory 域时间（UTC-aware、四字段职责、局部 now 注入）；附录 D 记录的域外调用清单 | monotonic 域统一、topic 域字段分类、耗时统计与展示 allowlist 的治理路径与 owner |
 
 ## 长期方向与概念（`long-term`）

@@ -8,13 +8,14 @@
  *             frontend/dist 与 integrations（外部 harness 的插件）；后端按源码位置找到
  *             随程序发布的配置、前端与插件
  *   qdrant/   qdrant.exe，取自 .hivememory/dev.env 的 QDRANT_BIN，与开发时同一个版本
- * 模型不随包，首次启动时由后端下载到数据根。
+ * 模型不随包，首次启动时由后端下载到数据根。运行时用不到的 pip 与各包自带的测试目录不随包：
+ * 随包 Python 的文件数决定安装与覆盖安装的耗时。
  *
  * 用法：node scripts/package.mjs [--dir]；--dir 只生成未打包的目录，不生成安装包。
  */
 
 import { execFileSync, execSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 
 import builder from 'electron-builder'
@@ -71,6 +72,21 @@ function preparePython() {
     '--link-mode', 'copy',
     '--requirement', requirements,
   ])
+  run('uv', ['pip', 'uninstall', '--python', join(target, 'python.exe'), '--break-system-packages', 'pip'])
+  removeTestDirs(join(target, 'Lib', 'site-packages'))
+}
+
+/** 删除各包自带的测试目录（tests、test）：运行时不导入它们。 */
+function removeTestDirs(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    const path = join(dir, entry.name)
+    if (entry.name === 'tests' || entry.name === 'test') {
+      rmSync(path, { recursive: true, force: true })
+    } else {
+      removeTestDirs(path)
+    }
+  }
 }
 
 function prepareBackend() {
@@ -141,6 +157,8 @@ await builder.build({
       { from: 'build/backend', to: 'backend' },
       { from: 'build/qdrant', to: 'qdrant' },
     ],
+    // Electron 只带中文与英文两个界面语言包。
+    electronLanguages: ['zh-CN', 'en-US'],
     win: { icon: 'assets/icon.png' },
     // 按用户安装，不需要管理员权限；卸载只删除程序，数据根与 userData 都保留。
     nsis: {
@@ -148,6 +166,12 @@ await builder.build({
       perMachine: false,
       allowToChangeInstallationDirectory: true,
       deleteAppDataOnUninstall: false,
+      // zip 载荷直接解压到安装目录；7z 载荷先解压到临时目录再复制，一万多个文件要多写、多删一遍。
+      // 不做自动升级，用不上差分包，而差分包只能用 7z 载荷。
+      useZip: true,
+      differentialPackage: false,
+      // 覆盖安装与卸载之前先请运行中的程序正常退出。
+      include: 'installer/installer.nsh',
     },
   },
 })
