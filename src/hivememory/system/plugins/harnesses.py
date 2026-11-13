@@ -5,7 +5,8 @@
 把插件复制进自己的缓存；pi 与 dsh 桌面端链接插件目录、原地加载。
 
 每个 harness 的安装都可以重复执行：已经装过时改为更新，指向别处的旧安装先移除，
-同一个 harness 里不会同时留下两份 HiveMemory 插件。
+同一个 harness 里不会同时留下两份 HiveMemory 插件。Claude Code 另在用户设置中放行
+写入与更新两个工具，卸载时删除（见 ``CLAUDE_CODE_ALLOW_RULES``）。
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from hivememory.config.files import write_atomically
 
 #: 插件的包名，也是 marketplace 中的插件名。
 PLUGIN_NAME = "hivememory-connector"
@@ -47,6 +50,14 @@ class CommandResult:
 
 
 type CommandRunner = Callable[[Sequence[str]], CommandResult]
+
+
+class HarnessSettingsError(Exception):
+    """harness 的设置文件不是 JSON 对象，或其中的权限设置形状不对；文件没有被改动。"""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(f"harness settings unreadable: {path}")
+        self.path = path
 
 
 class PluginCommandError(Exception):
@@ -109,6 +120,14 @@ def _same_path(left: str | Path, right: str | Path) -> bool:
 
 # ---- Claude Code ----
 
+#: 写入前由插件的 PreToolUse hook 补上轮次信息的两个工具。auto 模式审查的是模型写的参数，
+#: hook 改写之后审查不覆盖实际执行的参数，Claude Code 拒绝执行，hook 自己给出放行也一样；
+#: 用户设置中的 allow 规则匹配时不经这次审查。插件自带的设置不能声明权限，所以安装时写进
+#: 用户设置、卸载时删除。检索与读取的参数不被改写，照常经 auto 模式审查。
+CLAUDE_CODE_ALLOW_RULES = tuple(
+    f"mcp__plugin_{PLUGIN_NAME}_hivememory__{tool}" for tool in ("memory_write", "memory_update")
+)
+
 
 def _install_claude_code(run: CommandRunner, claude: str, integrations: Path) -> None:
     listed = _json_output(_checked(run, [claude, "plugin", "marketplace", "list", "--json"]))
@@ -124,6 +143,7 @@ def _install_claude_code(run: CommandRunner, claude: str, integrations: Path) ->
         _checked(run, [claude, "plugin", "update", PLUGIN_ID])
     else:
         _checked(run, [claude, "plugin", "install", PLUGIN_ID])
+    _set_claude_code_allow_rules(present=True)
 
 
 def _uninstall_claude_code(run: CommandRunner, claude: str, integrations: Path) -> None:
@@ -133,11 +153,61 @@ def _uninstall_claude_code(run: CommandRunner, claude: str, integrations: Path) 
     listed = _json_output(_checked(run, [claude, "plugin", "marketplace", "list", "--json"]))
     if any(m.get("name") == MARKETPLACE_NAME for m in listed):
         _checked(run, [claude, "plugin", "marketplace", "remove", MARKETPLACE_NAME])
+    _set_claude_code_allow_rules(present=False)
 
 
 def _claude_code_has_plugin(run: CommandRunner, claude: str) -> bool:
     installed = _json_output(_checked(run, [claude, "plugin", "list", "--json"]))
     return any(p.get("id") == PLUGIN_ID for p in installed)
+
+
+def _claude_code_settings_path() -> Path:
+    """Claude Code 的用户设置：``CLAUDE_CONFIG_DIR`` 指定的目录，缺省为 ``~/.claude``。"""
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    return (Path(config_dir) if config_dir else Path.home() / ".claude") / "settings.json"
+
+
+def _set_claude_code_allow_rules(*, present: bool) -> None:
+    """在用户设置的 ``permissions.allow`` 中加入或删除 ``CLAUDE_CODE_ALLOW_RULES``。
+
+    其余设置与规则的顺序原样保留，内容没有变化时不改写文件；删除后空出来的 ``allow``
+    与 ``permissions`` 一并删除。设置文件读不懂时不改动它，抛出 :class:`HarnessSettingsError`。
+    """
+    path = _claude_code_settings_path()
+    settings = _read_settings(path)
+    permissions = settings.get("permissions", {})
+    allow = permissions.get("allow", []) if isinstance(permissions, dict) else None
+    if not isinstance(allow, list):
+        raise HarnessSettingsError(path)
+    if present:
+        updated = allow + [rule for rule in CLAUDE_CODE_ALLOW_RULES if rule not in allow]
+    else:
+        updated = [rule for rule in allow if rule not in CLAUDE_CODE_ALLOW_RULES]
+    if updated == allow:
+        return
+    if updated:
+        settings["permissions"] = {**permissions, "allow": updated}
+    else:
+        remaining = {key: value for key, value in permissions.items() if key != "allow"}
+        if remaining:
+            settings["permissions"] = remaining
+        else:
+            settings.pop("permissions", None)
+    content = json.dumps(settings, ensure_ascii=False, indent=2) + "\n"
+    write_atomically(path, content.encode("utf-8"))
+
+
+def _read_settings(path: Path) -> dict[str, Any]:
+    """读取 JSON 对象形式的设置文件；文件不存在时为空设置。"""
+    if not path.exists():
+        return {}
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise HarnessSettingsError(path) from exc
+    if not isinstance(settings, dict):
+        raise HarnessSettingsError(path)
+    return settings
 
 
 # ---- Codex ----
@@ -357,7 +427,9 @@ __all__ = [
     "CommandResult",
     "CommandFailureReason",
     "CommandRunner",
+    "CLAUDE_CODE_ALLOW_RULES",
     "HarnessId",
+    "HarnessSettingsError",
     "PluginCommandError",
     "SupportedHarness",
     "harness_by_id",

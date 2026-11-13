@@ -192,6 +192,23 @@ async def test_failed_or_missing_harness_registers_nothing(setup):
 
 
 @pytest.mark.asyncio
+async def test_unreadable_harness_settings_fail_the_install_with_the_file(
+    setup, tmp_path, monkeypatch
+):
+    """Claude Code 的设置文件读不懂时安装以 settings_unreadable 失败，交回文件位置，不登记来源。"""
+    settings = tmp_path / "claude-settings"
+    settings.mkdir()
+    (settings / "settings.json").write_text("not json", encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(settings))
+
+    result = await setup.make().install("claude-code", actor=setup.actor)
+
+    assert result.failure.reason == "settings_unreadable"
+    assert result.failure.output_tail == (str(settings / "settings.json"),)
+    assert setup.principals.entry_for("harness:claude-code") is None
+
+
+@pytest.mark.asyncio
 async def test_reinstall_keeps_the_declarable_agents_credential_and_adjusted_record(setup):
     """重新安装沿用来源：用户加上的 Agent、生成的凭据与调整过的缺省 Agent 记录都不变。"""
     service = setup.make()

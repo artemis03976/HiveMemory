@@ -34,6 +34,7 @@ from hivememory.system.plugins.harnesses import (
     CommandFailureReason,
     CommandRunner,
     HarnessId,
+    HarnessSettingsError,
     PluginCommandError,
     SupportedHarness,
     harness_by_id,
@@ -68,7 +69,9 @@ PLUGIN_OPERATIONS = frozenset(
 #: 失败时交给页面的命令输出行数。
 _OUTPUT_TAIL_LINES = 12
 
-type FailureReason = Literal["unavailable", "harness_missing"] | CommandFailureReason
+type FailureReason = (
+    Literal["unavailable", "harness_missing", "settings_unreadable"] | CommandFailureReason
+)
 
 
 @dataclass(frozen=True)
@@ -204,6 +207,8 @@ class PluginInstallationService:
                 exc.result.returncode,
             )
             return _failure_from(exc)
+        except HarnessSettingsError as exc:
+            return _settings_failure(harness, exc)
         return None
 
     def _register(self, harness: SupportedHarness) -> str | None:
@@ -277,6 +282,8 @@ class PluginInstallationService:
                 exc.result.returncode,
             )
             return _failure_from(exc)
+        except HarnessSettingsError as exc:
+            return _settings_failure(harness, exc)
         return None
 
     def _python_hooks_still_installed(self) -> bool:
@@ -360,6 +367,16 @@ def hook_python_executable() -> str:
     executable = Path(sys.executable)
     console = executable.with_name("python.exe")
     return str(console if console.is_file() else executable)
+
+
+def _settings_failure(harness: SupportedHarness, exc: HarnessSettingsError) -> PluginFailure:
+    """harness 的设置文件读不懂：插件命令已经执行，设置文件没有改动；页面给出文件位置。"""
+    logger.warning(
+        "harness 设置文件读不懂，没有改动: harness=%s reason=settings_unreadable path=%s",
+        harness.harness_id,
+        exc.path,
+    )
+    return PluginFailure("settings_unreadable", output_tail=(str(exc.path),))
 
 
 def _failure_from(exc: PluginCommandError) -> PluginFailure:

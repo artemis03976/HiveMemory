@@ -45,6 +45,7 @@ def isolate_personal_config(monkeypatch, tmp_path_factory):
     - 主配置的覆盖文件：未指定主配置路径时改到不存在的位置；以 HIVEMEMORY_CONFIG_PATH
       指定了主配置的测试仍使用它旁边的覆盖文件。
     - 默认路径的模型注册表：改到每个测试自己的临时目录，从随仓库发布的模板生成。
+    - Claude Code 的用户设置：插件服务代为安装时会改写它，改到每个测试自己的临时目录。
     - 关闭时写盘的三份文件（保存的生成工作、生成任务历史、写入句柄登记）：默认路径相对
       工作目录，从仓库根运行测试时会写进本机的数据目录、被下一次真实启动读回；改到每个
       测试自己的临时目录，指定了路径的测试照旧。
@@ -79,6 +80,7 @@ def isolate_personal_config(monkeypatch, tmp_path_factory):
         return property(path)
 
     shutdown_config = PatchouliShutdownConfig()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path_factory.mktemp("claude-config")))
     monkeypatch.setattr(config_app, "get_local_config_file_path", local_overrides_path)
     monkeypatch.setattr(ModelRegistry, "_default_path", staticmethod(model_registry_path))
     monkeypatch.setattr(
