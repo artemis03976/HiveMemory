@@ -50,11 +50,11 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 **启动**：
 
-1. 单实例：第二次打开只显示已有窗口。
+1. 单实例：第二次打开只显示已有窗口；带 `--quit` 打开时（安装程序在覆盖安装与卸载之前这样启动，第 8 节），已有实例正常退出，没有运行中的实例时什么都不启动。
 2. 安装版取得数据根（第 5 节）；以 `--hidden` 启动（登录 Windows 时）只进托盘、不显示窗口。
 3. 安装版检查 8769、6333 与 6334（Qdrant 的 gRPC），任一被占用时说明原因并退出。端口固定：插件都写死 8769，换端口要改所有插件。被占用多半是开发用的 `ps1 serve`、Qdrant 或另一个 HiveMemory；安装版附着到开发用的 Qdrant 会读写 checkout 的记忆库，所以不附着。开发实例在 `dev.env` 中换一组端口之后，可以与安装版同时运行（[安装与启动](../help/setup.md#47-与桌面安装版同时开发)）。
 4. 启动 Qdrant：工作目录是 `<数据根>\.hivememory\run`，pid 写在同目录的 `qdrant.pid`（与开发脚本共用，主进程意外退出后可以用 `hivememory-dev.ps1 stop-qdrant` 结束它）。
-5. 生成管理凭据，以 `python -m hivememory.server --desktop` 启动后端：工作目录是数据根，环境变量带上数据根、日志路径与端口（`HIVEMEMORY_BACKEND_PORT` 与 Qdrant 的端口），stdin 的第一行是凭据（第 4 节）。
+5. 生成管理凭据，以 `python -m hivememory.server --desktop` 启动后端：工作目录是数据根，环境变量带上数据根、日志路径与端口（`HIVEMEMORY_BACKEND_PORT` 与 Qdrant 的端口），stdin 的第一行是凭据（第 4 节）。安装版另以 `PYTHONPYCACHEPREFIX` 把字节码缓存写到 `<数据根>\.hivememory\pycache`，不写进安装目录。
 6. 等后端能响应 `/health`，把凭据放进窗口的内存会话，再等推理模型就绪（第 7 节），然后加载后端页面。
 
 后端与 Qdrant 以 detached 子进程启动：非 detached 的子进程会被放进随主进程结束而结束的 job，主进程被强制结束时，后端会在关闭中途被杀掉。后端用不带控制台的 `pythonw.exe`：venv 的 `python.exe` 只是转发器，detached 的转发器没有控制台，Windows 会给真正的解释器新开一个空的控制台窗口，用户关掉它时后端立即被结束。
@@ -93,7 +93,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 ## 5. 数据根
 
-环境变量 `HIVEMEMORY_DATA_ROOT` 指定数据根（[System 配置](../system/configuration.md#2-来源与优先级)）。设置后，个人配置在 `<数据根>\configs`：`config.local.yaml`、`models.yaml`、`providers.secrets.yaml`、两份访问登记与 `principals.secrets.yaml`；随包的 `config.yaml` 与各模板仍从程序目录读取。`.env` 与相对路径的数据目录按工作目录解析，桌面端以数据根为工作目录启动后端，所以数据根之下的布局与仓库根相同：`configs\`、`data\`（模型缓存、长期归档）、`.hivememory\`（记忆库、Artifact、日志、关闭时写盘的生成工作、写入句柄与生成任务历史）。不设置时与仓库布局相同。
+环境变量 `HIVEMEMORY_DATA_ROOT` 指定数据根（[System 配置](../system/configuration.md#2-来源与优先级)）。设置后，个人配置在 `<数据根>\configs`：`config.local.yaml`、`models.yaml`、`providers.secrets.yaml`、两份访问登记与 `principals.secrets.yaml`；随包的 `config.yaml` 与各模板仍从程序目录读取。`.env` 与相对路径的数据目录按工作目录解析，桌面端以数据根为工作目录启动后端，所以数据根之下的布局与仓库根相同：`configs\`、`data\`（模型缓存、长期归档）、`.hivememory\`（记忆库、Artifact、日志、关闭时写盘的生成工作、写入句柄与生成任务历史，安装版另有字节码缓存）。不设置时与仓库布局相同。
 
 安装版第一次启动时选择数据根：默认位置，或已有的目录（例如仓库的 checkout，不需要搬动文件）。选择记在 userData 的 `desktop-settings.json`（`%APPDATA%\HiveMemory`），之后沿用。数据根的路径不能超过 100 个字符：`qdrant.exe` 不支持超过 260 个字符的路径，记忆库的文件在数据根之下最深约 142 个字符，数据根更长时建集合失败、后端起不来。
 
@@ -139,14 +139,15 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 `desktop/scripts/package.mjs`（`npm run package`，`npm run package:dir` 只生成免安装目录）：
 
-- **Python**：uv 管理的独立 CPython（与仓库 `.venv` 同版本），安装在 `desktop\.cache\python`，不写入用户的 uv 目录、PATH 与注册表。锁定的运行依赖由 `uv export --frozen --no-dev` 导出，直接装进这个解释器，不建 venv：venv 记录基础解释器的绝对路径，无法随安装位置移动。
+- **Python**：uv 管理的独立 CPython（与仓库 `.venv` 同版本），安装在 `desktop\.cache\python`，不写入用户的 uv 目录、PATH 与注册表。锁定的运行依赖由 `uv export --frozen --no-dev` 导出，直接装进这个解释器，不建 venv：venv 记录基础解释器的绝对路径，无法随安装位置移动。运行时用不到的 pip 与各包自带的测试目录（`tests`、`test`）不随包：随包 Python 的文件数决定安装与覆盖安装的耗时。
 - **后端与前端**：后端源码按仓库布局放在 `resources\backend`，经 `PYTHONPATH` 导入，不安装成包，按源码位置找到随程序发布的配置与前端；打包前构建前端。
 - **插件**：`integrations/`（本地 marketplace 与插件目录，不含插件自己的测试、Python 缓存与开发时生成的 `skills/hivememory/SKILL.md`，skill 由后端启动时按语言设置写入）放在 `resources\backend\integrations`，与后端同版本；插件页从这里为 harness 安装插件（[管理页面](./management-views.md#35-插件)），覆盖安装时随程序换成新版本。
 - **启动页字体**：electron-builder 的 `files` 把前端依赖 `@fontsource-variable/manrope` 中的字体文件复制到程序内启动页旁的 `fonts`，与前端打包进页面的是同一个文件，启动页不另带字体副本。
 - **Qdrant**：取自开发环境 `.hivememory\dev.env` 的 `QDRANT_BIN`，与开发时同一个版本。
-- **安装包**：electron-builder 生成按用户安装的 NSIS 安装包，默认装在 `%LOCALAPPDATA%\Programs\HiveMemory`，版本号取自 `_version.py`。
+- **安装包**：electron-builder 生成按用户安装的 NSIS 安装包，默认装在 `%LOCALAPPDATA%\Programs\HiveMemory`，版本号取自 `_version.py`。Electron 只带中文与英文两个语言包（`electronLanguages`）。载荷是 zip（`useZip`，关闭差分包），直接解压到安装目录：7z 载荷要先解压到临时目录再复制，一万多个文件多写、多删一遍；不做自动升级，用不上只能配 7z 的差分包。
+- **覆盖安装与卸载前的退出**：electron-builder 的安装程序发现程序在运行时直接结束安装目录下的全部进程，后端与 Qdrant 也在其中，来不及正常关闭。`desktop/installer/installer.nsh` 先以 `--quit` 启动一次程序，请运行中的实例正常退出（后端结算话题、把待生成的工作与写入句柄写盘），等安装目录下的进程都退出，最多 60 秒，再走默认的检查，仍在运行的强制结束。
 
-不做代码签名：运行安装包时 Windows SmartScreen 会提示，需要选“更多信息”再选“仍要运行”。不做自动升级：用户下载新版安装包覆盖安装，安装前退出正在运行的 HiveMemory；覆盖安装保留数据根与 userData 中的设置。关闭时保存的生成工作在新版本中读不回时进入 rejected 文件，配置中残留已删除的键时启动失败并在错误框中给出原因。
+不做代码签名：运行安装包时 Windows SmartScreen 会提示，需要选“更多信息”再选“仍要运行”。不做自动升级：用户下载新版安装包覆盖安装，安装程序先请正在运行的 HiveMemory 正常退出；覆盖安装保留数据根与 userData 中的设置。关闭时保存的生成工作在新版本中读不回时进入 rejected 文件，配置中残留已删除的键时启动失败并在错误框中给出原因。
 
 ## 9. 日志与诊断
 
