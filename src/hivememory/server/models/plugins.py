@@ -56,7 +56,12 @@ class PluginListResponse(BaseModel):
 
 class PluginFailureResponse(BaseModel):
     reason: Literal[
-        "unavailable", "harness_missing", "command_failed", "command_timeout", "unexpected_output"
+        "unavailable",
+        "harness_missing",
+        "settings_unreadable",
+        "command_failed",
+        "command_timeout",
+        "unexpected_output",
     ]
     command: str | None = Field(description="失败的那条命令")
     output_tail: list[str] = Field(description="命令输出的最后几行")

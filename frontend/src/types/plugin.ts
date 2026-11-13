@@ -31,6 +31,7 @@ export interface PluginList {
 export type PluginFailureReason =
   | 'unavailable'
   | 'harness_missing'
+  | 'settings_unreadable'
   | 'command_failed'
   | 'command_timeout'
   | 'unexpected_output';
