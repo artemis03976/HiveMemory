@@ -83,7 +83,7 @@ related_docs:
 - **核对 harness 一侧的插件状态**：用户在 harness 中禁用或删除插件后，页面不会知道。页面状态以 HiveMemory 一侧的登记为准。
 - **Docker 方式**：容器里调用不到宿主上的 harness，插件目录也不在镜像中。Docker 方式继续按帮助文档手动安装。
 - **改动已有部署的生效登记**。
-- **skill 的语言**：留给 D-12。它依赖本计划交付插件的方式，见[统一语言设置 Idea](../../ideas/language-setting-unification.md)。
+- **skill 的语言**：留给 D-12。它依赖本计划交付插件的方式，见[统一语言设置 Idea](../ideas/language-setting-unification.md)。
 
 ## 3. 当前状态和缺口
 

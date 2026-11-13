@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -247,13 +248,18 @@ class SystemAssembler:
         # workspace 读取能力与派生缓存：由组合根持有，L2 冷读经全局
         # 总线调用 Patchouli backing 路由，不持有 Patchouli 对象。
         cache_config = self._config.workspace.cache
+        intents_config = self._config.workspace.write_intents
         workspace_read_view = WorkspaceReadView(
             backing=BusCanonicalReadBackend(global_bus),
             atom_capacity=cache_config.atom_capacity,
             profile_capacity=cache_config.profile_capacity,
+            intent_record_file=Path(intents_config.record_file),
+            intent_retention=timedelta(days=intents_config.retention_days),
         )
-        # 先订阅失效与结算事件，再装配可能产生 canonical 写入的子系统；
-        # 首个请求进入之前，workspace 的唯一意图登记与读取缓存已就绪。
+        # 先读回上次关闭时写盘的写入意图登记，再订阅失效与结算事件，最后装配可能
+        # 产生 canonical 写入的子系统：Patchouli 启动时恢复的生成工作结算时，句柄已在
+        # 登记中；首个请求进入之前，workspace 的唯一意图登记与读取缓存已就绪。
+        workspace_read_view.intents.load()
         workspace_read_view.subscribe(global_bus)
 
         runtime_events_config = self._config.runtime_events

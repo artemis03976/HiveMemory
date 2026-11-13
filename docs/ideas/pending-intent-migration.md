@@ -13,12 +13,14 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-12
 ---
 
 # 写入意图（PendingAtom）的后续方向
 
 ## 0. 文档性质
+
+2026-11-12：第 2、3、6 节与第 4 节中写入句柄的部分经计划[写入句柄的可靠性](../archive/plans/write-intent-handle-reliability.md)实施（PR #221），这三节改为已实施的说明；第 4、8 节其余的部分仍是候选方向。
 
 本文收集写入意图体系尚未决定的方向，不描述当前行为，也不代表排期。登记、派发、回读与结算的当前设计见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)、[PendingAtom](../alice/pending-atom.md)、[Patchouli 生成](../patchouli/generation.md)与 [MTP 契约](../contracts/mtp.md)。耐久性与幂等的成熟度、缺口和工作包由[耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)与[幂等与重试](../governance/reliability/idempotency-and-retry.md)治理文档维护，本文只讨论设计路径。
 
@@ -34,34 +36,15 @@ PendingAtom 解决所有 Actor 共有的资源问题：Actor 明确提出 WRITE/
 
 ## 2. 结算对账与结果未知
 
-问题：登记只经 Patchouli 发布的结算事件推进终态。事件丢失，或派发时无法确认是否已被接纳（总线异常、接纳应答丢失），句柄会停在 MATERIALIZING：未被接纳的意图永远等不到结算，已被接纳的只能等事件。
-
-可能路径：
-
-- **按 intent_id 查询权威结果**：生成任务以 intent_id 为幂等身份，登记可以在回读时、派发结果未知之后或周期性地按 intent_id 查询任务终态并补齐。需要一条只读的查询路由，查询方不持有生成的内部状态；
-- **结算游标与重放**：结算结果持久化后按游标重放补齐，依赖第 4 节的持久化。
+**已实施**（2026-11-12，PR #221）：派发结局不明时 workspace 以同一意图重试已有的提交路由，提交路由按 `intent_id` 幂等，命中原任务；正常重启时登记写盘、读回的顺序保证结算事件有落点。owner 排除了按 `intent_id` 查询结局的只读路由，不让 workspace 因此依赖 Patchouli。仍然没有对账：重试后仍然不明或事件丢失的句柄保持 MATERIALIZING，直到保留期满。当前事实见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#5-派发与结算)第 5 节，设计与取舍见[归档计划](../archive/plans/write-intent-handle-reliability.md)。
 
 ## 3. 句柄寿命、容量与过期
 
-问题：终态句柄保留到进程重启，登记随运行持续增长；`EXPIRED` 枚举保留在模型中，但不会产生。owner（2026-09-28）指出结算后句柄的生命周期需要重新设计。
-
-EXPIRED 是设计中的永久终态，SETTLED、FAILED、CANCELLED 都可以迁入。它原先由 run 结束触发：上一轮已结束的意图在下一轮 run 以 completed 结束时标为 EXPIRED（见[写入意图登记归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)）；登记与任务进程解耦、改为实时派发后，这个触发点不复存在，当前缺少的是转入 EXPIRED 的机制，而不是终态本身。
-
-读取侧的现状（2026-10-18 核对）与下方约束有两处出入，过期机制需要一并决定：
-
-- 读取视图把 EXPIRED 与 CANCELLED 都按不存在交付（`workspace/resolution/memory.py` 的 `_resolve_pending`），而引用解析结果的 `expired` 种类、MTP READ/RUN 与编译器中对应的分支和文案都已存在、只是走不到；
-- 读取视图只把在途意图原样交给编译器，终态改由引用解析结果表达，因此编译器中终态写入意图的渲染分支（`pending_read_settled`、`pending_read_failed`、`pending_read_cancelled` 等）在生产中走不到；终态的交付形态确定后再决定这些分支的去留。
-
-可能路径：结算后保留期满转为 EXPIRED；登记设容量上限，满时拒绝新登记，与生成队列的容量拒绝一致；或与第 4 节的持久化一起设计。
-
-约束：
-
-- discarded、failed、cancelled、expired 明确区分，过期可以解释，不伪装成不存在或仍在生成；
-- 终态句柄不按缓存淘汰处理；未结算的意图不能因容量被静默丢弃。
+**已实施**（2026-11-12，PR #221）：句柄自登记起保留 7 天（`workspace.write_intents.retention_days`），不论状态，满期删除；读取登记中没有的 `draft_`/`rev_` 句柄得到 expired，说明句柄不存在或已过期。过期不是登记中的状态，`PendingAtomStatus.EXPIRED` 与编译器中终态写入意图的渲染分支已删除。当前事实见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)第 3.1、4 节。
 
 ## 4. 持久化与跨重启
 
-登记、接纳与结算都只在进程内，重启后丢失，ACK 不是耐久承诺。耐久性等级、权威记录与恢复入口由[耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)维护。本文补充两条设计约束：接纳后的断连或关闭不撤销已接纳的工作；恢复时不能重新派发已经结算的意图。引入持久化需要单独规划迁移。
+写入意图登记、未执行的生成工作与已结束任务的历史在正常关闭时写盘、下次启动读回（PR #213、PR #221），崩溃时一起丢失，ACK 不是耐久承诺。耐久性等级、权威记录与恢复入口由[耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)维护。本文补充两条设计约束：接纳后的断连或关闭不撤销已接纳的工作；恢复时不能重新派发已经结算的意图。引入持久化需要单独规划迁移。
 
 ## 5. 可见性与 policy
 
@@ -69,14 +52,7 @@ EXPIRED 是设计中的永久终态，SETTLED、FAILED、CANCELLED 都可以迁�
 
 ## 6. UPDATE 的基础版本
 
-问题：UPDATE 登记时解析可读的正式基础原子，生成侧构建任务时按 UUID 读取当时的最新版本；意图不携带登记时的基础版本，并发 UPDATE 不检测版本冲突。
-
-可能路径：
-
-- 意图记录登记时的基础版本，生成时不一致则显式冲突，结算为失败并说明原因；
-- 按最新版本合并，在 changelog 中记录基础已经漂移。
-
-版本冲突的判定仍归 canonical 更新规则；空交互不免除目标与授权校验。
+**已实施**（2026-11-12，PR #221）：UPDATE 登记时记下基础原子的内容版本，生成侧写回前重读时版本不同则不写回，以 `workspace.memory.update_base_changed` 失败，读取句柄时提示重新读取后再更新。当前事实见 [Patchouli 生成](../patchouli/generation.md#33-mode-c主动-update)第 3.3 节。
 
 ## 7. 外部 Actor 的提交与回读契约
 

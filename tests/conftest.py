@@ -18,9 +18,11 @@ import pytest
 from hivememory.config import app as config_app
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.patchouli import PatchouliShutdownConfig
+from hivememory.config.workspace import WorkspaceWriteIntentsConfig
 from hivememory.i18n import set_language
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.system.model_registry import ModelRegistry
+from hivememory.workspace.intents import WriteIntentRegistry
 
 # 本机的个人覆盖文件：与仓库中的 configs/config.yaml 同目录，不受版本控制。
 _PERSONAL_OVERRIDES = config_app.get_default_config_file_path().with_name("config.local.yaml")
@@ -43,8 +45,9 @@ def isolate_personal_config(monkeypatch, tmp_path_factory):
     - 主配置的覆盖文件：未指定主配置路径时改到不存在的位置；以 HIVEMEMORY_CONFIG_PATH
       指定了主配置的测试仍使用它旁边的覆盖文件。
     - 默认路径的模型注册表：改到每个测试自己的临时目录，从随仓库发布的模板生成。
-    - 关闭时保存生成工作的文件：默认路径相对工作目录，从仓库根运行测试时会写进本机的
-      数据目录、被下一次真实启动读回；改到每个测试自己的临时目录，指定了路径的测试照旧。
+    - 关闭时写盘的三份文件（保存的生成工作、生成任务历史、写入句柄登记）：默认路径相对
+      工作目录，从仓库根运行测试时会写进本机的数据目录、被下一次真实启动读回；改到每个
+      测试自己的临时目录，指定了路径的测试照旧。
     """
     absent_overrides = tmp_path_factory.getbasetemp() / "no-personal-config" / "config.local.yaml"
     resolve_overrides = config_app.get_local_config_file_path
@@ -60,21 +63,44 @@ def isolate_personal_config(monkeypatch, tmp_path_factory):
             registry_dirs.append(tmp_path_factory.mktemp("models"))
         return registry_dirs[0] / "models.yaml"
 
-    default_saved_work = Path(PatchouliShutdownConfig().pending_work_file)
-    resolve_saved_work = PatchouliRuntime.saved_generation_path.fget
-    saved_work_dirs = []
+    shutdown_dirs = []
 
-    def saved_generation_path(runtime):
-        path = resolve_saved_work(runtime)
-        if path != default_saved_work:
-            return path
-        if not saved_work_dirs:
-            saved_work_dirs.append(tmp_path_factory.mktemp("saved-generation"))
-        return saved_work_dirs[0] / default_saved_work.name
+    def isolated(resolve, default: Path):
+        """默认路径改到本测试的临时目录，其他路径照旧。"""
 
+        def path(owner):
+            resolved = resolve(owner)
+            if resolved != default:
+                return resolved
+            if not shutdown_dirs:
+                shutdown_dirs.append(tmp_path_factory.mktemp("shutdown-files"))
+            return shutdown_dirs[0] / default.name
+
+        return property(path)
+
+    shutdown_config = PatchouliShutdownConfig()
     monkeypatch.setattr(config_app, "get_local_config_file_path", local_overrides_path)
     monkeypatch.setattr(ModelRegistry, "_default_path", staticmethod(model_registry_path))
-    monkeypatch.setattr(PatchouliRuntime, "saved_generation_path", property(saved_generation_path))
+    monkeypatch.setattr(
+        PatchouliRuntime,
+        "saved_generation_path",
+        isolated(
+            PatchouliRuntime.saved_generation_path.fget, Path(shutdown_config.pending_work_file)
+        ),
+    )
+    monkeypatch.setattr(
+        PatchouliRuntime,
+        "task_history_path",
+        isolated(PatchouliRuntime.task_history_path.fget, Path(shutdown_config.task_history_file)),
+    )
+    monkeypatch.setattr(
+        WriteIntentRegistry,
+        "record_file",
+        isolated(
+            WriteIntentRegistry.record_file.fget,
+            Path(WorkspaceWriteIntentsConfig().record_file),
+        ),
+    )
 
 
 @pytest.fixture

@@ -31,7 +31,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 跨边界错误模型
@@ -298,6 +298,7 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 | `InvalidMemoryFieldError` | 接收外部输入的 Memory 构造/编辑点（管理创建、外部编辑），包装 Pydantic `ValidationError` | 422 | 调用方提交的字段取值不满足领域约束；内部保留字段诊断，HTTP 返回固定安全提示，与程序错误区分 |
 | `StorageWriteError` | Qdrant 写入路径（`upsert_memory` / `patch_memory_payload` 等） | 5xx | 存储写入失败的结构化表达，与 `StorageOfflineError`/`StorageReadError` 同族；失败沿调用链传播，不能被吞成成功或空结果 |
 | `MemoryAliasConflictError`（`workspace.memory.alias_conflict`） | 中期库 `upsert` 写入前校验、生成侧 `AliasGenerator`、精确 alias 查询 | 409（Memory 与 Agent Profile 管理 HTTP 入口） | 同一 Workspace 中期库内的 alias 唯一性不变量被破坏；`details.reason` 区分 `alias_occupied`（被其他 Memory 占用，本次不写入）、`alias_candidates_exhausted`（消歧候选耗尽）与 `ambiguous_alias`（精确查询命中多条，读取 fail closed） |
+| `MemoryUpdateBaseChangedError`（`workspace.memory.update_base_changed`） | Familiar 修订写回前的重读 | 不经 HTTP 呈现；UPDATE 任务以该原因码失败收尾，写入意图的失败事件带上它，读取句柄时说明基础在排队期间被修改、需要重新读取后再更新 | 基础记忆的内容版本与 UPDATE 登记时记下的不同，修订不写回，期间的修改保留；`details` 带 `memory_id`、`base_version` 与 `current_version` |
 | `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`） | Familiar 的合并路径 | 不经 HTTP 呈现；合并任务以 `merge_aborted.<details.reason>` 失败收尾，任务快照的公开 error 仍是固定说明 | 两条记忆的合并在读取、条件、版本或模型输出上不满足要求，两条记忆都保持不变，不回退为追加或覆盖；`details.reason` 区分 `memory_missing`（任一记忆缺失或对发起者不可见）、`not_mergeable`（访问策略不同、任一方是 Profile，或吸收自身）、`version_changed`（写回前内容版本已变）与 `model_output_invalid`（模型输出为空、无法解析或把类型改为 Profile） |
 | `MemoryDecodeError` | Memory codec 读取边界 | 5xx | payload 无法安全归一化为 schema `"2.1"`（缺 `schema_version`、未知版本、投影不一致等），fail closed |
 

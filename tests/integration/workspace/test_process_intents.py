@@ -56,6 +56,8 @@ from tests.helpers.process import (
     make_task_process_service,
 )
 from tests.helpers.workspace import (
+    INTENT_RECORD_FILE,
+    INTENT_RETENTION,
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
@@ -154,7 +156,11 @@ def make_chain():
         bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)
         bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, no_aliases)
         runtime = WorkspaceReadView(
-            backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
+            backing=BusCanonicalReadBackend(bus),
+            atom_capacity=8,
+            profile_capacity=8,
+            intent_record_file=INTENT_RECORD_FILE,
+            intent_retention=INTENT_RETENTION,
         )
         chain = IntentChain(
             access=access, bus=bus, runtime=runtime, patchouli=patchouli, admission=admission

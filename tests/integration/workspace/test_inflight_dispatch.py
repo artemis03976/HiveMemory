@@ -31,6 +31,14 @@ from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
+@pytest.fixture(autouse=True)
+def immediate_dispatch_retries(monkeypatch):
+    """结局不明时的重试照常发生，但不等待，测试不依赖固定延时。"""
+    monkeypatch.setattr(
+        "hivememory.workspace.capability.actor.memory._DISPATCH_RETRY_DELAYS", (0.0, 0.0, 0.0)
+    )
+
+
 @pytest_asyncio.fixture
 async def chain():
     """控制话题读取与生成完成两个边界，不依赖固定延时等待状态。"""
@@ -219,8 +227,34 @@ async def test_stopped_queue_returns_structured_rejection_without_ack(chain):
 
 
 @pytest.mark.asyncio
+async def test_lost_admission_response_is_retried_and_acked_by_the_same_task(chain):
+    """第一次应答丢失时以同一意图重试：提交路由幂等，命中原任务后照常 ACK，不产生第二个任务。"""
+    lost = []
+
+    async def lose_first_response(*, intent, identity_scope):
+        chain.intents.append(intent)
+        result = await chain.service.submit_memory_intent(
+            intent=intent, identity_scope=identity_scope
+        )
+        if not lost:
+            lost.append(intent)
+            raise OSError("lost response")
+        return result
+
+    chain.harness.bus.register(PatchouliRoutes.MEMORY_INTENT_SUBMIT, lose_first_response)
+    chain.admit.set()
+    result = await _write(chain)
+
+    assert result.response_status != "error"
+    assert chain.intents == [lost[0], lost[0]]
+    assert [task.task_id for task in await chain.controller.list_tasks()] == [
+        f"active:{lost[0].intent_id}"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_lost_admission_response_keeps_handle_until_later_settlement(chain):
-    """队列已接纳但应答丢失时返回 unknown，随后仍可正常结算。"""
+    """每次应答都丢失时重试用尽后返回 unknown，句柄留在生成中，随后仍可正常结算。"""
 
     async def lost_response(*, intent, identity_scope):
         chain.intents.append(intent)
@@ -233,6 +267,7 @@ async def test_lost_admission_response_keeps_handle_until_later_settlement(chain
     intent = chain.intents[0]
     assert result.response_status == "error"
     assert "mtp.memory.intent_unknown" in result.formatted_response
+    assert chain.intents == [intent] * 4
     assert (
         chain.harness.registry.get(intent.pending_alias, chain.scope.workspace_identity).status
         == PendingAtomStatus.MATERIALIZING
@@ -247,7 +282,7 @@ async def test_lost_admission_response_keeps_handle_until_later_settlement(chain
 
 @pytest.mark.asyncio
 async def test_unknown_dispatch_logs_root_cause_hidden_from_agent(chain, caplog):
-    """Agent 只得到 unknown 错误码，派发失败的原始异常必须留在日志中可诊断。"""
+    """Agent 只得到 unknown 错误码；每次尝试的原始异常留在日志中，重试用尽另记一条错误。"""
     failure = RuntimeError("patchouli submit route crashed")
 
     async def crash(*, intent, identity_scope):
@@ -255,7 +290,7 @@ async def test_unknown_dispatch_logs_root_cause_hidden_from_agent(chain, caplog)
         raise failure
 
     chain.harness.bus.register(PatchouliRoutes.MEMORY_INTENT_SUBMIT, crash)
-    with caplog.at_level(logging.ERROR, logger="hivememory.workspace.capability.actor.memory"):
+    with caplog.at_level(logging.WARNING, logger="hivememory.workspace.capability.actor.memory"):
         result = await _write(chain)
     assert "mtp.memory.intent_unknown" in result.formatted_response
     assert "patchouli submit route crashed" not in result.formatted_response
@@ -264,8 +299,11 @@ async def test_unknown_dispatch_logs_root_cause_hidden_from_agent(chain, caplog)
         for record in caplog.records
         if record.name == "hivememory.workspace.capability.actor.memory"
     ]
-    assert [(record.levelno, record.exc_info[1]) for record in logged] == [(logging.ERROR, failure)]
-    assert chain.intents[0].pending_alias in logged[0].getMessage()
+    assert [(record.levelno, record.exc_info and record.exc_info[1]) for record in logged] == [
+        (logging.WARNING, failure)
+    ] * 4 + [(logging.ERROR, None)]
+    assert "reason=dispatch_unknown" in logged[-1].getMessage()
+    assert chain.intents[0].pending_alias in logged[-1].getMessage()
 
 
 @pytest.mark.asyncio

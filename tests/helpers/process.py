@@ -52,6 +52,7 @@ from hivememory.workspace.read_view import WorkspaceReadView
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.cpu import ScriptedCPU
 from tests.helpers.intent_dispatch import install_intent_admission
+from tests.helpers.workspace import INTENT_RECORD_FILE, INTENT_RETENTION
 
 
 def make_task_process_service(
@@ -82,7 +83,11 @@ def make_task_process_service(
     ):
         install_intent_admission(global_bus)
     runtime = workspace_read_view or WorkspaceReadView(
-        backing=BusCanonicalReadBackend(global_bus), atom_capacity=64, profile_capacity=32
+        backing=BusCanonicalReadBackend(global_bus),
+        atom_capacity=64,
+        profile_capacity=32,
+        intent_record_file=INTENT_RECORD_FILE,
+        intent_retention=INTENT_RETENTION,
     )
     table = process_table if process_table is not None else ProcessTable()
     threads = ProcessThreads(

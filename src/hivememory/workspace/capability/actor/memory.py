@@ -53,6 +53,9 @@ _SEARCH_HIT_SOURCE = "workspace.search"
 # 请求级提交的派发话题回调：没有线程的入口在授权之后才为这一轮确定话题。
 DispatchTopic = Callable[[], Awaitable[str]]
 
+#: 派发结局不明时，以同一意图重试提交之前的等待秒数；重试次数即元素个数。
+_DISPATCH_RETRY_DELAYS: tuple[float, ...] = (0.5, 1.0, 2.0)
+
 
 class ActorMemoryService:
     """actor 资源入口：每个方法在入口以工作 actor 授权，转为本次操作的 scope。
@@ -125,6 +128,7 @@ class ActorMemoryService:
             UpdateFocus(
                 base_alias=atom.index.alias or request.base_alias,
                 base_uuid=str(atom.id),
+                base_version=atom.meta.version,
                 instruction=request.instruction,
                 content=request.content or None,
             ),
@@ -182,8 +186,10 @@ class ActorMemoryService:
     ) -> None:
         """只经唯一公共意图路由提交，明确拒绝与未知结果使用不同领域错误。
 
-        两类错误交给 Agent 时都不携带内部 cause，因此根因只在这里记录日志；
-        未知结果的句柄可能长期停在 MATERIALIZING，必须保留异常堆栈。
+        结局不明时以同一意图重试：提交路由按 ``intent_id`` 幂等，原意图其实已被接纳
+        时重试命中原任务，不产生第二个任务。两类错误交给 Agent 时都不携带内部 cause，
+        因此根因只在这里记录日志；重试后仍然不明的句柄停在 MATERIALIZING，直到保留期
+        满被删除。
         """
         details = {"intent_id": pending.intent_id, "pending_alias": pending.pending_alias}
         try:
@@ -199,20 +205,44 @@ class ActorMemoryService:
             )
             self._intents.mark_failed(pending.pending_alias, intent_id=pending.intent_id)
             raise IntentDispatchRejectedError(details=details) from error
+        status = await self._request_admission(intent, pending=pending, scope=scope)
+        for delay in _DISPATCH_RETRY_DELAYS:
+            if status is not MemoryGenerationAdmissionStatus.UNKNOWN:
+                break
+            await asyncio.sleep(delay)
+            status = await self._request_admission(intent, pending=pending, scope=scope)
+
+        if status is MemoryGenerationAdmissionStatus.ACCEPTED:
+            return
+        if status is MemoryGenerationAdmissionStatus.REJECTED:
+            self._intents.mark_failed(pending.pending_alias, intent_id=pending.intent_id)
+            raise IntentDispatchRejectedError(details=details)
+        logger.error(
+            "Intent dispatch outcome unknown after retries: reason=dispatch_unknown, "
+            "intent_id=%s, pending_alias=%s, retries=%d",
+            pending.intent_id,
+            pending.pending_alias,
+            len(_DISPATCH_RETRY_DELAYS),
+        )
+        raise IntentDispatchUnknownError(details=details)
+
+    async def _request_admission(
+        self, intent: MemoryIntent, *, pending: PendingAtom, scope: IdentityScope
+    ) -> MemoryGenerationAdmissionStatus:
+        """提交一次并返回接纳结果；总线异常同样按结果不明返回，根因在这里记日志。"""
         try:
             result = await self._global_bus.request(
                 PatchouliRoutes.MEMORY_INTENT_SUBMIT, intent=intent, identity_scope=scope
             )
-            status = result.status
-        except Exception as error:
-            logger.error(
+        except Exception:
+            logger.warning(
                 "Intent dispatch outcome unknown: intent_id=%s, pending_alias=%s",
                 pending.intent_id,
                 pending.pending_alias,
                 exc_info=True,
             )
-            raise IntentDispatchUnknownError(details=details) from error
-        if status is MemoryGenerationAdmissionStatus.REJECTED:
+            return MemoryGenerationAdmissionStatus.UNKNOWN
+        if result.status is MemoryGenerationAdmissionStatus.REJECTED:
             # 拒绝原因由生成侧接纳处记录，这里只关联到登记句柄。
             logger.debug(
                 "Intent dispatch rejected by generation admission: "
@@ -221,16 +251,14 @@ class ActorMemoryService:
                 pending.pending_alias,
                 result.detail,
             )
-            self._intents.mark_failed(pending.pending_alias, intent_id=pending.intent_id)
-            raise IntentDispatchRejectedError(details=details)
-        if status is not MemoryGenerationAdmissionStatus.ACCEPTED:
+        elif result.status is MemoryGenerationAdmissionStatus.UNKNOWN:
             logger.warning(
                 "Intent dispatch admission unknown: intent_id=%s, pending_alias=%s, detail=%s",
                 pending.intent_id,
                 pending.pending_alias,
                 result.detail,
             )
-            raise IntentDispatchUnknownError(details=details)
+        return result.status
 
     @staticmethod
     def _memory_intent(pending: PendingAtom, *, topic_id: str) -> MemoryIntent:
@@ -259,6 +287,7 @@ class ActorMemoryService:
             content=focus.content,
             base_alias=focus.base_alias,
             base_uuid=focus.base_uuid,
+            base_version=focus.base_version,
         )
 
     async def resolve_references(

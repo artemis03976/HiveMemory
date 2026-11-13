@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-12
 ---
 
 # PendingAtom：Alice 的写入意图适配与回读
@@ -51,15 +51,15 @@ Agent loop 只在收到 WRITE/UPDATE ACK 时把 alias 去重记入当前 frame �
 
 CALL 的 alias 回填只服务于父 Agent 的当前认知。物化任务不从这些 alias 反推：workspace actor API 在每次 WRITE/UPDATE 内登记并提交 `MemoryIntent`，Patchouli 意图服务构造内部生成任务。`CPUExecutionResult` 与 `InteractionPayload` 都不承载物化任务，AgentRuntime 与 RunExecutor 不管理登记收尾。
 
-Actor 阶段结束时任务进程同步结束全部线程，子线程也可能已随 CALL 返回结束；进程关闭先兜底结束线程并释放附件租借，再等待进行中的话题确定。WRITE/UPDATE 在授权（UPDATE 另有基础冷读）之后取得派发话题，再在登记前的同步段解析一次线程；基础冷读或取得派发话题跨越线程结束或停止时不登记。开始派发后，actor API 屏蔽调用方取消并持有提交任务至结束，再传播取消。主、子帧以各自线程的工作 actor 授权，但都使用同一进程这一轮的派发话题（已有话题在 PREPARE 确认，新话题由本轮第一次写入建立，同一进程只建立一次，见[执行线程](../workspace/execution-threads.md#8-派发话题)），CPU 或 CALL 失败、子线程结束均不撤回已派发写入。明确拒绝得到结构化错误并标为 FAILED，未知结果保持 MATERIALIZING；结算事件由 workspace 登记订阅，Alice 不订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
+Actor 阶段结束时任务进程同步结束全部线程，子线程也可能已随 CALL 返回结束；进程关闭先兜底结束线程并释放附件租借，再等待进行中的话题确定。WRITE/UPDATE 在授权（UPDATE 另有基础冷读）之后取得派发话题，再在登记前的同步段解析一次线程；基础冷读或取得派发话题跨越线程结束或停止时不登记。开始派发后，actor API 屏蔽调用方取消并持有提交任务至结束，再传播取消。主、子帧以各自线程的工作 actor 授权，但都使用同一进程这一轮的派发话题（已有话题在 PREPARE 确认，新话题由本轮第一次写入建立，同一进程只建立一次，见[执行线程](../workspace/execution-threads.md#8-派发话题)），CPU 或 CALL 失败、子线程结束均不撤回已派发写入。明确拒绝得到结构化错误并标为 FAILED，结局不明时 workspace 以同一意图重试，仍然不明才报结果未知、句柄保持 MATERIALIZING；结算事件由 workspace 登记订阅，Alice 不订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
 
 ## 4. 不变量与限制
 
 - ACK、frame alias 回填和正式持久化是三个不同事实，不能互相替代。
 - Alice 只消费操作提交函数与独立返回值，不持有 workspace 内部服务、登记、线程句柄或工作 actor。
 - 有输出的 completed/cancelled/failed 轮次均由任务进程封口、经 root API 提交交互并追加会话；显式写入在操作内实时派发，不取决于进程终态。
-- 登记属于进程内状态。EXPIRED 是 SETTLED、FAILED、CANCELLED 共同的永久终态，模型、引用解析种类与渲染文案都保留，但当前没有转入它的触发，终态句柄保留到重启。
-- 当前没有持久化登记、重启恢复、事件补齐或终态句柄回收；派发结果未知或结算事件丢失时意图可能保持 MATERIALIZING。
+- 登记在正常关闭时写盘、下次启动时读回，句柄自登记起保留 7 天（默认）后删除；SETTLED、FAILED、CANCELLED 都是终态，过期不是状态，删除后读取由 workspace 按已过期交付（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)）。
+- 进程崩溃时这段时间的句柄丢失；没有事件补齐，结局仍然不明或结算事件丢失时意图保持 MATERIALIZING，直到保留期满。
 - CALL 子帧以被调用方身份提交，意图的发起者是被调用方，进程关联与根帧相同；子帧沿用注册观测标签，标签不参与授权。
 
 ## 5. 代码与验证入口

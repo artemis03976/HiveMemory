@@ -71,7 +71,7 @@ from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.mcp import serve_mcp, tool_error, tool_text
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_actor_access_record
+from tests.helpers.workspace import INTENT_RECORD_FILE, INTENT_RETENTION, make_actor_access_record
 
 _TOKEN = "token-1"
 _HEADERS = {
@@ -232,7 +232,11 @@ def _compose(
     patchouli = _Patchouli(bus)
     gateway_routes = _Gateway(bus)
     read_view = WorkspaceReadView(
-        backing=BusCanonicalReadBackend(bus), atom_capacity=16, profile_capacity=16
+        backing=BusCanonicalReadBackend(bus),
+        atom_capacity=16,
+        profile_capacity=16,
+        intent_record_file=INTENT_RECORD_FILE,
+        intent_retention=INTENT_RETENTION,
     )
     read_view.subscribe(bus)
     root_topics = RootTopicService(

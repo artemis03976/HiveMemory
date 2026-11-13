@@ -22,7 +22,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-12
 ---
 
 # Patchouli
@@ -220,7 +220,7 @@ Patchouli 向全局调度器注册三个维护任务：
 
 ## 7. 当前限制与设计张力
 
-- 记忆生成任务和终态 registry 都是进程内状态，默认只保留最近 50 个终态任务；正常关闭时未执行的工作保存到磁盘、下次启动后继续，崩溃或强制结束时丢失，旧任务 ID 重启后查不到，不是持久化 Job Queue；
+- 记忆生成任务和终态 registry 都是进程内状态，只保留最近 100 个终态任务；正常关闭时未执行的工作保存到磁盘、下次启动后继续，已结束任务的快照写进任务历史、下次启动读回，崩溃或强制结束时都丢失，不是持久化 Job Queue；
 - 短期话题默认只在内存中，正常关闭时结算并随生成工作保存；异常退出仍会丢失未结算 blocks；
 - Interaction/Document Artifact 是可选来源旁路，失败不阻断内容提交；Memory Creation/Version Artifact 是内容提交的强制前置条件，但与 canonical 写入仍非原子事务，后续写入失败可能留下孤立历史记录；
 - 中期与长期存储的 archive/revive 是顺序 I/O，不具备跨存储事务；

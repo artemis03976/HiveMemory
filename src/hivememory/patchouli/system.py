@@ -222,6 +222,8 @@ class PatchouliSystem(SubsystemProtocol):
 
         self._bridge.mount()
         await self._interaction_submission_queue.start()
+        # 已结束任务的历史先于保存的工作读回：任务列表合并两者时，同一 ID 以本进程的为准。
+        self.runtime.restore_task_history()
         await self.runtime.start_memory_generation_queue()
         # 上次关闭时保存的生成工作只入队、在后台执行，不拖慢启动。
         await self.runtime.restore_saved_generation()
@@ -245,6 +247,8 @@ class PatchouliSystem(SubsystemProtocol):
         await self._interaction_submission_queue.stop()
         await self.runtime.shutdown_drain()
         await self.runtime.stop_memory_generation_queue()
+        # 队列停止后任务都已有终态；关闭时保存的工作不写进历史，下次启动后继续执行。
+        self.runtime.save_task_history()
         await self.runtime.stop_inference_workers()
 
         self._bridge.unmount()

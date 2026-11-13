@@ -35,6 +35,7 @@ from hivememory.core.models import (
     PayloadLayer,
     TopicAssetBinding,
     TopicFold,
+    UpdateFocus,
     WorkspaceAssetRef,
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest, MergeFocus
@@ -159,7 +160,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(me
 
     payload_bytes = codecs.encode(
         _MemoryGenerationWorkAdapter.kind,
-        "1.1",
+        _MemoryGenerationWorkAdapter.schema_version,
         work,
     )
 
@@ -167,12 +168,12 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(me
     atom.payload.content = "external mutation"
     first = codecs.decode(
         _MemoryGenerationWorkAdapter.kind,
-        "1.1",
+        _MemoryGenerationWorkAdapter.schema_version,
         payload_bytes,
     )
     second = codecs.decode(
         _MemoryGenerationWorkAdapter.kind,
-        "1.1",
+        _MemoryGenerationWorkAdapter.schema_version,
         payload_bytes,
     )
 
@@ -201,8 +202,8 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(me
 
 
 @pytest.mark.parametrize("schema_version", [1, 2])
-def test_v1_1_registry_rejects_previous_memory_generation_versions(schema_version: int) -> None:
-    """队列只接受 1.1，旧 scope 信封与此前编号不得被误解码为新任务。"""
+def test_registry_rejects_previous_memory_generation_versions(schema_version: int) -> None:
+    """旧 scope 信封与此前的整数编号不得被误解码为新任务。"""
     registry = WorkPayloadCodecRegistry()
     adapter = _MemoryGenerationWorkAdapter()
     registry.register(adapter)
@@ -218,6 +219,39 @@ def test_v1_1_registry_rejects_previous_memory_generation_versions(schema_versio
         match=f"schema version {schema_version} is not registered",
     ):
         registry.decode(adapter.kind, schema_version, payload)
+
+
+def test_revision_saved_as_1_1_reads_back_with_the_base_version_it_was_built_on() -> None:
+    """升级前以 1.1 保存的修订没有 base_version：读回时取任务构建时读到的基础记忆版本，
+    其余内容不变，下次启动后照常执行。"""
+    queue = MemoryGenerationQueue(AsyncMock())
+    atom = _memory_atom()
+    atom.meta.version = 3
+    spec = MemoryGenerationTaskSpec(
+        belong_to=make_memory_identity_scope().workspace_identity,
+        from_actor=make_memory_identity_scope().actor_identity,
+        topic_id="topic-old",
+        label="rev_memory_alias_0001",
+        source=MemoryGenerationSource.UPDATE,
+        request=GenerationRequest(
+            context=GenerationContext(),
+            update_focus=UpdateFocus(
+                instruction="revise",
+                base_uuid=str(atom.id),
+                base_alias="memory_alias",
+                base_version=3,
+            ),
+            existing_memory=atom,
+        ),
+        intent_id="intent-old",
+        pending_alias="rev_memory_alias_0001",
+    )
+    item = queue.encode_for_restart("active:intent-old", spec)
+    del item["payload"]["spec"]["request"]["update_focus"]["base_version"]
+
+    restored = queue.decode_for_restart({**item, "schema_version": "1.1"})
+
+    assert restored == spec
 
 
 def test_codec_roundtrips_settlement_records_without_loss() -> None:

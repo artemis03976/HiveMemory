@@ -26,6 +26,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    UpdateFocus,
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.artifact import MemoryEventLog, MemoryEventType
@@ -229,6 +230,28 @@ def _spec(identity_scope: IdentityScope) -> MemoryGenerationTaskSpec:
     )
 
 
+def _update_spec(identity_scope: IdentityScope, base: MemoryAtom) -> MemoryGenerationTaskSpec:
+    """修订任务：UPDATE 结果只来自带 update_focus 的任务，基础版本取登记时的版本。"""
+    return MemoryGenerationTaskSpec(
+        belong_to=identity_scope.workspace_identity,
+        from_actor=identity_scope.actor_identity,
+        topic_id="t1",
+        label="history-test",
+        source=MemoryGenerationSource.UPDATE,
+        request=GenerationRequest(
+            context=GenerationContext(),
+            update_focus=UpdateFocus(
+                instruction="revise",
+                base_uuid=str(base.id),
+                base_alias=base.index.alias or "",
+                base_version=base.meta.version,
+            ),
+            existing_memory=base,
+        ),
+        interaction_input=None,
+    )
+
+
 def _artifact_engine(tmp_path) -> ArtifactEngine:
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
     return ArtifactEngine.from_store(store=store)
@@ -260,7 +283,9 @@ async def test_update_snapshot_captures_versioned_atom_before_own_refs(tmp_path)
 
     outcome = _update_outcome(before, "v2 content")
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
-    await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
+    await familiar.execute(
+        _update_spec(identity_scope, before), on_commit_started=_ignore_commit_start
+    )
 
     key = WorkspaceMemoryKey(
         workspace_identity=identity_scope.workspace_identity, memory_id=before.id
@@ -304,7 +329,9 @@ async def test_canonical_publish_failure_leaves_orphan_version_not_head(tmp_path
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
 
     with pytest.raises(RuntimeError, match="canonical 写入失败"):
-        await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
+        await familiar.execute(
+            _update_spec(identity_scope, before), on_commit_started=_ignore_commit_start
+        )
 
     # 旧 canonical 仍有效：内容/版本未变，且没有新的 VERSIONED 事件。
     key = WorkspaceMemoryKey(
@@ -344,7 +371,9 @@ async def test_version_record_failure_aborts_before_canonical_publish(tmp_path):
     )
 
     with pytest.raises(RuntimeError, match="版本存储写入失败"):
-        await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
+        await familiar.execute(
+            _update_spec(identity_scope, before), on_commit_started=_ignore_commit_start
+        )
 
     assert mid_term.upsert_calls == [], "版本记录失败后不得发布 canonical"
     assert failing_store.put_calls >= 1
@@ -364,7 +393,9 @@ async def test_cancelled_canonical_publish_propagates(tmp_path):
     familiar, _ = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
 
     with pytest.raises(asyncio.CancelledError):
-        await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
+        await familiar.execute(
+            _update_spec(identity_scope, before), on_commit_started=_ignore_commit_start
+        )
 
 
 @pytest.mark.asyncio
@@ -377,7 +408,9 @@ async def test_history_immutable_after_post_commit_mutation(tmp_path):
 
     outcome = _update_outcome(before, "v2 content")
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
-    await familiar.execute(_spec(identity_scope), on_commit_started=_ignore_commit_start)
+    await familiar.execute(
+        _update_spec(identity_scope, before), on_commit_started=_ignore_commit_start
+    )
 
     key = WorkspaceMemoryKey(
         workspace_identity=identity_scope.workspace_identity, memory_id=before.id
@@ -477,16 +510,7 @@ async def test_two_workspace_commits_do_not_cross_talk(tmp_path):
     outcome = _update_outcome(main_atom, "main updated")
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
     await familiar.execute(
-        MemoryGenerationTaskSpec(
-            belong_to=main_scope.workspace_identity,
-            from_actor=main_scope.actor_identity,
-            topic_id="t1",
-            label="history-test",
-            source=MemoryGenerationSource.WRITE,
-            request=GenerationRequest(context=GenerationContext()),
-            interaction_input=None,
-        ),
-        on_commit_started=_ignore_commit_start,
+        _update_spec(main_scope, main_atom), on_commit_started=_ignore_commit_start
     )
 
     updated = await mid_term.get(main_scope.workspace_identity, shared_id)
@@ -515,7 +539,9 @@ async def test_history_policy_snapshot_is_not_authorization_basis(tmp_path):
     # 提交时点策略为 PUBLIC（进入版本快照的历史事实）。
     outcome = _update_outcome(before, "v2 content")
     familiar, mid_term = _familiar([outcome], _artifact_engine(tmp_path), mid_term)
-    await familiar.execute(_spec(owner_scope), on_commit_started=_ignore_commit_start)
+    await familiar.execute(
+        _update_spec(owner_scope, before), on_commit_started=_ignore_commit_start
+    )
 
     canonical = await mid_term.get(owner_scope.workspace_identity, outcome.atom.id)
     # 提交后策略收紧为 PRIVATE：仅 a1 可读。

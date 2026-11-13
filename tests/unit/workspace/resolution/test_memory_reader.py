@@ -33,11 +33,10 @@ from hivememory.core.models import (
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.cache.atom import AtomCache
 from hivememory.workspace.cache.epoch import WorkspaceEpochs
-from hivememory.workspace.intents import WriteIntentRegistry
 from hivememory.workspace.resolution.guard import ColdReadGuard
 from hivememory.workspace.resolution.memory import MemoryReader
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_write_intent_registry
 
 A1 = make_identity_scope(user_id="u1", agent_id="a1")
 A2 = make_identity_scope(user_id="u1", agent_id="a2")
@@ -128,7 +127,10 @@ def _resolver(backing: _FakeBacking) -> tuple[MemoryReader, WorkspaceEpochs, Col
     epochs = WorkspaceEpochs()
     guard = ColdReadGuard(epochs, max_stale_retries=2)
     resolver = MemoryReader(
-        cache=AtomCache(capacity=16), guard=guard, backing=backing, intents=WriteIntentRegistry()
+        cache=AtomCache(capacity=16),
+        guard=guard,
+        backing=backing,
+        intents=make_write_intent_registry(),
     )
     return resolver, epochs, guard
 
@@ -345,7 +347,7 @@ async def test_read_in_flight_at_close_returns_result_without_backfill():
     guard = ColdReadGuard(epochs)
     cache = AtomCache(capacity=16)
     resolver = MemoryReader(
-        cache=cache, guard=guard, backing=backing, intents=WriteIntentRegistry()
+        cache=cache, guard=guard, backing=backing, intents=make_write_intent_registry()
     )
     backing.on_fetch = guard.close
 
@@ -367,7 +369,10 @@ def _pending(resolver: MemoryReader, process_id: str = "writer_process"):
 
 @pytest.mark.asyncio
 async def test_reference_read_preserves_order_duplicates_and_workspace_visibility():
-    """L0 同 Workspace 可回读，逐项结果保留重复项与缺失项。"""
+    """L0 同 Workspace 可回读，逐项结果保留重复项与缺失项。
+
+    其他 Workspace 的句柄与登记中没有的句柄一样按已过期交付，不透露它是否存在。
+    """
     backing = _FakeBacking()
     resolver, _, _ = _resolver(backing)
     pending = _pending(resolver)
@@ -380,9 +385,24 @@ async def test_reference_read_preserves_order_duplicates_and_workspace_visibilit
 
     assert [result.kind for result in own] == ["pending", "not_found", "pending"]
     assert own[0].pending.focus.content == "shared pending content"
-    assert (denied[0].kind, denied[0].pending) == ("not_found", None)
+    assert (denied[0].kind, denied[0].pending) == ("expired", None)
     own[0].pending.focus = WriteFocus(content="caller changed")
     assert own[2].pending.focus.content == "shared pending content"
+
+
+@pytest.mark.asyncio
+async def test_unknown_write_handle_resolves_expired_unless_a_memory_owns_the_alias():
+    """登记中没有的 draft_/rev_ 句柄按已过期交付；手动命名为同前缀的正式记忆照常读到，
+    其他找不到的 alias 仍是 not_found。"""
+    backing = _FakeBacking()
+    backing.store(_atom("draft_notes"))
+    resolver, _, _ = _resolver(backing)
+
+    results = await resolver.resolve_references(
+        ["draft_gone_1a2b", "rev_fact_api_1a2b", "draft_notes", "fact_missing"], scope=A2
+    )
+
+    assert [result.kind for result in results] == ["expired", "expired", "atom", "not_found"]
 
 
 @pytest.mark.asyncio
@@ -460,6 +480,7 @@ def _update_by_a1(resolver: MemoryReader, base: MemoryAtom):
         UpdateFocus(
             base_alias=base.index.alias,
             base_uuid=str(base.id),
+            base_version=base.meta.version,
             instruction="revise",
             content="secret revision",
         ),

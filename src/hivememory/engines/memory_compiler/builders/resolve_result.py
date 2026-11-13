@@ -48,6 +48,10 @@ def build_resolve_result_ir(resolve_result: ReferenceResolution) -> MemoryUnitIR
             f"build_resolve_result_ir only handles 'redirect' and terminal kinds "
             f"({_TERMINAL_KINDS}), got '{kind}'."
         )
+    reason = settlement.reason if settlement else None
+    if kind == "failed" and resolve_result.pending is not None:
+        # 失败没有结算载荷，原因码由失败事件记在写入意图上。
+        reason = resolve_result.pending.failure_reason
     return MemoryUnitIR(
         identity=MemoryIdentityIR(
             source_kind="resolve_result",
@@ -59,7 +63,7 @@ def build_resolve_result_ir(resolve_result: ReferenceResolution) -> MemoryUnitIR
             is_terminal=True,
             is_discarded=kind == "discarded",
             message=settlement.message if settlement else None,
-            reason=settlement.reason if settlement else None,
+            reason=reason,
             error=settlement.error if settlement else None,
         ),
     )

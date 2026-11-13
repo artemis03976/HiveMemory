@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hivememory.core.errors import MemoryUpdateBaseChangedError
 from hivememory.engines.memory_compiler.ir import MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemoryArtifact,
@@ -76,8 +77,14 @@ def render_resolve_terminal(unit: MemoryUnitIR, options: MemoryCompileOptions) -
         )
 
     if status.source_state == "failed" or status.error is not None:
+        # 基础在排队期间被修改的 UPDATE 要先重新读取再更新，不是原样重新提交。
+        key = (
+            "resolve_failed_base_changed"
+            if status.reason == MemoryUpdateBaseChangedError.code
+            else "resolve_failed"
+        )
         return (
-            _resolve_text("resolve_failed", options.language)
+            _resolve_text(key, options.language)
             .format(
                 requested_alias=alias,
                 error=format_optional_field(status.error, options.language),

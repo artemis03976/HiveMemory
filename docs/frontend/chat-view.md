@@ -25,7 +25,7 @@ related_docs:
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
   - docs/gateway/workflow.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # Chat 视图
@@ -139,7 +139,7 @@ Agent 的名称与图标取自 Profile 列表（`hooks/useAgents.ts` 的 `resolv
 
 ### 6.2 记忆任务
 
-`memory.task.*` RuntimeEvent 在 WRITE/UPDATE 执行期间即可投影任务创建与状态变化，面板挂载时调用任务列表 API 补齐 best-effort 事件的遗漏；done 不再触发按任务 ID 刷新。任务按创建时间倒序排列，不显示“当前轮”标记或置顶（任务事件没有 process_id）。默认只列等待中与生成中的任务，勾选“显示已结束”后连已结束的一起显示；顶部一行写事件流的连接状态，并可刷新。
+`memory.task.*` RuntimeEvent 在 WRITE/UPDATE 执行期间即可投影任务创建与状态变化，面板挂载时调用任务列表 API 补齐 best-effort 事件的遗漏；done 不再触发按任务 ID 刷新。任务按创建时间倒序排列，不显示“当前轮”标记或置顶（任务事件没有 process_id）。默认只列等待中与生成中的任务，勾选“显示已结束”后连已结束的一起显示；已结束的任务在后端正常重启后仍在列表中（最近 100 条、结束于 7 天以内，[Patchouli 生成](../patchouli/generation.md#6-后台任务与终态)第 6 节）；顶部一行写事件流的连接状态，并可刷新。
 
 每个任务是一张卡片：名称或别名、带圆点的状态胶囊（等待中、生成中、完成、已取消、失败，请求取消后为“取消中”），底部一行写进入队列或开始的时间、完成时的用时，或失败的原因。点开卡片显示 task_id、topic_id、来源、别名与各时间点，未结束的任务可以在这里取消。task 数据本身不写入 localStorage，重载后重新以后端查询为准。memory task API 失败时只有 debug 模式换用 mock task，默认如实报错（[状态与传输](./state-and-transports.md#6-mock-降级边界)第 6 节）。
 

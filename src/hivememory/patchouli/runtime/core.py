@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -333,6 +334,27 @@ class PatchouliRuntime:
     def saved_generation_path(self) -> Path:
         """关闭时保存未执行生成工作的文件；相对路径按工作目录（数据根）解析。"""
         return Path(self._patchouli_config.shutdown.pending_work_file)
+
+    @property
+    def task_history_path(self) -> Path:
+        """关闭时写入已结束生成任务的文件；相对路径按工作目录（数据根）解析。"""
+        return Path(self._patchouli_config.shutdown.task_history_file)
+
+    def restore_task_history(self) -> None:
+        """读回上次关闭时写盘的已结束生成任务；在读回保存的生成工作之前调用。"""
+        self._task_controller.restore_task_history(
+            self.task_history_path, retention=self._task_history_retention
+        )
+
+    def save_task_history(self) -> None:
+        """把已结束的生成任务写盘；在生成队列停止之后调用。"""
+        self._task_controller.save_task_history(
+            self.task_history_path, retention=self._task_history_retention
+        )
+
+    @property
+    def _task_history_retention(self) -> timedelta:
+        return timedelta(days=self._patchouli_config.shutdown.task_history_retention_days)
 
     async def restore_saved_generation(self) -> RestoredWorkReport:
         """读回上次关闭时保存的生成工作并重新接纳；在生成队列启动之后调用。"""

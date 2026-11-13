@@ -524,6 +524,7 @@ def test_submit_memory_intent_update_maps_update_focus():
                 content="new content",
                 base_alias="fact_base",
                 base_uuid="00000000-0000-0000-0000-000000000001",
+                base_version=4,
             ),
         )
     )
@@ -533,6 +534,7 @@ def test_submit_memory_intent_update_maps_update_focus():
     assert task.pending_alias == "rev_fact_base_cd34"
     assert isinstance(task.focus, UpdateFocus)
     assert task.focus.base_alias == "fact_base"
+    assert task.focus.base_version == 4
 
 
 @pytest.mark.parametrize(

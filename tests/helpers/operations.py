@@ -24,6 +24,8 @@ from hivememory.workspace.contracts import (
 from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.workspace import (
+    INTENT_RECORD_FILE,
+    INTENT_RETENTION,
     make_access_composition,
     make_actor_access_record,
     make_identity_scope,
@@ -98,7 +100,11 @@ class OperationsHarness:
             self.bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, self._record_citation)
         self.backing = MemoryBackend(bus)
         self.runtime = WorkspaceReadView(
-            backing=self.backing, atom_capacity=32, profile_capacity=16
+            backing=self.backing,
+            atom_capacity=32,
+            profile_capacity=16,
+            intent_record_file=INTENT_RECORD_FILE,
+            intent_retention=INTENT_RETENTION,
         )
         self.registry = self.runtime.intents
         self.memories = self.backing.memories

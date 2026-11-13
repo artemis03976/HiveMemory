@@ -2,7 +2,9 @@
 
 主配置的默认值 ``config.yaml`` 与各个模板随程序发布；本机的个人配置不受版本控制，
 放在数据根下的 ``configs`` 目录，生效文件不存在时从模板复制一份。写入都先写同目录的
-临时文件再原子替换，写入中途失败不会留下半截文件。
+临时文件再原子替换，写入中途失败不会留下半截文件。关闭时写盘、启动时读回的数据文件
+（保存的生成工作、写入句柄登记、生成任务历史）也用这里的原子写入，读不回时按
+``rejected_path`` 改名保留。
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -18,6 +21,7 @@ __all__ = [
     "DATA_ROOT_ENV",
     "SHIPPED_CONFIGS_DIR",
     "personal_configs_dir",
+    "rejected_path",
     "seed_from_template",
     "write_atomically",
 ]
@@ -59,6 +63,12 @@ def write_atomically(path: Path, content: bytes) -> None:
     except BaseException:
         Path(tmp_path).unlink(missing_ok=True)
         raise
+
+
+def rejected_path(path: Path) -> Path:
+    """读不回的数据文件改名保留的位置：同目录，文件名带 ``rejected-`` 与 UTC 时间戳。"""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    return path.with_name(f"{path.stem}.rejected-{stamp}{path.suffix}")
 
 
 def seed_from_template(path: Path, template: Path) -> None:

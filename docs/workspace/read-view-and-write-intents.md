@@ -23,7 +23,7 @@ related_docs:
   - docs/contracts/mcp.md
   - docs/patchouli/generation.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 读取视图与写入意图
@@ -59,7 +59,7 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 `WriteIntentRegistry`（`workspace/intents/registry.py`）是进程级唯一登记，与任务进程生命周期解耦，记录 `belong_to`、`from_actor` 与只作观测关联的 `process_id`、`thread_id`（同一进程两次 CALL 同一个 Agent 时以线程区分）；不建进程的请求级提交没有进程与线程，二者为空。同 Workspace 的其他 Agent 可经 `memory.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。
 
-WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。登记的归属与发起者取自本次授权结果。
+WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。UPDATE 登记时记下基础原子的内容版本（`UpdateFocus.base_version`），随意图交给 Patchouli：写回前基础的版本已经不同，说明排队期间基础被修改过，修订不写回，句柄以 `workspace.memory.update_base_changed` 失败（[Patchouli 生成](../patchouli/generation.md#33-mode-c主动-update)第 3.3 节）。登记的归属与发起者取自本次授权结果。
 
 线程提交与请求级提交的写入顺序相同：
 
@@ -78,9 +78,22 @@ WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 M
 
 两种提交登记的是同一种意图，回读、派发、ACK 与结算的规则相同。
 
+### 3.1 写盘、读回与保留期
+
+登记在正常关闭时写盘、下次启动时读回，文件是 `workspace.write_intents.record_file`（默认 `.hivememory/write_intents.json`，相对路径按工作目录解析）。关闭时保存的生成工作在下次启动后继续执行并结算（[Patchouli 生成](../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)第 6.2 节），句柄因此必须跨重启，结算事件才有落点。顺序保证事件不落空：
+
+- **启动**：组合根在装配运行时设施时读回登记，随后才订阅结算事件，更早于 Patchouli 启动时恢复保存的工作；恢复的写入结算时，句柄已在登记中。
+- **关闭**：System 先停止 Patchouli，再关闭读取视图；关闭过程中结算的写入先经事件落到登记上，读取视图解除订阅之后才写盘。
+
+读回后文件即删除：进程崩溃时这段时间的句柄与保存的生成工作、生成任务历史一同丢失，下次启动不会读回一份过时的登记。文件无法解析或格式版本不认识时改名为同目录的 `write_intents.rejected-<UTC 时间>.json` 保留，登记以空表开始。写盘失败只记录 `write_intents_write_failed`，关闭照常继续。
+
+句柄自登记起保留 `workspace.write_intents.retention_days` 天（默认 7），不论状态：登记新意图与写盘时删除满期的句柄，读回时跳过。在途过久的句柄（例如生成侧一直积压）同样删除，之后读取按已过期交付，不再伪装成仍在生成；生成完成的记忆照常可以检索。保留期内 alias 不复用。
+
 ## 4. 引用解析
 
-`MemoryReader`（`workspace/resolution/memory.py`）统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、atom 与 not_found。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。新登记不产生 expired，终态句柄保留到重启。
+`MemoryReader`（`workspace/resolution/memory.py`）统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、expired、atom 与 not_found。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。FAILED 句柄交付时带着失败事件记下的原因码（第 5 节）。
+
+登记中没有、也不是正式记忆 alias 的 `draft_`、`rev_` 句柄按 expired 交付，说明句柄不存在或已过期：满保留期被删除、升级前发出后重启、进程崩溃丢失以及其他 Workspace 的句柄都是这样，不透露句柄是否存在。正式记忆的 alias 可以在手动创建时任取，因此先查正式记忆，同前缀的正式记忆照常读到；其他找不到的 alias 仍是 not_found。过期不是登记中的状态，只是读取时的解析结果。
 
 登记中存在的别名只按意图解析：取消、对当前 Actor 不可见或缺少结算载荷都得到 not_found，不回落为同名的正式原子。redirect 优先按结算的 `canonical_uuid` 读取，alias 被重新绑定后旧意图不会跟随到另一份资源，只有缺少 UUID 的结算载荷才按 `canonical_alias` 查找。读取正式原子始终返回已提交版本，进行中的 UPDATE 修订只经它自己的 pending 句柄可见。
 
@@ -90,18 +103,20 @@ UPDATE 的基础冷读在取得派发话题与登记的同步段之前完成，�
 
 派发开始后由 actor API 持有 shield 保护的任务直到完成，再传播调用方取消；CPU 失败、取消、停止、子线程结束、进程关闭、CALL 子帧失败或 MCP 调用方断开都不撤回已提交写入。ACK 表示意图已在 workspace 登记并被 Patchouli 生成队列接纳，不表示正式记忆已经持久化；正式持久化由 Patchouli 生成链结算（[Patchouli 生成](../patchouli/generation.md)）。
 
-确定性拒绝同步以 `mark_failed` 把句柄推进为 FAILED，并向 agent 返回结构化错误；结果未知保持 MATERIALIZING。结算事件仍由 Patchouli 发布，同步失败与随后失败通知幂等；三个结算事件都携带 pending_alias 与 intent_id，登记只在两者都匹配时迁移状态。状态终结后不再被晚到通知重写。
+确定性拒绝同步以 `mark_failed` 把句柄推进为 FAILED，并向 agent 返回结构化错误。派发结局不明（总线异常，或接纳结果既不是接纳也不是拒绝）时，以同一意图重试提交，至多 3 次，间隔 0.5、1、2 秒：提交路由按 `intent_id` 幂等，原意图其实已被接纳时重试命中原任务，不产生第二个任务；重试紧跟在不明之后，原任务还没结束，不会被生成队列淘汰。重试得到接纳照常 ACK，得到拒绝按确定性拒绝处理；仍然不明时向 agent 报结果未知，句柄保持 MATERIALIZING，直到之后的结算事件或保留期满。每次不明的根因记 warning（带异常栈），重试用尽另记一条 `dispatch_unknown` 错误。
+
+结算事件仍由 Patchouli 发布，同步失败与随后失败通知幂等；三个结算事件都携带 pending_alias 与 intent_id，登记只在两者都匹配时迁移状态。失败事件另带可选的原因码 `reason`，即生成任务失败的原因码（[Patchouli 生成](../patchouli/generation.md#61-失败原因码)第 6.1 节），登记记在句柄的 `failure_reason` 上；接纳前的确定性拒绝没有原因码。状态终结后不再被晚到通知重写。
 
 句柄可以在结算之后改指一次。WRITE 的草稿在查重中与已有记忆 M 相似时，生成链先把它保存为新记忆 N，句柄以 `CREATED` 结算到 N；随后的合并任务把 N 并入 M 并删除 N，Patchouli 再发布改指事件（`pending_atom.merged`），携带指向 M 的 `MERGED` 结算与 N 的 ID（[记忆生成](../patchouli/generation.md#41-合并任务)）。登记只在 alias 与 `intent_id` 都匹配、句柄处于 SETTLED、现有结算为 `CREATED` 且正式身份仍是 N 时，用新结算替换旧结算，其余情况一律忽略，晚到或重复的改指因此不会改写其他句柄。改指不是状态迁移，句柄仍为 SETTLED。合并之前读取句柄得到 N，改指之后按新结算的 `canonical_uuid` 得到 M。
 
 ## 6. 已知限制
 
-- 读取视图与写入意图登记均为进程内状态；失效通知不处理未送达补齐，意图句柄不回收也不跨重启恢复，实时派发的结果未知时可能长期保持 MATERIALIZING；
+- 读取视图是进程内状态，失效通知不处理未送达补齐；写入意图登记只在正常关闭时写盘，进程崩溃时这段时间的句柄丢失，之后读取按已过期交付；派发重试后结局仍然不明、或结算事件丢失的句柄保持 MATERIALIZING，最晚在保留期满后删除，没有对账恢复；
 - 改指事件与结算事件同样没有补偿：改指丢失时句柄仍指向已删除的 N，SETTLED redirect 读不到正式目标，按不可读处理；
-- 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。这与意图的结果一致：Agent 的写入总是生成 PUBLIC，只有用户能在管理页修改可见性；用户把正式记忆或 UPDATE 的基础改为只对其他 Agent 可见之后，重定向与 UPDATE 意图的回读照常按正式记忆的策略授权（第 4 节）。结算对账、句柄保留期与外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；
+- 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。这与意图的结果一致：Agent 的写入总是生成 PUBLIC，只有用户能在管理页修改可见性；用户把正式记忆或 UPDATE 的基础改为只对其他 Agent 可见之后，重定向与 UPDATE 意图的回读照常按正式记忆的策略授权（第 4 节）。外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；
 - 原子缓存与意图读取交付独立副本，但对象仍可变，不宣称递归冻结。
 
 ## 7. 代码与测试入口
 
 - [`WorkspaceReadView`](../../src/hivememory/workspace/read_view.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）、[`MemoryReader`](../../src/hivememory/workspace/resolution/memory.py)、[`ProfileResolver`](../../src/hivememory/workspace/resolution/profile.py)、[`WriteIntentRegistry`](../../src/hivememory/workspace/intents/registry.py)；
-- 测试：[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（线程与请求级提交的登记与派发；请求级的更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_process_intents.py`](../../tests/integration/workspace/test_process_intents.py)（线程提交只有写入确定话题、被拒的写入不确定话题、确定话题期间停止时不登记）、[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)、[`test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)（含进程加载 PRIVATE 图纸而 CALL 仍按调用方可见性拒绝）、[`test_memory_reader.py`](../../tests/unit/workspace/resolution/test_memory_reader.py)、[`test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)（缓存串扰与授权重验，管理读取在命中与冷读两条路径交付 PRIVATE 图纸）、[`test_workspace_intent_subscription.py`](../../tests/integration/system/test_workspace_intent_subscription.py)（组合根装配即订阅、关闭即取消订阅）、[`test_inflight_dispatch.py`](../../tests/integration/workspace/test_inflight_dispatch.py)。
+- 测试：[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（线程与请求级提交的登记与派发；请求级的更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_process_intents.py`](../../tests/integration/workspace/test_process_intents.py)（线程提交只有写入确定话题、被拒的写入不确定话题、确定话题期间停止时不登记）、[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)（含写盘读回、保留期与读不回的文件）、[`test_lifecycle.py`](../../tests/unit/system/test_lifecycle.py)（关闭时 Patchouli 停止期间结算的写入先落到登记再写盘）、[`test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)（含进程加载 PRIVATE 图纸而 CALL 仍按调用方可见性拒绝）、[`test_memory_reader.py`](../../tests/unit/workspace/resolution/test_memory_reader.py)（含登记中没有的句柄按已过期交付）、[`test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)（缓存串扰与授权重验，管理读取在命中与冷读两条路径交付 PRIVATE 图纸）、[`test_workspace_intent_subscription.py`](../../tests/integration/system/test_workspace_intent_subscription.py)（组合根装配即读回登记并订阅、关闭即取消订阅）、[`test_inflight_dispatch.py`](../../tests/integration/workspace/test_inflight_dispatch.py)（含结局不明时以同一意图重试、命中原任务）。

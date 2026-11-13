@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 记忆生成
@@ -151,7 +151,13 @@ Engine 用 extractor 的修订（`revise`，结果为 `RevisionResult`）生成�
 
 修订结果与现有正文一致时不创建新版本——outcome 为 TOUCH，只经受限 patch 推进访问统计。真实内容变化时，Familiar 在提交边界（一次取 `now`）推进 `meta.version` 与 `updated_at`/`decay_anchor_at`、重置置信度，前后完整快照交给 Artifact 层生成 MemoryVersionArtifact 后写回中期库。
 
-修订以 spec 构建时读到的基础记忆为底，任务可能排队很久（正常关闭时还会随任务写盘），写回的又是整条原子。为了不把用户在这期间于管理页修改的读取策略改回去，Familiar 在模型计算之后、提交之前按复合键重读基础记忆，沿用此刻的策略再提交，与合并写回前的重读相同。基础记忆已被删除或对发起者不可读时不写回，任务以 `ResourceNotFoundError` 失败（原因码按领域错误的规则为 `workspace.resource.not_found`，第 6.1 节）：发起者不能修订它读不到的记忆，写回也会让已删除的记忆重新出现；缺失与不可读同样按不存在处理。重读只处理策略与存在性，不比对内容版本（第 8 节）。
+修订以 spec 构建时读到的基础记忆为底，任务可能排队很久（正常关闭时还会随任务写盘），写回的又是整条原子。Familiar 在模型计算之后、提交之前按复合键重读基础记忆，与合并写回前的重读相同：
+
+- **内容版本**：workspace 登记 UPDATE 时记下基础的内容版本（`UpdateFocus.base_version`），经 `MemoryIntent` 交到这里。重读得到的版本与它不同，说明排队期间基础的内容被修改过（另一个 UPDATE 或管理页编辑），修订是对登记时那一版的指令，写回会静默覆盖期间的修改，因此不写回，任务以 `MemoryUpdateBaseChangedError` 失败（原因码 `workspace.memory.update_base_changed`，第 6.1 节），读取句柄时提示重新读取后再更新。
+- **读取策略**：策略变动不推进内容版本，修订照常写回，并沿用此刻的策略，不把用户在管理页修改的策略改回去。
+- **存在性**：基础记忆已被删除或对发起者不可读时不写回，任务以 `ResourceNotFoundError` 失败（原因码按领域错误的规则为 `workspace.resource.not_found`）：发起者不能修订它读不到的记忆，写回也会让已删除的记忆重新出现；缺失与不可读同样按不存在处理。
+
+版本比较在模型计算之后：基础在排队期间被修改时，这次模型调用的结果被丢弃。
 
 ## 4. 查重与合并
 
@@ -245,7 +251,7 @@ spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 re
 PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
 ```
 
-私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.1"`，`spec` 独立编码归属与发起者，只注册当前版本。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`，队列本身不持久化；版本化载荷用于进程内冻结和一致性校验，也是关闭时保存工作的格式（第 6.2 节）。保存的载荷在下次启动时由另一个进程解码并重新编码比对，因此载荷必须与进程无关：`GenerationRequest.topic_write_memory_ids` 按排序输出。改动信封格式时，同一改动必须让新版本读得回上一版本保存的工作，否则这些工作在升级后进入 rejected 文件。
+私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.2"`，`spec` 独立编码归属与发起者。另注册 `"1.1"` 的读取器，只用于读回升级前保存的工作：1.1 的修订没有 `base_version`，读回时取任务构建时读到的基础记忆（`existing_memory`）的版本，修订以这一版为底计算，此后被修改过的基础照常拒绝写回；补齐后按 1.2 的规则严格解码。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`，队列本身不持久化；版本化载荷用于进程内冻结和一致性校验，也是关闭时保存工作的格式（第 6.2 节）。保存的载荷在下次启动时由另一个进程解码并重新编码比对，因此载荷必须与进程无关：`GenerationRequest.topic_write_memory_ids` 按排序输出。改动信封格式时，同一改动必须让新版本读得回上一版本保存的工作，否则这些工作在升级后进入 rejected 文件。
 
 `WorkRecord` 是执行状态的唯一真相源，Queue 的 `TaskHandle` 提供 snapshot/wait/cancel；
 TaskController 只在查询时映射非终态快照，并在 work 终止后执行一次 settlement 与终态事件。
@@ -258,12 +264,14 @@ Familiar 内部以 Generation Engine 返回的 `GenerationOutcome`（原子与�
 `PendingAtomSettlement`、合并提名与被吸收记忆的 ID，不会把 `MemoryAtom`、查重判断、提交动作、before snapshot 或 changelog 泄漏到
 Controller。由此，Engine 计算语义与 Patchouli 已持久化事实保持明确边界。
 
+已结束的任务在正常关闭时写进任务历史 `patchouli.shutdown.task_history_file`（默认 `.hivememory/memory_tasks.json`），下次启动时、读回保存的工作之前读回，对话页的记忆生成任务列表因此不随重启清空。历史只供 list 与 get：两者在本进程的任务之外合并历史，同一任务 ID 以本进程的为准；历史不能取消或等待，也不参与接纳的幂等判重。读回的历史与本进程已结束的任务共用 `terminal_retention`（100 条）上限，新任务结束时先淘汰最早的历史；写盘与读回都只保留结束于 `task_history_retention_days`（默认 7 天）之内的。关闭时保存的工作（取消原因 `shutdown_persisted`）不写进历史：它在下次启动后继续执行，写入与更新以同一任务 ID 重新出现，历史中留下“已取消”会与它冲突。读回后文件即删除，崩溃时这段时间的历史丢失；读不回的文件改名为同目录的 `memory_tasks.rejected-<UTC 时间>.json` 保留，写盘失败记录 `task_history_write_failed`。
+
 控制面提供 list/get/cancel/wait/wait_many/wait_all。`wait_task()` 直接返回
 `MemoryGenerationTask | None`，`wait_many()` 按请求顺序返回快照或 `None` 的列表，不再复制一层
 WaitResult/WaitSummary。等待使用 `asyncio.shield`，超时返回当前 `PENDING/RUNNING` 快照，不会接管或
 自动取消后台任务。
 
-任务状态通过 RuntimeEvent 发布。TaskController 只决定生命周期事件的发生时机，`MemoryTaskEventEmitter` 集中选择 `memory.task.*` 类型并组装稳定 payload；通用队列仍独立发布 `work.*` 基础设施事件，两者不互相替代。主动任务完成后，settlement 会通过 PatchouliBridge 转发为全局 PendingAtom event，由 workspace registry 更新登记终态；发布失败不会回滚已持久化记忆，Controller 会 best-effort 发布 pending failure。PendingAtom settlement、failed、cancelled 仍属于功能事件并继续留在 TaskController；当前没有事件未送达补偿或跨重启恢复，不能保证 registry 在通知丢失后自行补齐终态。
+任务状态通过 RuntimeEvent 发布。TaskController 只决定生命周期事件的发生时机，`MemoryTaskEventEmitter` 集中选择 `memory.task.*` 类型并组装稳定 payload；通用队列仍独立发布 `work.*` 基础设施事件，两者不互相替代。主动任务完成后，settlement 会通过 PatchouliBridge 转发为全局 PendingAtom event，由 workspace registry 更新登记终态；发布失败不会回滚已持久化记忆，Controller 会 best-effort 发布 pending failure。PendingAtom settlement、failed、cancelled 仍属于功能事件并继续留在 TaskController；failed 带上任务失败的原因码（第 6.1 节）。跨重启由 workspace 登记的写盘与启停顺序保证结算事件有落点（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)）；没有事件未送达补偿，不能保证 registry 在通知丢失后自行补齐终态。
 
 合并任务成功且结果带句柄时，Controller 经结算发布者发布改指事件 `patchouli.events.pending_atom.merged`，由 PatchouliBridge 转发为同名全局事件，载荷是 `MERGED` 结算与被吸收记忆的 ID。句柄此前已经以 `CREATED` 结算过一次，改指因此不占用“每个 alias 一次终态”的保留，发布失败只记录 warning，不改写任何任务终态。workspace 登记只对仍以 `CREATED` 指向被吸收记忆的句柄替换结算（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。
 
@@ -284,7 +292,7 @@ PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中�
 
 超窗是提供商失败的子类，先于它判断。原因码写入工作记录，由 `work.failed` 投影；Controller 发布 `memory.task.failed` 时 `reason` 取工作记录中的原因码，载荷的 `error_class` 为异常类名，取消终态的 `reason` 仍是取消原因。payload 解码失败与分类器自身出错不经过这张表，原因分别为 `invalid_work_payload` 与 `failure_classifier_error`。
 
-同一次失败只在分类处记一行 error 日志：`work_id`（`memory_generation:<task_id>`）、原因码与异常类名；领域错误另记 `details`，未预期的异常带堆栈，提供商失败与超时不带堆栈（提取器重试前已以 warning 记录第一次失败的原因）。日志不带话题与来源，它们在同一任务的 `memory.task.failed` 中，按 `task_id` 在运行时事件记录文件里对应（[可观测性](../components/observability.md#51-事件记录文件)第 5.1 节）。任务快照与任务 API 不变，公开 `error` 仍是固定说明；写入意图的失败结算不带原因。分类与日志由生成队列的单元测试覆盖，原因码到 `work.failed` 与 `memory.task.failed` 的传递由控制器的单元测试覆盖。
+同一次失败只在分类处记一行 error 日志：`work_id`（`memory_generation:<task_id>`）、原因码与异常类名；领域错误另记 `details`，未预期的异常带堆栈，提供商失败与超时不带堆栈（提取器重试前已以 warning 记录第一次失败的原因）。日志不带话题与来源，它们在同一任务的 `memory.task.failed` 中，按 `task_id` 在运行时事件记录文件里对应（[可观测性](../components/observability.md#51-事件记录文件)第 5.1 节）。任务快照与任务 API 不变，公开 `error` 仍是固定说明。写入与更新任务失败时，写入意图的失败事件带上同一个原因码，workspace 登记记在句柄上，读取失败的句柄时交付；接纳前的确定性拒绝没有原因码。分类与日志由生成队列的单元测试覆盖，原因码到 `work.failed` 与 `memory.task.failed` 的传递由控制器的单元测试覆盖。
 
 ### 6.2 提交阶段、关闭时保存与启动时继续
 
@@ -309,7 +317,7 @@ Familiar 把一次任务分成两段：
 
 - 先删除文件，再逐项经控制器重新接纳，与新任务走同一条路；只入队，执行在后台进行，不阻塞启动。接纳过程中崩溃会丢失这些工作，但不会在下一次启动重复生成。
 - 整个文件无法解析或格式版本不认识时，文件改名为同目录的 `pending_generation.rejected-<UTC 时间>.json`；单项的 `kind` 或 `schema_version` 不认识、载荷不规范或接纳被拒绝时，这些项写进同样命名的文件，其余照常接纳。两种情况都记录错误日志并发布事件，启动继续。
-- 读回的工作以新任务出现，主动写入的任务 ID 沿用 `active:{intent_id}`。写入意图登记不跨重启，旧句柄读不到，任务生成的记忆照常落库（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。
+- 读回的工作以新任务出现，主动写入的任务 ID 沿用 `active:{intent_id}`。写入意图登记同样在正常关闭时写盘，并在 Patchouli 启动之前读回，恢复的写入结算时事件落到原句柄上（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)）。
 
 观测：`patchouli.shutdown_drain` 的完成事件报告按来源分的保存数、等待提交结束的任务数与文件是否写出，没写出时状态为 `completed_without_saved_work`、级别 error。读回作为一次 `patchouli.restore_saved_generation` 操作发布开始与完成事件，报告读回、重新接纳与写进 rejected 文件的数量；有内容进入 rejected 文件时状态为 `completed_with_rejections`、级别 error。
 
@@ -345,10 +353,9 @@ Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动
 - 同一次结算的多条草稿之间不互相查重，只与已经落库的记忆比较；两条描述同一件事的草稿会各自新建；
 - 一次结算的多条结果依次提交，中途失败（例如存储或版本记录故障）时已提交的记忆保留而任务失败；控制面只在任务成功时提交合并提名，这一批的合并因此不会发生，留下重复；
 - 一段话题的全部草稿共用一次调用的输出上限：草稿多、正文长的话题被截断时任务失败，原文仍在来源 InteractionArtifact 中，但没有记忆引用它；
-- 结果未知或结算事件丢失时，句柄可能长期保持 MATERIALIZING；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
-- UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；写回前的重读只沿用当前策略（第 3.3 节），排队期间对同一条记忆的手动内容编辑仍会被修订写回覆盖；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
-- 正常关闭时未执行的工作保存到磁盘、下次启动后继续（第 6.2 节），崩溃或强制结束时随进程丢失；typed result 与终态快照只存在于当前进程，旧任务 ID 重启后查不到；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
-- 终态快照与 Queue 使用同一 `terminal_retention` 上限；
+- 派发重试后结局仍然不明、或结算事件丢失时，句柄保持 MATERIALIZING，直到写入句柄的保留期满被删除；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
+- 正常关闭时未执行的工作保存到磁盘、下次启动后继续（第 6.2 节），崩溃或强制结束时随进程丢失；typed result 只存在于当前进程，已结束任务的快照在正常关闭时写进任务历史（第 6 节），崩溃时丢失；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
+- 终态快照（含读回的历史）与 Queue 使用同一 `terminal_retention` 上限；
 - Controller 的 admission 持有同一把锁串行执行，并发提交的意图按取得锁的顺序入队；
 - 提取、修订与合并的 LLM 调用没有独立超时，只受生成 lane 的时限（默认 300 秒，到期以 `memory_generation_timed_out` 失败）与取消约束；
 - 后台抽取与 chat 共用提供商配额，限流表现为提供商失败：Mode A 与合并任务按任务失败收尾（合并失败时两条记忆都保留），Mode B/C 使用 fallback；当前没有生成侧的并发控制；

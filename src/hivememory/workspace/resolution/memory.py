@@ -2,7 +2,8 @@
 
 读取器归读取视图（``WorkspaceReadView``）持有。解析顺序：
 
-- L0 写入意图登记：在 Workspace 归属边界内交付 pending 与结算状态；
+- L0 写入意图登记：在 Workspace 归属边界内交付 pending 与结算状态；登记中没有、
+  也不是正式记忆 alias 的写入句柄（``draft_``/``rev_`` 开头）按已过期交付；
 - L1 ``AtomCache``：按原子自身 policy 对当前 Actor 授权，有效命中不回源；
 - L2 backing 冷读：受 Workspace 代次守护，代次未变才回填，库侧资源归属与
   policy 校验独立成立（纵深防御）。
@@ -14,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 from uuid import UUID
 
 from hivememory.core.memory_access import memory_belongs_to_workspace, memory_is_readable
@@ -26,7 +28,7 @@ from hivememory.core.models.pending import (
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.cache.atom import AtomCache
-from hivememory.workspace.intents import WriteIntentRegistry
+from hivememory.workspace.intents import WRITE_INTENT_ALIAS_PREFIXES, WriteIntentRegistry
 from hivememory.workspace.resolution.backing import CanonicalReadBackend
 from hivememory.workspace.resolution.guard import ColdReadGuard
 
@@ -64,7 +66,11 @@ class MemoryReader:
         *,
         scope: IdentityScope,
     ) -> list[ReferenceResolution]:
-        """逐项解析全部引用，保留请求顺序、重复项与 not_found 结果。"""
+        """逐项解析全部引用，保留请求顺序、重复项与 not_found 结果。
+
+        正式记忆的 alias 也可能以写入句柄的前缀开头（手动创建时可以任取），因此先查
+        正式记忆，都查不到时才按已过期交付。
+        """
         self._guard.ensure_open()
         results: list[ReferenceResolution] = []
         for requested in aliases:
@@ -74,11 +80,16 @@ class MemoryReader:
                 results.append(await self._resolve_pending(pending, requested, scope))
                 continue
             atoms = await self.resolve_aliases([alias], scope=scope) if alias else []
+            kind: Literal["atom", "expired", "not_found"]
+            if atoms:
+                kind = "atom"
+            elif alias.startswith(WRITE_INTENT_ALIAS_PREFIXES):
+                kind = "expired"
+            else:
+                kind = "not_found"
             results.append(
                 ReferenceResolution(
-                    kind="atom" if atoms else "not_found",
-                    requested_alias=requested,
-                    atom=atoms[0] if atoms else None,
+                    kind=kind, requested_alias=requested, atom=atoms[0] if atoms else None
                 )
             )
         return results
@@ -90,8 +101,7 @@ class MemoryReader:
         scope: IdentityScope,
     ) -> ReferenceResolution:
         """L0 状态投影；redirect 必须重新经过 canonical 原子的 policy 授权。"""
-        if pending.status in (PendingAtomStatus.CANCELLED, PendingAtomStatus.EXPIRED):
-            # CANCELLED 与遗留 EXPIRED 都按不存在处理；新登记不再产生 EXPIRED。
+        if pending.status == PendingAtomStatus.CANCELLED:
             return ReferenceResolution(kind="not_found", requested_alias=requested)
         if isinstance(pending.focus, UpdateFocus):
             # UPDATE 意图携带基础原子的修改内容与坐标，可见性跟随基础原子：

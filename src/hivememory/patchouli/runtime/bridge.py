@@ -289,13 +289,16 @@ class PatchouliBridge:
             settlement=settlement,
         )
 
-    async def _forward_pending_atom_failed(self, *, pending_alias: str, intent_id: str) -> None:
+    async def _forward_pending_atom_failed(
+        self, *, pending_alias: str, intent_id: str, reason: str | None = None
+    ) -> None:
         if self._global_bus is None:
             return
         await self._global_bus.publish(
             GlobalEvents.PENDING_ATOM_FAILED,
             pending_alias=pending_alias,
             intent_id=intent_id,
+            reason=reason,
         )
 
     async def _forward_pending_atom_merged(

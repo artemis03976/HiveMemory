@@ -193,29 +193,6 @@ _PENDING_ATOM_TEXT_ZH = {
         "\n"
         "注意: 这是一个待定修订。原始记忆尚未被修改。"
     ),
-    "pending_read_failed": (
-        "[{pending_alias}] (失败):" "错误: {error}\n" "提示: 如需重试，请重新提交这次写入或更新。"
-    ),
-    "pending_read_settled": (
-        "[{pending_alias}] (已落库):"
-        "此待定原子已完成实例化。"
-        "正式名称：{canonical_alias}\n"
-        "提示: 请使用正式别名进行后续访问。"
-    ),
-    "pending_read_discarded": (
-        "[{pending_alias}] (已丢弃):"
-        "此待定原子在去重过程中被判定为冗余，不会生成新记忆。\n"
-        "消息：{message}\n"
-        "原因：{reason}"
-    ),
-    "pending_read_cancelled": (
-        "[{pending_alias}] (已取消):" "此待定原子已被取消，且不会被实例化。"
-    ),
-    "pending_read_expired": (
-        "[{pending_alias}] (已过期):"
-        "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
-        "提示: 如果需要，请检索已定型的记忆。"
-    ),
 }
 
 _PENDING_ATOM_TEXT_EN = {
@@ -240,32 +217,6 @@ _PENDING_ATOM_TEXT_EN = {
         "\n"
         "note: This is a pending revision. "
         "The original memory has not been modified yet."
-    ),
-    "pending_read_failed": (
-        "[{pending_alias}] (failed):"
-        "error: {error}\n"
-        "Suggestion: Submit the write or update again to retry."
-    ),
-    "pending_read_settled": (
-        "[{pending_alias}] (materialized):"
-        "This pending atom has been materialized.\n"
-        "Canonical alias: {canonical_alias}\n"
-        "Suggestion: Use the canonical alias for future access."
-    ),
-    "pending_read_discarded": (
-        "[{pending_alias}] (discarded):"
-        "This pending atom was determined to be redundant during deduplication and will not produce a new memory.\n"
-        "message: {message}\n"
-        "reason: {reason}"
-    ),
-    "pending_read_cancelled": (
-        "[{pending_alias}] (cancelled):"
-        "This pending atom was cancelled and will not be materialized."
-    ),
-    "pending_read_expired": (
-        "[{pending_alias}] (expired):"
-        "This handle has been reclaimed. The pending atom no longer exists in runtime.\n"
-        "Suggestion: Search for the finalized memory if needed."
     ),
 }
 
@@ -299,12 +250,20 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "\n"
         "提示: 如需重试，请重新提交这次写入或更新。"
     ),
+    "resolve_failed_base_changed": (
+        "[{requested_alias}]\n"
+        "状态: 失败\n"
+        "已实例化: 否\n"
+        "原因：基础记忆在排队期间被修改，这次更新没有写回。\n"
+        "\n"
+        "提示: 请重新读取这条记忆，基于最新内容再提交更新。"
+    ),
     "resolve_expired": (
         "[{requested_alias}]\n"
         "状态: expired（已过期）\n"
         "已实例化: 否\n"
-        "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
-        "提示: 如果需要，请检索已定型的记忆。"
+        "写入句柄不存在或已过期：句柄自写入起默认保留 7 天，之后删除。\n"
+        "提示: 如果需要，请检索已生成的正式记忆。"
     ),
 }
 
@@ -338,12 +297,22 @@ _RESOLVE_RESULT_TEXT_EN = {
         "\n"
         "Note: Submit the write or update again to retry."
     ),
+    "resolve_failed_base_changed": (
+        "[{requested_alias}]\n"
+        "status: failed\n"
+        "materialized: false\n"
+        "reason: The base memory was modified while this update was queued; "
+        "the update was not written.\n"
+        "\n"
+        "Note: Read the memory again and submit the update against its latest content."
+    ),
     "resolve_expired": (
         "[{requested_alias}]\n"
         "status: expired\n"
         "materialized: false\n"
-        "This handle has been reclaimed. The pending atom no longer exists in runtime.\n"
-        "Note: Search for the finalized memory if needed."
+        "The write handle does not exist or has expired: "
+        "handles are kept for 7 days after the write by default, then deleted.\n"
+        "Note: Search for the generated memory if needed."
     ),
 }
 

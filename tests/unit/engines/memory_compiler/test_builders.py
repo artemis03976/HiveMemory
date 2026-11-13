@@ -82,38 +82,37 @@ def test_build_pending_atom_ir_for_write_focus():
     assert unit.status.is_terminal is False
 
 
-def test_build_pending_atom_ir_for_update_focus_and_discarded_settlement():
-    pending = PendingAtom(
+def _update_intent(status: PendingAtomStatus) -> PendingAtom:
+    return PendingAtom(
         pending_alias="rev_1",
         intent_id="intent-2",
-        status=PendingAtomStatus.SETTLED,
+        status=status,
         source_verb="UPDATE",
         focus=UpdateFocus(
             base_alias="fact_api",
             base_uuid="uuid-1",
+            base_version=3,
             instruction="Revise it",
             content="New body",
         ),
         belong_to=make_identity_scope().workspace_identity,
         from_actor=make_identity_scope().actor_identity,
-        settlement=PendingAtomSettlement(
-            pending_alias="rev_1",
-            intent_id="intent-2",
-            resolution=PendingAtomResolution.DISCARDED,
-            message="duplicate",
-            reason="already covered",
-        ),
     )
 
-    unit = build_pending_atom_ir(pending)
+
+def test_build_pending_atom_ir_for_update_focus():
+    unit = build_pending_atom_ir(_update_intent(PendingAtomStatus.MATERIALIZING))
 
     assert unit.content.instruction == "Revise it"
     assert unit.content.content == "New body"
     assert unit.metadata["base_alias"] == "fact_api"
-    assert unit.status.is_terminal is True
-    assert unit.status.is_discarded is True
-    assert unit.status.message == "duplicate"
-    assert unit.status.reason == "already covered"
+    assert unit.status.source_verb == "UPDATE"
+
+
+def test_build_pending_atom_ir_rejects_terminal_intent():
+    """终态句柄由读取器转为引用解析结果交付，按意图编译是接线缺陷。"""
+    with pytest.raises(ValueError, match="settled"):
+        build_pending_atom_ir(_update_intent(PendingAtomStatus.SETTLED))
 
 
 def test_build_resolve_result_ir_for_redirect_uses_canonical_content(memory_atom):

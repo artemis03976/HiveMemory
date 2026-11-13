@@ -395,6 +395,18 @@ class PatchouliShutdownConfig(BaseModel):
             "关闭时保存还没执行的记忆生成工作的文件，下次启动时读回；相对路径按工作目录解析"
         ),
     )
+    task_history_file: str = Field(
+        default=".hivememory/memory_tasks.json",
+        description=(
+            "关闭时写入已结束的记忆生成任务的文件，下次启动时读回，任务列表因此不随重启"
+            "清空；相对路径按工作目录解析"
+        ),
+    )
+    task_history_retention_days: int = Field(
+        default=7,
+        ge=1,
+        description="已结束的记忆生成任务自结束起保留的天数；条数另受最近 100 条限制",
+    )
 
     model_config = ConfigDict(extra="forbid")
 

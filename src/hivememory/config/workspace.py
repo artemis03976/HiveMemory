@@ -1,4 +1,4 @@
-"""Workspace 运行时配置：派生缓存容量、会话容量与任务进程关闭等待。
+"""Workspace 运行时配置：派生缓存容量、会话容量、任务进程关闭等待与写入句柄登记。
 
 缓存采用全局 LRU 容量，不承诺 Workspace 独立配额；不缓存缺失或不可见的结果。
 缓存容量只影响命中率与内存占用，当前性由失效事件协作保证，不以 TTL 代替一致性。
@@ -14,6 +14,7 @@ __all__ = [
     "WorkspaceConfig",
     "WorkspaceProcessConfig",
     "WorkspaceSessionConfig",
+    "WorkspaceWriteIntentsConfig",
 ]
 
 
@@ -45,11 +46,28 @@ class WorkspaceProcessConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkspaceWriteIntentsConfig(BaseModel):
+    """写入句柄登记：正常关闭时写盘、启动时读回，登记满保留天数的句柄删除。"""
+
+    record_file: str = Field(
+        default=".hivememory/write_intents.json",
+        description="写入句柄登记写盘的文件，下次启动时读回；相对路径按工作目录解析",
+    )
+    retention_days: int = Field(
+        default=7,
+        ge=1,
+        description="写入句柄自登记起保留的天数，之后删除，读取时按已过期交付",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkspaceConfig(BaseModel):
     """workspace 运行时根配置。"""
 
     sessions: WorkspaceSessionConfig = Field(default_factory=WorkspaceSessionConfig)
     process: WorkspaceProcessConfig = Field(default_factory=WorkspaceProcessConfig)
     cache: WorkspaceCacheConfig = Field(default_factory=WorkspaceCacheConfig)
+    write_intents: WorkspaceWriteIntentsConfig = Field(default_factory=WorkspaceWriteIntentsConfig)
 
     model_config = ConfigDict(extra="forbid")

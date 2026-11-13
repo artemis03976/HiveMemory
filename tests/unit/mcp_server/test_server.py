@@ -39,9 +39,9 @@ from hivememory.workspace.contracts import (
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
-from hivememory.workspace.intents import WriteIntentRegistry
 from tests.helpers.mcp import serve_mcp, tool_error, tool_text
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_write_intent_registry
 
 _HEADERS = {
     "X-Principal-ID": "harness:claude-code",
@@ -122,7 +122,7 @@ _TURN = {
 
 def _pending() -> PendingAtom:
     """写入意图登记交出的句柄。"""
-    return WriteIntentRegistry().register_write(
+    return make_write_intent_registry().register_write(
         WriteFocus(content="部署走 CI"),
         belong_to=resolve_default_workspace_identity("u1"),
         from_actor=ActorIdentity(user_id="u1", agent_id="claude_code"),

@@ -10,6 +10,7 @@ from hivememory.config.memory_compiler import (
     CompactContextStrategyConfig,
     FullContextStrategyConfig,
 )
+from hivememory.core.errors import MemoryUpdateBaseChangedError
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -388,6 +389,7 @@ class TestPendingAtomCompilation:
             focus=UpdateFocus(
                 base_alias="fact_api",
                 base_uuid="uuid-123",
+                base_version=1,
                 instruction="Update the API endpoint",
                 content="New content here",
             ),
@@ -433,109 +435,6 @@ class TestPendingAtomCompilation:
         with pytest.raises(ValueError):
             compiler.compile(write_pending, MemoryCompileTarget.DENSE_EMBEDDING)
 
-    @pytest.fixture
-    def settled_pending(self):
-        from hivememory.core.models import (
-            PendingAtom,
-            PendingAtomResolution,
-            PendingAtomSettlement,
-            PendingAtomStatus,
-            WriteFocus,
-        )
-
-        atom = PendingAtom(
-            pending_alias="draft_settled",
-            intent_id="intent_s",
-            status=PendingAtomStatus.SETTLED,
-            source_verb="WRITE",
-            focus=WriteFocus(content="Hello", title="T"),
-            belong_to=make_identity_scope().workspace_identity,
-            from_actor=make_identity_scope().actor_identity,
-        )
-        atom.settlement = PendingAtomSettlement(
-            pending_alias="draft_settled",
-            intent_id="intent_s",
-            resolution=PendingAtomResolution.CREATED,
-            canonical_alias="fact_hello",
-            canonical_uuid="uuid-s",
-        )
-        return atom
-
-    @pytest.fixture
-    def failed_pending(self):
-        from hivememory.core.models import (
-            PendingAtom,
-            PendingAtomResolution,
-            PendingAtomSettlement,
-            PendingAtomStatus,
-            WriteFocus,
-        )
-
-        atom = PendingAtom(
-            pending_alias="draft_failed",
-            intent_id="intent_f",
-            status=PendingAtomStatus.FAILED,
-            source_verb="WRITE",
-            focus=WriteFocus(content="X"),
-            belong_to=make_identity_scope().workspace_identity,
-            from_actor=make_identity_scope().actor_identity,
-        )
-        atom.settlement = PendingAtomSettlement(
-            pending_alias="draft_failed",
-            intent_id="intent_f",
-            resolution=PendingAtomResolution.CREATED,
-            error="generation pipeline error",
-        )
-        return atom
-
-    @pytest.fixture
-    def cancelled_pending(self):
-        from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
-
-        return PendingAtom(
-            pending_alias="draft_cancelled",
-            intent_id="intent_c",
-            status=PendingAtomStatus.CANCELLED,
-            source_verb="WRITE",
-            focus=WriteFocus(content="X"),
-            belong_to=make_identity_scope().workspace_identity,
-            from_actor=make_identity_scope().actor_identity,
-        )
-
-    @pytest.fixture
-    def expired_pending(self):
-        from hivememory.core.models import PendingAtom, PendingAtomStatus, WriteFocus
-
-        return PendingAtom(
-            pending_alias="draft_expired",
-            intent_id="intent_e",
-            status=PendingAtomStatus.EXPIRED,
-            source_verb="WRITE",
-            focus=WriteFocus(content="X"),
-            belong_to=make_identity_scope().workspace_identity,
-            from_actor=make_identity_scope().actor_identity,
-        )
-
-    def test_settled_read_result_shows_canonical(self, compiler, settled_pending):
-        artifact = compiler.compile(settled_pending, MemoryCompileTarget.READ_RESULT)
-        assert artifact.status == "settled"
-        assert "fact_hello" in artifact.text
-
-    def test_settled_read_result_empty_canonical_uses_placeholder(self, compiler, settled_pending):
-        settled_pending.settlement = settled_pending.settlement.model_copy(
-            update={"canonical_alias": None}
-        )
-
-        zh_artifact = compiler.compile(settled_pending, MemoryCompileTarget.READ_RESULT)
-        en_artifact = compiler.compile(
-            settled_pending,
-            MemoryCompileTarget.READ_RESULT,
-            MemoryCompileOptions(language="en"),
-        )
-
-        assert "\u6b63\u5f0f\u540d\u79f0\uff1a\u65e0" in zh_artifact.text
-        assert "Canonical alias: None" in en_artifact.text
-
     def test_pending_read_result_empty_title_uses_placeholder(self, compiler, write_pending):
         write_pending.focus = write_pending.focus.model_copy(update={"title": ""})
 
@@ -548,20 +447,6 @@ class TestPendingAtomCompilation:
 
         assert "\u6807\u9898\uff1a\u65e0" in zh_artifact.text
         assert "title: None" in en_artifact.text
-
-    def test_failed_read_result_shows_error(self, compiler, failed_pending):
-        artifact = compiler.compile(failed_pending, MemoryCompileTarget.READ_RESULT)
-        assert artifact.status == "failed"
-        assert "generation pipeline error" in artifact.text
-
-    def test_cancelled_read_result(self, compiler, cancelled_pending):
-        artifact = compiler.compile(cancelled_pending, MemoryCompileTarget.READ_RESULT)
-        assert artifact.status == "cancelled"
-
-    def test_expired_read_result_shows_reclaimed(self, compiler, expired_pending):
-        artifact = compiler.compile(expired_pending, MemoryCompileTarget.READ_RESULT)
-        assert artifact.status == "expired"
-        assert "reclaimed" in artifact.text.lower()
 
 
 class TestReferenceResolutionCompilation:
@@ -715,9 +600,28 @@ class TestReferenceResolutionCompilation:
     def test_expired_read_result(self, compiler, expired_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_expired")
         artifact = compiler.compile(expired_resolve, MemoryCompileTarget.READ_RESULT, opts)
-        assert "expired" in artifact.text.lower()
-        assert "reclaimed" in artifact.text.lower()
+        assert artifact.status == "expired"
+        assert "写入句柄不存在或已过期" in artifact.text
         assert "Alias Not Found" not in artifact.text
+
+    def test_failed_handle_shows_reason_code_from_failure_event(self, compiler):
+        """失败没有结算载荷：原因码取自失败事件记在写入意图上的 failure_reason。"""
+        artifact = compiler.compile(
+            _failed_handle("memory_generation_timed_out"), MemoryCompileTarget.READ_RESULT
+        )
+
+        assert artifact.status == "failed"
+        assert "原因：memory_generation_timed_out" in artifact.text
+        assert "如需重试，请重新提交这次写入或更新" in artifact.text
+
+    def test_update_failed_on_changed_base_asks_to_read_again(self, compiler):
+        artifact = compiler.compile(
+            _failed_handle(MemoryUpdateBaseChangedError.code), MemoryCompileTarget.READ_RESULT
+        )
+
+        assert artifact.status == "failed"
+        assert "基础记忆在排队期间被修改" in artifact.text
+        assert "请重新读取这条记忆" in artifact.text
 
     def test_expired_read_result_english_option(self, compiler, expired_resolve):
         artifact = compiler.compile(
@@ -960,24 +864,29 @@ class TestEnvelopeCompilation:
         assert "No shared memory artifacts." in envelope.text
 
 
-def _pending(status):
-    from hivememory.core.models import PendingAtom, WriteFocus
+def _failed_handle(reason: str):
+    """读取器交付的失败 UPDATE 句柄：解析结果带着记下原因码的写入意图。"""
+    from hivememory.core.models import PendingAtom, PendingAtomStatus, UpdateFocus
+    from hivememory.core.models.reference import ReferenceResolution
 
     scope = make_identity_scope()
-    return PendingAtom(
-        pending_alias="draft_x",
+    pending = PendingAtom(
+        pending_alias="rev_fact_api_0001",
         intent_id="intent_x",
-        status=status,
-        source_verb="WRITE",
-        focus=WriteFocus(content="X", title="T"),
+        status=PendingAtomStatus.FAILED,
+        source_verb="UPDATE",
+        focus=UpdateFocus(
+            base_alias="fact_api", base_uuid="uuid-1", base_version=2, instruction="revise"
+        ),
         belong_to=scope.workspace_identity,
         from_actor=scope.actor_identity,
+        failure_reason=reason,
     )
+    return ReferenceResolution(kind="failed", requested_alias="rev_fact_api_0001", pending=pending)
 
 
 def _guidance_cases():
     """每句操作指引的一个编译入口：(编译源, target, 额外选项, 中文指引句)。"""
-    from hivememory.core.models import PendingAtomStatus
     from hivememory.core.models.reference import ReferenceResolution
 
     atom = MemoryAtom(
@@ -996,18 +905,6 @@ def _guidance_cases():
             {"max_content_length": 10},
             "[...部分内容已截断，如需阅读完整内容，请读取这条记忆...]",
         ),
-        "pending_failed": (
-            _pending(PendingAtomStatus.FAILED),
-            read,
-            {},
-            "提示: 如需重试，请重新提交这次写入或更新。",
-        ),
-        "pending_expired": (
-            _pending(PendingAtomStatus.EXPIRED),
-            read,
-            {},
-            "提示: 如果需要，请检索已定型的记忆。",
-        ),
         "redirect": (redirect, read, {}, "提示: 后续访问这条记忆时请使用 'fact_api'。"),
         "resolve_discarded": (
             ReferenceResolution(kind="discarded", requested_alias="draft_bad"),
@@ -1021,11 +918,17 @@ def _guidance_cases():
             {},
             "提示: 如需重试，请重新提交这次写入或更新。",
         ),
+        "resolve_failed_base_changed": (
+            _failed_handle(MemoryUpdateBaseChangedError.code),
+            read,
+            {},
+            "提示: 请重新读取这条记忆，基于最新内容再提交更新。",
+        ),
         "resolve_expired": (
             ReferenceResolution(kind="expired", requested_alias="draft_expired"),
             read,
             {},
-            "提示: 如果需要，请检索已定型的记忆。",
+            "提示: 如果需要，请检索已生成的正式记忆。",
         ),
         "retrieval_read": (
             atom,

@@ -215,6 +215,7 @@ class TestGenerationEngineRouting:
         """有 update_focus 时走 Mode C：调用 revise 而非 extract，并携带修订指令"""
         existing = _make_memory()
         uf = UpdateFocus(
+            base_version=1,
             instruction="添加错误处理",
             base_uuid=str(existing.id),
             base_alias="fact_test",
@@ -624,6 +625,7 @@ class TestGenerationEngineModeC:
         if existing is None:
             existing = _make_memory()
         uf = UpdateFocus(
+            base_version=1,
             instruction=instruction,
             content=content,
             base_uuid=str(existing.id),
@@ -679,6 +681,7 @@ class TestGenerationEngineModeC:
         self.mock_storage.upsert = AsyncMock()
 
         uf = UpdateFocus(
+            base_version=1,
             instruction="更新内容",
             base_uuid=str(existing.id),
             base_alias="fact_test",
@@ -702,6 +705,7 @@ class TestGenerationEngineModeC:
     async def test_mode_c_no_existing_memory(self):
         """existing_memory=None 时返回空"""
         uf = UpdateFocus(
+            base_version=1,
             instruction="更新",
             base_uuid=str(uuid4()),
             base_alias="fact_test",
