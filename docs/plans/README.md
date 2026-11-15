@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-14
 ---
 
 # Plans
@@ -14,7 +14,9 @@ last_reviewed: 2026-11-12
 
 版本内容已收尾（2026-11-04），规范版本调整为 0.7.3，发布标签 v0.7.3 在合并后创建；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.3-release-closeout-audit.md)。版本内的三份计划（话题内主动写入优先、生成任务失败带原因码、主动写入沿用 agent 的标题）与收尾审计登记在 [Archived Plans](../archive/plans/README.md#v073)。
 
-v0.7.3 之后的版本目标尚未确定，当前没有绑定版本的计划。
+## v0.8
+
+owner 于 2026-11-13 进入 v0.8：重新设计记忆的核心机制，即短期到中期的流转。版本目标尚未写入 [ROADMAP](../ROADMAP.md)，当前没有计划；设计讨论见 [记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)。
 
 ## 已发布的版本
 
