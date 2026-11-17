@@ -20,10 +20,11 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 
 | Idea | 服务的版本 | 当前已经具备的基础 | 仍需 owner 判断的核心问题 |
 |:---|:---|:---|:---|
-| [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md)（总纲） | v0.8 | owner 于 2026-11-13 进入 v0.8：重新设计短期到中期的流转，不为现有症状打补丁；三层含义不变、两条写入路径都保留；全部决定的一览、代码现状与评判方式在总纲，2026-11-16 按主题拆出下面三份子文档，外部事实移入[外部参考](../research/memory-core-external-references.md) | 评判新的流转用什么方式（候选：单轮不交记忆税，长程看演化质量与人工介入；类型体系先在已有对话数据上回放） |
+| [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md)（总纲） | v0.8 | owner 于 2026-11-13 进入 v0.8：重新设计短期到中期的流转，不为现有症状打补丁；三层含义不变、两条写入路径都保留；全部决定的一览、代码现状与评判方式在总纲，2026-11-16 按主题拆出下面几份子文档，外部事实移入[外部参考](../research/memory-core-external-references.md) | 评判新的流转用什么方式（候选：单轮不交记忆税，长程看演化质量与人工介入；公开评测集见下面的评测集 Idea） |
 | [记忆核心：写入链路](./memory-flow-write-path.md) | v0.8 | 两条写入路径的汇合被动一侧已决定（在中期记忆上汇合，被动结算作为话题的终态收尾者复核）；短期记忆的外部者视角、时间线退回顺序与身份、Patchouli 作为馆长等候选 | 主动写入生成时能拿到什么材料 |
 | [记忆核心：库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | v0.8 | 中期库的形状已于 2026-11-15 决定（存储平铺，分层由派生、可以重建的时空图索引承担） | 记忆的保存形态（保留记忆原子并补上文本做不到的部分、md 载体加另存的系统状态，或 md 为真相、允许直接编辑） |
-| [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 类型的用途、WIP 与可运行与 AGENT_PROFILE 的移出、资源记忆、FACT 的拆分、用户一侧、经历与只存在于记忆中的代码已于 2026-11-15～16 决定 | 用户一侧取三类还是一类，由回放决定；写入者拿不准时的默认类型 |
+| [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 类型的用途与各项划分已于 2026-11-15～16 决定；两轮回放之后，首份计划收窄为 WIP、可运行与 AGENT_PROFILE 的移出，以及 CODE_SNIPPET 与 URL_RESOURCE 合并为资源记忆，v0.8 关闭 RUN 的用户工具路径；[回放脚本](../../scripts/memory_replay.py) | 内容类别的重新划分已搁置（回放显示与旧类别没有可测的区别）；首份计划只剩候选细节 |
+| [记忆核心：评测集](./memory-evaluation-benchmarks.md) | v0.8 | owner 于 2026-11-16 决定把公开评测集与 agent 工作流数据集提上日程；候选评测集（LongMemEval、LoCoMo、HaluMem、MemoryArena、DreamBench-SWE 等）只依据摘要整理；Import Bus 的一轮不带原始时间 | 首个评测切片选哪一个；原始时间怎么带进评测 |
 
 v0.7.3（主动写入与被动提取的收敛，过渡措施）已于 2026-11-04 收尾（[收尾审计](../archive/plans/v0.7.3-release-closeout-audit.md)），为它供料的收敛 Idea 已归档；之后的方向见候选 Idea [统一的交互记忆](./unified-interaction-memory.md)，它也是上面 v0.8 讨论可能的出发点。
 
