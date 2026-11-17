@@ -11,7 +11,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/archive/ideas/workspace-mvp-chat-attachments-design.md
   - docs/architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md
-last_reviewed: 2026-11-15
+last_reviewed: 2026-11-16
 ---
 
 # MaaT 与 Skill/Plugin 边界的资产消费模型
@@ -22,7 +22,7 @@ last_reviewed: 2026-11-15
 
 **实现背景补充（2026-10-09）**：Alice 现在以凭据绑定的提交函数读取资源，frame 只携带观测标签；READ/RUN/CALL 共享引用自动记录 `workspace.reference_read`，不再按 `mtp.read`/`mtp.run` 区分。下文执行结果、版本证据与强沙箱仍为长期草案；准确的当前边界见 [MTP 契约](../contracts/mtp.md)。
 
-**owner 的重新考虑（2026-11-14）**：记忆即知识，插件即工具，知识与工具不能划等号；本文的对象需要重新考虑，"记忆作为工具"要如何体现、目标是什么，或许要从头考虑。记录与初步分析见 [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md)第 1.2、6.3 节，下文仍是此前的草案。2026-11-15 owner 决定：可运行是一条独立的轴，不绑在类型上；其中的环境声明属于知识，宿主执行（编译方式与 HiveMemory 宿主哪些环境）留给本文重新考虑，见同一文档第 9.6 节。
+**owner 的重新考虑（2026-11-14）**：记忆即知识，插件即工具，知识与工具不能划等号；本文的对象需要重新考虑，"记忆作为工具"要如何体现、目标是什么，或许要从头考虑。记录与初步分析见 [v0.8 记忆核心总纲](./memory-flow-short-to-mid-term.md)第 1.2 节与[写入链路](./memory-flow-write-path.md)第 3.3 节，下文仍是此前的草案。2026-11-15 owner 决定：可运行是一条独立的轴，不绑在类型上；其中的环境声明属于知识，宿主执行（编译方式与 HiveMemory 宿主哪些环境）留给本文重新考虑，见[类型体系](./memory-type-system.md)第 6.2 节。
 
 **前置条件**: 本 Idea 依赖已裁定边界 [ADR-0003](../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)；不在此重新定义 Workspace、身份或 Artifact 所有权
 

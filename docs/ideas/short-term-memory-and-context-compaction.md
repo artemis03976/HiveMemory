@@ -18,7 +18,7 @@ related_docs:
   - docs/research/agent-context-compaction-research.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-16
 ---
 
 # 短期记忆与上下文压缩
@@ -42,7 +42,7 @@ Alice 自动压缩已于 2026-10-17 完成，当前事实见 [Agent Runtime](../
 
 Agent 工作记忆还包含程序持有的执行状态。compact 只改变模型可见材料，不能让自由文本摘要接管运行中的工具、执行线程、意图登记、ACK 含义或任务终态。检索得到的正式 Memory 可以进入当前工作上下文，其 canonical 所有权仍在 Patchouli。
 
-外部者视角下短期记忆的候选定义（时间轴上最新、尚未整理的交互记录，是写入者的工作记忆而不是 agent 的上下文），以及主动写入缺少背景的"写入即同步点"候选，见 [v0.8 记忆核心 Idea](./memory-flow-short-to-mid-term.md)第 3.2 节（2026-11-15）。
+外部者视角下短期记忆的候选定义（时间轴上最新、尚未整理的交互记录，是写入者的工作记忆而不是 agent 的上下文），以及主动写入缺少背景的"写入即同步点"候选，见 [v0.8 写入链路 Idea](./memory-flow-write-path.md)第 2.2 节（2026-11-15）。
 
 Topic 也不等于“尚未写入 Memory 的队列”：主动 WRITE 可能已物化，相关交互仍留在 Topic 中。资料退出某个模型视图、原文是否继续保存、是否生成正式 Memory，是三个独立判断。
 

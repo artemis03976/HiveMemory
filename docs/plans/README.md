@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-11-14
+last_reviewed: 2026-11-16
 ---
 
 # Plans
@@ -16,7 +16,7 @@ last_reviewed: 2026-11-14
 
 ## v0.8
 
-owner 于 2026-11-13 进入 v0.8：重新设计记忆的核心机制，即短期到中期的流转。版本目标尚未写入 [ROADMAP](../ROADMAP.md)，当前没有计划；设计讨论见 [记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)。
+owner 于 2026-11-13 进入 v0.8：重新设计记忆的核心机制，即短期到中期的流转。版本目标尚未写入 [ROADMAP](../ROADMAP.md)，当前没有计划；设计讨论见总纲 [记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)，以及按主题拆出的[写入链路](../ideas/memory-flow-write-path.md)、[库的形状、图索引与保存形态](../ideas/memory-library-shape-and-index.md)与[类型体系](../ideas/memory-type-system.md)；外部项目与文章的事实见[外部参考](../research/memory-core-external-references.md)。
 
 ## 已发布的版本
 

@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-11-14
+last_reviewed: 2026-11-16
 ---
 
 # Ideas
@@ -20,7 +20,10 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 
 | Idea | 服务的版本 | 当前已经具备的基础 | 仍需 owner 判断的核心问题 |
 |:---|:---|:---|:---|
-| [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md) | v0.8 | owner 于 2026-11-13 进入 v0.8：重新设计短期到中期的流转，不为现有症状打补丁；三层含义不变、两条写入路径都保留；八个外部项目的生成方式已按被动提取与主动写入两类整理 | 中期库的形状已于 2026-11-15 决定（存储平铺，分层由派生、可以重建的时空图索引承担）；两条写入路径的汇合被动一侧已决定（在中期记忆上汇合，被动结算作为话题的终态收尾者复核）；仍开放：主动写入生成时能拿到什么材料；记忆的保存形态（保留记忆原子并补上文本做不到的部分、md 载体加另存的系统状态，或 md 为真相、允许直接编辑） |
+| [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md)（总纲） | v0.8 | owner 于 2026-11-13 进入 v0.8：重新设计短期到中期的流转，不为现有症状打补丁；三层含义不变、两条写入路径都保留；全部决定的一览、代码现状与评判方式在总纲，2026-11-16 按主题拆出下面三份子文档，外部事实移入[外部参考](../research/memory-core-external-references.md) | 评判新的流转用什么方式（候选：单轮不交记忆税，长程看演化质量与人工介入；类型体系先在已有对话数据上回放） |
+| [记忆核心：写入链路](./memory-flow-write-path.md) | v0.8 | 两条写入路径的汇合被动一侧已决定（在中期记忆上汇合，被动结算作为话题的终态收尾者复核）；短期记忆的外部者视角、时间线退回顺序与身份、Patchouli 作为馆长等候选 | 主动写入生成时能拿到什么材料 |
+| [记忆核心：库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | v0.8 | 中期库的形状已于 2026-11-15 决定（存储平铺，分层由派生、可以重建的时空图索引承担） | 记忆的保存形态（保留记忆原子并补上文本做不到的部分、md 载体加另存的系统状态，或 md 为真相、允许直接编辑） |
+| [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 类型的用途、WIP 与可运行与 AGENT_PROFILE 的移出、资源记忆、FACT 的拆分、用户一侧、经历与只存在于记忆中的代码已于 2026-11-15～16 决定 | 用户一侧取三类还是一类，由回放决定；写入者拿不准时的默认类型 |
 
 v0.7.3（主动写入与被动提取的收敛，过渡措施）已于 2026-11-04 收尾（[收尾审计](../archive/plans/v0.7.3-release-closeout-audit.md)），为它供料的收敛 Idea 已归档；之后的方向见候选 Idea [统一的交互记忆](./unified-interaction-memory.md)，它也是上面 v0.8 讨论可能的出发点。
 
@@ -51,7 +54,7 @@ v0.7.3（主动写入与被动提取的收敛，过渡措施）已于 2026-11-04
 |:---|:---|:---|
 | [第五代架构：Workspace 网络](./fifth-generation-architecture.md) | 第五代的核心理念 Idea，有效期到需要下一代架构为止；Workspace 网络的拓扑、能力层、任务进程、访问模型、库外设施与包分层已落地，当前事实见 [Workspace](../workspace/README.md) | 十条核心理念（唯一能力提供者、一切任务都是进程、执行者可以替换、库内与库外、两阶段认证与授权、身份数据形态、调用与事件、显式写入即时提交、上下文与记忆材料分离、包分层）及其检验问题；演进方向分属各子 Idea；架构级开放问题 P-3、P-9、P-10a、core 整理与负缓存（身份与访问相关的 P-1、P-4a、P-5、P-7、P-8 于 2026-11-05 移入身份与访问体系 Idea） |
 | [AE2 与 HiveMemory 的架构同构性](./ae2-hivememory-architecture-analogy.md) | Patchouli 存储平面、Alice Frame/编排、MTP 能力契约与当前可见性过滤 | Workspace/软件子网、Harness-to-Harness、Workflow Memory、Job Graph、Mount/Bridge、AIOS 资源抽象与隔离执行是否值得进入真实验证 |
-| [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md) | `MemoryCompiler` target 体系、MTP `RUN` 两层分发、MemoryAtom/Artifact 分离 | owner 于 2026-11-14 提出对象与目标需要从头考虑：知识与工具不能划等号（见 [v0.8 记忆核心 Idea](./memory-flow-short-to-mid-term.md)第 6.3 节）；此前的问题：如何让 MTP RUN 编译为结构化执行意图，证明相对外部 harness + Patchouli 的结构性优势，以及 CODE_SNIPPET 的迁移边界、ToolInvocationIR 与共享 MemoryCompiler IR 的关系、执行证据回流与终端实践的晋升机制 |
+| [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md) | `MemoryCompiler` target 体系、MTP `RUN` 两层分发、MemoryAtom/Artifact 分离 | owner 于 2026-11-14 提出对象与目标需要从头考虑：知识与工具不能划等号（见 [v0.8 写入链路 Idea](./memory-flow-write-path.md)第 3.3 节）；此前的问题：如何让 MTP RUN 编译为结构化执行意图，证明相对外部 harness + Patchouli 的结构性优势，以及 CODE_SNIPPET 的迁移边界、ToolInvocationIR 与共享 MemoryCompiler IR 的关系、执行证据回流与终端实践的晋升机制 |
 | [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md) | 当前 vitality 公式、强化事件、gardening 与显式 archive/revive | 哪些新状态能由真实使用数据校准，而不是继续叠加启发式参数；落库之后的演化质量（分裂与合并、冲突检测、对照轨迹纠错，方向 6，2026-11-15） |
 | [Agent 轨迹与多 Agent TDA](./TDA_Agent_Research_Ideas.md) | TurnEvent、RuntimeEvent 与单层 CALL | 拓扑特征能否比普通计数/规则更稳定地解释成功、成本和失败类型 |
 | [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md) | MemoryAtom 关系预留、检索信号与来源/版本 Artifact | 多视图记忆图能否形成可重复、可行动且优于平面检索的信号 |
