@@ -1,7 +1,7 @@
 ---
 title: 执行环境
 status: idea
-horizon: candidate
+horizon: long-term
 owner: project
 scope: agent-and-execution-environment-selection-combination-validity-harness-tool-permissions-and-cpu-output-vocabulary
 code_paths:

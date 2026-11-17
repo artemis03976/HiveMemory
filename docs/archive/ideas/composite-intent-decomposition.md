@@ -1,7 +1,8 @@
 ---
 title: 复合意图分解
-status: idea
-horizon: candidate
+status: archived
+archived_at: 2026-11-16
+superseded_by: docs/gateway/analysis.md
 owner: gateway
 scope: composite-intent-contract-and-execution
 code_paths:
@@ -15,6 +16,8 @@ last_reviewed: 2026-11-07
 ---
 
 # 复合意图分解
+
+> 已归档（2026-11-16，owner 决定不再跟踪）。Gateway 当前只产生 `COMPOSITE` 分类信号与不对外提交的私有 `sub_intents`，见 [Gateway 分析](../../gateway/analysis.md)；以下正文保留归档前的原文，链接已改为归档后的相对路径。
 
 **文档状态**: Idea  
 **目标阶段**: Unscheduled  
@@ -208,9 +211,9 @@ class RouteTarget(BaseModel):
 
 需要决定：
 
-1. 每个 `SubIntent` 是否独立重走话题准备与查询分析，还是复用 parent 的冻结入口上下文。Patchouli 的 prepare 已于 2026-11-06 删除（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)），一个任务进程只有一个派发话题，按需确定（[任务进程](../workspace/task-process.md#53-话题何时确定)第 5.3 节）。
+1. 每个 `SubIntent` 是否独立重走话题准备与查询分析，还是复用 parent 的冻结入口上下文。Patchouli 的 prepare 已于 2026-11-06 删除（[归档计划](../plans/interaction-submission-and-topic-on-demand.md)），一个任务进程只有一个派发话题，按需确定（[任务进程](../../workspace/task-process.md#53-话题何时确定)第 5.3 节）。
 2. 多个 QUERY 子意图是否分别检索后交给 Alice 合成。
-3. 多个 WRITE 子意图是否分别进入 Patchouli finalize，还是合并为一次 memory write signal。写入是 actor 的 WRITE 操作，在执行期间实时派发，不经 finalize；Patchouli 的 finalize 已于 2026-11-06 删除，入口的写入信号已于 v0.7.2 移除（[ROADMAP](../ROADMAP.md) 第 4.7 节），这两个选项都不再有承接方，多个 WRITE 子意图如何处理仍开放。
+3. 多个 WRITE 子意图是否分别进入 Patchouli finalize，还是合并为一次 memory write signal。写入是 actor 的 WRITE 操作，在执行期间实时派发，不经 finalize；Patchouli 的 finalize 已于 2026-11-06 删除，入口的写入信号已于 v0.7.2 移除（[ROADMAP](../../ROADMAP.md) 第 4.7 节），这两个选项都不再有承接方，多个 WRITE 子意图如何处理仍开放。
 4. 分支是否共享 `CandidateTopics`。
 5. 分支是否共享 `RoutedTopicContext`，还是每个分支重新 topic routing。
 6. 分支失败是否影响 parent response。
@@ -362,7 +365,7 @@ Phase C0 应从当前 `COMPOSITE` 分类、私有 `sub_intents`、fallback 与�
 
 1. `SubIntent` 是否直接绑定 `route_target`，还是只绑定 intent type，由后续 PlannerRouter 决定目标？
 2. 多个 QUERY 子意图是分别检索后交给 Alice 合成，还是先在 Gateway 层生成统一 retrieval plan？
-3. WRITE 子意图应在 Gateway 阶段生成 memory write request，还是不在 Gateway 处理、只交给下游？入口的写入预判（WRITE/SKIP/UNKNOWN 与由它派生的 `worth_saving`）已于 v0.7.2 移除，入口不再产生价值信号（[ROADMAP](../ROADMAP.md) 第 4.7 节），原先“只生成供 Patchouli finalize 使用的写入信号”的选项不再有承接方。
+3. WRITE 子意图应在 Gateway 阶段生成 memory write request，还是不在 Gateway 处理、只交给下游？入口的写入预判（WRITE/SKIP/UNKNOWN 与由它派生的 `worth_saving`）已于 v0.7.2 移除，入口不再产生价值信号（[ROADMAP](../../ROADMAP.md) 第 4.7 节），原先“只生成供 Patchouli finalize 使用的写入信号”的选项不再有承接方。
 4. 复合输入中的系统指令是否允许和普通聊天共享一次响应，还是拆成 command result + chat result 两条事件？
 5. 本方向是否需要 lightweight planner，还是只做 decomposition？
 6. IntentDecomposer prompt、置信度阈值和 golden dataset 如何设计，才能避免过度分解与漏分解？
@@ -377,3 +380,7 @@ Phase C0 应从当前 `COMPOSITE` 分类、私有 `sub_intents`、fallback 与�
 复合意图分解必须建立在稳定的单主意图 workflow、下游公共契约和可验证样本之上。当前实现只有 `COMPOSITE` 分类与不对外提交的私有 `sub_intents`，没有 `CompositeGatewayDecision`、branch 调度、merge policy 或多分支消费能力。
 
 因此，下一步不是直接让 LLM 输出更多字段，而是先完成 Phase C0 的证据门禁，再冻结 envelope 与消费协议。其余内容都属于候选方案，不应被当前 Gateway、Patchouli、Alice 或 Frontend 文档写成已经生效的能力。
+
+## 归档说明（2026-11-16）
+
+复合意图的公共 envelope、多分支消费与合并语义都没有实施。owner 于 2026-11-16 决定不再跟踪，没有转入其他 Idea 或 Todo；需要时从本文重新提出。

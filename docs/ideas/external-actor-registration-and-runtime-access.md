@@ -1,7 +1,7 @@
 ---
 title: 外部 Actor 的接入登记与运行时访问
 status: idea
-horizon: candidate
+horizon: long-term
 owner: project
 scope: external-actor-registration-runtime-access-and-adapter-interface
 code_paths:
@@ -22,7 +22,7 @@ related_docs:
   - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-session-and-topic-projection.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
   - docs/ideas/identity-and-access-model.md
   - docs/workspace/README.md
   - docs/VISION.md
@@ -318,7 +318,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 - **owner 判断**（2026-10-31）：
   - 记忆能力属于 workspace 的 actor API，不为 MTP 独占。plugin 模式开放的是 actor API 中写入与更新这两项 actor 操作；MTP 的 WRITE、UPDATE 只是 Alice 对同一组操作的协议映射。
   - WRITE 与 UPDATE 始终产生 PendingAtom 句柄并交还前台 actor，作为读写一致性的保障；记忆生成完成后由结算事件触发重定向。这条链路任何一个环节断开，都说明 v0.7.0 没有迁移到位，需要返工，而不是另行设计。
-  - 原列为阻塞问题的 E-4 与外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md#7-外部-actor-的提交与回读契约)第 7 节）都是已有能力或已有决定，不阻塞本步。
+  - 原列为阻塞问题的 E-4 与外部 Actor 的提交与回读契约（[写入意图 Idea](../archive/ideas/pending-intent-migration.md#7-外部-actor-的提交与回读契约)第 7 节）都是已有能力或已有决定，不阻塞本步。
 - **阻塞问题**：无。E-8 已于 2026-10-31 决定（选项 D）。
 - **实施结果**：本步已按[归档计划](../archive/plans/v0.7.2-plugin-write-update.md)实施。计划建立时的代码现状、范围与候选设计（请求级 context 登记意图、写入时就地确定话题的完整链路、回声标记、记忆编译的命名与文案不再按 MTP 编写）及其在计划中的采纳与调整都保存在归档计划中，2026-11-04 从本文移出；落地结果见 [MCP 记忆访问](../contracts/mcp.md)、[Import Bus](../system/import-bus.md#47-写入时确定话题)与[读取视图与写入意图](../workspace/read-view-and-write-intents.md)。
 

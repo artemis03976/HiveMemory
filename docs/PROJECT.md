@@ -333,7 +333,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 
 ## 10. 当前已知限制
 
-- 复合意图目前只有分类信号与不对外提交的私有 `sub_intents`，公共 envelope、多分支消费和合并语义尚未实现；相关[复合意图分解 Idea](./ideas/composite-intent-decomposition.md)当前未排期。自定义入口拦截规则同样尚未形成明确接入需求与独立 Plan；
+- 复合意图目前只有分类信号与不对外提交的私有 `sub_intents`，公共 envelope、多分支消费和合并语义尚未实现；[复合意图分解 Idea](./archive/ideas/composite-intent-decomposition.md)已于 2026-11-16 归档，不再跟踪。自定义入口拦截规则同样尚未形成明确接入需求与独立 Plan；
 - RuntimeEvent、memory task、PendingAtom、Agent frame 和若干恢复状态主要是进程内能力，统一成熟度与恢复门槛见[耐久性与故障恢复治理](./governance/reliability/durability-and-recovery.md)；
 - 重试、重复投递和跨存储副作用尚未形成统一业务边界，见[跨子系统幂等性与重试治理](./governance/reliability/idempotency-and-retry.md)；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；身份传播、缓存隔离和执行安全见[身份隔离与执行安全治理](./governance/security/identity-and-execution-safety.md)；

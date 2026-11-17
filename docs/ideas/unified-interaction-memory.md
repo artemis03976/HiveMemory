@@ -11,7 +11,7 @@ code_paths:
   - src/hivememory/workspace/intents/
 related_docs:
   - docs/archive/ideas/generation-source-convergence.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/patchouli/generation.md
@@ -134,7 +134,7 @@ Patchouli 的权威据此落在记录上：谁说的、何时、依据什么、�
 
 - [主动写入与被动提取的收敛](../archive/ideas/generation-source-convergence.md)（2026-11-04 随 v0.7.3 收尾归档）：v0.7.3 的过渡措施与证据；本文是它之后的方向。
 - [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md)：v0.8 设计讨论的总纲，本文是它可能的出发点，第 5 节与总纲第 4.1 节、[写入链路](./memory-flow-write-path.md)第 5 节一并考虑。第 3.3 节按时间线消费的设想多少来自 VCPToolBox 的 OneRing，其真实机制与对照见写入链路 Idea 第 2.3 节与[外部参考](../research/memory-core-external-references.md)第 3 节；写入链路 Idea 第 2.1 节记录了另一种做法（对照已有记忆复核，按结论协调而不按轨迹区间消费），并为本文第 5 节的两项提供了一种默认答法。按写入链路 Idea 第 5 节的决定，本文第 3.3 节"每段只消费一次"的消费语义已经退场（owner，2026-11-15），时间线保留为顺序与身份的骨架、流式降级为按需追平（写入链路 Idea 第 2.3 节）。
-- [写入意图的后续方向](./pending-intent-migration.md)：结算对账、意图持久化与"完整的生成材料"会落在断言层。
+- [写入意图的后续方向](../archive/ideas/pending-intent-migration.md)（2026-11-16 已归档）：结算对账、意图持久化与"完整的生成材料"会落在断言层；生成材料的问题现由 v0.8 [写入链路](./memory-flow-write-path.md)第 5 节跟踪。
 - [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md)与 [Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)：分别对应轨迹层的保存承诺与长程 run 的分段。
 - 记忆价值体系的重新设计（[ROADMAP](../ROADMAP.md) 第 4.7 节）："谁断言的、带着什么意图"是价值信号的一部分。
 - [导入轮次的跨会话话题路由 Todo](../todo/cross-conversation-topic-placement.md)：时间线按会话划分后，材料不再跨会话混合，但话题路由本身仍要处理。

@@ -27,7 +27,7 @@ related_docs:
   - docs/governance/baselines/identity-access-current-state-2026-11-05.md
   - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
   - docs/ideas/execution-environment.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/archive/ideas/execution-thread-definition.md
@@ -45,7 +45,7 @@ last_reviewed: 2026-11-11
 
 - **主线定位**（owner，2026-11-05）：身份与访问体系作为单独的主线方向维护。它是 Workspace 体系的基础，不只服务 controller 模式，覆盖从 principal 的登记与调用方证明，到进入 Workspace 的身份、操作调用的授权，再到记忆等资源的可见性。这条方向最好在发布前为系统打好地基，否则 controller 与 plugin 两种接入都难以继续。
 - 本文收集这条线上尚未决定或尚未实施的部分，不描述当前行为，也不代表排期。理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.5、3.6 节；当前的身份模型见[身份与授权](../workspace/identity-and-authorization.md)与[认证与访问登记](../workspace/authentication.md)，三个调用面见[能力层](../workspace/capability.md)。
-- **2026-11-05 重写**：原文只覆盖跨 Workspace 方向。散落在[第五代架构 Idea](./fifth-generation-architecture.md)第 5 节（P-1、P-4a、P-5、P-7、P-8）、[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)（E-1）与[写入意图后续方向 Idea](./pending-intent-migration.md)第 5 节的身份问题移入本文，沿用原编号，原位置改为链接；本文不新增问题编号。重写前的版本见 commit `3cfdec9d` 中的本文；2026-10-13 的精简删除了已实施的 I-1–I-11，删除前的版本见 commit `a384688`。
+- **2026-11-05 重写**：原文只覆盖跨 Workspace 方向。散落在[第五代架构 Idea](./fifth-generation-architecture.md)第 5 节（P-1、P-4a、P-5、P-7、P-8）、[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)（E-1）与[写入意图后续方向 Idea](../archive/ideas/pending-intent-migration.md)第 5 节的身份问题移入本文，沿用原编号，原位置改为链接；本文不新增问题编号。重写前的版本见 commit `3cfdec9d` 中的本文；2026-10-13 的精简删除了已实施的 I-1–I-11，删除前的版本见 commit `a384688`。
 - 问题只列选项及其影响，选项顺序不代表倾向；标为“分析”的内容不是 owner 决定。
 
 ## 1. 为什么单独成线
@@ -231,7 +231,7 @@ last_reviewed: 2026-11-11
 
 ### 写入意图的可见性与 policy
 
-2026-11-05 由[写入意图后续方向 Idea](./pending-intent-migration.md) 第 5 节移入。
+2026-11-05 由[写入意图后续方向 Idea](../archive/ideas/pending-intent-migration.md) 第 5 节移入。
 
 **背景**：意图不设 policy，同 Workspace 内持有别名即可回读（UPDATE 意图跟随基础原子的可读性）。别名由标题或内容片段加 4 位十六进制后缀组成，“只有写入者知道别名”是惯例，不是访问控制，真正的边界是 Workspace。`WriteFocus` 只有 content、reason、title，不携带目标 policy。
 
@@ -307,7 +307,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 | [身份与访问体系现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md) | 2026-11-05 冻结的现状证据：各入口的身份来源、授权点、资源授权的实际效果、补丁与例外；第 5 节收拢问题的现状依据 |
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.5、3.6 的理念；P-1、P-4a、P-5、P-7、P-8 的原所在（2026-11-05 移入本文） |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | E-1 的原所在（2026-11-05 移入本文）；P-1c、P-9c 的决定与复核；controller 模式的身份需求（E-3b、绑定线程的操作适配器） |
-| [写入意图后续方向 Idea](./pending-intent-migration.md) | 意图可见性与 policy 的原所在（2026-11-05 移入本文） |
+| [写入意图后续方向 Idea](../archive/ideas/pending-intent-migration.md)（2026-11-16 已归档） | 意图可见性与 policy 的原所在（2026-11-05 移入本文） |
 | [执行线程](../workspace/execution-threads.md)（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 操作的发起者由执行线程给出；线程的目标现为驻留 Workspace，跨 Workspace 目标的表达见第 7 节 T-5b |
 | [执行环境 Idea](./execution-environment.md) | 前提 2 与 T-5b 的原所在（2026-10-19 移入本文） |
 | [AE2 Idea](./ae2-hivememory-architecture-analogy.md) | 子网与跨 Workspace 的更完整形态 |

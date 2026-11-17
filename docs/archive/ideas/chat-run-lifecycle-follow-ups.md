@@ -1,7 +1,8 @@
 ---
 title: Chat Run 取消与生命周期后续设计
-status: idea
-horizon: candidate
+status: archived
+archived_at: 2026-11-16
+superseded_by: docs/workspace/task-process.md
 owner: system
 scope: chat-run-cancellation-future
 code_paths:
@@ -26,24 +27,26 @@ last_reviewed: 2026-10-19
 
 # Chat Run 取消与生命周期后续设计
 
+> 已归档（2026-11-16，owner 决定不再跟踪）。进程与执行流的当前事实见[任务进程](../../workspace/task-process.md)；以下正文保留归档前的原文，链接已改为归档后的相对路径。
+
 ## 1. 文档定位
 
 本文档保存从取消重构中拆出的后续候选设计。它不是当前实施依据，也不是
-[已归档的 Chat Run 取消重构最小闭环](../archive/plans/chat-run-cancellation-unified.md) 的前置依赖。
+[已归档的 Chat Run 取消重构最小闭环](../plans/chat-run-cancellation-unified.md) 的前置依赖。
 
 最小闭环已完成。只有在产品需求、运行指标或真实故障证明有必要时，才按本文各节的
 独立启用条件立项。不得以“架构最终会需要”为理由一次性实施全部内容。
 
-**2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应执行器的 `TaskProcessRunner.run(process)`（`workspace/process/runner.py`；2026-10-04 起四阶段骨架从进程容器 `TaskProcess` 拆出），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 7 节。
+**2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](../../ideas/task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应执行器的 `TaskProcessRunner.run(process)`（`workspace/process/runner.py`；2026-10-04 起四阶段骨架从进程容器 `TaskProcess` 拆出），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 7 节。
 
-**2026-10-15**：[会话计划](../archive/plans/v0.7.0-conversation-session.md)已完成并归档，原候选 D 和第 3.4 节问题移出本文（2026-11-04 起原第 7–11 节顺次改为第 6–10 节）：有输出的取消/失败轮次可恢复，finalizing 处关闭也等待提交完成。当前事实见 [任务进程](../workspace/task-process.md#8-封口部分输出与结算)，原候选全文见 commit `c7e912a9` 中的本文。停止仍只经 `Task.cancel()` 与原生 `CancelledError`。
+**2026-10-15**：[会话计划](../plans/v0.7.0-conversation-session.md)已完成并归档，原候选 D 和第 3.4 节问题移出本文（2026-11-04 起原第 7–11 节顺次改为第 6–10 节）：有输出的取消/失败轮次可恢复，finalizing 处关闭也等待提交完成。当前事实见 [任务进程](../../workspace/task-process.md#8-封口部分输出与结算)，原候选全文见 commit `c7e912a9` 中的本文。停止仍只经 `Task.cancel()` 与原生 `CancelledError`。
 
-**2026-10-19**：候选 A 中“执行所有权从 SSE 移到进程”的部分已经落地，[任务进程拥有执行流计划](../archive/plans/v0.7.0-task-process-owned-execution.md)已归档，触发条件见[代码结构成因基线](../governance/baselines/v0.7.0-code-structure-causes-2026-10-18.md)第 3.1 节。现在：
+**2026-10-19**：候选 A 中“执行所有权从 SSE 移到进程”的部分已经落地，[任务进程拥有执行流计划](../plans/v0.7.0-task-process-owned-execution.md)已归档，触发条件见[代码结构成因基线](../../governance/baselines/v0.7.0-code-structure-causes-2026-10-18.md)第 3.1 节。现在：
 - 进程持有自己的 task 与单订阅者输出通道，交付方只订阅或等待终态，进程只在自己的 task 中收尾；
 - 断连按现行策略以 `client_disconnected` 停止并丢弃本轮，与用户停止走同一条路径；
 - CPU 端口推送交互事件、返回终态结果，Alice 的队列适配器与结果槽已删除。
 
-当前事实见 [任务进程](../workspace/task-process.md)。第 2 节的基线全部保留。候选 A 的产品部分（断连后继续运行、重连、多订阅者、状态查询）与候选 B 的输出保留策略，仍按本文各节的启用条件处理，它们的前提已在第 3、4 节随之更新。
+当前事实见 [任务进程](../../workspace/task-process.md)。第 2 节的基线全部保留。候选 A 的产品部分（断连后继续运行、重连、多订阅者、状态查询）与候选 B 的输出保留策略，仍按本文各节的启用条件处理，它们的前提已在第 3、4 节随之更新。
 
 本文覆盖：
 
@@ -198,7 +201,7 @@ chat.run.cancel_requested
 ### 5.2 与现有治理事项的关系
 
 事件 emitter、payload 安全和 best-effort 边界依赖
-RuntimeEvent 生产端收敛（[日志与运行时事件](../governance/observability/logs-and-events.md)治理主题的工作包 W6）。
+RuntimeEvent 生产端收敛（[日志与运行时事件](../../governance/observability/logs-and-events.md)治理主题的工作包 W6）。
 在该依赖完成前，不应只为取消建立另一套专用事件总线。
 
 ### 5.3 启用条件
@@ -220,7 +223,7 @@ RuntimeEvent 生产端收敛（[日志与运行时事件](../governance/observab
 3. 进入 Actor 执行前的停止检查命中，跳过 Actor 执行与 finalize；
 4. 进程关闭时对尚未交接的 prepare 结果请求 Patchouli 的 `cleanup_prepared_agent_run`，只补偿 prepare 新建且仍为空的话题。
 
-现行行为见[任务进程](../workspace/task-process.md)。2026-11-06 起 PREPARE 不再建立话题、关闭流程不再请求清理（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)），上述第 2、4 步随之不存在：话题只在写入或交互应用时建立，本候选的主要动机已不存在。
+现行行为见[任务进程](../../workspace/task-process.md)。2026-11-06 起 PREPARE 不再建立话题、关闭流程不再请求清理（[归档计划](../plans/interaction-submission-and-topic-on-demand.md)），上述第 2、4 步随之不存在：话题只在写入或交互应用时建立，本候选的主要动机已不存在。
 
 这消除了“用户取消恰好发生在资源创建成功、但资源 id 尚未返回上层”这一主要租约动机。
 只要 prepare 保持短时且不可被用户取消，引入 lease 的成本高于收益。
@@ -270,7 +273,7 @@ OPEN -> COMMITTED
 
 ## 7. 候选 F：Gateway command 提交屏障
 
-> 2026-10-01：Gateway 命令已改为只解析、不执行，命令分发与执行已删除（[Gateway 全局命令](../gateway/commands.md)），当前不存在会在 Gateway 中产生副作用的命令。命令在任务进程中何时、由谁运行尚未决定，本节内容待命令系统接回时按新的运行位置重新审视。
+> 2026-10-01：Gateway 命令已改为只解析、不执行，命令分发与执行已删除（[Gateway 全局命令](../../gateway/commands.md)），当前不存在会在 Gateway 中产生副作用的命令。命令在任务进程中何时、由谁运行尚未决定，本节内容待命令系统接回时按新的运行位置重新审视。
 
 Gateway 最小方案取消整个 workflow task，因此取消可能在 command await 中到达。
 若未来 command 出现不可逆副作用，需要按行为分类：
@@ -340,3 +343,7 @@ Gateway 最小方案取消整个 workflow task，因此取消可能在 command a
 - 事件在所声称的清理完成事实之后发布；
 - 任何新增补偿操作具有稳定 identity 和幂等语义；
 - 未达到启用条件的候选不会留下预埋抽象或死代码。
+
+## 归档说明（2026-11-16）
+
+取消的最小闭环与执行所有权从 SSE 移到进程已经落地，当前事实见[任务进程](../../workspace/task-process.md)。其余候选（断连后继续运行、重连与多订阅者等）没有实施，owner 于 2026-11-16 决定不再跟踪，没有转入其他 Idea 或 Todo；需要时从本文重新提出。

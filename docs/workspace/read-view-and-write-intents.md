@@ -16,7 +16,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
 related_ideas:
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
 related_docs:
   - docs/workspace/capability.md
   - docs/workspace/execution-threads.md
@@ -113,7 +113,7 @@ UPDATE 的基础冷读在取得派发话题与登记的同步段之前完成，�
 
 - 读取视图是进程内状态，失效通知不处理未送达补齐；写入意图登记只在正常关闭时写盘，进程崩溃时这段时间的句柄丢失，之后读取按已过期交付；派发重试后结局仍然不明、或结算事件丢失的句柄保持 MATERIALIZING，最晚在保留期满后删除，没有对账恢复；
 - 改指事件与结算事件同样没有补偿：改指丢失时句柄仍指向已删除的 N，SETTLED redirect 读不到正式目标，按不可读处理；
-- 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。这与意图的结果一致：Agent 的写入总是生成 PUBLIC，只有用户能在管理页修改可见性；用户把正式记忆或 UPDATE 的基础改为只对其他 Agent 可见之后，重定向与 UPDATE 意图的回读照常按正式记忆的策略授权（第 4 节）。外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；
+- 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。这与意图的结果一致：Agent 的写入总是生成 PUBLIC，只有用户能在管理页修改可见性；用户把正式记忆或 UPDATE 的基础改为只对其他 Agent 可见之后，重定向与 UPDATE 意图的回读照常按正式记忆的策略授权（第 4 节）。崩溃后的恢复由[耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)治理文档跟踪；
 - 原子缓存与意图读取交付独立副本，但对象仍可变，不宣称递归冻结。
 
 ## 7. 代码与测试入口

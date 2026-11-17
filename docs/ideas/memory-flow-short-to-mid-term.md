@@ -344,7 +344,7 @@ owner 每天实际使用 HiveMemory，这本身就是现成的长程试验场；
 - 本讨论的子文档：[写入链路](./memory-flow-write-path.md)、[库的形状、图索引与保存形态](./memory-library-shape-and-index.md)、[类型体系](./memory-type-system.md)、[评测集](./memory-evaluation-benchmarks.md)；外部项目与文章的事实见[外部参考](../research/memory-core-external-references.md)。
 - [统一的交互记忆](./unified-interaction-memory.md)：轨迹、断言、整理与消费水位的设想；[写入链路](./memory-flow-write-path.md)第 5 节"生成之前汇合"的一种做法。
 - [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)：短期这一层自身的压缩与折叠。
-- [写入意图的后续方向](./pending-intent-migration.md)：主动写入的登记、派发与"完整的生成材料"。
+- [写入意图的后续方向](../archive/ideas/pending-intent-migration.md)（2026-11-16 已归档）：登记、派发与结算的后续已实施；主动生成时的材料由[写入链路](./memory-flow-write-path.md)第 5 节跟踪。
 - [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md)与记忆价值体系的重新设计（[ROADMAP](../ROADMAP.md) 第 4.7 节）：维护一侧；落库之后的演化质量（分裂与合并、冲突检测、对照轨迹纠错）记在其方向 6，边界见[写入链路](./memory-flow-write-path.md)第 4 节。
 - [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md)：多视图的记忆图能否优于平面检索，与[库的形状](./memory-library-shape-and-index.md)第 4.1 节相关。
 - [耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)：跨存储写入的事务边界、对账与 archive、revive 的恢复，与[库的形状](./memory-library-shape-and-index.md)第 3.2 节相关。

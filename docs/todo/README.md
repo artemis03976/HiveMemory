@@ -12,6 +12,7 @@ last_reviewed: 2026-11-11
 
 当前事项：
 
+- [Memory 域之外的时间语义统一](./time-semantics-outside-memory-domain.md)（2026-11-16 由全项目时间语义 Idea 转来：限流器与耗时统计用墙钟计算相对时间，话题域的时间字段是 naive epoch 秒，生产代码中仍有 20 处内联的 `datetime.now(UTC)`；owner 决定转为 Todo，未排期）；
 - [自定义背景，以及桌面端界面偏好的持久化](./custom-background-and-preference-persistence.md)（2026-11-11 由前端 UI 优化收尾登记：自定义背景与毛玻璃没有做；桌面客户端的会话分区不落盘，主题等界面偏好每次重启后回到缺省值；owner 决定主题持久化与自定义背景一起做，未排期）；
 - [前端细节优化：动效、响应速度与自适应布局](./frontend-ui-polish.md)（2026-11-11 由前端 UI 优化计划收尾登记：计划完成后剩下的细节，owner 决定单独处理，未排期）；
 - [保存后修改 Agent 别名，并实时更新所有引用](./agent-alias-rename.md)（2026-11-11 由前端 UI 优化计划登记：别名同时是 Profile 解析、访问登记、接入声明、对话与 CALL 中 Agent 的标识，改名时这些引用不会随之更新，Agent 页暂时只允许在草稿中修改别名；owner 决定改名时引用要实时更新，未排期）；

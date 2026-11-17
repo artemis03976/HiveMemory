@@ -1,14 +1,14 @@
 ---
 title: 外部会话消息的接收与 Topic 投影
 status: idea
-horizon: candidate
+horizon: long-term
 owner: project
 scope: conversation-session-interaction-event-topic-projection
 related_docs:
   - docs/ideas/short-term-memory-and-context-compaction.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/fifth-generation-architecture.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
@@ -299,7 +299,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 
 资料读取与绑定须固定本次任务的来源，后续 Session 路由或 handle 状态变化不能让同一任务重试悄悄切换 Topic。若处理需要继续访问活 Topic，应明确保护何时取得和释放；若已取得独立资料快照，则按快照保留约定处理，不靠临时 handle 充当无限期资料保留。选择哪种绑定、取样时点、Topic 内容变化后的重试行为以及可用版本证据待定（第 8 节），不假定现有 Topic 已有可持久化 revision 或通用 pin 能力。
 
-本节涉及资料身份、全部可用内容的读取/绑定和保留/释放；生成侧的预算编译与 Pending 状态不在本文范围，见[写入意图后续方向](./pending-intent-migration.md)第 8 节与 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。资料为空、原文已经折叠而不可恢复、读取失败和无权读取必须区分。
+本节涉及资料身份、全部可用内容的读取/绑定和保留/释放；生成侧的预算编译与 Pending 状态不在本文范围，见 v0.8 [写入链路 Idea](./memory-flow-write-path.md)第 5 节与[读取视图与写入意图](../workspace/read-view-and-write-intents.md)。资料为空、原文已经折叠而不可恢复、读取失败和无权读取必须区分。
 
 ### 4.5 实现复用方向（候选）
 

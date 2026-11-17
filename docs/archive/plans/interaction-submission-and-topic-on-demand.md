@@ -65,7 +65,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/unified-interaction-memory.md
   - docs/ideas/task-process-table-and-registration-entry.md
-  - docs/ideas/chat-run-lifecycle-follow-ups.md
+  - docs/archive/ideas/chat-run-lifecycle-follow-ups.md
   - docs/archive/plans/import-bus-authorization-in-capability-layer.md
   - docs/archive/plans/unified-identity-authorization-entry.md
   - docs/workspace/task-process.md
@@ -479,7 +479,7 @@ git diff --check
 - **Idea 与索引**：
   - [外部会话与 Topic 投影 Idea](../../ideas/external-session-and-topic-projection.md) §0、§4、§8、§10：记录实施；
   - [任务进程 Idea](../../ideas/task-process-table-and-registration-entry.md) §2.1、§2.2；
-  - [Chat 运行生命周期 Idea](../../ideas/chat-run-lifecycle-follow-ups.md)：cleanup 已删除；
+  - [Chat 运行生命周期 Idea](../ideas/chat-run-lifecycle-follow-ups.md)：cleanup 已删除；
   - [外部 Actor Idea](../../ideas/external-actor-registration-and-runtime-access.md)、[长时间运行 Agent Idea](../../ideas/long-running-agent-intra-turn-context-folding.md) 中预建话题的表述；
   - [Ideas 索引](../../ideas/README.md)、[Plans 导航](../../plans/README.md)、[归档计划索引](./README.md)、[ROADMAP](../../ROADMAP.md) 身份与访问体系一行。
 

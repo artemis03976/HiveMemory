@@ -20,7 +20,7 @@ related_docs:
   - docs/todo/merge-version-conflict.md
   - docs/todo/passive-extraction-volume-and-retention.md
   - docs/ideas/unified-interaction-memory.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
   - docs/archive/ideas/settlement-multi-memory-extraction-and-dedup.md
   - docs/research/deepseek-harness-plugin-survey.md
 last_reviewed: 2026-11-04
@@ -32,7 +32,7 @@ last_reviewed: 2026-11-04
 
 ## 0. 文档性质
 
-本文是 v0.7.3 的设计讨论，为该版本的计划供料，不描述当前行为。主动写入、话题结算的被动提取、查重与合并的当前设计见 [Patchouli 生成](../../patchouli/generation.md)第 2.1、3、4、7、8 节。查重的判定信号由[查重决策信号 Todo](../../todo/generation-dedup-decision-signal.md)跟踪，本文不讨论信号本身；写入意图的登记、派发与结算见[写入意图 Idea](../../ideas/pending-intent-migration.md)。
+本文是 v0.7.3 的设计讨论，为该版本的计划供料，不描述当前行为。主动写入、话题结算的被动提取、查重与合并的当前设计见 [Patchouli 生成](../../patchouli/generation.md)第 2.1、3、4、7、8 节。查重的判定信号由[查重决策信号 Todo](../../todo/generation-dedup-decision-signal.md)跟踪，本文不讨论信号本身；写入意图的登记、派发与结算见[写入意图 Idea](./pending-intent-migration.md)。
 
 第 3 节的问题已由 owner 于 2026-11-03 决定，第 4 节是据此展开的候选设计。计划的状态见第 7 节。
 

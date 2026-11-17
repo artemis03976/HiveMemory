@@ -196,7 +196,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 ### 5.1 `V0.6.0CompositeIntentDecompositionDesign.md`
 
-**分类与动作（后续更新）：** 当时曾迁移为复合意图分解 Plan；由于缺少版本承诺与证据门禁，现归类为[复合意图分解 Idea](../../ideas/composite-intent-decomposition.md)。
+**分类与动作（后续更新）：** 当时曾迁移为复合意图分解 Plan；由于缺少版本承诺与证据门禁，现归类为[复合意图分解 Idea](../ideas/composite-intent-decomposition.md)。
 
 **当前差距：** 代码只有公共 `IntentType.COMPOSITE` 和 Engine 私有 `sub_intents`；Resolver 不提交 sub-intents，workflow 没有 `CompositeGatewayDecision`、branch execution、merge/fallback policy 或旧稿设想的 `CompositePlaceholder`。迁移时已删除这些占位字段“已经实现”的错误口径，并新增样本/指标门禁 Phase C0。
 
