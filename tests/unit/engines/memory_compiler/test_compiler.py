@@ -53,7 +53,7 @@ def sample_atom():
         index=IndexLayer(
             title="Python parse_date 函数",
             summary="基于 datetime 库的日期解析工具",
-            memory_type=MemoryType.CODE_SNIPPET,
+            memory_type=MemoryType.RESOURCE,
             tags=["python", "datetime", "utils"],
         ),
         payload=PayloadLayer(
@@ -205,7 +205,7 @@ class TestMemoryAtomCompilation:
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.DENSE_EMBEDDING)
         assert artifact.target == MemoryCompileTarget.DENSE_EMBEDDING
         assert "Python parse_date" in artifact.text
-        assert "CODE_SNIPPET" in artifact.text
+        assert "RESOURCE" in artifact.text
         assert "python" in artifact.text
 
     def test_sparse_embedding(self, compiler, sample_atom):

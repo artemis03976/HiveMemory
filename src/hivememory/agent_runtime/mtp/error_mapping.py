@@ -49,7 +49,7 @@ _PROTOCOL_PARAMS: dict[str, tuple[str, ...]] = {
     "mtp.run.tool_not_found": ("alias",),
     "mtp.run.pending_not_runnable": ("alias",),
     "mtp.run.alias_not_found": ("alias",),
-    "mtp.run.type_mismatch": ("alias", "memory_type"),
+    "mtp.run.memory_not_runnable": ("alias",),
     "mtp.run.terminal_alias_not_runnable": ("alias", "status"),
     "mtp.update.pending_not_updatable": ("alias",),
     "mtp.update.alias_not_found": ("alias",),

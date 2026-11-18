@@ -4,7 +4,7 @@ status: accepted
 owner: project
 scope: memory-as-a-tool-asset-consumption-and-executable-boundary
 decided_at: 2026-09-07
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-17
 related_docs:
   - docs/VISION.md
   - docs/contracts/mtp.md
@@ -17,7 +17,7 @@ related_docs:
 
 ## Context
 
-HiveMemory 的长期命题是让记忆资产不仅作为上下文被检索，还作为 Agent 可主动使用的能力参与执行。这一命题在当前实现中体现为两条已经落地的线索：`MemoryCompiler` 通过 target 把同一记忆编译成不同消费形态（`PROMPT_FULL`/`PROMPT_INDEX` 用于阅读，`RUNNABLE_TOOL` 作为保留的可执行 target）；MTP 的 `RUN` 动词通过两层分发执行能力（框架注册的 `sys_tool` 与 `CODE_SNIPPET` MemoryAtom）。
+HiveMemory 的长期命题是让记忆资产不仅作为上下文被检索，还作为 Agent 可主动使用的能力参与执行。这一命题在当前实现中体现为两条已经落地的线索：`MemoryCompiler` 通过 target 把同一记忆编译成不同消费形态（`PROMPT_FULL`/`PROMPT_INDEX` 用于阅读，`RUNNABLE_TOOL` 作为保留的可执行 target）；MTP 的 `RUN` 动词通过两层分发执行能力（框架注册的 `sys_tool` 与 `CODE_SNIPPET` MemoryAtom）。2026-11-17 核对：`CODE_SNIPPET` 已只作为历史取值保留，记忆目标的 RUN 一律以不可运行拒绝，`RUN` 只执行 `sys_tool`（[MTP 契约](../../contracts/mtp.md)第 3.3 节）；本决策的语义边界不变。
 
 与此同时，业界 Agent harness 对"附件解析/能力获取"形成了两种看似对立的做法：Claude Code/Codex 的 skill（文本手册 + 配套工具代码，Agent 照着走），以及 Pi/DeepSeek 的 plugin（框架不内置，靠外部插件可插拔组合）。这两种做法容易让人试图在 HiveMemory 里为 skill 和 plugin 各建立一类记忆资产，或用 `memory_type` 去区分它们。
 
@@ -70,7 +70,7 @@ Skill 和 Plugin 都可能同时包含说明、代码和运行时能力，不能
 
 ### 5. 可执行内容的落地原则
 
-长期方向是让 `payload.content` 主要表达使用指引，让执行所需代码或工具通过引用关联。现有 `CODE_SNIPPET` 的"content 即代码"语义是否以及如何迁移，引用关系由何种结构承载，均由独立 Plan 裁定；本 ADR 不冻结具体字段、Artifact 类型或存储方式。
+长期方向是让 `payload.content` 主要表达使用指引，让执行所需代码或工具通过引用关联。`CODE_SNIPPET` 的"content 即代码"语义已经退出：生成链不再产出这一类型，记忆不再作为代码被 RUN 执行；可执行内容的引用关系由何种结构承载，由独立 Plan 裁定；本 ADR 不冻结具体字段、Artifact 类型或存储方式。
 
 ## Consequences
 
@@ -104,7 +104,7 @@ Skill 和 Plugin 都可能同时包含说明、代码和运行时能力，不能
 
 ### 保留 CODE_SNIPPET 的"content 即代码"，同时不引入 Artifact 引用
 
-部分拒绝。当前 CODE_SNIPPET 可作为过渡形态保留，但作为长期语义被本决策的方向（content 指引 + Artifact 引用）替代；是否继续内联属于后续迁移 Plan 的裁定范围。
+部分拒绝。CODE_SNIPPET 曾作为过渡形态保留，长期语义由本决策的方向（content 指引 + Artifact 引用）替代；2026-11-17 起它只作为历史取值，内联代码不再作为执行依据。
 
 ## Status
 

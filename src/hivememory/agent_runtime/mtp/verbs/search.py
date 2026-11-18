@@ -51,7 +51,7 @@ async def handle_search(
         raise InvalidArgumentError(message_key="mtp.search.missing_query")
 
     # 解析 filter 参数
-    # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
+    # 例如 filter="type:RESOURCE" → QueryFilters(memory_type=RESOURCE)
     # 宽容解析: 非法 filter 降级为 None，但返回警告
     filter_str = command.args.get("filter", "")
     parsed_filters, filter_warnings = filter_parser.parse(filter_str) if filter_str else (None, [])

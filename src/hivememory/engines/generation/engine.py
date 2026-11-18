@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.errors import ModelProviderError, WorkspaceMismatchError
 from hivememory.core.models import (
+    HISTORICAL_MEMORY_TYPES,
     ActorIdentity,
     IndexLayer,
     MemoryAccessPolicy,
@@ -372,10 +373,7 @@ class MemoryGenerationEngine:
         result = await self.extractor.merge(retained, absorbed)
         if result is None:
             return None
-        try:
-            memory_type = MemoryType(result.memory_type)
-        except ValueError:
-            memory_type = retained.index.memory_type
+        memory_type = _producible_memory_type(result.memory_type) or retained.index.memory_type
         # 普通记忆不能经模型输出变为 Profile；Profile 的创建有独立入口。
         if memory_type == MemoryType.AGENT_PROFILE:
             return None
@@ -608,15 +606,13 @@ class MemoryGenerationEngine:
 
         Examples:
             >>> memory = engine._draft_to_memory(
-            ...     draft, belong_to, provenance, alias="code_quicksort", now=now
+            ...     draft, belong_to, provenance, alias="fact_quicksort", now=now
             ... )
             >>> memory.index.title
             "Python 快排算法"
         """
-        # 映射字符串类型到枚举
-        try:
-            mem_type = MemoryType(draft.memory_type)
-        except ValueError:
+        mem_type = _producible_memory_type(draft.memory_type)
+        if mem_type is None:
             logger.warning("未知的记忆类型: %s, 使用 FACT", draft.memory_type)
             mem_type = MemoryType.FACT
 
@@ -644,6 +640,20 @@ class MemoryGenerationEngine:
                 content=draft.content,
             ),
         )
+
+
+def _producible_memory_type(value: str) -> MemoryType | None:
+    """模型给出的类型名对应可以产生的类型时返回它，未知名与只作历史取值的类型返回 None。
+
+    旧类型名留在枚举中只为解码历史，模型照旧写出它们时不能借此产生旧类型。
+    """
+    try:
+        memory_type = MemoryType(value)
+    except ValueError:
+        return None
+    if memory_type in HISTORICAL_MEMORY_TYPES:
+        return None
+    return memory_type
 
 
 def _require_matched_memory(

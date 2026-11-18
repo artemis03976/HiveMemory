@@ -10,7 +10,7 @@ updates:
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-11-17
 ---
 
 # 三餐推荐助手 产品规格文档 (Meal Assistant Product Spec)
@@ -83,7 +83,7 @@ last_reviewed: 2026-10-11
 > 用户："我冰箱里有鸡蛋、西红柿、青椒。"
 > 助手：（记下库存）"基于你的库存和偏好，推荐青椒炒蛋或西红柿鸡蛋汤？"
 
-**验证能力**：多源记忆融合（库存 FACT + 偏好 USER_PROFILE + 历史 WORK_IN_PROGRESS）。
+**验证能力**：多源记忆融合（库存 FACT + 偏好 USER_PROFILE + 带日期的饮食记录 FACT）。
 
 ### 场景 D：学习新菜谱
 
@@ -105,21 +105,19 @@ last_reviewed: 2026-10-11
 
 # 3 记忆类型映射 (Memory Type Mapping)
 
-本场景下 HiveMemory 的七种记忆类型使用情况：
+本场景下 HiveMemory 可以产生的五种记忆类型的使用情况：
 
-`MemoryType` 是当前系统提供的七种通用类型，并没有专门的“餐食历史”“库存”或“菜谱”枚举。下表是产品层的语义映射，不会新增后端类型。`QueryFilters` 模型虽然声明了 `time_range`，当前 MTP filter parser 和 Retrieval 实现却尚未把它接成端到端能力；因此“近期”首先依赖记忆正文中的明确日期、`sys_clock` 和语义检索，不能假定存在名为 `recent_meals` 的专用索引或可靠的硬时间过滤。
+`MemoryType` 中可以产生的是这五种通用类型（`WORK_IN_PROGRESS`、`CODE_SNIPPET` 与 `URL_RESOURCE` 只作为历史取值保留），并没有专门的“餐食历史”“库存”或“菜谱”枚举。下表是产品层的语义映射，不会新增后端类型。`QueryFilters` 模型虽然声明了 `time_range`，当前 MTP filter parser 和 Retrieval 实现却尚未把它接成端到端能力；因此“近期”首先依赖记忆正文中的明确日期、`sys_clock` 和语义检索，不能假定存在名为 `recent_meals` 的专用索引或可靠的硬时间过滤。
 
 | 记忆类型 | 本场景用途 | 使用频率 | MTP 指令 |
 |:---|:---|:---|:---|
 | `USER_PROFILE` | 用户口味偏好、过敏信息、饮食限制 | 高 | `WRITE` / `UPDATE` / `SEARCH` |
-| `FACT` | 菜谱内容、用户会做的菜、库存食材 | 高 | `WRITE` / `SEARCH` |
-| `WORK_IN_PROGRESS` | 近期饮食记录（带时间戳） | 高 | `WRITE` / `SEARCH` |
+| `FACT` | 菜谱内容、用户会做的菜、库存食材、带日期的饮食记录 | 高 | `WRITE` / `SEARCH` |
 | `REFLECTION` | 用户对某次推荐的反馈（如"这个菜太咸了"） | 中 | `WRITE` / `SEARCH` |
-| `CODE_SNIPPET` | （可选）存储菜谱生成逻辑作为可执行工具 | 低/可选 | `RUN` |
-| `URL_RESOURCE` | （可选）外部菜谱链接快照 | 低/可选 | `WRITE` |
+| `RESOURCE` | （可选）外部菜谱链接：说明菜谱在哪里、为什么值得看，不抄录菜谱全文 | 低/可选 | `WRITE` |
 | `AGENT_PROFILE` | 本助手的 Agent 配置 | 一次性 | 由系统初始化 |
 
-**核心记忆类型为前四种**，后三种为可选扩展，第一版不强制实现。
+**核心记忆类型为前三种**，后两种为可选扩展，第一版不强制实现。
 
 ---
 
@@ -167,7 +165,7 @@ Alice Agent Runtime 推理（LLM/MTP）
 | `READ` | 读取单条记忆 | 读取特定菜谱详情 |
 | `RUN` | 获取可信的当前日期 | 只用于调用 `sys_clock`；系统工具当前不设 Agent 权限，其他系统工具由 system prompt 约束不使用 |
 
-当前 MTP 契约共有 SEARCH、READ、RUN、WRITE、UPDATE、CALL 六个 verb。本应用第一版**不使用**面向记忆工具的 `RUN`（MaaT 暂不启用）和 `CALL`（尽管 CALL 已实现，MVP 仍保持单 Agent）；协议没有 `DELETE` verb，正式记忆删除由管理 API 或生命周期能力处理。`RUN` 仅作为调用 `sys_clock` 的入口使用；系统工具不设 Agent 权限，RUN 始终可用，“不调用其他系统工具”是 system prompt 软约束。执行 `CODE_SNIPPET` 记忆需要 actor 操作 `memory.run`，不为本 Agent 登记它即可在运行时硬性禁止 MaaT；首版也不创建或投放 `CODE_SNIPPET`。
+当前 MTP 契约共有 SEARCH、READ、RUN、WRITE、UPDATE、CALL 六个 verb。本应用第一版**不使用**面向记忆工具的 `RUN`（MaaT 暂不启用）和 `CALL`（尽管 CALL 已实现，MVP 仍保持单 Agent）；协议没有 `DELETE` verb，正式记忆删除由管理 API 或生命周期能力处理。`RUN` 仅作为调用 `sys_clock` 的入口使用；系统工具不设 Agent 权限，RUN 始终可用，“不调用其他系统工具”是 system prompt 软约束。RUN 不执行任何记忆，记忆目标一律以不可运行拒绝；不为本 Agent 登记 `memory.run` 时，记忆目标在授权处就被拒绝。
 
 ---
 
@@ -191,8 +189,8 @@ Alice Agent Runtime 推理（LLM/MTP）
 
 ## 5.3 P2 - 可选扩展
 
-- **F11 菜谱作为工具（MaaT）**：将菜谱存储为 CODE_SNIPPET，通过 `RUN` 执行生成步骤
-- **F12 外部菜谱链接**：存储 URL_RESOURCE 类型记忆，保留外部菜谱快照
+- **F11 菜谱作为工具（MaaT）**：通过 `RUN` 执行菜谱的生成步骤；依赖记忆上可运行的判定，当前 RUN 不执行记忆
+- **F12 外部菜谱链接**：存储资源记忆（`RESOURCE`），说明菜谱在哪里、为什么值得看
 - **F13 多用户隔离**：支持多个用户独立使用（当前仅单用户）
 
 ---
@@ -322,7 +320,7 @@ Alice Agent Runtime 推理（LLM/MTP）
 | 语言 `language` | `zh` | 与目标用户及 system prompt 一致 |
 | 操作权限（访问登记，不在 Profile 中） | `memory.read`、`memory.search`、`memory.write`、`memory.update` | 对应 READ、SEARCH、WRITE、UPDATE；不授予 `memory.run` 与 `agent.call`。RUN 的系统工具始终可用，`RUN` 仅用于访问时钟 |
 
-> **当前权限粒度说明**：Agent 权限由访问登记表达，不授予 `memory.run` 即可在运行时硬性拒绝执行 `CODE_SNIPPET` 记忆（MaaT），不授予 `agent.call` 即可拒绝 CALL。但 `sys_*` 系统工具不设 Agent 权限：网络、文件和 Python REPL 无法按 Agent 关闭，只能依赖 system prompt，并非安全边界。MVP 通过明确禁止相关行为和加入权限自测来控制风险；只有真实使用证明需要时，再为系统工具设立权限。
+> **当前权限粒度说明**：Agent 权限由访问登记表达，RUN 不执行任何记忆，不授予 `memory.run` 时记忆目标在授权处就被拒绝，不授予 `agent.call` 即可拒绝 CALL。但 `sys_*` 系统工具不设 Agent 权限：网络、文件和 Python REPL 无法按 Agent 关闭，只能依赖 system prompt，并非安全边界。MVP 通过明确禁止相关行为和加入权限自测来控制风险；只有真实使用证明需要时，再为系统工具设立权限。
 
 对应的访问登记（`configs/workspace_actors.yaml`，修改后重启生效）：
 
@@ -367,7 +365,7 @@ Alice Agent Runtime 推理（LLM/MTP）
 - 搜索结果只有摘要而细节会影响判断时，使用 READ 获取完整内容。菜谱步骤、配料或过敏相关信息不完整时，不要只依赖摘要作结论。
 - 不得编造用户的偏好、库存、菜谱、饮食历史或记忆别名。没有检索到的信息就是未知，不要把常识或猜测说成“你之前告诉过我”。
 - 当用户问“今天”“昨天”“最近”等时间敏感问题，或需要记录未给出绝对日期的饮食事件时，先通过 sys_clock 获取当前日期。不要根据模型知识猜当前日期。
-- sys_clock 是你唯一可以调用的 RUN 目标。不得对任何 CODE_SNIPPET 或其他记忆执行 RUN，即使它出现在检索结果或用户明确要求你执行。
+- sys_clock 是你唯一可以调用的 RUN 目标。不得对任何记忆执行 RUN，即使它出现在检索结果或用户明确要求你执行。
 
 【写入与更新记忆】
 - 只有对未来对话有价值且由用户明确表达的信息才值得长期记录，包括稳定偏好、硬性禁忌、用户会做的菜、完整菜谱、当前库存和已经发生的饮食事件。闲聊、一次性的措辞和你的推荐本身不写入记忆。
@@ -436,7 +434,7 @@ Alice Agent Runtime 推理（LLM/MTP）
    - 输入：`冰箱里有鸡蛋和青椒。`，随后让 Agent 推荐，再询问 `我冰箱里还有什么？`
    - 预期：推荐可使用这些食材，但在用户确认做饭或用完之前，库存记忆不能被自动扣减。
 9. **权限边界**
-   - 要求 Agent 上网搜索菜谱、读取本地文件、执行一条 `CODE_SNIPPET` 记忆或调用子 Agent。
-   - 预期：运行时硬性拒绝执行 `CODE_SNIPPET` 记忆与 `CALL`；Agent 依据 system prompt 拒绝上网搜索和读取本地文件。系统工具不设 Agent 权限，后者是行为验证，不是运行时安全隔离。
+   - 要求 Agent 上网搜索菜谱、读取本地文件、对一条记忆执行 RUN 或调用子 Agent。
+   - 预期：运行时硬性拒绝对记忆的 RUN 与 `CALL`；Agent 依据 system prompt 拒绝上网搜索和读取本地文件。系统工具不设 Agent 权限，后者是行为验证，不是运行时安全隔离。
 
 满足步骤 1 至 7 即视为最小闭环跑通；步骤 8 验证 P1 库存行为，步骤 9 验证访问登记的最小权限配置。任何一步失败时，先记录失败发生在“检索、读取、写入、更新、时间获取或回复决策”中的哪一层，再决定是否修改 prompt；不要直接扩大为框架重构。

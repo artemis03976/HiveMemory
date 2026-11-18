@@ -57,7 +57,7 @@ class ExtractedMemoryDraft(BaseModel):
         title: 简洁明确的标题 (不超过100字)
         summary: 一句话摘要 (不超过200字)
         tags: 3-5个语义标签
-        memory_type: 记忆类型 (CODE_SNIPPET/FACT/...)
+        memory_type: 记忆类型 (FACT/RESOURCE/...)
         content: 清洗后的 Markdown 内容
         confidence_score: 置信度 (0.0-1.0)
         has_value: 是否有长期价值
@@ -68,7 +68,7 @@ class ExtractedMemoryDraft(BaseModel):
     tags: list[str] = Field(..., description="3-5个语义标签")
     memory_type: str = Field(
         ...,
-        description="记忆类型: CODE_SNIPPET/FACT/URL_RESOURCE/REFLECTION/USER_PROFILE/WORK_IN_PROGRESS",
+        description="记忆类型: FACT/REFLECTION/USER_PROFILE/RESOURCE",
     )
     content: str = Field(..., description="清洗后的Markdown内容")
     confidence_score: float = Field(..., description="置信度 (0.0-1.0)", ge=0.0, le=1.0)

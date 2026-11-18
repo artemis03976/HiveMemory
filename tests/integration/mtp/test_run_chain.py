@@ -6,11 +6,7 @@ RUN 指令执行链路测试
 测试覆盖:
     1. Target 校验 (通配符/列表/空 target 拒绝)
     2. 系统工具快速路径 (sys_clock, sys_python_repl)
-    3. 用户工具路径 (统一原子缓存 + L2 冷检索 + 沙箱执行)
-
-与 test_syscall_chain.py 的区别:
-    - test_syscall_chain.py: 聚焦 syscall 函数本身的行为正确性
-    - 本文件: 聚焦 RUN 指令的 _handle_run 链路 (target 校验、快速路径分发、用户工具路径)
+    3. 记忆别名 (经能力层解析后一律以“不可运行”拒绝、不记录引用)
 """
 
 import asyncio
@@ -44,34 +40,18 @@ def _make_code_memory(
     alias: str = "tool_test",
     mem_id=None,
 ) -> MemoryAtom:
-    """创建 CODE_SNIPPET 类型的记忆原子"""
+    """正文是一段可以直接执行的代码的记忆原子。"""
     return MemoryAtom(
         id=mem_id or uuid4(),
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title="Test Tool",
-            summary="A test code snippet tool",
+            summary="A test tool script",
             tags=["test", "tool"],
-            memory_type=MemoryType.CODE_SNIPPET,
-            alias=alias,
-        ),
-        payload=PayloadLayer(content=code),
-    )
-
-
-def _make_fact_memory(mem_id=None, alias: str = "fact_not_tool") -> MemoryAtom:
-    """创建 FACT 类型的记忆原子 (不可执行)"""
-    return MemoryAtom(
-        id=mem_id or uuid4(),
-        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
-        index=IndexLayer(
-            title="Test Fact",
-            summary="A test fact memory",
-            tags=["test"],
             memory_type=MemoryType.FACT,
             alias=alias,
         ),
-        payload=PayloadLayer(content="This is a fact, not code."),
+        payload=PayloadLayer(content=code),
     )
 
 
@@ -186,11 +166,11 @@ class TestRunSyscallFastPath:
         assert "30" in result.response_content
 
 
-# ========== Test 3：用户工具路径（Level 1） ==========
+# ========== Test 3：记忆别名 ==========
 
 
-class TestRunUserToolPath:
-    """用户工具路径"""
+class TestRunMemoryAlias:
+    """记忆别名经能力层解析，解析到的记忆都不可运行"""
 
     def test_unknown_tool_not_found(self, koakuma):
         """L1+L2 均未命中，返回 not found"""
@@ -220,135 +200,21 @@ class TestRunUserToolPath:
         assert result.response_content == ""
         assert "Service Unavailable" in result.formatted_response
 
-    def test_l2_hit_executes_code_snippet(self, koakuma):
-        """L2 命中 CODE_SNIPPET，沙箱执行成功"""
+    def test_resolved_memory_is_rejected_as_not_runnable(self, koakuma):
+        """解析到的记忆即使正文是可执行的代码也不运行，提示不可通过 RUN 运行，不记录引用。"""
         mem = _make_code_memory(code="print('tool output')", alias="tool_greet")
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
+        koakuma.memories[mem.get_alias()] = mem
 
         result = _execute_mtp(koakuma, "⟪ RUN | tool_greet | ⟫")
 
-        assert result.success
-        assert "tool output" in result.response_content
-        assert koakuma.harness.backing.bus._memory_citations == [
-            {"memory_id": mem.id, "source": "workspace.reference_read"}
-        ]
-
-    def test_l1_alias_hit_executes(self, koakuma):
-        """L1 别名命中 → 加载 → 执行"""
-        mem = _make_code_memory(code="print('from l1')", alias="tool_l1")
-        koakuma.memories[mem.get_alias()] = mem
-
-        result = _execute_mtp(koakuma, "⟪ RUN | tool_l1 | ⟫")
-
-        assert result.success
-        assert "from l1" in result.response_content
-        assert koakuma.harness.backing.bus._memory_citations == [
-            {"memory_id": mem.id, "source": "workspace.reference_read"}
-        ]
-
-    def test_cache_hit_skips_qdrant(self, koakuma):
-        """第二次调用走 LRU 缓存，不查 Qdrant"""
-        mem = _make_code_memory(code="print('cached')", alias="tool_cached")
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
-
-        # 第一次调用: L2 命中 → 加载 → 缓存
-        result1 = _execute_mtp(koakuma, "⟪ RUN | tool_cached | ⟫")
-        assert result1.success
-
-        # 重置 mock 调用计数
-        koakuma.harness.backing.bus._mock_storage.get_memory.reset_mock()
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.reset_mock()
-
-        # 第二次调用: 应走 LRU 缓存
-        result2 = _execute_mtp(koakuma, "⟪ RUN | tool_cached | ⟫")
-        assert result2.success
-        assert "cached" in result2.response_content
-
-        # 验证没有再查 Qdrant
-        koakuma.harness.backing.bus._mock_storage.get_memory.assert_not_called()
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.assert_not_called()
-
-    def test_non_code_snippet_rejected(self, koakuma):
-        """类型不是 CODE_SNIPPET 时拒绝执行并明确提示不可通过 RUN 运行，不记录引用。"""
-        fact_mem = _make_fact_memory()
-        koakuma.memories[fact_mem.get_alias()] = fact_mem
-
-        result = _execute_mtp(koakuma, "⟪ RUN | fact_not_tool | ⟫")
-
         assert not result.success
         assert result.response_content == ""
-        assert "CODE_SNIPPET" in result.formatted_response
-        # 提示明确告诉 Agent 这条记忆不能用 RUN 运行，而不只是报告类型不符。
+        assert "tool output" not in result.formatted_response
+        assert "[Not Runnable]" in result.formatted_response
         assert "不可通过 RUN 运行" in result.formatted_response
         assert koakuma.harness.backing.bus._memory_citations == []
 
-    def test_sandbox_timeout(self, koakuma):
-        """死循环代码触发超时"""
-        mem = _make_code_memory(
-            code="while True: pass",
-            alias="tool_infinite",
-        )
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
-        # 使用极短超时加速测试
-        koakuma._config.python_repl_timeout_seconds = 1
-
-        result = _execute_mtp(koakuma, "⟪ RUN | tool_infinite | ⟫")
-
-        assert not result.success
-        assert result.response_content == ""
-        assert (
-            "timed out" in result.formatted_response.lower()
-            or "超时" in result.formatted_response
-            or "mtp.syscall.timeout" in result.formatted_response
-        )
-
-    def test_sandbox_import_blocked(self, koakuma):
-        """import 语句被拦截"""
-        mem = _make_code_memory(
-            code="import os\nprint(os.getcwd())",
-            alias="tool_bad_import",
-        )
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
-
-        result = _execute_mtp(koakuma, "⟪ RUN | tool_bad_import | ⟫")
-
-        assert not result.success
-        assert result.response_content == ""
-        assert "import" in result.formatted_response.lower()
-
-    def test_params_injection(self, koakuma):
-        """验证 params 字典正确传入用户工具"""
-        mem = _make_code_memory(
-            code="print(f\"x={params['x']}, y={params['y']}\")",
-            alias="tool_params",
-        )
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
-
-        result = _execute_mtp(koakuma, '⟪ RUN | tool_params | x="42" y="hello" ⟫')
-
-        assert result.success
-        assert "x=42" in result.response_content
-        assert "y=hello" in result.response_content
-
-    def test_cache_hit_after_ingest(self, koakuma):
-        """缓存命中后直接执行，不查 Qdrant"""
-        mem = _make_code_memory(code="print('cached')", alias="tool_cached_ingest")
-        koakuma.memories[mem.get_alias()] = mem
-
-        result = _execute_mtp(koakuma, "⟪ RUN | tool_cached_ingest | ⟫")
-
-        assert result.success
-        assert "cached" in result.response_content
-        # 验证没有查 Qdrant
-        koakuma.harness.backing.bus._mock_storage.get_memory.assert_not_called()
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.assert_not_called()
-
-    def test_redirected_pending_alias_executes_canonical_tool(self, koakuma):
+    def test_redirected_pending_alias_is_rejected_under_canonical_alias(self, koakuma):
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending tool", title="Pending Tool", reason=None),
             belong_to=make_identity_scope().workspace_identity,
@@ -375,16 +241,11 @@ class TestRunUserToolPath:
 
         result = _execute_mtp(koakuma, f"⟪ RUN | {pending.pending_alias} | ⟫")
 
-        assert result.success
-        assert "redirected tool output" in result.response_content
-        assert "[Alias Redirected]" not in result.response_content
-        assert "[Alias Redirected]" in result.formatted_response
-        assert f"请求的别名: {pending.pending_alias}" in result.formatted_response
-        assert "规范别名: tool_canonical" in result.formatted_response
-        assert "<warnings>" in result.formatted_response
-        assert koakuma.harness.backing.bus._memory_citations == [
-            {"memory_id": canonical.id, "source": "workspace.reference_read"}
-        ]
+        assert not result.success
+        assert "redirected tool output" not in result.formatted_response
+        assert "[Not Runnable]" in result.formatted_response
+        assert "'tool_canonical'" in result.formatted_response
+        assert koakuma.harness.backing.bus._memory_citations == []
 
     def test_failed_pending_alias_returns_reclaimed_error(self, koakuma):
         pending = koakuma.registry.register_write(
@@ -503,39 +364,3 @@ class TestRunUserToolPath:
         assert "redirected tool output" not in result.formatted_response
         assert "[Alias Not Found]" in result.formatted_response
         assert koakuma.harness.backing.bus._memory_citations == []
-
-    def test_user_tool_success_returns_execution_result(self, koakuma):
-        """成功执行后返回工具输出，trace 由 TurnEvent reducer 负责生成。"""
-        mem = _make_code_memory(code="print('traced')", alias="tool_trace")
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
-
-        result = _execute_mtp(koakuma, "⟪ RUN | tool_trace | ⟫")
-
-        assert result.success
-        assert "traced" in result.response_content
-
-    def test_user_tool_error_returns_execution_failure(self, koakuma):
-        """执行失败仍返回错误，引用在能力层交付原子时已记录。"""
-        mem = _make_code_memory(code="raise ValueError('boom')", alias="tool_err")
-        koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = mem
-        koakuma.harness.backing.bus._mock_storage.get_memory.return_value = mem
-
-        result = _execute_mtp(koakuma, "⟪ RUN | tool_err | ⟫")
-
-        assert not result.success
-        assert result.response_content == ""
-        assert "Error" in result.formatted_response
-        assert koakuma.harness.backing.bus._memory_citations == [
-            {"memory_id": mem.id, "source": "workspace.reference_read"}
-        ]
-
-    def test_citation_failure_keeps_user_tool_success_response(self, koakuma):
-        mem = _make_code_memory(code="print('still ok')", alias="tool_cite_fail")
-        koakuma.memories[mem.get_alias()] = mem
-        koakuma.harness.backing.bus.unregister("patchouli.public.record_memory_citation")
-
-        result = _execute_mtp(koakuma, "⟪ RUN | tool_cite_fail | ⟫")
-
-        assert result.success
-        assert "still ok" in result.response_content

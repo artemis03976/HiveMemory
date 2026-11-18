@@ -171,17 +171,14 @@ class MTPParser:
         return args
 
 
+# 只作历史取值的类型没有别名，按未知类型给出警告、不加过滤。
 _FILTER_TYPE_MAP: dict[str, MemoryType] = {
-    "code": MemoryType.CODE_SNIPPET,
-    "code_snippet": MemoryType.CODE_SNIPPET,
     "fact": MemoryType.FACT,
-    "url": MemoryType.URL_RESOURCE,
-    "url_resource": MemoryType.URL_RESOURCE,
     "reflection": MemoryType.REFLECTION,
     "profile": MemoryType.USER_PROFILE,
     "user_profile": MemoryType.USER_PROFILE,
-    "wip": MemoryType.WORK_IN_PROGRESS,
-    "work_in_progress": MemoryType.WORK_IN_PROGRESS,
+    "resource": MemoryType.RESOURCE,
+    "res": MemoryType.RESOURCE,
     "agent_profile": MemoryType.AGENT_PROFILE,
     "agent": MemoryType.AGENT_PROFILE,
 }

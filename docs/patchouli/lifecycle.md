@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-17
 ---
 
 # 记忆生命周期
@@ -55,7 +55,7 @@ B(events) = event_vitality_boost
 
 - `V0` 默认 100，使新记忆从高生命力开始；
 - 衰减基准是 `meta.lifecycle.decay_anchor_at`（创建时等于 created_at，CITATION 与内容修订推进；HIT、普通访问、反馈与评分刷新不推进）——`updated_at` 是内容事实，不参与衰减；决策时刻经注入的 `now` 提供，可在测试中固定；
-- intrinsic value 按 memory type 调节衰减速度，code/fact 默认比 work-in-progress 衰减慢；
+- intrinsic value 按 memory type 调节衰减速度，取 `patchouli.lifecycle.vitality_calculator` 的 `fact_weight`（0.9）、`resource_weight`（0.8）、`reflection_weight`（0.7）与 `user_profile_weight`（0.6），其他类型取 `default_weight`（0.5）。资源记忆的真相在源头、会过时，所以不是最抗衰减的一类；配置模型禁止多余的键，个人覆盖中残留已删除的权重键会让启动失败；
 - access boost 使用对数曲线，访问越多仍增长，但边际增益下降；
 - event boost 单独累积，避免每次重算时丢失强化历史；
 - confidence 当前不参与起始分数或衰减公式，只在负反馈等其他环节使用。

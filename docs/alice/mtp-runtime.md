@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-17
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -82,7 +82,7 @@ CALL 子帧的动词集合由被调用方的操作快照翻译并显式移除 CA
 |:---|:---|:---|
 | `SEARCH` | 解析 query/filter，提交 `RetrieveRequest`；能力层授权检索并在代次未变时预热 workspace 原子缓存，MemoryCompiler 编译结果 | Patchouli 拥有检索，Alice 拥有本帧回填 |
 | `READ` | 提交 `ResolveReferencesRequest` 解析一个或多个 alias；按请求顺序逐项编译 pending、redirect、atom 与终态 | alias 与缓存语义由 workspace 统一 |
-| `RUN` | 先匹配 syscall 注册表；否则提交 `ResolveRunTargetRequest` 解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | 系统工具不设权限，记忆目标要求 `memory.run`；受限子进程不等于 OS 沙箱 |
+| `RUN` | 先匹配 syscall 注册表；否则提交 `ResolveRunTargetRequest` 解析记忆目标，解析到的记忆一律以不可运行拒绝 | 系统工具不设权限，记忆目标要求 `memory.run`；受限子进程不等于 OS 沙箱 |
 | `WRITE` | 校验 content，提交 `SubmitWriteIntentRequest(WriteFocus)`，返回 `ack + draft_*` | 能力层立即派发，生成队列接纳后 ACK |
 | `UPDATE` | 校验参数，提交 `SubmitUpdateIntentRequest` 让能力层解析正式基础、登记 revision、失效基础缓存并派发，接纳后返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |
 | `CALL` | 校验 target/task/policy，返回 `suspend + MTPCallRequest` | Alice `CallContextProvider` 解析上下文，`CallCoordinator` 负责 callee 与结果回流 |
@@ -103,15 +103,13 @@ READ/SEARCH 输出都经过 MemoryCompiler。MTP handler 不维护另一套记�
 - `sys_read_file`：读取配置 workspace 内的文件；
 - `sys_write_file`：写入配置 workspace 内的文件。
 
-文件工具先解析 workspace 与目标的绝对路径，并拒绝逃逸 workspace 的路径；读写还受最大字节数限制。REPL 和代码记忆共用受限执行器：在独立 Python 子进程中使用 builtin allowlist，移除普通 import/open/exec/eval 等入口，并以 timeout 终止忙循环。
+文件工具先解析 workspace 与目标的绝对路径，并拒绝逃逸 workspace 的路径；读写还受最大字节数限制。REPL 使用受限执行器：在独立 Python 子进程中使用 builtin allowlist，移除普通 import/open/exec/eval 等入口，并以 timeout 终止忙循环。
 
 这些措施适合降低误操作和普通生成代码的风险，但不是不受信任代码的强安全边界。子进程没有容器、OS 权限降级、网络隔离、文件系统虚拟化、CPU/内存配额或来源签名。builtin 限制也不应被描述为经过对抗验证的沙箱。
 
-### 5.2 `CODE_SNIPPET` 用户工具
+### 5.2 记忆目标
 
-如果 target 没有命中 syscall 注册表且不以 `sys_` 开头，Koakuma 提交 `ResolveRunTargetRequest`；未注册的 `sys_*` alias 直接返回 alias not found，不转为记忆解析。只有 `MemoryType.CODE_SNIPPET` 能进入执行器；普通事实、pending alias、失败/过期句柄都不能作为代码运行。settled redirect 可以继续执行 canonical code atom，但会携带 alias 已重定向的 warning；正式原子一经读取交付即由 workspace 记录引用，随后类型拒绝或工具执行失败也不撤回此次读取记录。
-
-代码正文由 MemoryAtom 提供，命令 args 作为 `params` 注入受限 namespace。它仍使用与 Python REPL 相同的本地子进程限制，不能因为代码来自“记忆”就推断其来源可信。
+如果 target 没有命中 syscall 注册表且不以 `sys_` 开头，Koakuma 提交 `ResolveRunTargetRequest`，由 actor API 以 `memory.run` 授权并解析；未注册的 `sys_*` alias 直接返回 alias not found，不转为记忆解析。pending alias 与失败、丢弃、过期的句柄照旧给出各自的提示；解析到的正式记忆，包括 settled redirect 指向的 canonical 记忆，一律以 `mtp.run.memory_not_runnable` 拒绝，提示需要执行的代码经 READ 取得后自行运行。能否运行是某一份内容相对某个环境的性质，记忆上没有这项判定，所以没有记忆进入执行器；拒绝不构成一次使用，workspace 不记录引用（[MTP 契约](../contracts/mtp.md)）。
 
 WRITE/UPDATE 的确定性拒绝映射为 `mtp.memory.intent_rejected`（agent_fault），结果未知映射为 `mtp.memory.intent_unknown`（system_fault），两者均不返回 ACK。中英文文案区分拒绝与未知；未知不能解释为未入队，详见[错误模型](../contracts/error-model.md)。确定话题时话题正忙映射为 `mtp.memory.topic_busy`（agent_fault），写入没有登记，文案提示可以稍后重试（[MTP 契约](../contracts/mtp.md)）。
 
@@ -119,13 +117,13 @@ WRITE/UPDATE 的确定性拒绝映射为 `mtp.memory.intent_rejected`（agent_fa
 
 Koakuma 把可预期失败统一转换为 `MTPResponse`：
 
-- 参数、alias、类型或权限问题通常是 `agent_fault`，Agent 可修改命令后继续；
+- 参数、alias、类型、不可运行的目标或权限问题通常是 `agent_fault`，Agent 可修改命令后继续；
 - route、存储或未知异常是 `system_fault`，对外不泄露内部 exception cause；
 - nonfatal filter、partial miss、redirect 和空检索通过 warnings 保留主结果；
 - formatter 根据 ExecutionContext language 输出本地化 XML；
 - `pending_alias` 与 `call_request` 留在结构化 `MTPExecutionResult` 中供运行时消费，不序列化成普通响应内部字段。
 
-READ、RUN 的记忆目标和 CALL `context_refs` 共用 workspace 引用读取：能力层在返回前为正式 atom、带可读原子的 redirect 自动请求 Patchouli 记录引用（RUN 只为 `CODE_SNIPPET` 目标记录），同批按 UUID 去重、缓存命中也记录，来源统一为 `workspace.reference_read`。pending、缺失/失败/丢弃/过期及不可读 redirect 不记录，UPDATE 基础解析也不触发。记录失败只记日志，不改变读取结果；取消原样传播，已经成功记录的引用不回滚。Alice 不持有引用计数逻辑。
+READ 和 CALL `context_refs` 共用 workspace 引用读取：能力层在返回前为正式 atom、带可读原子的 redirect 自动请求 Patchouli 记录引用（RUN 的记忆目标经同一读取视图解析，但不记录），同批按 UUID 去重、缓存命中也记录，来源统一为 `workspace.reference_read`。pending、缺失/失败/丢弃/过期及不可读 redirect 不记录，UPDATE 基础解析也不触发。记录失败只记日志，不改变读取结果；取消原样传播，已经成功记录的引用不回滚。Alice 不持有引用计数逻辑。
 
 完整错误分类和稳定 error code 见[错误模型](../contracts/error-model.md)。普通 handler 失败由 `agent_runtime.mtp.error_mapping.mtp_error_info()` 统一转换；内部业务终态使用具名信息构造，异常只承担真正的传播职责。协议异常的参数也经过白名单筛选；不能把 Python 异常正文或内部 details 直接交给 Agent。
 

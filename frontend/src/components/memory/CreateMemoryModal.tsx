@@ -17,10 +17,7 @@ interface CreateMemoryModalProps {
   visibilityAgents: VisibilityAgents;
 }
 
-const CREATABLE_TYPES: MemoryType[] = [
-  'CODE_SNIPPET', 'FACT', 'URL_RESOURCE',
-  'REFLECTION', 'USER_PROFILE', 'WORK_IN_PROGRESS',
-];
+const CREATABLE_TYPES: MemoryType[] = ['FACT', 'REFLECTION', 'USER_PROFILE', 'RESOURCE'];
 
 interface FormState {
   title: string;

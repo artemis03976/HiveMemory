@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-17
 ---
 
 # Agent Runtime
@@ -46,7 +46,7 @@ AgentRunService
 - 只消费注入的 MTP port、LLM 服务、配置、模型注册表和运行时状态；
 - WRITE/UPDATE、引用读取与 SEARCH 经 frame 所属线程的提交函数进入 workspace；CALL Profile 读取由 Alice 编排层提交请求，引用记录由 workspace 读取能力自动完成。
 
-`hivememory.agent_runtime` 包根是 Alice 与组合根唯一使用的公开接口，导出门面、工厂、帧模型、输出端口、模型解析与 MTP 生成器等契约。`runtime.py` 的 `build_agent_runtime` 接收运行、Koakuma 与记忆编译配置、组合根注入的 LLM 服务（`infrastructure.llm.base.BaseLLMService`）以及可选模型解析端口，在服务之上建立 MTP 生成器并装配执行循环，返回门面；执行层不自行构造模型客户端，也不导入提供商 SDK。`frame.py` 保存帧状态、策略与 `RuntimeScope`，`loop.py` 推进单帧，`model/` 负责解析、预算与 MTP 生成，`mtp/` 负责分派与动词，`tools/` 提供系统工具和用户工具执行器。
+`hivememory.agent_runtime` 包根是 Alice 与组合根唯一使用的公开接口，导出门面、工厂、帧模型、输出端口、模型解析与 MTP 生成器等契约。`runtime.py` 的 `build_agent_runtime` 接收运行、Koakuma 与记忆编译配置、组合根注入的 LLM 服务（`infrastructure.llm.base.BaseLLMService`）以及可选模型解析端口，在服务之上建立 MTP 生成器并装配执行循环，返回门面；执行层不自行构造模型客户端，也不导入提供商 SDK。`frame.py` 保存帧状态、策略与 `RuntimeScope`，`loop.py` 推进单帧，`model/` 负责解析、预算与 MTP 生成，`mtp/` 负责分派与动词，`tools/` 提供系统工具与它们共用的受限执行器。
 
 Koakuma 直接满足 `MTPExecutor` 协议。`ExecutionFrame`、`FrameSpec` 与 `MTPExecutionContext` 都要求显式提交函数和策略，`FrameExecutionPolicy` 要求显式动词集合；不存在缺省放行。帧未覆盖迭代上限时由门面从 runtime 配置统一取值。写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有，执行层只消费 CPU 驱动交付的提交函数。
 

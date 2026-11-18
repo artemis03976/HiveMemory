@@ -123,19 +123,9 @@ class TestParseFilter:
         # 此处使用 MTPFilterParser 代替 koakuma._parse_mtp_filter
         return MTPFilterParser()
 
-    def test_type_code(self, koakuma):
-        filters, warnings = koakuma.parse("type:code")
-        assert filters.memory_type == MemoryType.CODE_SNIPPET
-        assert not warnings
-
     def test_type_fact(self, koakuma):
         filters, warnings = koakuma.parse("type:fact")
         assert filters.memory_type == MemoryType.FACT
-        assert not warnings
-
-    def test_type_url(self, koakuma):
-        filters, warnings = koakuma.parse("type:url_resource")
-        assert filters.memory_type == MemoryType.URL_RESOURCE
         assert not warnings
 
     def test_type_reflection(self, koakuma):
@@ -146,11 +136,6 @@ class TestParseFilter:
     def test_type_profile(self, koakuma):
         filters, warnings = koakuma.parse("type:user_profile")
         assert filters.memory_type == MemoryType.USER_PROFILE
-        assert not warnings
-
-    def test_type_wip(self, koakuma):
-        filters, warnings = koakuma.parse("type:wip")
-        assert filters.memory_type == MemoryType.WORK_IN_PROGRESS
         assert not warnings
 
     def test_tag_single(self, koakuma):
@@ -182,8 +167,8 @@ class TestParseFilter:
         assert warnings[0].params == {"value": 1.5}
 
     def test_multi_token_combination(self, koakuma):
-        filters, warnings = koakuma.parse("type:code tag:api agent:bot1 confidence:0.5")
-        assert filters.memory_type == MemoryType.CODE_SNIPPET
+        filters, warnings = koakuma.parse("type:resource tag:api agent:bot1 confidence:0.5")
+        assert filters.memory_type == MemoryType.RESOURCE
         assert filters.tags == ["api"]
         assert filters.source_agent_id == "bot1"
         assert filters.min_confidence == 0.5
@@ -277,15 +262,15 @@ class TestSearchRetrievalRequest:
         assert "Test Memory" in result.response_content
 
     def test_filter_passed_to_retrieval(self, koakuma):
-        mem = _make_memory(memory_type=MemoryType.CODE_SNIPPET)
+        mem = _make_memory(memory_type=MemoryType.RESOURCE)
         koakuma.harness.backing.bus._mock_retrieval.retrieve.return_value = (
             _make_retrieval_response([mem])
         )
 
-        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" filter="type:code" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" filter="type:resource" ⟫')
 
         call_args = koakuma.harness.backing.bus._mock_retrieval.retrieve.call_args[1]["request"]
-        assert call_args.filters.memory_type == MemoryType.CODE_SNIPPET
+        assert call_args.filters.memory_type == MemoryType.RESOURCE
         assert result.response_status == "success"
         assert "Test Memory" in result.response_content
 
@@ -414,18 +399,18 @@ class TestKoakumaSearchExecution:
         assert "Test summary" in result.response_content
 
     def test_search_with_filter(self, koakuma):
-        mem = _make_memory(alias="code_sort", memory_type=MemoryType.CODE_SNIPPET)
+        mem = _make_memory(alias="res_sort", memory_type=MemoryType.RESOURCE)
         koakuma.harness.backing.bus._mock_retrieval.retrieve.return_value = (
             _make_retrieval_response([mem])
         )
 
-        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="sort" filter="type:code" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="sort" filter="type:res" ⟫')
 
         assert result.success
         # 验证 filter 被传递
         call_args = koakuma.harness.backing.bus._mock_retrieval.retrieve.call_args[1]["request"]
-        assert call_args.filters.memory_type == MemoryType.CODE_SNIPPET
-        assert "code_sort" in result.response_content
+        assert call_args.filters.memory_type == MemoryType.RESOURCE
+        assert "res_sort" in result.response_content
 
     def test_search_empty_result(self, koakuma):
         koakuma.harness.backing.bus._mock_retrieval.retrieve.return_value = (
@@ -576,7 +561,7 @@ class TestKoakumaSearchValidation:
         assert result.success
 
     def test_search_with_only_filter_no_query(self, koakuma):
-        result = _execute_mtp(koakuma, '⟪ SEARCH | * | filter="type:code" ⟫')
+        result = _execute_mtp(koakuma, '⟪ SEARCH | * | filter="type:resource" ⟫')
         assert not result.success
         assert result.response_content == ""
         assert "query" in result.formatted_response.lower()

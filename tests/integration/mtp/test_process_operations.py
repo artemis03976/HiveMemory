@@ -189,24 +189,27 @@ async def test_search_without_memory_search_grant_does_not_deliver_or_warm_memor
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("operation", "allowed_verb", "denied_verb", "expected_content"),
+    ("operation", "allowed_verb", "denied_verb", "expected_status", "expected_text", "cited"),
     [
-        (WorkspaceOperation.MEMORY_READ, "READ", "RUN", "print(6 * 7)"),
-        (WorkspaceOperation.MEMORY_RUN, "RUN", "READ", "42"),
+        (WorkspaceOperation.MEMORY_READ, "READ", "RUN", "success", "print(6 * 7)", True),
+        (WorkspaceOperation.MEMORY_RUN, "RUN", "READ", "error", "[Not Runnable]", False),
     ],
     ids=["read-does-not-grant-run", "run-does-not-grant-read"],
 )
-async def test_read_and_user_run_require_independent_operation_permissions(
-    operation, allowed_verb, denied_verb, expected_content
+async def test_read_and_memory_run_require_independent_operation_permissions(
+    operation, allowed_verb, denied_verb, expected_status, expected_text, cited
 ):
-    """READ 与用户工具的 RUN 各自授权，拒绝不读取资源，获准交付仍记录正式引用。"""
+    """READ 与记忆别名的 RUN 各自授权，拒绝不读取资源。
+
+    获准的 READ 交付记忆并记录引用；获准的 RUN 越过授权、解析到记忆后以不可运行拒绝，不记录引用。
+    """
     harness = OperationsHarness()
     atom = MemoryAtom(
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             title="独立执行许可的工具",
             alias="tool_separate_permissions",
-            memory_type=MemoryType.CODE_SNIPPET,
+            memory_type=MemoryType.FACT,
         ),
         payload=PayloadLayer(content="print(6 * 7)"),
     )
@@ -232,9 +235,9 @@ async def test_read_and_user_run_require_independent_operation_permissions(
 
     allowed = await koakuma.execute_mtp(f"⟪ {allowed_verb} | {atom.get_alias()} | ⟫", context)
 
-    assert allowed.response_status == "success"
-    assert expected_content in allowed.response_content
-    assert [citation["memory_id"] for citation in harness.citations] == [atom.id]
+    assert allowed.response_status == expected_status
+    assert expected_text in allowed.formatted_response
+    assert [citation["memory_id"] for citation in harness.citations] == ([atom.id] if cited else [])
 
 
 @pytest.mark.asyncio
@@ -272,9 +275,7 @@ async def test_memory_run_without_actor_grant_is_denied_despite_frame_run():
     harness = OperationsHarness()
     atom = MemoryAtom(
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
-        index=IndexLayer(
-            alias="tool_denied", title="未获授权的代码", memory_type=MemoryType.CODE_SNIPPET
-        ),
+        index=IndexLayer(alias="tool_denied", title="未获授权的代码", memory_type=MemoryType.FACT),
         payload=PayloadLayer(content="print(42)"),
     )
     harness.memories[atom.get_alias()] = atom

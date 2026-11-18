@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-17
 ---
 
 # 记忆生成
@@ -102,11 +102,22 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 ## 3. 三种生成模式
 
+三种模式的提示词（被动提取、主动写入与合并，中英文）给出同一组类型：
+
+| 类型 | 写什么 |
+|:---|:---|
+| `FACT` | 明确的事实、业务规则与参数定义。陈述某样东西怎样运作的内容，即使引用了文件路径或网址，也是 FACT；只存在于对话中的代码（写给用户、没有提交的脚本，在控制台执行过的查询）也归 FACT，代码原样保留 |
+| `REFLECTION` | 经验总结、错误反思与教训 |
+| `USER_PROFILE` | 用户的偏好与习惯 |
+| `RESOURCE` | 资源记忆：对一个外部资源（网页、文件、代码、文档）的记忆。正文说明它是什么、为什么值得去看、在哪里，把读者引向源头；不抄录源头的内容，真相留在源头 |
+
+模型给出的类型名不在其中时，提取与写入落为 FACT，合并沿用保留记忆的类型（第 4.1 节）。`WORK_IN_PROGRESS`、`CODE_SNIPPET` 与 `URL_RESOURCE` 只作为历史取值留在 `MemoryType` 中（`HISTORICAL_MEMORY_TYPES`）：版本快照记着写入当时的类型，仍要按 schema 2.1 严格解码；模型照旧写出这些名字时同样按未知类型处理。“做到哪了”留在交互记录上，不写成记忆：一条进度只在产生时决定一次类型，修订改不了它，也没有关闭的状态，最终成了名义上一直在进行的工作。
+
 ### 3.1 Mode A：被动观察 / ARCHIVE
 
 当 idle、LRU、shutdown 或 manual settle 形成 `TopicMaterializeTask` 时，Coordinator 用其中的工作视图（未折叠的 blocks 与 `state_summary`）构造 GenerationContext，被折叠的轮次只以摘要进入生成；同一任务的 `InteractionArtifactInput` 携带话题的全部交互记录与折叠记录，来源 InteractionArtifact 因此覆盖已折叠的轮次（第 5 节）。没有 turns 时跳过任务。
 
-GenerationEngine 渲染 transcript，调用 extractor 的话题提取（`extract`）。一段话题常包含多项彼此独立的决定、事实与经验，而检索向量只由标题、类型、标签与摘要编译，压进同一条记忆的次要内容只留在正文里，检索不到；因此模型一次输出一组记忆草稿（`ExtractionResult`），每件之后会被单独查找的事写成一条：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一项工作的当前状态。提示词同时要求同一件事的背景、过程与结论不拆开，顺带提及、没有结论的内容不单独成条，也不为凑数拆分；整段没有值得保存的内容时输出空列表。
+GenerationEngine 渲染 transcript，调用 extractor 的话题提取（`extract`）。一段话题常包含多项彼此独立的决定、事实与经验，而检索向量只由标题、类型、标签与摘要编译，压进同一条记忆的次要内容只留在正文里，检索不到；因此模型一次输出一组记忆草稿（`ExtractionResult`），每件之后会被单独查找的事写成一条：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一个值得以后去看的外部资源；一项工作做到哪了（进度、下一步、待办）不写成记忆，其中得出的结论、决定与尚未解决的问题本身照常成条。提示词同时要求同一件事的背景、过程与结论不拆开，顺带提及、没有结论的内容不单独成条，也不为凑数拆分；整段没有值得保存的内容时输出空列表。
 
 `has_value=false` 的草稿被丢弃，没有草稿时不产生记忆。其余草稿按输出顺序逐条查重，各自产出一条结果（第 4 节）；查重命中本话题主动写入结算到的记忆时，草稿被丢弃（第 4.2 节）。
 
@@ -191,7 +202,7 @@ Familiar 的合并路径：
 
 以下情况以 `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`）让任务失败，两条记忆都不变，不回退为追加或覆盖：任一记忆缺失或不可见（`memory_missing`）、合并条件不满足（`not_mergeable`）、写回前版本已变（`version_changed`）、模型输出为空、无法解析或把类型改为 Profile（`model_output_invalid`）。提供商失败重试一次后原样传播 `ModelProviderError`。版本检查与写回之间没有原子保证，与 alias 唯一性的“检查→写入”相同。
 
-Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前缀和 extractor 给出的 suffix 构造候选，例如 `code_* / fact_* / url_* / ref_* / user_* / wip_* / agent_*`；suffix 清洗后为空时改由 title 派生，仍为空（例如纯中文或纯符号）时回退为 `mem_` 加记忆 ID 的 32 位十六进制（`fallback_alias`），不带连字符，MTP 的多目标列表可以直接引用；记忆 ID 唯一，回退别名因此不查询占用，引擎也因此先构造原子、再以原子的 ID 分配 alias。由前缀与 suffix 或 title 构成的候选先经中期库确认在同一 Workspace 内空闲，被占用时依次追加 `_2`、`_3`…… 消歧后缀重试，全部被占用时抛 `MemoryAliasConflictError`（`reason=alias_candidates_exhausted`）。同一次结算的多条草稿全部算完之后才由 Familiar 依次落库，中期库查不到本批已分配的 alias，因此引擎把它们作为已占用传给后续草稿，后缀相同的草稿得到消歧后缀。生成侧只负责让正常路径避开冲突；同一 Workspace 内 alias 唯一的不变量由中期库写入前校验兜底，见 [MemoryLibrary](./memory-library.md)第 1.2 节。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
+Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前缀和 extractor 给出的 suffix 构造候选，例如 `fact_* / ref_* / user_* / res_* / agent_*`；只作历史取值的类型不再产生新记忆，没有前缀，已有记忆的 alias 是对外标识，不随类型改变；suffix 清洗后为空时改由 title 派生，仍为空（例如纯中文或纯符号）时回退为 `mem_` 加记忆 ID 的 32 位十六进制（`fallback_alias`），不带连字符，MTP 的多目标列表可以直接引用；记忆 ID 唯一，回退别名因此不查询占用，引擎也因此先构造原子、再以原子的 ID 分配 alias。由前缀与 suffix 或 title 构成的候选先经中期库确认在同一 Workspace 内空闲，被占用时依次追加 `_2`、`_3`…… 消歧后缀重试，全部被占用时抛 `MemoryAliasConflictError`（`reason=alias_candidates_exhausted`）。同一次结算的多条草稿全部算完之后才由 Familiar 依次落库，中期库查不到本批已分配的 alias，因此引擎把它们作为已占用传给后续草稿，后缀相同的草稿得到消歧后缀。生成侧只负责让正常路径避开冲突；同一 Workspace 内 alias 唯一的不变量由中期库写入前校验兜底，见 [MemoryLibrary](./memory-library.md)第 1.2 节。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
 
 ### 4.2 本话题的主动写入
 

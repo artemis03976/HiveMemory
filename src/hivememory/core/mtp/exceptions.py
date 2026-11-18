@@ -86,12 +86,6 @@ class AliasNotFoundError(AgentFault):
     code = "mtp.alias.not_found"
 
 
-class MemoryTypeMismatchError(AgentFault):
-    """记忆类型与操作不匹配（如对 FACT 执行 RUN）。"""
-
-    code = "mtp.memory.type_mismatch"
-
-
 class InvalidArgumentError(AgentFault):
     """参数缺失或格式错误。"""
 
@@ -162,7 +156,6 @@ __all__ = [
     "SystemFault",
     "MTPParseError",
     "AliasNotFoundError",
-    "MemoryTypeMismatchError",
     "InvalidArgumentError",
     "PermissionDeniedError",
     "BusRouteUnavailableError",

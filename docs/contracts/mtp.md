@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-17
 ---
 
 # Memory Tool Protocol (MTP)
@@ -72,7 +72,7 @@ Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格�
 ```
 
 - 必填 `query`；
-- 可选 `filter`，当前支持 memory type、tags 和 vitality 等解析规则；
+- 可选 `filter`，当前支持 memory type、tags 和 vitality 等解析规则；`type:` 接受 `fact`、`reflection`、`profile`/`user_profile`、`resource`/`res` 与 `agent`/`agent_profile`，只作历史取值的类型（WORK_IN_PROGRESS、CODE_SNIPPET、URL_RESOURCE）没有别名，按未知类型处理；
 - filter 中的非法 token 不使整次搜索失败，而是忽略过滤并返回 warning；
 - 提交 `RetrieveRequest` 经 workspace 语义检索能力读取，请求不携带条数，条数由检索器配置的 `retrieval.retriever.top_k`（默认 5）决定；
 - 结果由 MemoryCompiler 编译为 Retrieval Context；
@@ -105,19 +105,18 @@ READ 列表是协议中显式支持的批量读取，而不是多命令特例。
 
 ```text
 ⟪ RUN | sys_tool_alias | key="value" ⟫
-⟪ RUN | code_memory_alias | key="value" ⟫
 ```
 
 两层分发：
 
 1. `sys_*` 工具走 syscall 注册表中注册的 syscall；未注册的 `sys_*` alias 直接返回 `mtp.alias.not_found`，不转为记忆解析；
-2. 其他 alias 经 PendingAtom/正式记忆解析，只允许 `CODE_SNIPPET` MemoryAtom。
+2. 其他 alias 经 PendingAtom/正式记忆解析；解析到的记忆一律不可运行。
 
-系统工具不设 Agent 权限，所有已注册的 `sys_*` 对所有 Agent 可用，在 Alice 本地执行、不提交操作请求。redirect 可以执行但会附带 warning；pending 和 terminal alias 不可执行。目标对当前 actor 可见但不是 `CODE_SNIPPET` 时返回 `mtp.memory.type_mismatch`，提示写明这条记忆不可通过 RUN 运行、RUN 只能执行 `CODE_SNIPPET`，并给出它的类型，建议不再对它使用 RUN；只持有 `memory.run` 的 actor 因此能得知可见记忆的类型，这是 `memory.run` 许可内可以接受的披露。记忆目标通过 `ResolveRunTargetRequest` 读取，要求 actor 操作 `memory.run`（不要求 `memory.read`），只为 `CODE_SNIPPET` 目标记录 `workspace.reference_read` citation，不可执行的目标被拒绝、不计数；可执行目标的引用在工具执行前已完成，工具失败仍保留这次 citation。系统 syscall 不读取正式原子，不因此计数。
+系统工具不设 Agent 权限，所有已注册的 `sys_*` 对所有 Agent 可用，在 Alice 本地执行、不提交操作请求。记忆目标仍通过 `ResolveRunTargetRequest` 读取，要求 actor 操作 `memory.run`（不要求 `memory.read`），没有 `memory.run` 时由 actor API 拒绝；pending 和 terminal alias 照旧给出各自的提示。解析到的记忆，包括 redirect 指向的正式记忆，都以 `mtp.argument.invalid`（`mtp.run.memory_not_runnable`）拒绝：提示写明当前不支持运行记忆、RUN 只执行系统工具，需要执行其中的代码时用 READ 取得后自行运行。拒绝不构成一次使用，不记录 citation；系统 syscall 不读取正式原子，同样不计数。
 
-当前用户代码通过本地执行器运行，尚无可作为安全边界的强隔离沙箱、进程级资源限制和真取消。不得把 RUN 描述为安全执行不受信任代码的能力。
+不运行记忆的理由：能否运行是某一份内容相对某个环境的性质，不是类型的，而记忆上没有这项判定；生成链写下的是知识，不产出可执行物，以前按类型放行的代码记忆基本运行不了。六项 actor 操作与 MTP 动词的对应、`memory.run` 的访问登记都保留，可运行的判定出现时只需放开这一处拒绝。
 
-RUN 被保留在记忆协议中，是因为一部分记忆不仅需要被阅读，还可能代表可执行的代码资产或注册工具。但“能被调用”不等于“已被安全隔离”：权限白名单只约束可见的调用面，不能替代操作系统级沙箱、资源限制和可信来源审查。
+`sys_python_repl` 等系统工具通过本地执行器运行，尚无可作为安全边界的强隔离沙箱、进程级资源限制和真取消。不得把 RUN 描述为安全执行不受信任代码的能力：权限白名单只约束可见的调用面，不能替代操作系统级沙箱、资源限制和可信来源审查。
 
 ### 3.4 WRITE
 
@@ -248,7 +247,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 4. WRITE/UPDATE 的 `ack` 或 PendingAtom 是否被调用方、UI 或 Agent 文案描述为已经持久化成功？
 5. 写入意图是否仍在操作内实时派发、不依赖交互提交，失败和取消是否既不撤回已接纳的写入，也不默认污染长期记忆？
 6. CALL 的 `suspend` 是否仍交给 Alice 调度器恢复，还是被 formatter 当成普通 response 吞掉？
-7. RUN 的权限检查是否被误写成强安全沙箱，redirect 或代码记忆来源是否失去可见提示？
+7. RUN 的权限检查是否被误写成强安全沙箱，记忆目标是否仍一律以不可运行拒绝？
 8. error/warning 是否仍给 Agent 提供可执行的修正信息，同时不泄漏内部 cause？
 9. formatter 是否安全处理 payload 中的 XML 特殊字符，还是新增内容扩大了当前 escaping 缺口？
 

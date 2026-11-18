@@ -3,12 +3,16 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-17
 ---
 
 # Archived Plans
 
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每条登记一行：归档日期、实现所在的 PR（未合并时为提交）与替代它的当前文档；实施过程、验收与决定见各计划自身的状态行与实施记录。
+
+## v0.8.0
+
+- [记忆类型的收敛：去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](./v0.8.0-memory-type-convergence.md)：2026-11-17，分支 `feat/v0.8.0-memory-type-convergence`（PR 待建）；[Patchouli 生成](../../patchouli/generation.md#3-三种生成模式)、[MTP 契约](../../contracts/mtp.md#33-run)
 
 ## v0.7.3
 

@@ -41,7 +41,7 @@ related_docs:
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/passive-extraction-volume-and-retention.md
   - docs/todo/cross-conversation-topic-placement.md
-last_reviewed: 2026-11-16
+last_reviewed: 2026-11-17
 ---
 
 # 记忆核心：短期到中期的流转
@@ -217,7 +217,7 @@ last_reviewed: 2026-11-16
 
 - 外部 harness 经 MCP 只有检索、读取、写入、更新四个工具（[MCP 入口](../../src/hivememory/mcp_server/server.py)）；RUN 与 CALL 只在 Alice 的 MTP 中存在。
 - 记忆库中像工具的成员都走特殊路径：AGENT_PROFILE 被 CALL 解析，并被一组类型判断排除在记忆原子的大部分行为之外（第 2.4 节）；CODE_SNIPPET 被 RUN，由本地执行器运行，面向执行的编译目标 `RUNNABLE_TOOL` 仍是保留项，编译时直接报错（[编译目标](../../src/hivememory/engines/memory_compiler/handlers/targets.py)）。
-- RUN 把整段正文当作 Python，在子进程中执行：内置函数走白名单，禁用 import、open、exec、eval，参数经 `params` 字典传入（[用户工具](../../src/hivememory/agent_runtime/tools/user.py)、[沙箱执行](../../src/hivememory/agent_runtime/tools/repl.py)）。生成链写出的正文是 Markdown（带说明文字与代码围栏，代码可能不是 Python，也可能是配置文件），写入提示词还要求补全 import 语句，所以被动提取与 WRITE 产出的 CODE_SNIPPET 基本运行不了；能运行的只有专门写成"纯 Python、不用 import、读取 `params`"的记忆。运行结果不回流到验证状态。
+- RUN 把整段正文当作 Python，在子进程中执行：内置函数走白名单，禁用 import、open、exec、eval，参数经 `params` 字典传入（用户工具（`agent_runtime/tools/user.py`，2026-11-17 删除）、[沙箱执行](../../src/hivememory/agent_runtime/tools/repl.py)）。生成链写出的正文是 Markdown（带说明文字与代码围栏，代码可能不是 Python，也可能是配置文件），写入提示词还要求补全 import 语句，所以被动提取与 WRITE 产出的 CODE_SNIPPET 基本运行不了；能运行的只有专门写成"纯 Python、不用 import、读取 `params`"的记忆。运行结果不回流到验证状态。
 - 被动提取把出错的工具结果当作提炼错误原因与修复经验的依据（[生成提示词](../../src/hivememory/i18n/prompts.py)的过程条目规则）。
 
 **预检索只在 Alice 中存在**
@@ -293,7 +293,7 @@ last_reviewed: 2026-11-16
 | 保存形态 | [库的形状](./memory-library-shape-and-index.md)第 4.2 节，开放 |
 | 短期记忆在新流转中的定义 | 有候选定义（[写入链路](./memory-flow-write-path.md)第 2.2 节），未决定 |
 | 用什么评判新的流转更好 | 有候选（第 4.2 节），未决定 |
-| 记忆的类型体系 | 首份计划的范围已决定：三处移出与资源记忆的合并，v0.8 关闭 RUN 的用户工具路径，作为 v0.8.0 的第一个方向；已有记忆的迁移与 AgentProfileStore 的存储两项已于 2026-11-17 决定，可以建立计划（[类型体系](./memory-type-system.md)第 7 节开头）。FACT 的拆分、用户一侧、经历等内容类别的重新划分也有决定，但回放显示与旧类别没有可测的区别，不进入首份计划；默认类型、新类型的生命周期等问题搁置（[类型体系](./memory-type-system.md)第 9.2、10 节） |
+| 记忆的类型体系 | 首份计划（WIP 与可运行的移出、资源记忆的合并、v0.8 关闭 RUN 的用户工具路径，以及已有记忆的迁移）已于 2026-11-17 实施并归档，作为 v0.8.0 的第一个方向；AgentProfileStore 的存储已于 2026-11-17 决定，是同一方向的下一份计划（[类型体系](./memory-type-system.md)第 7 节开头）。FACT 的拆分、用户一侧、经历等内容类别的重新划分也有决定，但回放显示与旧类别没有可测的区别，不进入首份计划；默认类型、新类型的生命周期等问题搁置（[类型体系](./memory-type-system.md)第 9.2、10 节） |
 | Patchouli 馆长 agent | 只有候选设计（[写入链路](./memory-flow-write-path.md)第 3.1、3.2 节）：循环放在哪里（可能需要一份 ADR）、结构化判定的格式、由什么触发一次运行、与唯一写入者 MemoryGenerationFamiliar 的分工，都未决定；馆长的写操作取决于保存形态，后者宜在馆长之前或同时决定 |
 | 读的一侧（日常路径上怎样送达、怎样从读者反推好的写入、使用中的反馈） | 只零星提过（[库的形状](./memory-library-shape-and-index.md)第 2.1 节、[外部参考](../research/memory-core-external-references.md)第 4 节） |
 | 现有记忆的去向（新流转上线时旧库要不要复核、重新归类、挂进索引） | 没有讨论 |
@@ -356,5 +356,5 @@ owner 每天实际使用 HiveMemory，这本身就是现成的长程试验场；
 
 - owner 判断仍开放的两项：主动写入生成时的材料（[写入链路](./memory-flow-write-path.md)第 5 节）与保存形态（[库的形状](./memory-library-shape-and-index.md)第 4.2 节）；[库的形状](./memory-library-shape-and-index.md)第 4.1 节与[写入链路](./memory-flow-write-path.md)第 5 节的被动一侧已于 2026-11-15 决定。统一交互记忆 Idea 第 5 节中仍开放的是"没写"算不算判断；写入链路上其余未定论的事项见第 4.1 节。
 - 确定 v0.8 用什么评判新的流转更好：样本统计不作为依据（第 1.2 节），候选的评判方式见第 4.2 节（单轮不交记忆税，长程看演化质量与人工介入），尚未决定；公开评测集的选择与接入见[评测集](./memory-evaluation-benchmarks.md)第 6、7 节。
-- 类型体系：首份计划的范围已于 2026-11-16 决定，2026-11-17 定为 v0.8.0 的第一个方向，建立计划前的两项已于同日决定（[类型体系](./memory-type-system.md)第 7 节开头），不再以回放过关为条件；内容类别的重新划分搁置（同文第 9.2、10 节）。
+- 类型体系：首份计划的范围已于 2026-11-16 决定，2026-11-17 定为 v0.8.0 的第一个方向，同日实施并归档（[类型体系](./memory-type-system.md)第 7 节开头）；内容类别的重新划分搁置（同文第 9.2、10 节）。
 - 选出第一份可以独立验收的切片。按 owner 的顺序（第 4.1 节），它在生成核心的升级之内；候选（分析，不是 owner 决定）：馆长的第一步，以固定流程对照已有记忆复核、输出结构化判定（[写入链路](./memory-flow-write-path.md)第 2.1、3.1 节），与类型的更迭一起或先后落地。

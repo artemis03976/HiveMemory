@@ -264,11 +264,7 @@ class KoakumaRuntime:
                 compiler_config=self._memory_compiler_config,
             ),
             MTPVerb.READ: partial(handle_read, compiler=self._compiler),
-            MTPVerb.RUN: partial(
-                handle_run,
-                syscall_registry=self._syscall_registry,
-                timeout_seconds=self._config.python_repl_timeout_seconds,
-            ),
+            MTPVerb.RUN: partial(handle_run, syscall_registry=self._syscall_registry),
             MTPVerb.WRITE: handle_write,
             MTPVerb.UPDATE: handle_update,
             MTPVerb.CALL: handle_call,  # 子代理调用

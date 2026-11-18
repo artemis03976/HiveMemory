@@ -1052,10 +1052,11 @@ class TestGenerationEngineHelpers:
         assert memory.meta.updated_at == FIXED_NOW
         assert memory.meta.lifecycle.decay_anchor_at == FIXED_NOW
 
-    def test_draft_to_memory_unknown_type(self):
-        """未知记忆类型 fallback 到 FACT"""
+    @pytest.mark.parametrize("memory_type", ["INVALID_TYPE", "CODE_SNIPPET"])
+    def test_draft_to_memory_unknown_type(self, memory_type):
+        """未知类型名与只作历史取值的旧类型名都落为 FACT，生成不产出旧类型。"""
         draft = _make_draft()
-        draft.memory_type = "INVALID_TYPE"
+        draft.memory_type = memory_type
         identity_scope = make_memory_identity_scope()
 
         memory = self.engine._draft_to_memory(
@@ -1075,7 +1076,11 @@ class TestMemoryMerge:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "memory_type, expected_type",
-        [("REFLECTION", MemoryType.REFLECTION), ("UNKNOWN", MemoryType.FACT)],
+        [
+            ("REFLECTION", MemoryType.REFLECTION),
+            ("UNKNOWN", MemoryType.FACT),
+            ("WORK_IN_PROGRESS", MemoryType.FACT),
+        ],
     )
     async def test_merge_preserves_identity_and_captures_snapshot(self, memory_type, expected_type):
         retained = _make_memory(alias="fact_original")

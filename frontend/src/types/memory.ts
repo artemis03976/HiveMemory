@@ -1,12 +1,10 @@
 // Memory-related TypeScript interfaces for the Memory Garden panel
 
 export type MemoryType =
-  | 'CODE_SNIPPET'
   | 'FACT'
-  | 'URL_RESOURCE'
   | 'REFLECTION'
   | 'USER_PROFILE'
-  | 'WORK_IN_PROGRESS'
+  | 'RESOURCE'
   | 'TOOL';
 
 export type MemoryStatus = 'Active' | 'Archived';
@@ -62,11 +60,9 @@ export interface MemoryFilters {
 
 // Memory type display names
 export const memoryTypeLabels: Record<MemoryType, string> = {
-  CODE_SNIPPET: '代码',
   FACT: '事实',
-  URL_RESOURCE: '资源',
   REFLECTION: '反思',
   USER_PROFILE: '用户偏好',
-  WORK_IN_PROGRESS: '进行中',
+  RESOURCE: '资源',
   TOOL: '工具',
 };

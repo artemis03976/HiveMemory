@@ -295,9 +295,9 @@ async def test_search_agent_filter_intersects_memory_type_filter(search_stack) -
     await store.upsert(_memory("fact_selected", source_agent_id="research-agent"))
     await store.upsert(
         _memory(
-            "code_same_source",
+            "res_same_source",
             source_agent_id="research-agent",
-            memory_type=MemoryType.CODE_SNIPPET,
+            memory_type=MemoryType.RESOURCE,
         )
     )
     await store.upsert(_memory("fact_other_source", source_agent_id="writer-agent"))
@@ -306,5 +306,5 @@ async def test_search_agent_filter_intersects_memory_type_filter(search_stack) -
 
     assert result.response_status == "success"
     assert "fact_selected" in result.response_content
-    assert "code_same_source" not in result.response_content
+    assert "res_same_source" not in result.response_content
     assert "fact_other_source" not in result.response_content

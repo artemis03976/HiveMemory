@@ -20,7 +20,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-17
 ---
 
 # System 配置与注册表
@@ -96,7 +96,7 @@ last_reviewed: 2026-11-12
 - 系统自身的 principal `hivememory:system`（`local` adapter、`allow_system_actor: true`、不带凭据）不经配置项指定：它的标识是代码中的常量，任务进程的注册入口与 Import Bus 服务以它认证 (user, `system`)，取得执行系统阶段、导入与确定话题的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。登记文件缺少这一条时，chat 注册、对话导入与 MCP 写入、更新都以 403 `unknown_principal` 拒绝。
 - `system_principals.yaml` 的每条登记另有 `allow_system_actor`（能否声明保留的 `system`，默认 `false`）、`allowed_agent_ids`（能声明哪些 Agent，默认不限定）与 `credential_env`（接入凭据所在的环境变量名）。一条登记要么只列外部 adapter（`mcp`、`import`），要么只列进程内 adapter（`http`、`local`），后者不能声明 `credential_env`，否则装载失败。外部来源的凭据来自 `credential_env` 指向的环境变量，或插件页安装插件时生成、保存在登记文件同目录 `principals.secrets.yaml`（不受版本控制）的生成凭据；环境变量按与其他配置相同的来源在启动时读取（进程环境变量优先，其次是 `.env` / `configs/.env`，去掉首尾空白），有值时优先于生成凭据。两者都没有时启动告警，该来源的认证一律以 `invalid_credential` 拒绝，HiveMemory 照常启动。登记模板只有 HiveMemory 自己的两个来源，不接入任何外部 harness。插件页安装插件时登记 `harness:claude-code`、`harness:dsh`、`harness:codex` 或 `harness:pi`，不声明 `credential_env`，初始只能声明插件的缺省 Agent（`claude_code`、`dsh`、`codex`、`pi`）；生成的凭据写进 harness 一侧读取的 Windows 用户环境变量 `HIVEMEMORY_CLAUDE_CODE_TOKEN`、`HIVEMEMORY_DSH_TOKEN`、`HIVEMEMORY_CODEX_TOKEN` 或 `HIVEMEMORY_PI_TOKEN`（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)）。
 
-`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的系统阶段（Gateway、Profile 解析、附件租借、确定话题、交互提交）由系统执行、不检查执行 Agent 的白名单；预检索是执行 Agent 的检索操作，只在它持有 `memory.search` 时进行。白名单为空的 Agent 因此也能完成对话，只是没有预检索，也不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样由系统执行，不检查参与 Agent 的白名单；插件页安装插件时，为插件的缺省 Agent 补一条 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的精确记录（已有时不改动），供四个记忆工具逐次授权；导入与确定话题本身不读取白名单，写入与更新则先经白名单授权、通过后才确定话题；精确记录优先于用户级记录，这些 Agent 因此不继承 `memory.run` 与 `agent.call`（[Import Bus](./import-bus.md#41-认证与授权)、[MCP 记忆访问](../contracts/mcp.md)）。
+`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆目标，解析后一律以不可运行拒绝）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的系统阶段（Gateway、Profile 解析、附件租借、确定话题、交互提交）由系统执行、不检查执行 Agent 的白名单；预检索是执行 Agent 的检索操作，只在它持有 `memory.search` 时进行。白名单为空的 Agent 因此也能完成对话，只是没有预检索，也不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样由系统执行，不检查参与 Agent 的白名单；插件页安装插件时，为插件的缺省 Agent 补一条 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的精确记录（已有时不改动），供四个记忆工具逐次授权；导入与确定话题本身不读取白名单，写入与更新则先经白名单授权、通过后才确定话题；精确记录优先于用户级记录，这些 Agent 因此不继承 `memory.run` 与 `agent.call`（[Import Bus](./import-bus.md#41-认证与授权)、[MCP 记忆访问](../contracts/mcp.md)）。
 
 访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 的 `agent_config` 不再承载权限，`sys_*` 系统工具不设权限。白名单可以在设置页的“接入与权限”中编辑，也可以修改本文件后重启。
 

@@ -187,21 +187,13 @@ class TestActorMemoryService:
         assert [atom.id for atom in result] == [delivered[0].id]
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("operation", "memory_type", "cited"),
-        [
-            pytest.param("run", MemoryType.CODE_SNIPPET, True, id="run-code-snippet"),
-            pytest.param("run", MemoryType.FACT, False, id="run-not-runnable"),
-            pytest.param("read", MemoryType.FACT, True, id="read-any-type"),
-        ],
-    )
-    async def test_run_records_citation_only_for_runnable_targets(
-        self, composition, actor, operation, memory_type, cited
+    @pytest.mark.parametrize(("operation", "cited"), [("run", False), ("read", True)])
+    async def test_only_read_records_citation_for_delivered_memory(
+        self, composition, actor, operation, cited
     ):
-        """RUN 只为 CODE_SNIPPET 目标记录引用，不可执行的目标被拒绝、不算一次使用；READ 不受类型限制。"""
+        """READ 为交付的正式记忆记录引用；RUN 照样解析出这条记忆，但记忆都不可运行、不算一次使用。"""
         citations = []
         atom = _make_memory_atom()
-        atom.index.memory_type = memory_type
 
         class CitationBus:
             """只捕获库侧引用 RPC 的公开副作用。"""
@@ -238,7 +230,7 @@ class TestActorMemoryService:
     async def test_reference_status_outside_formal_delivery_does_not_record_citation(
         self, composition, workspace, actor
     ):
-        """只为正式交付记录引用，其他状态即使带有原子也不能引用；READ 与 RUN 共用该判断。
+        """只为正式交付记录引用，其他状态即使带有原子也不能引用。
 
         非 atom/redirect 状态在同一 kind 判断处跳过，取带原子的 pending 代表，
         防止退化为只按原子存在与否记录引用。

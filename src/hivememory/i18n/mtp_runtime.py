@@ -88,17 +88,16 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 可用的系统工具见 [RUNTIME TOOLS] 列表。"
     ),
     "mtp.run.pending_not_runnable": (
-        "[Invalid Argument] alias '{alias}' 是运行时 pending atom，尚未固化为可执行记忆。\n"
+        "[Invalid Argument] alias '{alias}' 是运行时 pending atom，尚未固化为正式记忆。\n"
         "Suggestion: 请用 READ 查看其内容，或等待正式记忆 alias 生成。"
     ),
     "mtp.run.alias_not_found": (
         "[Alias Not Found] 工具 alias '{alias}' 未找到。\n"
         "Suggestion: 请先用 SEARCH 找到正确的 alias。"
     ),
-    "mtp.run.type_mismatch": (
-        "[Not Runnable] 记忆 '{alias}' 不可通过 RUN 运行：RUN 只能执行 CODE_SNIPPET 类型的记忆，"
-        "这条记忆的类型是 {memory_type}。\n"
-        "Suggestion: 不要再对这条记忆使用 RUN。"
+    "mtp.run.memory_not_runnable": (
+        "[Not Runnable] 记忆 '{alias}' 不可通过 RUN 运行：当前不支持运行记忆，RUN 只执行系统工具。\n"
+        "Suggestion: 需要执行其中的代码时，请用 READ 取得后自行运行；不要再对记忆使用 RUN。"
     ),
     "mtp.run.terminal_alias_not_runnable": (
         "[Alias Not Found] 工具 alias '{alias}' 当前不可执行（状态：{status}）。\n"
@@ -266,17 +265,18 @@ _ERROR_TEXT_EN: dict[str, str] = {
     ),
     "mtp.run.pending_not_runnable": (
         "[Invalid Argument] Alias '{alias}' is a runtime pending atom and has not been "
-        "finalized as a runnable memory.\n"
+        "finalized as a formal memory.\n"
         "Suggestion: Use READ to inspect it, or wait for the formal memory alias."
     ),
     "mtp.run.alias_not_found": (
         "[Alias Not Found] Tool alias '{alias}' not found.\n"
         "Suggestion: Use SEARCH to discover the correct alias first."
     ),
-    "mtp.run.type_mismatch": (
-        "[Not Runnable] Memory '{alias}' cannot be run with RUN: RUN only executes "
-        "CODE_SNIPPET memories, and this memory is of type {memory_type}.\n"
-        "Suggestion: Do not use RUN on this memory again."
+    "mtp.run.memory_not_runnable": (
+        "[Not Runnable] Memory '{alias}' cannot be run with RUN: running memories is not "
+        "supported; RUN only executes system tools.\n"
+        "Suggestion: To execute code from it, use READ to get it and run it yourself; "
+        "do not use RUN on memories again."
     ),
     "mtp.run.terminal_alias_not_runnable": (
         "[Alias Not Found] Tool alias '{alias}' is not runnable (status: {status}).\n"
@@ -436,7 +436,7 @@ _WARNING_TEXT_ZH: dict[str, str] = {
     ),
     "mtp.filter.unknown_type": (
         "Note: 未知 filter type '{value}' 已被忽略。"
-        "有效类型：CODE, FACT, URL, REFLECTION, PROFILE, WIP。"
+        "有效类型：FACT, REFLECTION, PROFILE, RESOURCE。"
     ),
     "mtp.filter.confidence_out_of_range": (
         "Note: Filter confidence 值 {value} 超出范围 (0,1]，已被忽略。"
@@ -447,12 +447,6 @@ _WARNING_TEXT_ZH: dict[str, str] = {
     "mtp.filter.unknown_key": "Note: 未知 filter key '{key}' 已被忽略。",
     "mtp.filter.parse_failed": ("Note: Filter 解析失败。结果范围可能比预期更宽。"),
     "mtp.search.no_memories_found": "未找到相关记忆。请尝试不同的 query。",
-    "mtp.run.alias_redirected": (
-        "[Alias Redirected]"
-        "请求的别名: {requested_alias}"
-        "规范别名: {canonical_alias}\n"
-        "提示: 本次 RUN 已自动改用正式别名 '{canonical_alias}'。"
-    ),
 }
 
 _WARNING_TEXT_EN: dict[str, str] = {
@@ -468,7 +462,7 @@ _WARNING_TEXT_EN: dict[str, str] = {
     ),
     "mtp.filter.unknown_type": (
         "Note: Unknown filter type '{value}' was ignored. "
-        "Valid types: CODE, FACT, URL, REFLECTION, PROFILE, WIP."
+        "Valid types: FACT, REFLECTION, PROFILE, RESOURCE."
     ),
     "mtp.filter.confidence_out_of_range": (
         "Note: Filter confidence value {value} is out of range (0,1] and was ignored."
@@ -481,12 +475,6 @@ _WARNING_TEXT_EN: dict[str, str] = {
         "Note: Filter parsing failed. Results may be broader than expected."
     ),
     "mtp.search.no_memories_found": "No memories found. Try a different query.",
-    "mtp.run.alias_redirected": (
-        "[Alias Redirected]"
-        "Requested alias: {requested_alias}"
-        "Canonical alias: {canonical_alias}\n"
-        "Note: This RUN automatically used canonical alias '{canonical_alias}'."
-    ),
 }
 
 

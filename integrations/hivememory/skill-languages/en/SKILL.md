@@ -1,11 +1,11 @@
 ---
 name: hivememory
-description: "HiveMemory is the user's own persistent memory base, shared across sessions, models, harnesses and agents: decisions, facts, lessons, preferences, work state and research conclusions become addressable, traceable and correctable memory assets here, searched, read, written and corrected through the four tools memory_search, memory_read, memory_write and memory_update. Load this skill first when you start a task that is not one-off, when the user refers to the past (last time, what we decided, the usual way), when you make a decision or reach a conclusion, when the user states a preference or corrects you, when you find a memory outdated, or when work is about to be interrupted. It explains when to search, how far to trust memories, what is worth writing, how to write so that later agents can find and use it, when to correct an existing memory, and how to coexist with the harness's own memory."
+description: "HiveMemory is the user's own persistent memory base, shared across sessions, models, harnesses and agents: decisions, facts, lessons, preferences, external resources and research conclusions become addressable, traceable and correctable memory assets here, searched, read, written and corrected through the four tools memory_search, memory_read, memory_write and memory_update. Load this skill first when you start a task that is not one-off, when the user refers to the past (last time, what we decided, the usual way), when you make a decision or reach a conclusion, when the user states a preference or corrects you, when you find a memory outdated, or when work is about to be interrupted. It explains when to search, how far to trust memories, what is worth writing, how to write so that later agents can find and use it, when to correct an existing memory, and how to coexist with the harness's own memory."
 ---
 
 # HiveMemory: memory assets the user owns and shares across environments
 
-HiveMemory is the user's own persistent memory base. Things worth keeping for the long term, such as decisions and their reasons, verified facts, solved problems, lessons, the user's preferences, the state of unfinished work and research conclusions, become memory assets here: each has a stable alias, can be traced back to the conversation that produced it, and can be corrected with its version history kept. Memories that are used often stay active; memories nobody uses for a long time gradually fade out of search.
+HiveMemory is the user's own persistent memory base. Things worth keeping for the long term, such as decisions and their reasons, verified facts, solved problems, lessons, the user's preferences, external resources worth revisiting and research conclusions, become memory assets here: each has a stable alias, can be traced back to the conversation that produced it, and can be corrected with its version history kept. Memories that are used often stay active; memories nobody uses for a long time gradually fade out of search.
 
 These assets do not belong to one session, one model or one harness. Agents the user works with across sessions, agent harnesses and models read and write the same memory base: a conclusion written in one place can be found from another environment, and after a correction in one place every place reads the new version. When the user switches models or tools, the accumulated knowledge stays.
 
@@ -47,7 +47,7 @@ The harness's own memory (for example Claude Code's memory files and CLAUDE.md, 
 |:---|:---|:---|
 | Who can see it | Only this harness (often only this project) | Any agent in the HiveMemory ecosystem |
 | How it enters context | Loaded automatically in every session | Searched by the agent when needed |
-| Good for | How to work here: local paths and commands, conventions in this harness, project rules | What happened and what is known: decisions, facts, solved problems, lessons, user preferences, work state, research conclusions |
+| Good for | How to work here: local paths and commands, conventions in this harness, project rules | What happened and what is known: decisions, facts, solved problems, lessons, user preferences, research conclusions |
 
 - Do not skip searching HiveMemory because your own memory already has something related: content written in other harnesses exists only in HiveMemory.
 - When something is useful in both (for example a user preference), writing it in both is not redundant: the harness's memory makes sure it is always seen here, and HiveMemory lets other harnesses find it too. Write each according to its own rules.
@@ -57,7 +57,7 @@ The harness's own memory (for example Claude Code's memory files and CLAUDE.md, 
 
 ### When to search
 
-- When you start a task that is not one-off: search by the task's subject (project, component, topic) to retrieve earlier decisions, the state of work in progress and the user's preferences, then start;
+- When you start a task that is not one-off: search by the task's subject (project, component, topic) to retrieve earlier decisions, unresolved problems and the user's preferences, then start;
 - When the user refers to the past: "that thing from last time", "what we decided", "the usual way";
 - When you are about to decide or advise on something that may have been discussed before;
 - Before investigating a problem again or redoing research, check whether a conclusion already exists;
@@ -75,7 +75,7 @@ One-off questions (translating a sentence, explaining a general concept) do not 
 
 - Results are only summaries. When a summary is relevant and you need details, read the full text with `memory_read`; you can pass several aliases at once.
 - Memories are dated historical evidence and may be outdated. Current files, code, command output, project instructions and what the user says now take precedence over memories.
-- Before taking an action with consequences on the basis of a memory (changing configuration, deleting files, stating a firm conclusion), verify it with current evidence. Verify especially memories that are old, have low confidence, or are of type `WORK_IN_PROGRESS` (work in progress).
+- Before taking an action with consequences on the basis of a memory (changing configuration, deleting files, stating a firm conclusion), verify it with current evidence. Verify especially memories that are old or have low confidence; a memory of type `RESOURCE` (a resource memory) points to a source, so read the source before acting.
 - A memory may have been written in another harness or on another machine: its paths, commands and configuration may not hold in the current environment.
 - When relaying it to the user, say that it comes from memory and when it was archived.
 - If you find after verification that a memory is outdated or wrong, correct it with `memory_update` (section 6).
@@ -95,7 +95,7 @@ Write when the following hold, rather than saving it all for the end of the sess
 | A problem is solved | Symptoms, root cause, fix, and the directions ruled out |
 | Experience and lessons | Which approach works and which one caused trouble |
 | Conclusions from external sources | Judgments drawn from docs, repositories or articles you read, with source and date |
-| Work is not finished | How far it got, what comes next, where it is stuck |
+| Work is not finished | The conclusions and decisions reached, and the unresolved problems themselves; not how far it got |
 
 Do not write:
 
@@ -109,7 +109,7 @@ Do not write:
 
 The formal memory is generated in the background around your write: it keeps the `title` you wrote, and generation produces the summary, tags and body. When you write:
 
-1. **Write one thing per write**: one decision and its reasons, one fact, one problem and its fix, one preference, the state of one piece of work. Write independent things in separate writes; keep the background, process and conclusion of the same thing together.
+1. **Write one thing per write**: one decision and its reasons, one fact, one problem and its fix, one preference, one unresolved problem. Write independent things in separate writes; keep the background, process and conclusion of the same thing together.
 2. **`title` names the thing itself**: specific and searchable, with key nouns such as project and component; write a conclusion as a statement. Do not use titles such as "discussion notes", "notes" or "summary": search only looks at titles, summaries and tags, so a memory with a vague title cannot be found later.
 3. **`content` must be understandable on its own**: the background model that generates the memory cannot see the current turn, and an agent that reads it later may be in another harness without today's context. Do not write "above", "this approach" or "the error just now"; spell out names, values, paths, versions and dates. For content that only holds in one environment (local paths, one harness's configuration), say which environment.
 4. **State the basis**: how you know it (which command you ran, which file or commit you read, what the user said directly), and the conditions and exceptions where it applies.
@@ -142,7 +142,7 @@ reason:  Needed when adjusting the schedule later or when investigating a rollup
 
 ## 6. Correcting existing memories
 
-- **When to correct**: a memory you read disagrees with current evidence (the code changed, the configuration changed, a decision was overturned, the user corrected it), or the state of work in progress has advanced or the work is done.
+- **When to correct**: a memory you read disagrees with current evidence (the code changed, the configuration changed, a decision was overturned, the user corrected it), or a recorded problem has been solved.
 - **Correct it rather than writing another**: when an existing memory is wrong, change it with `memory_update`; do not write an opposite memory and leave the old wrong version in place. Use `memory_write` only when you are recording a different thing.
 - **Parameters**: `alias` is the formal alias from search or read results; `instruction` says what to change and why, for example "decision overturned: use X instead, because Y"; put new text in `content` when there is any.
 - **Handles cannot be corrected**: `draft_` and `rev_` handles cannot be the target of a correction. To change something you just wrote, read the handle with `memory_read` first: if generation has finished, correct it by the formal alias you read; if it is still being generated, change it later, or write a supplementary memory.
@@ -168,4 +168,4 @@ When a tool fails it returns a description with an error code. Handle it as foll
 
 1. **At the start**: search by the task's subject; when a summary is relevant, read the full text and verify it before using it.
 2. **During the work**: when you make a decision, solve a problem, or the user states a preference or corrects you, write it then and there; when you find an outdated memory, correct it then and there.
-3. **Before ending or being interrupted**: if the work is not finished, write down its current state; if a work-in-progress memory for this work already exists, correct it.
+3. **Before ending or being interrupted**: if the work is not finished, write down the conclusions, decisions and unresolved problems it produced; do not write down how far it got.

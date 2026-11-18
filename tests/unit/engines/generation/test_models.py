@@ -12,7 +12,7 @@ def _draft(**overrides) -> ExtractedMemoryDraft:
         "title": "快速排序实现",
         "summary": "一段关于快速排序的摘要",
         "tags": ["python"],
-        "memory_type": "CODE_SNIPPET",
+        "memory_type": "RESOURCE",
         "content": "def quicksort(xs): ...",
         "confidence_score": 0.9,
         "has_value": True,
@@ -27,9 +27,7 @@ def test_overlong_llm_title_and_summary_are_truncated_to_index_limits():
 
     assert len(draft.title) == MEMORY_TITLE_MAX_LENGTH
     assert len(draft.summary) == MEMORY_SUMMARY_MAX_LENGTH
-    index = IndexLayer(
-        title=draft.title, summary=draft.summary, memory_type=MemoryType.CODE_SNIPPET
-    )
+    index = IndexLayer(title=draft.title, summary=draft.summary, memory_type=MemoryType.RESOURCE)
     assert index.title == draft.title
 
 
