@@ -5,20 +5,16 @@ import type { BackendAgent } from '@/hooks/useAgents';
 import { apiUrl } from '@/transports/backendUrl';
 import { backendFetch } from '@/transports/connectionStatus';
 
-/** 显式组装编辑器支持的图纸字段，避免回写存量配置中的废弃字段。 */
-function toPayload(agent: AgentData) {
+/** 编辑器中可改的 Profile 字段；agent_id 只在新建时给出，修改时出现会被后端拒绝。 */
+function toFields(agent: AgentData) {
   return {
     title: agent.name,
-    alias: agent.alias,
     summary: agent.summary,
-    content: agent.systemPrompt,
-    tags: agent.tags,
-    agent_config: {
-      model_name: agent.config.model_name,
-      temperature: agent.config.temperature,
-      top_p: agent.config.top_p,
-      enabled: agent.status === 'Active',
-    },
+    persona: agent.systemPrompt,
+    model: agent.config.model,
+    temperature: agent.config.temperature,
+    top_p: agent.config.top_p,
+    enabled: agent.status === 'Active',
   };
 }
 
@@ -29,26 +25,27 @@ export async function createAgent(agent: AgentData): Promise<BackendAgent> {
       'Content-Type': 'application/json',
       ...identityHeaders(),
     },
-    body: JSON.stringify(toPayload(agent)),
+    body: JSON.stringify({ agent_id: agent.agentId, ...toFields(agent) }),
   });
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'Agent 操作失败'));
   return res.json();
 }
 
-export async function saveAgent(agent: AgentData) {
-  const res = await backendFetch(apiUrl(`/api/v1/memories/${agent.id}`), {
+export async function saveAgent(agent: AgentData): Promise<BackendAgent> {
+  const res = await backendFetch(apiUrl(`/api/v1/agents/${encodeURIComponent(agent.agentId)}`), {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       ...identityHeaders(),
     },
-    body: JSON.stringify(toPayload(agent)),
+    body: JSON.stringify(toFields(agent)),
   });
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'Agent 操作失败'));
+  return res.json();
 }
 
 export async function deleteAgent(agentId: string) {
-  const res = await backendFetch(apiUrl(`/api/v1/memories/${agentId}`), {
+  const res = await backendFetch(apiUrl(`/api/v1/agents/${encodeURIComponent(agentId)}`), {
     method: 'DELETE',
     headers: identityHeaders(),
   });

@@ -10,22 +10,23 @@ before(async () => {
 });
 after(async () => { await vite?.close(); });
 
-const backendAgent = (alias, title) => ({
-  id: `uuid-${alias}`, alias, title, summary: '', tags: [], content: '', agent_config: null,
+const backendAgent = (agent_id, title) => ({
+  agent_id, title, summary: '', persona: '', model: 'default', temperature: null, top_p: null,
+  enabled: true, updated_at: '2026-01-01T00:00:00Z',
 });
 
-test('后端列表没有内置图纸时，omni_doll 补在首位且后端图纸顺序不变', () => {
+test('omni_doll 补在首位且后端图纸顺序不变', () => {
   const agents = toChatAgents([backendAgent('meal_assistant', '三餐推荐助手'), backendAgent('coder_doll', 'Coder Doll')]);
   assert.deepEqual(agents.map((a) => a.id), ['omni_doll', 'meal_assistant', 'coder_doll']);
-});
-
-test('后端已有同名 omni_doll 图纸时不重复补入，以后端标题为准', () => {
-  const agents = toChatAgents([backendAgent('coder_doll', 'Coder Doll'), backendAgent('omni_doll', '注入的全能助手')]);
-  assert.deepEqual(agents.map((a) => [a.id, a.name]), [['coder_doll', 'Coder Doll'], ['omni_doll', '注入的全能助手']]);
 });
 
 test('消息中的 Agent 取自 Profile 列表，不在列表中时显示 agent_id', () => {
   const agents = toChatAgents([backendAgent('coder_doll', 'Coder Doll')]);
   assert.equal(resolveChatAgent(agents, 'coder_doll').name, 'Coder Doll');
   assert.equal(resolveChatAgent(agents, 'retired_doll').name, 'retired_doll');
+});
+
+test('没有起名字的 Profile 以 agent_id 显示', () => {
+  const agents = toChatAgents([backendAgent('meal_assistant', '')]);
+  assert.equal(resolveChatAgent(agents, 'meal_assistant').name, 'meal_assistant');
 });

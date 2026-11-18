@@ -17,13 +17,13 @@ const models = [
 const byLabel = (rows) => Object.fromEntries(rows.map((r) => [r.label, [r.value, r.source]]));
 
 test('会话选的模型优先于 Agent 的模型', () => {
-  const rows = byLabel(effectiveModelParams('qwen-max', { model_name: 'deepseek-chat' }, models));
+  const rows = byLabel(effectiveModelParams('qwen-max', { model: 'deepseek-chat' }, models));
   assert.deepEqual(rows['模型'], ['qwen-max', '本次会话']);
   assert.deepEqual(rows['最大输出'], ['4096', '模型默认']);
 });
 
 test('Agent 给出的温度优先，没给或留空（null）的参数取模型默认', () => {
-  const rows = byLabel(effectiveModelParams(undefined, { model_name: 'deepseek-chat', temperature: 0.3, top_p: null }, models));
+  const rows = byLabel(effectiveModelParams(undefined, { model: 'deepseek-chat', temperature: 0.3, top_p: null }, models));
   assert.deepEqual(rows['温度'], ['0.3', '来自 Agent']);
   assert.deepEqual(rows['Top P'], ['0.95', '模型默认']);
 });

@@ -4,7 +4,6 @@ import { useAgentManagement } from '@/hooks/useAgentManagement';
 import { useDraft } from '@/hooks/useDraft';
 import { useChatUiStore } from '@/stores';
 import { AgentSidebar } from './agent/AgentSidebar';
-import { TagsSection } from './agent/TagsSection';
 import { AgentIcon } from './agent/AgentIcon';
 import { Toggle } from './common/FormControls';
 import { ConfirmDialog } from './common/ConfirmDialog';
@@ -14,15 +13,13 @@ import type { RegisteredModel } from '@/types/model';
 import { formatDateTime, formatFullDateTime } from '@/utils/dateTime';
 
 const EMPTY_AGENT: AgentData = {
-  id: '',
-  alias: '',
+  agentId: '',
   name: '',
   summary: '',
-  tags: [],
   systemPrompt: '',
   model: 'default',
   status: 'Inactive',
-  config: { model_name: 'default', temperature: 0.7, top_p: null },
+  config: { model: 'default', temperature: 0.7, top_p: null },
 };
 
 const fieldCls = 'rounded-[9px] border border-line-strong bg-field text-fg focus:border-primary/50 focus:outline-none';
@@ -39,7 +36,7 @@ function Card({ title, aside, children }: { title: string; aside?: ReactNode; ch
   );
 }
 
-/** Agent 页：左栏列表，右侧编辑选中 Agent 的名称、模型、系统指令与标签；改动保存后生效。 */
+/** Agent 页：左栏列表，右侧编辑选中 Agent 的名称、描述、模型与系统指令；改动保存后生效。 */
 export default function AgentManagement() {
   const {
     filteredAgents,
@@ -59,7 +56,7 @@ export default function AgentManagement() {
   const { draft, isDirty, isSaving, updateDraft, save, reset } = useDraft({
     initialData: selectedAgent || EMPTY_AGENT,
     onSave: async (draftData) => {
-      await saveAgent(draftData);
+      await saveAgent(selectedId, draftData);
     },
   });
   const [models, setModels] = useState<RegisteredModel[]>([]);
@@ -72,7 +69,8 @@ export default function AgentManagement() {
   const modelUnregistered =
     models.length > 0 && draft.model !== 'default' && !models.some((m) => m.id === draft.model);
   const enabled = draft.status === 'Active';
-  const isDraft = draft.id.startsWith('pending_');
+  // 尚未保存的草稿没有保存时间
+  const isDraft = draft.updatedAt === undefined;
   const updateConfig = (patch: Partial<AgentData['config']>) => updateDraft({ config: { ...draft.config, ...patch } });
 
   const openAccessSettings = () => {
@@ -97,7 +95,7 @@ export default function AgentManagement() {
             <section className="flex flex-wrap items-start gap-4.5 rounded-[18px] border border-line bg-surface-container p-5">
               <span aria-hidden="true" className="h-16 w-16 shrink-0 rounded-[20px] bg-brand p-[2px]">
                 <span className="flex h-full w-full items-center justify-center rounded-[18px] bg-surface-container text-primary">
-                  <AgentIcon alias={draft.alias} className="h-[30px] w-[30px]" strokeWidth={1.8} />
+                  <AgentIcon agentId={draft.agentId} className="h-[30px] w-[30px]" strokeWidth={1.8} />
                 </span>
               </span>
               <div className="flex min-w-[260px] flex-1 flex-col gap-2">
@@ -112,22 +110,22 @@ export default function AgentManagement() {
                   />
                 </label>
                 <span className="flex flex-wrap items-center gap-2 text-xs text-fg-3">
-                  别名
+                  Agent ID
                   {isDraft ? (
                     <>
                       <input
                         type="text"
-                        aria-label="别名"
-                        value={draft.alias}
-                        onChange={(e) => updateDraft({ alias: e.target.value })}
+                        aria-label="Agent ID"
+                        value={draft.agentId}
+                        onChange={(e) => updateDraft({ agentId: e.target.value })}
                         placeholder="例如 reviewer_doll"
                         className={`h-6 w-56 px-2 font-mono text-xs ${fieldCls}`}
                       />
-                      <span>保存后不能再改</span>
+                      <span>小写字母、数字、_ 与 -，保存后不能再改</span>
                     </>
                   ) : (
-                    <span title="对话与访问登记以别名指代这个 Agent，保存后不能再改" className="rounded-md bg-surface-container-high px-1.5 py-px font-mono text-fg-2">
-                      {draft.alias}
+                    <span title="对话与访问登记以 Agent ID 指代这个 Agent，保存后不能再改" className="rounded-md bg-surface-container-high px-1.5 py-px font-mono text-fg-2">
+                      {draft.agentId}
                     </span>
                   )}
                 </span>
@@ -189,7 +187,7 @@ export default function AgentManagement() {
                     value={draft.model}
                     onChange={(e) => {
                       const model = e.target.value;
-                      updateDraft({ model, config: { ...draft.config, model_name: model } });
+                      updateDraft({ model, config: { ...draft.config, model } });
                     }}
                     className={`h-[38px] w-full cursor-pointer appearance-none rounded-[10px] border bg-field pl-3 pr-9 text-sm text-fg focus:border-primary/50 focus:outline-none ${
                       modelUnregistered ? 'border-magic-metal' : 'border-line-strong'
@@ -273,10 +271,6 @@ export default function AgentManagement() {
               </label>
             </Card>
 
-            <Card title="标签">
-              <TagsSection tags={draft.tags} onChange={(tags) => updateDraft({ tags })} />
-            </Card>
-
             <section className="flex flex-wrap items-center gap-3.5 rounded-[18px] border border-line bg-surface-container-low px-5 py-4">
               <ShieldCheck className="h-5 w-5 shrink-0 text-fg-3" aria-hidden="true" />
               <div className="flex min-w-[240px] flex-1 flex-col gap-1">
@@ -293,14 +287,10 @@ export default function AgentManagement() {
 
             <div className="flex items-center gap-3 px-1 pt-1">
               <span className="flex-1 text-xs text-fg-3">
-                {draft.createdAt && draft.updatedAt ? (
-                  <>
-                    <span title={formatFullDateTime(Date.parse(draft.createdAt))}>创建于 {formatDateTime(Date.parse(draft.createdAt))}</span>
-                    {' · '}
-                    <span title={formatFullDateTime(Date.parse(draft.updatedAt))}>最近保存 {formatDateTime(Date.parse(draft.updatedAt))}</span>
-                  </>
+                {draft.updatedAt ? (
+                  <span title={formatFullDateTime(Date.parse(draft.updatedAt))}>最近保存 {formatDateTime(Date.parse(draft.updatedAt))}</span>
                 ) : (
-                  isDraft && '尚未保存'
+                  '尚未保存'
                 )}
               </span>
               <button
@@ -322,10 +312,10 @@ export default function AgentManagement() {
 
       <ConfirmDialog
         isOpen={confirmingDelete}
-        title={`删除“${draft.name || draft.alias}”？`}
+        title={`删除“${draft.name || draft.agentId}”？`}
         message="删除后无法恢复。对话中已经使用过它的回复不受影响。"
         confirmText="删除"
-        onConfirm={() => void deleteAgent(draft.id)}
+        onConfirm={() => void deleteAgent(selectedId)}
         onCancel={() => setConfirmingDelete(false)}
       />
     </div>

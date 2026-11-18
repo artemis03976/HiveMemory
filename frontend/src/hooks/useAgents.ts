@@ -7,7 +7,7 @@ import { apiUrl } from '@/transports/backendUrl';
 import { backendFetch, localErrorText } from '@/transports/connectionStatus';
 
 export interface AgentProfile {
-  id: string;       // alias (used as agent_id in chat)
+  id: string;       // agent_id
   name: string;     // title from backend
   description: string;
   avatarIcon: LucideIcon;
@@ -15,20 +15,18 @@ export interface AgentProfile {
   enabled: boolean;
 }
 
+/** Agent 列表接口返回的一份 Profile。 */
 export interface BackendAgent {
-  id: string;
-  alias: string;
+  agent_id: string;
   title: string;
   summary: string;
-  tags: string[];
-  content: string;     // payload.content — Agent 的人格/系统指令
-  agent_config?: {
-    model_name?: string;
-    temperature?: number;
-    top_p?: number | null;
-    enabled?: boolean;
-  } | null;
-  created_at: string;
+  persona: string;     // Agent 的人格/系统指令
+  model: string;
+  /** 为空时沿用模型定义的默认值。 */
+  temperature: number | null;
+  top_p: number | null;
+  enabled: boolean;
+  /** Profile 文件的修改时间。 */
   updated_at: string;
 }
 
@@ -41,17 +39,18 @@ export const AGENT_ICONS: Record<string, LucideIcon> = {
 };
 
 /** Agent 的图标：内置人偶各有图标，其余用默认图标。 */
-export function agentIcon(alias: string): LucideIcon {
-  return AGENT_ICONS[alias] ?? Bot;
+export function agentIcon(agentId: string): LucideIcon {
+  return AGENT_ICONS[agentId] ?? Bot;
 }
 
+/** 没有起名字的 Profile 以 agent_id 显示。 */
 function toAgentProfile(b: BackendAgent): AgentProfile {
   return {
-    id: b.alias,
-    name: b.title,
+    id: b.agent_id,
+    name: b.title || b.agent_id,
     description: b.summary,
-    avatarIcon: agentIcon(b.alias),
-    enabled: b.agent_config?.enabled !== false,
+    avatarIcon: agentIcon(b.agent_id),
+    enabled: b.enabled,
   };
 }
 
@@ -64,8 +63,8 @@ export function resolveChatAgent(agents: AgentProfile[], agentId: string | undef
 }
 
 /**
- * 内置默认图纸由后端代码提供，没有源记忆原子，因此不会出现在 Profile 列表接口中；
- * 聊天仍可以选择它，Agent 管理页只展示后端真实存在的图纸。
+ * 内置默认图纸由后端代码提供，不对应 Profile 文件，它的 agent_id 也不能用于新建，
+ * 因此不会出现在 Profile 列表接口中；聊天仍可以选择它，Agent 管理页只展示 Profile 文件。
  */
 const BUILTIN_AGENT: AgentProfile = {
   id: DEFAULT_AGENT_ID,
@@ -75,10 +74,9 @@ const BUILTIN_AGENT: AgentProfile = {
   enabled: true,
 };
 
-/** 聊天可选的 Agent：内置图纸固定在首位，后端已有同名图纸时以后端为准。 */
+/** 聊天可选的 Agent：内置图纸固定在首位，其后是后端列出的 Profile。 */
 export function toChatAgents(backendAgents: BackendAgent[]): AgentProfile[] {
-  const agents = backendAgents.map(toAgentProfile);
-  return agents.some((a) => a.id === BUILTIN_AGENT.id) ? agents : [BUILTIN_AGENT, ...agents];
+  return [BUILTIN_AGENT, ...backendAgents.map(toAgentProfile)];
 }
 
 export function useAgents() {

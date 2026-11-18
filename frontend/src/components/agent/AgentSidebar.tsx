@@ -11,9 +11,9 @@ interface AgentSidebarProps {
   onCreate: () => void;
 }
 
-/** 状态色：木为启用；停用为中性色；尚未保存的草稿为金色。 */
+/** 状态色：木为启用；停用为中性色；尚未保存（没有保存时间）的草稿为金色。 */
 function agentState(agent: AgentData): { label: string; text: string; dot: string } {
-  if (agent.id.startsWith('pending_')) return { label: '草稿', text: 'text-magic-metal', dot: 'bg-magic-metal' };
+  if (agent.updatedAt === undefined) return { label: '草稿', text: 'text-magic-metal', dot: 'bg-magic-metal' };
   return agent.status === 'Active'
     ? { label: '启用', text: 'text-magic-wood', dot: 'bg-magic-wood' }
     : { label: '已停用', text: 'text-fg-3', dot: 'bg-fg-3' };
@@ -58,13 +58,13 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
           <p className="pt-8 text-center text-[13px] text-fg-3">{searchQuery ? '没有匹配的 Agent' : '还没有 Agent'}</p>
         )}
         {agents.map((agent) => {
-          const selected = agent.id === selectedId;
+          const selected = agent.agentId === selectedId;
           const disabled = agent.status !== 'Active';
           const state = agentState(agent);
           return (
             <button
-              key={agent.id}
-              onClick={() => onSelect(agent.id)}
+              key={agent.agentId}
+              onClick={() => onSelect(agent.agentId)}
               aria-current={selected ? 'true' : undefined}
               className={`relative flex items-center gap-3 rounded-xl py-2.5 pl-3 pr-2.5 text-left transition-colors ${
                 selected ? 'bg-primary/15' : 'hover:bg-surface-container-high'
@@ -75,11 +75,11 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
                 aria-hidden="true"
                 className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] bg-primary/15 text-primary ${disabled ? 'opacity-50' : ''}`}
               >
-                <AgentIcon alias={agent.alias} className="h-[18px] w-[18px]" />
+                <AgentIcon agentId={agent.agentId} className="h-[18px] w-[18px]" />
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className={`truncate text-sm font-semibold ${disabled ? 'text-fg-3' : 'text-fg'}`}>{agent.name || '未命名 Agent'}</span>
-                <span className="truncate font-mono text-xs text-fg-3">{agent.alias}</span>
+                <span className="truncate font-mono text-xs text-fg-3">{agent.agentId}</span>
               </span>
               <span className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs ${state.text}`}>
                 <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${state.dot}`} />
