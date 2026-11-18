@@ -26,7 +26,7 @@ related_docs:
   - docs/ideas/memory-as-tool-skill-plugin-boundary.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/applications/MealAssistantProductSpec.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # 记忆核心：类型体系
@@ -214,13 +214,15 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 
 ### 6.3 AGENT_PROFILE 移出中期库
 
+**已实施**（2026-11-18，[归档计划](../archive/plans/v0.8.0-agent-profile-store.md)）：Agent Profile 移出中期记忆库，成为属于 MemoryLibrary、不在三层存储中的 AgentProfileStore，一个 Profile 一个 Markdown 文件，直接改动文件不需要重启；可用 agent 的列表常驻提示词，检索结果中不再有 Profile；`AGENT_PROFILE` 只作历史取值留在 `MemoryType` 中。当前事实见 [MemoryLibrary 与存储层](../patchouli/memory-library.md#15-agent-profile人偶图纸)第 1.5 节与[任务进程](../workspace/task-process.md#6-cpu-分配)第 6 节；下面的现状写的是实施之前。
+
 现状（以代码为准）：AGENT_PROFILE 是 Alice 的"人偶图纸"：正文是 agent 自己的人设提示词，标题与摘要组成调用方看到的子代理菜单项，`agent_config` 存模型、温度、top_p 与是否启用（[Agent 模型](../../src/hivememory/core/models/agent.py)）。它只能经管理入口创建与编辑，生成、查重、合并、归档、管理页列表都以类型判断绕开它（[总纲](./memory-flow-short-to-mid-term.md)第 2.4 节）；运行时发现子代理只能靠检索恰好命中。只有 Alice 的 chat 需要它，外部 harness 的 agent 没有 Profile，CALL 也只在 Alice 的 MTP 中存在。
 
 最初放进记忆库的两点理由，一点没有实现：提示词在演化中修正需要反馈途径，现在没有，执行者也不会主动修改；另一点"能被检索发现"，用固定列表即可替代（第 1 节）。
 
 **决定**：AGENT_PROFILE 移出中期记忆库，单独成一个 store；可用 agent 的列表固定载入提示词，不再靠检索发现。
 
-**新 store 的位置**（owner 标注）：新的 AgentProfileStore 与 ArtifactStore 一样，属于 MemoryLibrary，但不在三层记忆存储（短期、中期、长期）之中，不参与冷热迁移（[MemoryLibrary 与存储层](../patchouli/memory-library.md#1-四种存储角色)第 1 节）。所有权因此不变：Profile 本来就列在 Patchouli 的职责中，MemoryLibrary 也只由 Patchouli runtime 构造并持有。
+**新 store 的位置**（owner 标注）：新的 AgentProfileStore 与 ArtifactStore 一样，属于 MemoryLibrary，但不在三层记忆存储（短期、中期、长期）之中，不参与冷热迁移（[MemoryLibrary 与存储层](../patchouli/memory-library.md#1-存储角色)第 1 节）。所有权因此不变：Profile 本来就列在 Patchouli 的职责中，MemoryLibrary 也只由 Patchouli runtime 构造并持有。
 
 **存储**（owner，2026-11-17）：文件存储，一个 Agent Profile 一个单独的文件。
 
@@ -234,7 +236,7 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 - 子代理菜单现在来自预检索的命中（`engines/memory_compiler` 的 `AGENT_PROFILE_MENU`），同一段也出现在 MTP SEARCH 与 MCP `memory_search` 的结果里；改为固定列表之后，检索结果不再带这一段，停用的 Profile 也不再出现在菜单中。
 - 关于 agent 的知识（擅长什么、做砸过什么）是否作为普通记忆生成，仍是[写入链路](./memory-flow-write-path.md)第 3.3 节的候选，不随这次决定。
 
-**计划**：[AgentProfileStore：Agent Profile 移出中期记忆库，以文件保存并热重载](../plans/v0.8.0-agent-profile-store.md) 已起草（2026-11-18）。
+**计划**：[AgentProfileStore：Agent Profile 移出中期记忆库，以文件保存并热重载](../archive/plans/v0.8.0-agent-profile-store.md)，2026-11-18 实施并归档。
 
 **前提与两项决定**（owner，2026-11-18）：
 
@@ -247,7 +249,7 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 
 - **Profile 自己的结构**：一个文件就是一个 agent，文件名是 agent id（例如 `coder_doll.md`），创建后不可改；frontmatter 写 `title`（用户赋予它的名字，Agent 页的展示名）、`summary`（它负责的功能）、模型参数（`model`、`temperature`、`top_p`；字段名沿用主流的 `model`，owner，2026-11-18；改用 ModelSelection 仍由 [Todo](../todo/agent-profile-model-selection.md) 另行处理）与 `enabled`；正文就是人设提示词。
 - **去掉的原子字段**：标签（Profile 的标签只服务于把 Profile 当记忆检索出来，固定列表之后没有使用方）、访问策略（现有入口创建的 Profile 一律是 PUBLIC 且改不了，PRIVATE 只出现在测试中；调用谁仍由调用方的 CALL 授权与被调用方在本 Workspace 的准入决定）、版本号与生命力字段。
-- **位置**：数据根下按 Workspace 分目录，例如 `agent_profiles/<workspace>/<agent_id>.md`。
+- **位置**：数据根下的 `agent_profiles/<agent_id>.md`，不按 Workspace 分目录（owner，2026-11-18：agent 的定义是全局的，它作为工作者进入 Workspace；删除记忆数据不删除 Profile 文件）。
 - **热重载**：Profile 很少、文件很小，解析一个 agent 与列出可用 agent 都直接读目录，不设缓存，文件改动在下一次读取时就生效；现在的 Profile 缓存与它的代次守护、失效订阅随之删除。
 - **两种写法同一套校验**：Agent 页保存时先校验再以临时文件替换的方式原子写入；手改的文件在读取时按同一套规则校验（文件名合法、frontmatter 字段合法），不合格的文件跳过并记一条带原因码的日志，解析到它时以结构化错误失败，不静默回退到内置 agent。
 

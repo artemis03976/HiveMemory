@@ -36,7 +36,7 @@ related_docs:
   - docs/archive/plans/unified-identity-authorization-entry.md
   - docs/archive/plans/workspace-asset-ownership-split.md
   - docs/archive/plans/memory-visibility-management.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-18
 ---
 
 # 身份与访问体系
@@ -248,7 +248,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 需要回答：
 
 - **授予模型**：谁能对哪个非驻留 Workspace 做什么。分析（2026-10-10）：一次跨 Workspace 的操作要同时满足 agent 自身的白名单与目标一侧的授予；
-- **agent 的身份**：Agent Profile 是某个 Workspace 中的记忆原子，`agent_id` 即其 alias，只在该 Workspace 内唯一，不同 Workspace 中的同名 agent 是两条独立的原子。“同一 agent 在不同 Workspace 有不同能力”只会出现在穿透访问中，那时 actor 身份需要带上驻留 Workspace（分析，2026-10-10）；
+- **agent 的身份**（owner，2026-11-18）：agent 的定义是全局的，它作为工作者进入 Workspace，不是 Workspace 的资产。Agent Profile 是 AgentProfileStore 中的全局文件，`agent_id` 在实例内唯一；能否在某个 Workspace 工作、在那里能做什么，由该 Workspace 的访问登记决定。2026-10-10 的分析以“Profile 是某个 Workspace 中的记忆原子、同名 agent 在不同 Workspace 是两条独立的原子”为前提，这个前提来自 v0.6.2 把全部中期读取按 Workspace 限定时的连带结果，并非决定，已不成立。穿透访问中，“同一 agent 在不同 Workspace 有不同能力”仍由各 Workspace 的访问登记表达，工作 actor 的驻留 Workspace 区分它此刻在哪里工作；
 - **目标的表达**：执行一侧如何给出目标，见本节末尾的 T-5b；
 - **资源边界**：资源 owner 仍按目标 Workspace 校验归属；同一进程内会同时出现多个目标 Workspace 的资源，派生缓存按派生源坐标键控，不能从 scope 的存在推导隔离；
 - **与子网的关系**：Mount、Bridge 与能力子网是更完整的形态（[AE2 Idea](./ae2-hivememory-architecture-analogy.md)，GitHub Epic #92 的主子网部分），穿透访问的授予模型应能向它扩展。

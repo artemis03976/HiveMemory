@@ -15,14 +15,14 @@ related_docs:
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-18
 ---
 
 # 执行环境
 
 ## 0. 文档性质
 
-本文收集执行环境一侧尚未决定的方向：agent 与执行环境的分别选择（前提 9、10，T-7、T-8），不同执行环境交回的输出使用谁的词汇（T-10），以及外部 harness 自身工具的权限应答与工作目录（T-11）。本文不描述当前行为，也不代表排期。
+本文收集执行环境一侧尚未决定的方向：agent 与执行环境的分别选择（前提 9、10，T-7、T-8），CPU 由执行身份与执行环境组装（前提 11），不同执行环境交回的输出使用谁的词汇（T-10），以及外部 harness 自身工具的权限应答与工作目录（T-11）。本文不描述当前行为，也不代表排期。
 
 - **理念与用语**：理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.3 节“执行者可以替换”；执行一侧的用语（CPU、执行单元、驱动、执行线程、操作适配器、请求入口）见同文第 2 节（2026-10-20 修订）。
 - **当前设计**：见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节。
@@ -47,6 +47,11 @@ last_reviewed: 2026-11-07
 - 选择执行环境不是 workspace 的能力：不设对应的 actor 操作，能力层也不提供这一方法，actor 无法在执行中选择或更换执行环境；
 - owner 倾向：它大概率成为系统层级的控制，在 CPU 分配时决定实际使用的 backend（T-8）；
 - 分析：执行环境在对话内固定，CALL 派生的子线程无法为自己选择另一个执行环境；外部 Actor Idea E-6b 据此决定不允许 CALL 的目标位于另一个执行单元（owner，2026-10-13），一个任务进程只对应一个执行单元。
+
+**前提 11**（2026-11-18）：**CPU 由执行身份与执行环境动态组装**。以 AE2 的视角，一个 CPU 归属于一张网络；但 agent 的定义是全局的，它作为工作者进入 Workspace（Agent Profile 不按 Workspace 分目录，见 [MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)第 1.5 节），所以 CPU 不是 Workspace 预先持有的固定实体，而要在使用时组装，大致是执行身份加执行环境。
+
+- 分析：现在的 CPU 分配只组装了其中一半：进程注册时认证执行者，PREPARE 解析它的 Profile，CPU 分配把图纸、操作快照与编译好的提示词交给唯一的 CPU 端口（当前为 Alice，[任务进程](../workspace/task-process.md#6-cpu-分配)第 6 节）。执行环境只有一个，另一半还没有可选项；它从哪里来由 T-8 的承载位置决定，组合是否有效由 T-7 决定。
+- 分析：[AE2 Idea](./ae2-hivememory-architecture-analogy.md#33-alice-与-crafting-cpu) 第 3.3 节把 Alice 类比为 Crafting CPU。按本条，“CPU 属于网络”在 HiveMemory 中对应组装出来的 CPU 在一个 Workspace 中工作，而不是 Workspace 拥有 CPU。
 
 ## 2. 开放问题
 
