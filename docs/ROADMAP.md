@@ -35,7 +35,8 @@ last_reviewed: 2026-11-12
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.2`（Git tag，2026-11-01）；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前内容基线：`v0.7.3`，主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03），2026-11-04 收尾：话题内主动写入优先、生成任务失败带原因码与主动写入沿用 agent 的标题三份计划均已完成，发布标签 `v0.7.3` 在合并后创建；[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果（第 4.3 节）。v0.7.3 之后的版本目标尚未确定；
+- 当前内容基线：`v0.7.3`，主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03），2026-11-04 收尾：话题内主动写入优先、生成任务失败带原因码与主动写入沿用 agent 的标题三份计划均已完成，发布标签 `v0.7.3` 在合并后创建；[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果（第 4.3 节）；
+- 当前开发版本：`v0.8.0`，版本目标为生成核心的升级（按 2026-11-16 的顺序取第 1 步，Claude 整理，待 owner 确认）；第一个方向是记忆类型的收敛（owner，2026-11-17），建立计划前的两项已于同日决定，见第 4.2 节；
 - 版本之外：观测与日志的其余工作包随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理面已以管理凭据完成防误用（2026-11-05）；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
 
 当前规范代码版本为 `0.7.3`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.7.3`，待合并后创建，最近已发布基线为 `v0.7.2`。
@@ -115,6 +116,7 @@ last_reviewed: 2026-11-12
 
 | 版本或候选方向 | 状态 | 目标结果 | 依赖与入口 |
 |:---|:---:|:---|:---|
+| `v0.8.0` 生成核心的升级 | Planned / 版本目标为生成核心的升级（按 2026-11-16 的顺序取第 1 步，Claude 整理，待 owner 确认）：类型的更迭与 Patchouli 馆长 agent；第一个方向是记忆类型的收敛（owner，2026-11-17），其余方向在阻塞问题决定后建立计划 | 记忆类型的收敛：去掉 WORK_IN_PROGRESS，AGENT_PROFILE 移到独立的 AgentProfileStore，CODE_SNIPPET 与 URL_RESOURCE 合并为资源记忆，关闭 RUN 的用户工具路径；已有记忆逐条列出由 owner 决定去向，AgentProfileStore 用文件存储、一个 Profile 一个文件（owner，2026-11-17） | [计划：去掉 WIP、合并资源记忆与已有记忆的迁移](./plans/v0.8.0-memory-type-convergence.md)（Planned）；[类型体系](./ideas/memory-type-system.md)第 7 节开头；[v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.1 节 |
 | `v0.7.3` 主动写入与被动提取的收敛 | Completed（2026-11-04 收尾）/ 版本目标 owner，2026-11-03：三份计划均已完成 | 在统一的记忆架构成形之前止住两种生成方式互相改写（过渡措施）：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成失败可诊断 | 第 4.3 节；[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
 | 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | Completed（2026-11-01 收尾）/ 版本之外的工作（owner，2026-10-31）；接入路径为纯原生插件（owner，2026-11-01）；owner 决定收尾，真实模型下的完整验收在日常使用中完成；调研中发现子 Agent 会话独立导入属于实现漂移（owner，2026-11-02），已于 2026-11-02 修复：只导入顶层会话，子 Agent 的结算通知进入父会话这一轮的生成材料 | dsh 经对话回流与原生记忆工具接入 HiveMemory，Windows 桌面端可以连接 WSL 中的 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[归档计划](./archive/plans/dsh-plugin-integration.md)、[接入手册](./help/deepseek-harness-plugin.md)、[子 Agent 会话的归档计划](./archive/plans/dsh-subagent-sessions.md) |
 | Codex 的 plugin 模式接入 | Completed（2026-11-08 收尾，PR #199）/ v1.0 范围（owner，2026-11-04）；接入沿用 Claude Code 的形态、与 Claude Code 合用一个插件目录（owner，2026-11-08）；接入登记沿用配置文件，运行时登记之后另做（owner，2026-11-08）；以真实模型与本机后端的验收在日常使用中完成 | Codex 中的 agent 经 MCP 检索、读取、写入与更新记忆，写入由 hook 补上可信的轮次信息；对话回流 Import Bus；只支持 Codex 与 HiveMemory 都在 Windows 上原生运行 | [归档计划](./archive/plans/codex-plugin-integration.md)、[调研](./research/codex-plugin-survey.md)、[接入 Codex](./help/codex-plugin.md)、[Import Bus](./system/import-bus.md#10-codex-插件) |
