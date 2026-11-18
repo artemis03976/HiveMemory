@@ -65,7 +65,7 @@ last_reviewed: 2026-11-18
 
 `patchouli.agent_profiles.root_dir`（默认 `.hivememory/agent_profiles`，相对工作目录即数据根）是 Agent Profile 文件的根目录，一个 Profile 一个文件，不按 Workspace 分目录（[MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)第 1.5 节）。
 
-升级注意（Agent Profile 移出记忆库）：Agent Profile 改为 `patchouli.agent_profiles.root_dir` 下的文件，`workspace.cache.profile_capacity` 随 Profile 缓存删除，个人覆盖或 `HIVEMEMORY__*` 环境变量中仍写着它时启动失败，需要删除。中期库里已有的 Profile 原子不会自动转成文件：部署新版本之后、迁移之前，这些 Agent 不能执行，也不在 Agent 页中。
+升级注意（Agent Profile 移出记忆库）：Agent Profile 改为 `patchouli.agent_profiles.root_dir` 下的文件，`workspace.cache.profile_capacity` 随 Profile 缓存删除，个人覆盖或 `HIVEMEMORY__*` 环境变量中仍写着它时启动失败，需要删除。中期库里已有的 Profile 原子不会自动转成文件：新版本把它们当作普通记忆，这些 Agent 不能执行，也不在 Agent 页中。一次性迁移脚本在换装之前、旧版本运行时把它们写成文件，日常库迁移后已删除（提交 `677baa51`）。
 
 升级注意（推理模型驻留）：新增的驻留配置都有默认值，旧配置无需修改即可加载；升级后两个模型默认空闲卸载，想保持加载后一直驻留的原行为，把两处 `residency` 设为 `resident`。`/health/ready` 的含义随之变化：它表示模型至少成功加载过一次，不再表示模型此刻在内存中（[应用服务](./application-services.md#3-系统级服务)）。
 
