@@ -41,7 +41,7 @@ related_docs:
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/passive-extraction-volume-and-retention.md
   - docs/todo/cross-conversation-topic-placement.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # 记忆核心：短期到中期的流转
@@ -126,6 +126,8 @@ last_reviewed: 2026-11-17
 | 2026-11-16 | 新的类型体系先在已有的对话数据上回放，检验 LLM 能否稳定把握它的边界，再写进计划 | 本文第 4.2 节、[类型体系](./memory-type-system.md)第 9 节、本文第 7 节 |
 | 2026-11-16 | 首份计划落在类型体系；先在已有的对话数据上完成回放检验（补一小组 chatbot 式样本），项目持久的回放需求之后由一套回放工具承担 | [类型体系](./memory-type-system.md)第 1、9.1 节 |
 | 2026-11-16 | 公开评测集（LoCoMo、LongMemEval 等）与建模 agent 工作流的数据集属于 v0.8 的内容，需要尽早提上日程，单独成一份 Idea | [评测集](./memory-evaluation-benchmarks.md)第 1 节 |
+| 2026-11-18 | 馆长的第一步之前，先让生成出来的记忆指向具体的交互轮次：被动结算下的复核与复核要用的判定格式都依赖它 | [写入链路](./memory-flow-write-path.md)第 5 节 |
+| 2026-11-18 | 馆长的第一步（固定流程的复核）先做：它本来就是新的主被动复核需要实现的，被动结算要结合主动写入动过的记忆来生成，不等于 agent 化；agent 化排在它之后 | [写入链路](./memory-flow-write-path.md)第 3.1 节 |
 | 2026-11-18 | Agent Profile 移出中期库后不再作为记忆原子看待，也不再遵循记忆原子的结构；手动编辑的历史不保留；直接修改本地文件与经 Agent 页修改等同，需要热重载 | [类型体系](./memory-type-system.md)第 6.3 节 |
 | 2026-11-17 | 类型收敛建立计划前的两项：库中已有的 WIP、CODE_SNIPPET 与 URL_RESOURCE 逐条列出，由 owner 决定改类型还是删除；AgentProfileStore 用文件存储，一个 Agent Profile 一个文件 | [类型体系](./memory-type-system.md)第 6.3 节、第 7 节开头 |
 | 2026-11-17 | 记忆类型的收敛只作为 v0.8.0 的第一个方向实现。v0.8 参考 v0.7 的版本规划重新考虑：v0.8.0 的版本目标为生成核心的升级（按 2026-11-16 的顺序取第 1 步，Claude 整理，待 owner 确认）；一个版本围绕一个功能，由几份能各自验收的计划完成，计划只在能立即执行时建立 | [类型体系](./memory-type-system.md)第 7 节开头；[ROADMAP](../ROADMAP.md) 第 4.2 节 |
@@ -153,7 +155,7 @@ last_reviewed: 2026-11-17
 - **信息在系统里，但不在做判断的地方**：控制面知道本话题的主动写入落到了哪些记忆（第 2.1 节），但这份信息只用于查重；真正做判断的那次 LLM 调用既看不到这些写入，也看不到库。
 - **修订是整篇重写**：Mode C 的输出是整篇新正文加一句变更说明（`RevisionResult`），合并也是整体重写。
 - **修订不改索引层**：Mode C 只覆盖正文，标题、摘要、标签与类型保持不变，检索与查重用的向量也随之不变；一条记忆被修订后，检索结果显示的仍是修订前的标题与摘要（[生成引擎](../../src/hivememory/engines/generation/engine.py)）。管理页的手动编辑可以改标题、摘要、标签与正文，不能改类型（[记忆生成服务](../../src/hivememory/patchouli/services/memory_generation.py)）。能改类型的只有合并：类型由模型重选。
-- **证据引用只到整个 Artifact**：记忆中的 `ArtifactRef` 指向整个 Artifact（话题快照），没有轮次或事件的位置。
+- **证据引用只到整个 Artifact**：记忆中的 `ArtifactRef` 指向整个 Artifact（话题快照），没有轮次或事件的位置。原始记录有坐标：`TurnRecord` 有 `turn_id`，每个 `TurnEvent` 有 `sequence`，工具调用另有 `action_id`，交互快照逐轮保留它们。坐标丢在中间：生成材料的 `GenerationTurn` 没有 `turn_id`，渲染为序数 `[Turn 1]`、`[Turn 2]`，事件没有编号；模型输出的草稿（`ExtractedMemoryDraft`）没有来源字段。被动结算的引用指向整个话题（含已折叠的轮次），主动写入的指向最近几轮；合并带上被吸收那条的引用，手动创建没有引用。生产代码只写入这些引用、在合并时带上，没有读取方（[记忆生成服务](../../src/hivememory/patchouli/services/memory_generation.py)）。
 
 ### 2.2 中期库：平铺、查重与生成形式
 
@@ -276,7 +278,7 @@ last_reviewed: 2026-11-17
 
 **v0.8 的顺序**（owner，2026-11-16，第 1.1 节）。2026-11-17 起按版本推进：v0.8.0 的版本目标为生成核心的升级（按 2026-11-16 的顺序取第 1 步，Claude 整理，待 owner 确认），第一个方向是记忆类型的收敛（[类型体系](./memory-type-system.md)第 7 节开头，建立计划前的两项已于 2026-11-17 决定）；馆长 agent 等其余方向在阻塞问题决定后再建立计划。
 
-1. 生成核心的升级：Patchouli 馆长 agent（[写入链路](./memory-flow-write-path.md)第 3.1、3.2 节）与类型的更迭（[类型体系](./memory-type-system.md)，首份计划的范围见其第 7 节开头）。馆长的第一步是以固定流程对照已有记忆复核（[写入链路](./memory-flow-write-path.md)第 2.1 节）。
+1. 生成核心的升级：Patchouli 馆长 agent（[写入链路](./memory-flow-write-path.md)第 3.1、3.2 节）与类型的更迭（[类型体系](./memory-type-system.md)，首份计划的范围见其第 7 节开头）。馆长的第一步是以固定流程对照已有记忆复核（[写入链路](./memory-flow-write-path.md)第 2.1 节）；在它之前，先让生成出来的记忆指向具体的交互轮次（同文第 5 节，owner，2026-11-18）。
 2. 被动生成：被动结算具体产出什么，主要取决于提示词怎样写。
 3. 主动写入。
 
@@ -289,13 +291,13 @@ last_reviewed: 2026-11-17
 | 第一当事人"没写"算不算判断；主动写入何时生效 | 后一问已决定：写下即生效，修订前内容有效（[写入链路](./memory-flow-write-path.md)第 5 节）；前一问未决定 |
 | 什么值得写成记忆 | 两条原则（"会不会改变决定"、"环境能重新告诉你的不记"，[写入链路](./memory-flow-write-path.md)第 2.4 节、[外部参考](../research/memory-core-external-references.md)第 4 节），未决定 |
 | 修订的形态（结构化判定、局部修改） | 候选设计（[写入链路](./memory-flow-write-path.md)第 2.1 节） |
-| 证据定位到轮次或事件 | 已决定：生成事件带上轮次与事件的信息（[写入链路](./memory-flow-write-path.md)第 5 节）；外部来源的定位见[写入链路](./memory-flow-write-path.md)第 3.2 节 |
+| 证据定位到轮次或事件 | 已决定：生成事件带上轮次与事件的信息（[写入链路](./memory-flow-write-path.md)第 5 节）；先于馆长的第一步实施（owner，2026-11-18），建立计划前要决定粒度与由谁读取两项（同文第 5 节）；外部来源的定位见[写入链路](./memory-flow-write-path.md)第 3.2 节 |
 | 结算时机与"一段经历是否结束"的关系 | 只提过，没有讨论 |
 | 保存形态 | [库的形状](./memory-library-shape-and-index.md)第 4.2 节，开放 |
 | 短期记忆在新流转中的定义 | 有候选定义（[写入链路](./memory-flow-write-path.md)第 2.2 节），未决定 |
 | 用什么评判新的流转更好 | 有候选（第 4.2 节），未决定 |
-| 记忆的类型体系 | 首份计划（WIP 与可运行的移出、资源记忆的合并、v0.8 关闭 RUN 的用户工具路径，以及已有记忆的迁移）已于 2026-11-17 实施并归档，作为 v0.8.0 的第一个方向；AgentProfileStore 的存储已于 2026-11-17 决定，是同一方向的下一份计划（[类型体系](./memory-type-system.md)第 7 节开头）。FACT 的拆分、用户一侧、经历等内容类别的重新划分也有决定，但回放显示与旧类别没有可测的区别，不进入首份计划；默认类型、新类型的生命周期等问题搁置（[类型体系](./memory-type-system.md)第 9.2、10 节） |
-| Patchouli 馆长 agent | 只有候选设计（[写入链路](./memory-flow-write-path.md)第 3.1、3.2 节）：循环放在哪里（可能需要一份 ADR）、结构化判定的格式、由什么触发一次运行、与唯一写入者 MemoryGenerationFamiliar 的分工，都未决定；馆长的写操作取决于保存形态，后者宜在馆长之前或同时决定 |
+| 记忆的类型体系 | 首份计划（WIP 与可运行的移出、资源记忆的合并、v0.8 关闭 RUN 的用户工具路径，以及已有记忆的迁移）已于 2026-11-17 实施并归档，作为 v0.8.0 的第一个方向；第二份计划 AgentProfileStore（Agent Profile 移出中期库，改为一个 agent 一个文件）已于 2026-11-18 实施并归档，这个方向的两份计划都已完成（[类型体系](./memory-type-system.md)第 7 节开头）。FACT 的拆分、用户一侧、经历等内容类别的重新划分也有决定，但回放显示与旧类别没有可测的区别，不进入首份计划；默认类型、新类型的生命周期等问题搁置（[类型体系](./memory-type-system.md)第 9.2、10 节） |
+| Patchouli 馆长 agent | 第一步（固定流程的复核）排在记忆指向交互轮次之后（owner，2026-11-18），建立计划前要决定判定的格式、复核的输入与修订的粒度三项（[写入链路](./memory-flow-write-path.md)第 3.1 节）。其余只有候选设计（同文第 3.1、3.2 节）：循环放在哪里（可能需要一份 ADR）、结构化判定的格式、由什么触发一次运行、与唯一写入者 MemoryGenerationFamiliar 的分工，都未决定；馆长的写操作取决于保存形态，后者宜在馆长之前或同时决定 |
 | 读的一侧（日常路径上怎样送达、怎样从读者反推好的写入、使用中的反馈） | 只零星提过（[库的形状](./memory-library-shape-and-index.md)第 2.1 节、[外部参考](../research/memory-core-external-references.md)第 4 节） |
 | 现有记忆的去向（新流转上线时旧库要不要复核、重新归类、挂进索引） | 没有讨论 |
 
@@ -358,4 +360,4 @@ owner 每天实际使用 HiveMemory，这本身就是现成的长程试验场；
 - owner 判断仍开放的两项：主动写入生成时的材料（[写入链路](./memory-flow-write-path.md)第 5 节）与保存形态（[库的形状](./memory-library-shape-and-index.md)第 4.2 节）；[库的形状](./memory-library-shape-and-index.md)第 4.1 节与[写入链路](./memory-flow-write-path.md)第 5 节的被动一侧已于 2026-11-15 决定。统一交互记忆 Idea 第 5 节中仍开放的是"没写"算不算判断；写入链路上其余未定论的事项见第 4.1 节。
 - 确定 v0.8 用什么评判新的流转更好：样本统计不作为依据（第 1.2 节），候选的评判方式见第 4.2 节（单轮不交记忆税，长程看演化质量与人工介入），尚未决定；公开评测集的选择与接入见[评测集](./memory-evaluation-benchmarks.md)第 6、7 节。
 - 类型体系：首份计划的范围已于 2026-11-16 决定，2026-11-17 定为 v0.8.0 的第一个方向，同日实施并归档（[类型体系](./memory-type-system.md)第 7 节开头）；内容类别的重新划分搁置（同文第 9.2、10 节）。
-- 选出第一份可以独立验收的切片。按 owner 的顺序（第 4.1 节），它在生成核心的升级之内；候选（分析，不是 owner 决定）：馆长的第一步，以固定流程对照已有记忆复核、输出结构化判定（[写入链路](./memory-flow-write-path.md)第 2.1、3.1 节），与类型的更迭一起或先后落地。
+- 下一份计划的切片（owner，2026-11-18）：先让生成出来的记忆指向具体的交互轮次（[写入链路](./memory-flow-write-path.md)第 5 节），再做馆长的第一步，以固定流程对照已有记忆复核、输出结构化判定（同文第 2.1、3.1 节）；类型的更迭的两份计划已完成（[类型体系](./memory-type-system.md)第 7 节开头）。
