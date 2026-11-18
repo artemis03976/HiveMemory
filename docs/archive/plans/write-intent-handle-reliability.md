@@ -32,14 +32,14 @@ code_paths:
   - src/hivememory/config/workspace.py
   - src/hivememory/config/patchouli.py
 related_docs:
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/shutdown-pending-generation-persistence.md
 ---
 
 # 写入句柄的可靠性
 
-> **状态**：Archived（2026-11-12，已实施，实施记录见第 10 节）。当前事实见[读取视图与写入意图](../../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)第 3.1、4、5 节、[Patchouli 生成](../../patchouli/generation.md#33-mode-c主动-update)第 3.3、6 节与[耐久性与故障恢复](../../governance/reliability/durability-and-recovery.md)。以下为实施时的计划原文，链接已按归档位置改正。依据[写入意图的后续方向 Idea](../../ideas/pending-intent-migration.md)第 2、3、6 节与候选清单 M-10。owner 的决定（2026-11-12）：
+> **状态**：Archived（2026-11-12，已实施，实施记录见第 10 节）。当前事实见[读取视图与写入意图](../../workspace/read-view-and-write-intents.md#31-写盘读回与保留期)第 3.1、4、5 节、[Patchouli 生成](../../patchouli/generation.md#33-mode-c主动-update)第 3.3、6 节与[耐久性与故障恢复](../../governance/reliability/durability-and-recovery.md)。以下为实施时的计划原文，链接已按归档位置改正。依据[写入意图的后续方向 Idea](../ideas/pending-intent-migration.md)第 2、3、6 节与候选清单 M-10。owner 的决定（2026-11-12）：
 >
 > - 先修复 M-10 与其他写入句柄的问题；
 > - 写入句柄的登记表做持久化，正常关闭时写盘、启动时读回；
@@ -237,7 +237,7 @@ cd frontend && npm run lint && npm test && npm run build
 - [System 配置](../../system/configuration.md)：新增的四个配置项；
 - [耐久性与故障恢复](../../governance/reliability/durability-and-recovery.md)中写入意图与生成任务两行的现状；
 - [ROADMAP](../../ROADMAP.md) 的对应行；
-- 本计划移入 `archive/plans/`，从 [Plans](../../plans/README.md) 中删除，在归档索引中登记；[写入意图 Idea](../../ideas/pending-intent-migration.md) 第 2、3、6 节改为指向本计划的已实施说明。
+- 本计划移入 `archive/plans/`，从 [Plans](../../plans/README.md) 中删除，在归档索引中登记；[写入意图 Idea](../ideas/pending-intent-migration.md) 第 2、3、6 节改为指向本计划的已实施说明。
 
 ## 10. 实施记录
 

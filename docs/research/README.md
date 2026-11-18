@@ -3,7 +3,7 @@ title: Research
 status: current
 owner: project
 scope: external-systems-papers-and-technical-research
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-16
 ---
 
 # 调研资料
@@ -30,6 +30,7 @@ last_reviewed: 2026-11-08
 | Agent harness 插件接入 | [Codex 插件接入调研](./codex-plugin-survey.md#7-调研结果) | 2026-11-07、2026-11-08 | rust-v0.167.0 固定源码与当日官方文档；插件、可信参数改写、终态/历史读取、Windows 与原生记忆。2026-11-08 在 Windows 原生以模拟模型与 MCP 实测安装、两份清单并存、hook 信任、参数改写、审批、会话记录、续会话与子 Agent；中断、fork/回退与间接调用回声仍有边界。 |
 | Agent harness 插件接入 | [pi 插件接入调研](./pi-plugin-survey.md#7-调研结果) | 2026-11-07、2026-11-08 | v1.5.0 固定源码/文档；原生扩展、内建 MCP、参数改写、最终空闲事件、会话树与 Honcho 样本。2026-11-08 在 Windows 原生以模拟模型与服务实测本地包安装、工具注册时机、事件顺序与结束原因、`appendEntry` 与回溯、技能展开、`/tree`、fork 与 clone、非交互退出；界面显示与并发进程仍有边界。 |
 | Agent 上下文与记忆管理 | [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | 2026-10-16 | Claude Code、Codex、Hermes、pi、OpenCode V2 的固定源码/文档快照；预算、历史投影、检查点、取消与恢复。保留当时的适配建议，未做真实长会话质量对比。 |
+| 记忆系统设计 | [记忆核心的外部参考](./memory-core-external-references.md) | 2026-11-14、2026-11-15 | 八个记忆项目的写入路径与保存形态（依据 DeeperResearch 工作区的调研报告，不是源码）、VCPToolBox 的 Rust 运行时与 OneRing（基线 `73fd165`）、Anthropic 与 Perplexity 的文章、Obelisk 与 Nowledge Mem（仓库说明、演讲材料与论文摘要）；为 v0.8 记忆核心的讨论供料 |
 
 新报告按主题加入本索引；Memory 系统设计、Agent 架构、检索与存储、论文与算法等方向均可在此积累。报告增多后再按稳定主题拆分子目录。
 

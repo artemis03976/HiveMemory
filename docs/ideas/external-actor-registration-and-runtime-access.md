@@ -1,7 +1,7 @@
 ---
 title: 外部 Actor 的接入登记与运行时访问
 status: idea
-horizon: candidate
+horizon: long-term
 owner: project
 scope: external-actor-registration-runtime-access-and-adapter-interface
 code_paths:
@@ -22,13 +22,13 @@ related_docs:
   - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-session-and-topic-projection.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
   - docs/ideas/identity-and-access-model.md
   - docs/workspace/README.md
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-16
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -318,7 +318,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 - **owner 判断**（2026-10-31）：
   - 记忆能力属于 workspace 的 actor API，不为 MTP 独占。plugin 模式开放的是 actor API 中写入与更新这两项 actor 操作；MTP 的 WRITE、UPDATE 只是 Alice 对同一组操作的协议映射。
   - WRITE 与 UPDATE 始终产生 PendingAtom 句柄并交还前台 actor，作为读写一致性的保障；记忆生成完成后由结算事件触发重定向。这条链路任何一个环节断开，都说明 v0.7.0 没有迁移到位，需要返工，而不是另行设计。
-  - 原列为阻塞问题的 E-4 与外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md#7-外部-actor-的提交与回读契约)第 7 节）都是已有能力或已有决定，不阻塞本步。
+  - 原列为阻塞问题的 E-4 与外部 Actor 的提交与回读契约（[写入意图 Idea](../archive/ideas/pending-intent-migration.md#7-外部-actor-的提交与回读契约)第 7 节）都是已有能力或已有决定，不阻塞本步。
 - **阻塞问题**：无。E-8 已于 2026-10-31 决定（选项 D）。
 - **实施结果**：本步已按[归档计划](../archive/plans/v0.7.2-plugin-write-update.md)实施。计划建立时的代码现状、范围与候选设计（请求级 context 登记意图、写入时就地确定话题的完整链路、回声标记、记忆编译的命名与文案不再按 MTP 编写）及其在计划中的采纳与调整都保存在归档计划中，2026-11-04 从本文移出；落地结果见 [MCP 记忆访问](../contracts/mcp.md)、[Import Bus](../system/import-bus.md#47-写入时确定话题)与[读取视图与写入意图](../workspace/read-view-and-write-intents.md)。
 
@@ -442,6 +442,17 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
   - 两边已经有重叠：写入 harness 记忆文件的决定，作为工具调用留在会话记录中，经对话回流也被提取进 HiveMemory 的记忆（例如任务进程不回退的决定）。
   - 候选做法：MCP 工具的说明与每条结果写明记忆的更新时间与来源，并声明优先级——仓库中的代码与文档、harness 自己的指令与记忆文件，优先于 HiveMemory 的检索结果；检索结果作为带日期的历史证据，引用前先核实。
   - 本步不做两套记忆之间的同步或去重：HiveMemory 不读取、不写入 harness 的记忆文件，两边冲突时按上述优先级处理。
+
+**用户与偏好的全局部分怎样到达 harness**（2026-11-16）：v0.8 的类型体系把用户一侧分为 USER_PROFILE（用户本人）、Preference（用户希望事情怎样做）与 Decision（对某件事的决定），前两者的全局部分对所有 agent 生效，适合常驻（[v0.8 类型体系 Idea](./memory-type-system.md)第 7.3 节）。owner 指出这一块与类型体系关系不大，是 harness 插件的问题：harness 也可能有自己的记忆，强制注入要看插件能接受多大程度的提示词干预；实在不能注入，就引导 agent 在对话开始时主动获取，用主动阅读绕开注入的麻烦。
+
+- **owner 决定（2026-11-16）**：这一项归入本问题，先走主动读取，即仍在选项 A 之内，不开新的例外。
+- 现状（代码核对，2026-11-16）：
+  - MCP 的 `memory_search` 只接受一个检索字符串（[MCP 入口](../../src/hivememory/mcp_server/server.py)），不能按类型列出记忆，agent 只能靠查询碰巧命中，主动读取现在还不可靠。
+  - 注入的通道已经存在，并且不碰 harness 自己的记忆文件：Claude Code 插件已有 SessionStart hook（现在只登记会话），Claude Code 允许 SessionStart hook 向上下文追加内容；Codex 插件也有 SessionStart hook，能否追加内容待核实；dsh 与 pi 插件已经在系统提示词中注入 MCP 的使用说明（[hooks 配置](../../integrations/hivememory/hooks/hooks.json)）。
+- 候选设计（分析，不是 owner 决定，可在计划评审时调整）：
+  - 主动读取的两个前提：MCP 能按类型列出 USER_PROFILE 与 Preference 的全局部分（给检索加类型参数，或单独的读取入口，在计划中确定）；先落地上文"回声"的候选做法，否则读到的内容会随对话回流被再提取成重复记忆。
+  - 读取到的内容写明：与项目指令冲突时以项目指令为准，并向用户指出冲突，沿用上文的优先级。
+  - 真实使用中 agent 常常不去读时，再考虑放行会话开始时追加一段固定内容的窄例外：它不是选项 B 那样每条消息都检索，没有逐条消息的延迟，也不调用 Gateway，注入内容记为 attachment 时也没有回声（UserPromptSubmit 已核实，SessionStart 待核实）；代价是占用常驻的上下文，要有预算与溢出提示。
 
 ### E-8 plugin 模式写入意图的话题归属
 

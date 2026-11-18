@@ -27,7 +27,7 @@ related_docs:
   - docs/governance/reliability/durability-and-recovery.md
   - docs/patchouli/generation.md
   - docs/patchouli/perception.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
 ---
 
 # 退出时保存待生成的记忆工作
@@ -73,7 +73,7 @@ related_docs:
 ### 2.2 非目标
 
 - **崩溃、强制结束进程与断电**：驻留话题与排队中的工作仍只在内存中，照旧丢失。随写随存属于 SQLite WorkStore（[恢复治理](../../governance/reliability/durability-and-recovery.md#46-sqlite-workstore-持久化门槛与设计约束)第 4.6 节），不在本计划。
-- **写入句柄跨重启**：写入意图登记仍只在内存中，重启后旧句柄读不到，这与现在相同；恢复的任务生成的记忆照常落库，可以检索（[写入意图后续方向 Idea](../../ideas/pending-intent-migration.md)）。
+- **写入句柄跨重启**：写入意图登记仍只在内存中，重启后旧句柄读不到，这与现在相同；恢复的任务生成的记忆照常落库，可以检索（[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)）。
 - **话题跨重启继续积累**：退出时仍然结算话题，不保存驻留话题本身。
 - **任务记录跨重启**：重启后旧的任务 ID 查不到，恢复的工作以新任务出现（主动写入的任务 ID 沿用 `active:{intent_id}`）。
 - **其他关闭等待**：任务进程（最多 10 秒）、Import Bus 的在途导入与交互提交队列的排空不变。

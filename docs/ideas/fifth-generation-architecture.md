@@ -17,7 +17,7 @@ related_docs:
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/ideas/pending-intent-migration.md
   - docs/system/import-bus.md
 last_reviewed: 2026-11-09
 ---
@@ -261,7 +261,7 @@ flowchart TB
 **约束**：
 
 - 承担正确性的功能事件（canonical 变更、结算）内联发布；订阅者先完成不会失败的失效，再做其他工作，只失效、不回放事件携带的值；
-- 依赖事件到达的状态必须能从权威结果核对（写入意图的结算对账见[写入意图后续方向 Idea](./pending-intent-migration.md)第 2 节）；
+- 依赖事件到达的状态必须能从权威结果核对（写入意图派发结局不明时以同一意图重试，没有对账恢复，见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#5-派发与结算)第 5 节）；
 - 不持有其他子系统的 Runtime、Service、存储客户端或本地总线。
 
 **检验问题**：新事件的订阅者没有收到或执行失败时，业务终态会不会错？发布者是否真正拥有它声明的事实？
@@ -282,7 +282,7 @@ flowchart TB
 
 **检验问题**：新的写入路径是否把“已确认”说成“已持久化”？是否让写入依赖进程完成？
 
-**落地入口**：[读取视图与写入意图](../workspace/read-view-and-write-intents.md)；[Patchouli 生成](../patchouli/generation.md)第 7 节；[写入意图后续方向 Idea](./pending-intent-migration.md)。
+**落地入口**：[读取视图与写入意图](../workspace/read-view-and-write-intents.md)；[Patchouli 生成](../patchouli/generation.md)第 7 节；[写入意图后续方向 Idea](../archive/ideas/pending-intent-migration.md)。
 
 ### 3.9 上下文与记忆材料分离
 
@@ -325,7 +325,7 @@ flowchart TB
 - **执行基座与执行环境**（3.3）：用户在对话开始前分别选择 agent 与执行环境，见[执行环境 Idea](./execution-environment.md)。
 - **被动请求**（3.2）：定时与队列触发创建任务进程，见[任务进程 Idea](./task-process-table-and-registration-entry.md)与[身份与访问体系 Idea](./identity-and-access-model.md#p-5-被动请求的认证) P-5。
 - **流式同步与 turn 内上下文折叠**（3.8、3.9）：交互以更原子的结构流式同步到 Patchouli，生成材料包含当前轮已接收的消息，见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)。
-- **写入意图的后续**（3.7、3.8）：结算对账、句柄寿命、意图 policy 与外部提交契约，见[写入意图后续方向 Idea](./pending-intent-migration.md)。
+- **写入意图的后续**（3.7、3.8）：结算重试与句柄寿命已实施（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)），意图 policy 移入[身份与访问体系 Idea](./identity-and-access-model.md)，外部提交契约已关闭；原讨论见已归档的[写入意图 Idea](../archive/ideas/pending-intent-migration.md)。
 - **身份与访问体系**（3.5、3.6）：principal 的登记与调用方证明、进入 Workspace 的身份、操作调用的授权与资源可见性，作为单独的主线方向维护（owner，2026-11-05），见[身份与访问体系 Idea](./identity-and-access-model.md)。
 - **子网与跨 Workspace**（3.5）：受限穿透访问、Mount、Bridge 与能力子网，见 [AE2 Idea](./ae2-hivememory-architecture-analogy.md)与[身份与访问体系 Idea](./identity-and-access-model.md#7-受限穿透访问)第 7 节。
 - **持久化与恢复**（3.4、3.7）：会话、意图、任务与登记的耐久性等级，见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)。
@@ -384,7 +384,7 @@ core 不应成为“因为要共用就往里塞”的地方（owner，2026-09-26
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 3.5、3.6：身份与访问主线，从 principal 的登记与调用方证明到资源可见性；P-1、P-4a、P-5、P-7、P-8 |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 3.9：会话模型与 Topic 池 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 3.1、3.3：接入侧面、操作适配器与两种接入模式 |
-| [写入意图后续方向 Idea](./pending-intent-migration.md) | 3.7、3.8：结算对账、句柄寿命与外部契约 |
+| [写入意图后续方向 Idea](../archive/ideas/pending-intent-migration.md)（2026-11-16 已归档） | 3.7、3.8：结算对账、句柄寿命与外部契约 |
 | [Import Bus Idea](../archive/ideas/import-bus.md)（已归档，2026-10-30） | 只向网络输入的记忆来源；当前事实见 [Import Bus](../system/import-bus.md) |
 | [长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md) | 3.9：流式同步与 turn 内折叠 |
 | [AE2 Idea](./ae2-hivememory-architecture-analogy.md) | 第 2 节的网络隐喻与子网 |

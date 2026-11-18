@@ -1,7 +1,7 @@
 ---
 title: 任务进程表与任务请求唯一注册入口
 status: idea
-horizon: candidate
+horizon: long-term
 owner: project
 scope: task-process-model-open-directions
 code_paths:
@@ -138,4 +138,4 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话承载对话连续性；话题预建已于 2026-11-06 取消（其第 10 节），不再是 2.1、2.2 的前提：2.1 仍因会话与 `done` 需要实际所在的话题而未实施，2.2 要先改变主线程的派生时点 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | controller 模式使用本文的进程模型（Q-3b、Q-8），plugin 模式不建进程 |
 | [Import Bus](../system/import-bus.md) | Q-5b 与 plugin 模式 `interaction_id` 推导的当前行为 |
-| [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 进程生命周期的其他候选改进 |
+| [Chat Run 生命周期后续候选](../archive/ideas/chat-run-lifecycle-follow-ups.md)（已于 2026-11-16 归档，不再跟踪） | 进程生命周期的其他候选改进 |

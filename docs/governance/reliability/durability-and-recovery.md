@@ -239,7 +239,8 @@ v0.6.1 对这一方向的历史讨论保留于
 1. 按 §4.6 的启动门槛与 schema 约束复用 Local Work Queue 的 lane/handler/store 方向，把 interaction submission 和 memory generation 的可承诺状态写入 WorkStore，并在迁移 interaction 时删除持久化旁路真相，只保留可选的可重建定位缓存；
 2. 为 PendingAtom intent、pending alias、settlement、resolution 和 cancel reason 建立可持久化 record；
 3. 启动时恢复 queued/retry-wait work，处理 abandoned running work，并把未知 schema/kind 安全放入 blocked/dead-letter；若采用 lease，再把过期判定和安全重新 claim 纳入同一恢复算法；
-4. 保证 task、settlement 和 pending state 的终态只由一个所有者推进。
+4. 保证 task、settlement 和 pending state 的终态只由一个所有者推进；
+5. 恢复时不重新派发已经结算的意图：结算是终态，恢复只处理尚未结算的意图。
 
 ### Phase D2：Artifact、MemoryAtom 与冷热状态恢复
 
