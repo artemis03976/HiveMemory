@@ -12,7 +12,7 @@ last_reviewed: 2026-11-17
 
 ## v0.8.0
 
-- [记忆类型的收敛：去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](./v0.8.0-memory-type-convergence.md)：2026-11-17，分支 `feat/v0.8.0-memory-type-convergence`（PR 待建）；[Patchouli 生成](../../patchouli/generation.md#3-三种生成模式)、[MTP 契约](../../contracts/mtp.md#33-run)
+- [记忆类型的收敛：去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](./v0.8.0-memory-type-convergence.md)：2026-11-17，PR #225；[Patchouli 生成](../../patchouli/generation.md#3-三种生成模式)、[MTP 契约](../../contracts/mtp.md#33-run)
 
 ## v0.7.3
 
