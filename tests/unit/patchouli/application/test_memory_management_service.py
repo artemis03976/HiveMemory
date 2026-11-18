@@ -20,7 +20,6 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.errors import (
-    InvalidMemoryFieldError,
     ScopeRequiredError,
 )
 from hivememory.core.models import (
@@ -127,22 +126,6 @@ def test_create_memory_passes_materials_and_actor_to_creation_primitive():
             },
         )
     ]
-
-
-def test_create_memory_rejects_agent_profile_type_before_backend():
-    """Profile 只经 Profile 入口创建：记忆入口按字段错误拒绝且不触达后端。"""
-    bus = RecordingBus()
-    service = MemoryManagementService(bus=bus)
-
-    with pytest.raises(InvalidMemoryFieldError, match="AGENT_PROFILE"):
-        _run(
-            service.create_memory(
-                _scope(),
-                MemoryCreation(title="W", content="c", memory_type=MemoryType.AGENT_PROFILE),
-            )
-        )
-
-    assert bus.calls == []
 
 
 # ---- 管理读取与 actor 读取的可见性语义 ----

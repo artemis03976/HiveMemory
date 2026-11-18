@@ -28,7 +28,6 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     PendingAtomStatus,
-    ResolvedAgentProfile,
     TurnEvent,
     WriteFocus,
 )
@@ -110,61 +109,39 @@ async def _begin_call(caller, target_alias, *, context_refs=()):
     )
 
 
-def _profile_atom(*, visibility="PUBLIC", agent_config=None) -> MemoryAtom:
-    """Profile 源原子经过真实读取、policy 校验与 AgentProfile 解析。"""
-    return MemoryAtom(
-        meta=make_memory_metadata(source_agent_id="writer", user_id="u1", visibility=visibility),
-        index=IndexLayer(
-            title="CALL 图纸",
-            summary="目标 Agent 配置",
-            tags=["profile"],
-            alias="custom_agent",
-            memory_type=MemoryType.AGENT_PROFILE,
-        ),
-        payload=PayloadLayer(
-            content="旧的人设",
-            agent_config={"model_name": "old-model"} if agent_config is None else agent_config,
-        ),
-    )
-
-
 async def _profile_submitter(chain):
     """操作入口与管理服务共用同一读取视图，提交函数绑定 reader 主线程的句柄。"""
     entry = WorkspaceOperationEntry(
         chain.memories, agent=chain.profiles, threads=chain.composition.threads
     )
-    workspace = make_identity_scope(user_id="u1", agent_id="reader").workspace_identity
     thread = await chain.composition.authenticate_main_thread(
         agent_id="reader", process_id="call-process"
     )
 
-    return ThreadOperationSubmitter(entry, thread), workspace
+    return ThreadOperationSubmitter(entry, thread)
 
 
 @pytest.mark.asyncio
-async def test_call_reloads_profile_after_management_updates_source_atom(profile_chain):
-    """管理更新发布 canonical 事件后，下一次 CALL 使用新模型和人设。"""
-    atom = _profile_atom()
-    await profile_chain.store.upsert(atom)
-    submit_operation, workspace = await _profile_submitter(profile_chain)
+async def test_call_reads_profile_file_changed_directly_without_restart(profile_chain):
+    """Profile 文件被直接改动后，下一次 CALL 就使用新模型和人设。"""
+    submit_operation = await _profile_submitter(profile_chain)
+    profile_chain.profile_store.save(
+        AgentProfile(agent_id="custom_agent", persona="旧的人设", model="old-model")
+    )
     first, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
     assert isinstance(first, DispatchCallee)
-    assert (first.frame.agent_profile.model_name, first.frame.agent_profile.persona) == (
+    assert (first.frame.agent_profile.model, first.frame.agent_profile.persona) == (
         "old-model",
         "旧的人设",
     )
 
-    await profile_chain.root_memories.update_memory(
-        atom.id,
-        content="更新后的人设",
-        agent_config={"model_name": "new-model"},
-        target_workspace=workspace,
-        actor=profile_chain.manager,
+    (profile_chain.profile_dir / "custom_agent.md").write_text(
+        "---\nmodel: new-model\n---\n更新后的人设\n", encoding="utf-8"
     )
     second, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
 
     assert isinstance(second, DispatchCallee)
-    assert (second.frame.agent_profile.model_name, second.frame.agent_profile.persona) == (
+    assert (second.frame.agent_profile.model, second.frame.agent_profile.persona) == (
         "new-model",
         "更新后的人设",
     )
@@ -179,7 +156,7 @@ async def test_builtin_call_uses_workspace_profile_read_and_keeps_builtin_config
     内置图纸不进缓存由 Profile 读取器的单测覆盖，空 alias 与 default 的归一化
     由 Patchouli 的 Profile 读取单测覆盖。
     """
-    submit_operation, _ = await _profile_submitter(profile_chain)
+    submit_operation = await _profile_submitter(profile_chain)
     transition, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "omni_doll")
 
     assert isinstance(transition, DispatchCallee)
@@ -213,14 +190,14 @@ async def test_call_without_call_permission_returns_permission_error_without_dis
 
 @pytest.mark.asyncio
 async def test_unusable_custom_profile_returns_preparation_error_without_fallback(profile_chain):
-    """调用方不可见的自定义图纸回填具体错误，不降级执行内置 Agent。
+    """不能执行的自定义图纸回填具体错误，不降级执行内置 Agent。
 
-    缺失、不可见与配置损坏的完整矩阵归 Patchouli 的 Profile 读取单测；这里取
-    经真实 adapter 可见性过滤的不可见图纸作代表。
+    缺失、文件不合格与已停用的完整矩阵归 Patchouli 的 Profile 读取单测；这里取
+    经真实文件读取的停用图纸作代表。
     """
-    expected_code = "mtp.alias.not_found"
-    await profile_chain.store.upsert(_profile_atom(visibility="PRIVATE"))
-    submit_operation, _ = await _profile_submitter(profile_chain)
+    expected_code = "mtp.permission.denied"
+    submit_operation = await _profile_submitter(profile_chain)
+    profile_chain.profile_store.save(AgentProfile(agent_id="custom_agent", enabled=False))
     caller = _caller(submit_operation, agent_id="reader")
 
     transition, session, _ = await _begin_call(caller, "custom_agent")
@@ -335,7 +312,7 @@ async def test_callee_can_write_with_its_own_permission_even_when_caller_cannot(
 
 async def _profile_named_by_alias(alias, **_kwargs):
     """Profile 路由替身：自定义 alias 解析为同名 Agent 的图纸；内置图纸不经路由。"""
-    return ResolvedAgentProfile(profile=AgentProfile(agent_id=alias))
+    return AgentProfile(agent_id=alias)
 
 
 @pytest.mark.asyncio

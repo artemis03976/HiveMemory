@@ -55,6 +55,11 @@ from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.workspace import INTENT_RECORD_FILE, INTENT_RETENTION
 
 
+async def _no_agent_profiles():
+    """没有 Profile 文件：可用 agent 列表为空。"""
+    return []
+
+
 def make_task_process_service(
     global_bus: Any,
     *,
@@ -75,17 +80,23 @@ def make_task_process_service(
 
     注册入口与生产一样以系统自身的 principal 经 ``local`` adapter 认证系统的
     root 工作 actor：认证网关须登记该 principal（``make_access_composition``
-    缺省登记），Workspace 访问登记须有该用户 ``system`` 的记录。
+    缺省登记），Workspace 访问登记须有该用户 ``system`` 的记录。总线上没有
+    Profile 列表路由时登记一个空列表：PREPARE 每轮都列出可用 agent，不关心
+    这份列表的测试因此不必各自登记。
     """
     if (
         isinstance(global_bus, GlobalSystemBus)
         and PatchouliRoutes.MEMORY_INTENT_SUBMIT not in global_bus.list_routes()
     ):
         install_intent_admission(global_bus)
+    if (
+        isinstance(global_bus, GlobalSystemBus)
+        and PatchouliRoutes.AGENT_PROFILE_LIST not in global_bus.list_routes()
+    ):
+        global_bus.register(PatchouliRoutes.AGENT_PROFILE_LIST, _no_agent_profiles)
     runtime = workspace_read_view or WorkspaceReadView(
         backing=BusCanonicalReadBackend(global_bus),
         atom_capacity=64,
-        profile_capacity=32,
         intent_record_file=INTENT_RECORD_FILE,
         intent_retention=INTENT_RETENTION,
     )

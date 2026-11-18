@@ -24,7 +24,7 @@ related_docs:
   - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-18
 ---
 
 # HiveMemory 当前系统架构
@@ -136,7 +136,7 @@ Gateway 是系统级入口决策子系统。它负责入口拦截、系统指令
 
 Patchouli 是记忆与知识平面，拥有：
 
-- 记忆、话题和 Agent Profile 的存储与查询；
+- 记忆与话题的存储与查询，以及 Agent Profile 文件的管理与解析；
 - Retrieval、Perception、Generation、Lifecycle 与 MemoryCompiler 协作；
 - 交互的提交与应用（主动对话与导入共用一条提交队列，提交并等待应用）、话题的确认与建立；
 - 记忆生成任务、PendingAtom 结算与引用/反馈记录；
@@ -156,7 +156,7 @@ Alice 是 Agent 执行与控制平面，拥有：
 - Koakuma MTP 解析、执行与回填；
 - 当前 frame 的 ACK 别名清单与 CALL 父子 frame 调度。
 
-写入意图登记、完整引用解析与可失效的原子/Profile 读取缓存由 workspace 拥有。Alice 通过绑定线程句柄的操作提交函数访问这些能力，包括 SEARCH 和 CALL 目标 Profile；引用记录由 workspace 统一完成，正式记忆仍由 Patchouli 物化和结算。运行清单与主、子 frame 仅携带注册时创建的只读观测标签，标签不参与资源授权。
+写入意图登记、完整引用解析、可失效的原子读取缓存与 Profile 读取由 workspace 拥有。Alice 通过绑定线程句柄的操作提交函数访问这些能力，包括 SEARCH 和 CALL 目标 Profile；引用记录由 workspace 统一完成，正式记忆仍由 Patchouli 物化和结算。运行清单与主、子 frame 仅携带注册时创建的只读观测标签，标签不参与资源授权。
 
 Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、使用工具、提出写入或修订意图，也可以把工作委派给子 Agent；但正式书目如何产生、更新和归档仍由 Patchouli 决定。
 

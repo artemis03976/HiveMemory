@@ -27,7 +27,7 @@ related_docs:
   - docs/system/application-services.md
   - docs/system/attachments.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # 任务进程
@@ -100,14 +100,15 @@ TaskProcessService.run_process(handle)：创建进程 task；流式交付订阅�
   -> Gateway public process (ACTIVE_CHAT)
   -> command: return command outcome
   -> decision: PREPARE（不可中断）
-       -> 解析执行者的 Agent Profile（workspace 读取视图，管理读取）  root 授权
+       -> 解析执行者的 Agent Profile（workspace 读取视图）  root 授权
        -> 以执行者与图纸派生主线程（读取操作快照、登记线程表）
        -> 预检索：按 Gateway 的检索计划，经操作入口以主线程提交 RetrieveRequest  actor API 授权 memory.search
           actor API 随检索为交付的记忆记录检索命中（尽力而为）
        -> Gateway 指向已有话题：以主线程取得派发话题，root API 确认话题并冻结  root 授权
           Gateway 指向新话题：此时不建立话题
        -> root API 读取存储健康  root 授权
-       -> CPU 分配：附件租借（root 授权）与编译、记忆编译、中立提示词编译、组装 CPUInputManifest
+       -> 列出已启用的 Profile（root 授权），线程表按子线程准入筛出可用 agent 列表
+       -> CPU 分配：附件租借（root 授权）与编译、记忆与可用 agent 列表编译、中立提示词编译、组装 CPUInputManifest
        -> 进入 Actor 之前检查停止
   -> Actor 执行：把主线程交给 CPU，在可中断子 task 中 await CPU 端口 execute
        （CPUInputManifest 与主线程的 ExecutionThread；交互事件经 events sink 写入输出通道，终态结果作为返回值）
@@ -138,7 +139,7 @@ chat 请求可以用 `topic_id` 为这一轮指定话题（前端的 `#` 话题�
 | 阶段调用 | 执行者 | 授权 |
 |:---|:---|:---|
 | Gateway 的话题读取 | 系统 | 执行器在调用前 `authorize_root(system_actor, 目标)`：话题属于 Workspace，与 Agent 无关 |
-| Profile 解析、附件租借 | 系统 | CPU 分配在副作用前 `authorize_root(system_actor, 目标)`：两者是用户的选择，对用户可见 |
+| Profile 解析与列出、附件租借 | 系统 | CPU 分配在副作用前 `authorize_root(system_actor, 目标)`：两者是用户的选择，对用户可见 |
 | 话题确认与建立、存储健康、交互提交 | 系统；交互提交时执行者作为参与者 | 经 root API（`RootTopicService.determine_topic`、`RootMemoryService.storage_available`、`RootInteractionService.submit_interaction`），由方法入口 `authorize_root(system_actor, 目标)` |
 | 预检索 | 执行者 | 经操作入口以主线程提交 `RetrieveRequest`，actor API 以 `authorize_agent(执行者, memory.search, 驻留 Workspace)` 授权；执行者没有 `memory.search`（`operation_not_allowed`）时不检索，其他授权失败（如准入已失效）照常使进程失败 |
 
@@ -160,11 +161,13 @@ scope 不保存在工作集中等待使用，也不进入 CPU 输入清单、线
 
 ## 6. CPU 分配
 
-CPU 分配（Profile 解析、附件租借与编译、记忆与中立提示词编译、清单组装）由 `CPUAllocator`（`workspace/process/allocation.py`）完成，它取得的附件租借也由它在进程关闭时释放。
+CPU 分配（Profile 解析、可用 agent 列表、附件租借与编译、记忆与中立提示词编译、清单组装）由 `CPUAllocator`（`workspace/process/allocation.py`）完成，它取得的附件租借也由它在进程关闭时释放。
 
-**Profile 解析**：Agent Profile 属于 CPU 分配，但在 PREPARE 开始时解析：主线程以这份图纸派生，预检索与已有话题的确认都由主线程执行，Profile 缺失或已停用（[检索](../patchouli/retrieval.md#22-中期记忆读取)）的请求因此在检索与刷新话题之前失败。加载哪份图纸取自注册时认证得到的执行者，不取自请求输入。Profile 经 root 授权后由组合根注入的读取视图（`ProfileResolver`）按管理语义解析，不经能力层：只检查 Workspace 归属，不按 Agent 的可见性裁剪，指向其他 Agent 的 PRIVATE 图纸也能被它自己的进程加载（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）；正式原子变更会失效解析缓存。
+**Profile 解析**：Agent Profile 属于 CPU 分配，但在 PREPARE 开始时解析：主线程以这份图纸派生，预检索与已有话题的确认都由主线程执行，Profile 缺失、文件不合格或已停用（[检索](../patchouli/retrieval.md#24-agent-profile-解析)第 2.4 节）的请求因此在检索与刷新话题之前失败。加载哪份图纸取自注册时认证得到的执行者，不取自请求输入。Profile 经 root 授权后由组合根注入的读取视图（`ProfileResolver`）解析，不经能力层（[读取视图与写入意图](./read-view-and-write-intents.md#1-读取视图)）；每轮都读取当前的 Profile 文件，文件的改动在下一轮生效。
 
-**编译与清单**：CPU 分配接收预检索返回的未编译原子与经 root API 读取的存储健康。进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再由 `prompts.compilation.compile_prompt_input` 按语言设置定稿中立提示词：环境通知（存储不可用时的离线提示由存储健康决定）与人设组成 `instructions`，记忆与附件组成 `turn_context`。两段文本、解析好的 `language`、话题 `topic_id`、会话全量历史 `session_history` 与已有 `compaction_checkpoint` 一起组装为输入清单，经 CPU 端口交给 CPU。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)。
+**可用 agent 列表**：每轮 PREPARE 在 CPU 分配之前，以系统的 root 授权列出已启用的 Profile，再交给线程表按派生 CALL 子线程时的同一准入筛选（`ProcessThreads.admitted_profiles`，只读取主线程登记的工作 actor，不判定存活，PREPARE 期间收到的停止仍在进入 Actor 之前生效）。列表因此只含已启用且在本 Workspace 有准入的 agent，列出的 agent 一定能通过 CALL 时的准入。每项是 `agent_id` 加上拼成“title: summary”的一句描述，由 `MemoryCompiler` 编译为 `AGENT_PROFILE_MENU` 项（[记忆编译](../patchouli/memory-compiler.md)）；人设只在这个 agent 执行或被 CALL 时载入。列表不是检索结果，不依赖执行者有没有 `memory.search`，也不再出现在预检索、MTP SEARCH 与 MCP `memory_search` 的结果中。
+
+**编译与清单**：CPU 分配接收预检索返回的未编译原子与经 root API 读取的存储健康。进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再由 `prompts.compilation.compile_prompt_input` 按语言设置定稿中立提示词：环境通知（存储不可用时的离线提示由存储健康决定）、人设与常驻的可用 agent 列表（标题“可用子代理”加委托提示，列表为空时整节省略）组成 `instructions`，记忆与附件组成 `turn_context`。两段文本、解析好的 `language`、话题 `topic_id`、会话全量历史 `session_history` 与已有 `compaction_checkpoint` 一起组装为输入清单，经 CPU 端口交给 CPU。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)。
 
 已解析的 Profile 只在编译人设时使用，不进入清单：图纸与操作快照随主线程的线程描述交给 CPU。清单回答“处理什么”，线程描述回答“谁来处理”。
 
@@ -279,7 +282,7 @@ chat 路由订阅流式交付，不轮询断连，也不为每个事件创建 ta
 - 测试：
   - `tests/unit/workspace/process/test_gateway_chat_flow.py`（系统阶段以 root scope 执行、提交的参与者是执行者；预检索按 Gateway 的计划经读取视图交付，执行者没有 `memory.search` 或请求关闭检索时不检索；已有话题在 CPU 分配前确定，新话题且没有写入时由提交建立，CPU 返回时写入仍在建立话题则提交先等它结束、提交到同一话题；提交没有成功时会话仍有这一轮、话题为空；检索命中随预检索以执行者的 scope 记录；PREPARE 中停止拒绝预检索；Actor 中停止在等 CPU 与阻塞于通道写入时的响应，以及 Gateway 之前的模型预取；请求指定的话题交给 Gateway，被拒时以错误码失败、不提交）；
   - `tests/unit/workspace/process/test_chat_run_control_contract.py`（注册的两次认证与失败时不登记、取消的 root 授权、输出通道的容量与离开语义、订阅者暂停时进程仍推进、五种结局的唯一退出路径、交付方离开不等待关闭）；
-  - `tests/unit/workspace/process/test_cpu_allocation.py`（Profile 的管理读取与附件租借以 root scope 执行、准入失效或 Profile 解析失败时先于预检索与话题失败、租借释放与关闭顺序）；
+  - `tests/unit/workspace/process/test_cpu_allocation.py`（Profile 解析、可用 agent 列表与附件租借以 root scope 执行，列表只含已启用且有准入的 agent、准入失效或 Profile 解析失败时先于预检索与话题失败、租借释放与关闭顺序）；
   - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局与执行异常）；
   - `tests/unit/workspace/process/test_command_terminal.py`、`test_process_events.py`（`chat.run.*` 投影与 best-effort 边界，交付方离开与硬取消的事件形态）；
   - `tests/unit/core/protocol/test_seal_interaction.py`（共用封口函数）；

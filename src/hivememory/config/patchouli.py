@@ -384,6 +384,21 @@ class ArtifactConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# ========== Agent Profile ==========
+
+
+class AgentProfilesConfig(BaseModel):
+    root_dir: str = Field(
+        default=".hivememory/agent_profiles",
+        description=(
+            "Agent Profile 文件的根目录，其下按 Workspace 分目录、一个 Profile 一个文件；"
+            "相对路径按工作目录解析"
+        ),
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 # ========== 关停 ==========
 
 
@@ -426,6 +441,7 @@ class PatchouliConfig(BaseModel):
     lifecycle: MemoryLifecycleConfig = Field(default_factory=MemoryLifecycleConfig)
     retrieval: MemoryRetrievalConfig = Field(default_factory=MemoryRetrievalConfig)
     artifacts: ArtifactConfig = Field(default_factory=ArtifactConfig)
+    agent_profiles: AgentProfilesConfig = Field(default_factory=AgentProfilesConfig)
     shutdown: PatchouliShutdownConfig = Field(default_factory=PatchouliShutdownConfig)
 
     model_config = ConfigDict(extra="forbid")

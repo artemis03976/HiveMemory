@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-18
 ---
 
 # HiveMemory 项目总览
@@ -172,11 +172,11 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 
 ### 5.3 Agent Runtime
 
-- Agent Profile 驱动的模型、采样参数与语言；Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达；
+- Agent Profile 驱动的模型与采样参数：一个 Profile 一个文件，直接改动文件不需要重启（[MemoryLibrary](./patchouli/memory-library.md#15-agent-profile人偶图纸)）；可用 agent 列表常驻提示词，不靠检索发现；Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达；
 - Agent loop、结构化 turn events、取消与运行终态；
 - MTP `SEARCH / READ / RUN / WRITE / UPDATE / CALL`；
 - workspace 共享的 PendingAtom 登记、操作内实时派发与队列接纳、alias redirect 和结算通知；
-- MTP 引用读取统一经 workspace 读取视图：L0 意图按 Workspace 回读，L1/L2 正式记忆逐次检查 actor policy；原子与 Profile 解析缓存由 workspace 持有，canonical 变更同步失效；
+- MTP 引用读取统一经 workspace 读取视图：L0 意图按 Workspace 回读，L1/L2 正式记忆逐次检查 actor policy；原子缓存由 workspace 持有，canonical 变更同步失效；
 - 根 Agent 对子 Agent 的单层 CALL 编排：子 Agent 作为执行线程以被调用方身份运行，按其白名单与记忆可见性授权。
 
 ### 5.4 运行与观测

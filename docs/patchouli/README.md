@@ -22,7 +22,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # Patchouli
@@ -47,7 +47,7 @@ Patchouli 当前拥有：
 - Interaction、Document、Memory Creation 与 Memory Version artifacts；
 - Perception、Generation、Retrieval、Lifecycle 和 MemoryCompiler 能力；
 - 后台记忆生成任务及其运行时终态；
-- 作为记忆保存的 Agent Profile；
+- Agent Profile 文件（AgentProfileStore 属于 MemoryLibrary，但 Profile 不是记忆，见[MemoryLibrary](./memory-library.md#15-agent-profile人偶图纸)第 1.5 节）；
 - Patchouli 内部 local routes，以及向 `GlobalSystemBus` 暴露的公开记忆能力。
 
 这里的“拥有”不是指每个模型都必须定义在 `patchouli/` 目录下。`TurnRecord`、`MemoryAtom`、`PendingAtomSettlement` 等跨模块模型位于 `core`，底层算法仍位于 `engines`；所有权指的是谁决定这些对象如何进入长期状态、谁负责持久化与演化，以及发生冲突时由谁维护权威事实。

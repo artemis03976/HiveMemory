@@ -1,124 +1,82 @@
 from __future__ import annotations
 
-from hivememory.core.models import (
-    IdentityScope,
-    MemoryAtom,
-    MemoryType,
-    ResolvedAgentProfile,
-    WorkspaceIdentity,
-    require_identity_scope,
-    system_actor_for_workspace,
+from collections.abc import Mapping
+from typing import Any
+
+from hivememory.core.errors import AgentProfileExistsError, ResourceNotFoundError
+from hivememory.core.models import AgentProfile, StoredAgentProfile
+from hivememory.memory_library.agent_profiles import (
+    FRONTMATTER_FIELDS,
+    AgentProfileStore,
+    profile_from_fields,
 )
 from hivememory.patchouli.application.preset_agent_profiles import PRESET_AGENT_PROFILES
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.memory_management import AgentProfileCreation
 from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
 class AgentProfileManagementService:
-    """Patchouli 面向公开 agent profile 管理/读取 API 的应用服务。
+    """Patchouli 面向 Agent Profile 管理与解析的应用服务。
 
-    Profile 管理写入与列表由 workspace root API 授权；actor 读取（CALL）与
-    任务进程加载执行者图纸（root 授权、管理读取）分别在对应授权点校验。本层
-    只接收组装后的 ``IdentityScope``，不接收工作 actor。读取返回
-    ``ResolvedAgentProfile``（Profile、源原子 policy 依据与关联），读取视图在
-    交付时仍按 actor 检查可见性，管理读取除外。
+    新建、编辑、删除与列出直接读写 MemoryLibrary 的 AgentProfileStore，不经
+    ``MemoryGenerationFamiliar``：Profile 不是记忆。解析经本地路由交给检索使魔，
+    内置 Profile 与失败原因的规则只维护在那里。Profile 是全局的，不属于任何
+    Workspace，因此这里不接收 ``IdentityScope``：管理用例由 workspace root API、
+    CALL 的解析由 actor API 在调用之前授权，agent 能在哪个 Workspace 工作由访问登记决定。
     """
 
-    def __init__(self, *, bus: PatchouliBus) -> None:
+    def __init__(self, *, store: AgentProfileStore, bus: PatchouliBus) -> None:
+        self._store = store
         self._bus = bus
 
     async def create_agent_profile(
-        self,
-        identity_scope: IdentityScope,
-        creation: AgentProfileCreation,
-    ) -> MemoryAtom:
-        """以提交的材料在目标 Workspace 中创建 Agent Profile，类型由本入口固定。"""
-        scope = require_identity_scope(identity_scope)
-        return await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_CREATE,
-            scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            memory_type=MemoryType.AGENT_PROFILE,
-            title=creation.title,
-            summary=creation.summary,
-            content=creation.content,
-            tags=list(creation.tags),
-            alias=creation.alias,
-            agent_config=creation.agent_config,
-        )
+        self, agent_id: str, fields: Mapping[str, Any]
+    ) -> StoredAgentProfile:
+        """新建 Profile；同名文件已存在时以 ``AgentProfileExistsError`` 拒绝，不覆盖。"""
+        profile = _profile_from_submission(agent_id, fields)
+        # 查重与写入之间没有 await，同一进程中的两次新建不会交错。
+        if self._store.exists(agent_id):
+            raise AgentProfileExistsError(details={"agent_id": agent_id})
+        return self._store.save(profile)
 
-    async def seed_preset_agent_profiles(self, belong_to: WorkspaceIdentity) -> list[str]:
-        """向 Workspace 写入尚不存在的预设 Profile，返回写入的 alias；已存在的 alias 跳过。
+    async def update_agent_profile(
+        self, agent_id: str, changes: Mapping[str, Any]
+    ) -> StoredAgentProfile:
+        """以给出的字段覆盖已有 Profile 的对应字段，其余不变；agent_id 不可改。"""
+        current = self._store.get(agent_id)
+        if current is None:
+            raise ResourceNotFoundError(details={"resource": "agent_profile", "agent_id": agent_id})
+        base = current.profile.model_dump(include={*FRONTMATTER_FIELDS, "persona"})
+        return self._store.save(_profile_from_submission(agent_id, {**base, **changes}))
 
-        只用于初次部署，以所属 Workspace 的 ``system`` 为发起者直接写入，不经过授权：
-        这时还没有任何调用方，写入的也只是随程序发布的预设内容。
+    async def delete_agent_profile(self, agent_id: str) -> bool:
+        return self._store.delete(agent_id)
+
+    async def list_agent_profiles(self) -> list[StoredAgentProfile]:
+        return self._store.list()
+
+    async def seed_preset_agent_profiles(self) -> list[str]:
+        """写入尚不存在的预设 Profile，返回写入的 agent_id；已有同名文件的跳过。
+
+        只用于初次部署，不经过授权：这时还没有任何调用方，写入的也只是随程序发布的
+        预设内容。
         """
-        actor = system_actor_for_workspace(belong_to)
-        page = await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_LIST,
-            belong_to=belong_to,
-            from_actor=actor,
-            filters={"index.memory_type": "AGENT_PROFILE"},
-            limit=len(PRESET_AGENT_PROFILES) + 1000,
-            enforce_actor_visibility=False,
-        )
-        existing = {memory.index.alias for memory in page.memories}
         created: list[str] = []
         for preset in PRESET_AGENT_PROFILES:
-            if preset.alias in existing:
+            agent_id = preset.agent_id or ""
+            if self._store.exists(agent_id):
                 continue
-            await self._bus.request(
-                PatchouliLocalRoutes.MEMORY_CREATE,
-                belong_to,
-                from_actor=actor,
-                memory_type=MemoryType.AGENT_PROFILE,
-                title=preset.title,
-                summary=preset.summary,
-                content=preset.content,
-                tags=list(preset.tags),
-                alias=preset.alias,
-                agent_config=preset.agent_config,
-            )
-            created.append(preset.alias)
+            self._store.save(preset)
+            created.append(agent_id)
         return created
 
-    async def list_agent_profiles(
-        self,
-        *,
-        identity_scope: IdentityScope,
-        limit: int = 100,
-    ) -> list[MemoryAtom]:
-        scope = require_identity_scope(identity_scope)
-        page = await self._bus.request(
-            PatchouliLocalRoutes.MEMORY_LIST,
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            filters={"index.memory_type": "AGENT_PROFILE"},
-            limit=limit,
-            # owner 管理读取，同 Memory 管理读取：root 列表在归属硬边界内
-            # 列出全部 Profile，不按 system 的 Agent 可见性过滤 PRIVATE/TEAM。
-            enforce_actor_visibility=False,
-        )
-        return list(page.memories)
+    async def get_agent_profile(self, agent_alias: str | None) -> AgentProfile:
+        """解析可以执行的 Profile：内置 omni_doll，或已启用的 Profile 文件。"""
+        return await self._bus.request(PatchouliLocalRoutes.GET_AGENT_PROFILE, agent_alias)
 
-    async def get_agent_profile(
-        self,
-        agent_alias: str | None,
-        *,
-        identity_scope: IdentityScope,
-        enforce_actor_visibility: bool = True,
-    ) -> ResolvedAgentProfile:
-        """Profile 定义解析 backing：唯一解析规则 + 源原子 policy 依据与关联。
 
-        ``enforce_actor_visibility=False`` 是管理读取：任务进程以 root scope 加载
-        执行者的图纸时只校验归属，不按 system 的 Agent 可见性过滤。
-        """
-        scope = require_identity_scope(identity_scope)
-        return await self._bus.request(
-            PatchouliLocalRoutes.GET_AGENT_PROFILE,
-            agent_alias,
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            enforce_actor_visibility=enforce_actor_visibility,
-        )
+def _profile_from_submission(agent_id: str, fields: Mapping[str, Any]) -> AgentProfile:
+    """管理接口提交的字段中人设是正文，其余是 frontmatter，与读取文件走同一套校验。"""
+    frontmatter = dict(fields)
+    persona = frontmatter.pop("persona", "")
+    return profile_from_fields(agent_id, frontmatter, persona=persona)

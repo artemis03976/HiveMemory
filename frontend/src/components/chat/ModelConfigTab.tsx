@@ -17,9 +17,9 @@ export default function ModelConfigTab() {
   const [models, setModels] = useState<RegisteredModel[]>([]);
   const currentAgentId = useChatStore((s) => s.currentAgentId);
   const { rawAgents } = useAgents();
-  const agentConfig = rawAgents.find((a) => a.alias === currentAgentId)?.agent_config;
-  const effective = effectiveModelParams(modelSelection.model_id, agentConfig, models);
-  const agentModel = effectiveModelParams(undefined, agentConfig, models).find((p) => p.label === '模型')?.value;
+  const agentProfile = rawAgents.find((a) => a.agent_id === currentAgentId);
+  const effective = effectiveModelParams(modelSelection.model_id, agentProfile, models);
+  const agentModel = effectiveModelParams(undefined, agentProfile, models).find((p) => p.label === '模型')?.value;
 
   useEffect(() => {
     fetchModels()

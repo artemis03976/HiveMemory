@@ -7,21 +7,13 @@ from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.workspace.cache.atom import AtomCache
 from hivememory.workspace.cache.epoch import WorkspaceEpochs
-from hivememory.workspace.cache.profile import ProfileCache
 
 
 class CacheInvalidator:
-    """先移除原子及 alias、再移除 Profile，最后推进 Workspace 代次。"""
+    """先移除原子及 alias，再推进 Workspace 代次。"""
 
-    def __init__(
-        self,
-        *,
-        atom_cache: AtomCache,
-        profile_cache: ProfileCache,
-        epochs: WorkspaceEpochs,
-    ) -> None:
+    def __init__(self, *, atom_cache: AtomCache, epochs: WorkspaceEpochs) -> None:
         self._atoms = atom_cache
-        self._profiles = profile_cache
         self._epochs = epochs
         self._bus: AsyncSystemBus | None = None
 
@@ -41,9 +33,8 @@ class CacheInvalidator:
         self._bus = None
 
     async def on_changed(self, *, payload: MemoryChangeEvent) -> None:
-        """三步均为纯内存操作，完成后不做可能失败的回填或外部调用。"""
+        """两步均为纯内存操作，完成后不做可能失败的回填或外部调用。"""
         self._atoms.evict(payload.belong_to, payload.memory_id)
-        self._profiles.evict_source(payload.belong_to, payload.memory_id)
         self._epochs.advance(payload.belong_to)
 
 

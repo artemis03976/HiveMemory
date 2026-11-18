@@ -157,7 +157,7 @@ class QdrantMemoryStore:
             memory: 记忆原子对象
             use_sparse: 是否同时存储稀疏向量
             recompute_vectors: 是否重算 embedding；``False`` 用于 embedding
-                输入未变化的完整内容提交（如仅修改 ``payload.agent_config``），
+                输入未变化的完整内容提交（如仅修改正文或关系），
                 通过整份 payload 局部更新保留既有向量
 
         Raises:

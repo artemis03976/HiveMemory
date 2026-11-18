@@ -40,7 +40,9 @@ async def listing():
     local_bus = PatchouliBus()
     familiar = RetrievalFamiliar(
         engine=object(),  # 列表不经检索引擎
-        memory_library=MemoryLibrary(short_term=object(), mid_term=store, long_term=object()),
+        memory_library=MemoryLibrary(
+            short_term=object(), mid_term=store, long_term=object(), agent_profiles=object()
+        ),
     )
     local_bus.register(PatchouliLocalRoutes.MEMORY_LIST, familiar.list_memories)
     try:

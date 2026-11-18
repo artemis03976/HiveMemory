@@ -130,6 +130,14 @@ class PatchouliBridge:
                 self._public_api.agent_profiles.create_agent_profile,
             ),
             RouteBinding.of(
+                PatchouliRoutes.AGENT_PROFILE_UPDATE,
+                self._public_api.agent_profiles.update_agent_profile,
+            ),
+            RouteBinding.of(
+                PatchouliRoutes.AGENT_PROFILE_DELETE,
+                self._public_api.agent_profiles.delete_agent_profile,
+            ),
+            RouteBinding.of(
                 PatchouliRoutes.AGENT_PROFILE_SEED_PRESETS,
                 self._public_api.agent_profiles.seed_preset_agent_profiles,
             ),

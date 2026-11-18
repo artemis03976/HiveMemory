@@ -1,250 +1,78 @@
-"""ProfileResolver（Profile 读取 resolver）的单元测试。
+"""ProfileResolver（Profile 读取器）的单元测试。
 
-被测对象：builtin 结果不进缓存、命中按条目随存的源原子 policy 对每个 Actor
-逐次授权且不回源、管理读取在命中与冷读两条路径都不检查可见性、交付副本
-隔离，以及冷读的代次守护。backing 以内存替身实现（被测单元边界之外的
-Patchouli ``GET_AGENT_PROFILE``，同样按可见性过滤，管理读取除外）。
-
-resolver 与 backing 位于授权点以下：只流动
-授权点组装的可信 ``IdentityScope``，不接收工作 actor。
+被测对象：每次解析与列出都经 backing 读取当前的 Profile，不缓存，Profile 文件的改动在
+下一次读取时生效；读取视图关闭后显式失败。backing 以内存替身实现（被测单元边界之外的
+Patchouli ``GET_AGENT_PROFILE`` 与 ``AGENT_PROFILE_LIST``）。
 """
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Callable
-from uuid import uuid4
+from datetime import UTC, datetime
 
 import pytest
 
-from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import ResourceNotFoundError, ResourceUnavailableError
-from hivememory.core.memory_access import access_policy_permits
-from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
-    AgentProfile,
-    MemoryAccessPolicy,
-    MemoryVisibility,
-    ResolvedAgentProfile,
-)
+from hivememory.core.models import AgentProfile, StoredAgentProfile
 from hivememory.workspace.cache.epoch import WorkspaceEpochs
-from hivememory.workspace.cache.profile import ProfileCache
 from hivememory.workspace.resolution.guard import ColdReadGuard
 from hivememory.workspace.resolution.profile import ProfileResolver
-from tests.helpers.workspace import make_identity_scope
-
-A1 = make_identity_scope(user_id="u1", agent_id="a1")
-A2 = make_identity_scope(user_id="u1", agent_id="a2")
-# 任务进程以系统的 root scope 加载执行者的图纸。
-ROOT = make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID)
-MAIN = A1.workspace_identity
-
-
-def _resolved(agent_id: str, *, persona: str = "persona", private_to: str | None = None):
-    policy = (
-        MemoryAccessPolicy(visibility=MemoryVisibility.PRIVATE, target_agent_id=private_to)
-        if private_to
-        else MemoryAccessPolicy.public()
-    )
-    return ResolvedAgentProfile(
-        profile=AgentProfile(agent_id=agent_id, persona=persona),
-        access_policy=policy,
-        source_memory_id=uuid4(),
-        source_version=1,
-    )
 
 
 class _FakeProfileBacking:
-    """内存版 Profile backing：按 alias 返回预置解析结果，builtin 与可见性规则同 Patchouli。"""
+    """内存版 Profile backing：按 agent_id 返回当前预置的 Profile。"""
 
     def __init__(self) -> None:
-        self.profiles: dict[str, ResolvedAgentProfile] = {}
-        self.calls = 0
-        self.on_fetch: Callable[[], None] | None = None
+        self.profiles: dict[str, AgentProfile] = {}
 
-    async def get_agent_profile(self, agent_alias, *, scope, enforce_actor_visibility=True):
-        self.calls += 1
-        if self.on_fetch is not None:
-            self.on_fetch()
-        if agent_alias in (None, "", "default", "omni_doll"):
-            return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
-        resolved = self.profiles.get(agent_alias)
-        if resolved is None or (
-            enforce_actor_visibility
-            and not access_policy_permits(resolved.access_policy, scope.actor_identity)
-        ):
+    async def get_agent_profile(self, agent_alias):
+        profile = self.profiles.get(agent_alias)
+        if profile is None:
             raise ResourceNotFoundError()
-        return resolved.model_copy(deep=True)
+        return profile
+
+    async def list_agent_profiles(self):
+        saved_at = datetime(2026, 11, 18, tzinfo=UTC)
+        return [
+            StoredAgentProfile(profile=profile, saved_at=saved_at)
+            for profile in self.profiles.values()
+        ]
 
 
-def _resolver(backing) -> tuple[ProfileResolver, WorkspaceEpochs, ProfileCache]:
-    epochs = WorkspaceEpochs()
-    cache = ProfileCache(capacity=16)
-    resolver = ProfileResolver(cache=cache, guard=ColdReadGuard(epochs), backing=backing)
-    return resolver, epochs, cache
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("alias", [None, "default"])
-async def test_builtin_profile_is_resolved_by_backing_each_time_and_not_cached(alias):
-    """builtin Profile 无源原子：每次经 backing 解析，不进缓存、无本地解析旁路。
-
-    空别名跳过缓存查找，非空别名先查缓存再回源，各取一个代表；
-    内置别名的归一化由 Patchouli 的 Profile 读取单测覆盖。
-    """
-    backing = _FakeProfileBacking()
-    resolver, _, cache = _resolver(backing)
-
-    first = await resolver.get(alias, scope=A1)
-    second = await resolver.get(alias, scope=A1)
-
-    assert first == OMNI_DOLL_PROFILE
-    assert second == OMNI_DOLL_PROFILE
-    assert (backing.calls, cache.size) == (2, 0)
+def _resolver(backing) -> tuple[ProfileResolver, ColdReadGuard]:
+    guard = ColdReadGuard(WorkspaceEpochs())
+    return ProfileResolver(guard=guard, backing=backing), guard
 
 
 @pytest.mark.asyncio
-async def test_cached_profile_is_authorized_per_actor_by_source_policy():
-    """命中按源原子 policy 对每个 Actor 授权：不可见者按"不存在"失败，且不回源。
-
-    捕获缓存"已通过授权的裸 AgentProfile"、让其他 Actor 借共享条目读取私有
-    Profile 的缺陷。
-    """
+async def test_changed_profiles_are_read_on_the_next_resolution_and_listing():
+    """不缓存：Profile 被改动、新增或删除后，下一次解析与列出就反映出来。"""
     backing = _FakeProfileBacking()
-    backing.profiles["private_doll"] = _resolved("private_doll", private_to="a1")
-    resolver, _, _ = _resolver(backing)
-    await resolver.get("private_doll", scope=A1)
+    backing.profiles["coder_doll"] = AgentProfile(agent_id="coder_doll", persona="原来的")
+    resolver, _ = _resolver(backing)
+    assert (await resolver.get("coder_doll")).persona == "原来的"
 
+    backing.profiles["coder_doll"] = AgentProfile(agent_id="coder_doll", persona="改过的")
+    backing.profiles["reviewer"] = AgentProfile(agent_id="reviewer")
+
+    assert (await resolver.get("coder_doll")).persona == "改过的"
+    assert [profile.agent_id for profile in await resolver.list()] == [
+        "coder_doll",
+        "reviewer",
+    ]
+
+    del backing.profiles["coder_doll"]
     with pytest.raises(ResourceNotFoundError):
-        await resolver.get("private_doll", scope=A2)
-    owner = await resolver.get("private_doll", scope=A1)
-
-    assert (owner.agent_id, backing.calls) == ("private_doll", 1)
+        await resolver.get("coder_doll")
 
 
 @pytest.mark.asyncio
-async def test_management_read_delivers_private_profile_on_cold_read_and_hit():
-    """管理读取只检查归属：root scope 在冷读与命中两条路径都能读到指向其他 Agent 的私有图纸。
-
-    同一 root scope 按默认的 actor 可见性读取仍按"不存在"拒绝，说明放行来自
-    管理语义而不是 policy；第二次管理读取命中缓存、不回源。
-    """
+async def test_closed_read_view_rejects_profile_reads():
     backing = _FakeProfileBacking()
-    backing.profiles["coder_doll"] = _resolved("coder_doll", private_to="coder_doll")
-    resolver, _, _ = _resolver(backing)
+    backing.profiles["coder_doll"] = AgentProfile(agent_id="coder_doll")
+    resolver, guard = _resolver(backing)
+    guard.close()
 
-    cold = await resolver.get("coder_doll", scope=ROOT, enforce_actor_visibility=False)
-    hit = await resolver.get("coder_doll", scope=ROOT, enforce_actor_visibility=False)
-    with pytest.raises(ResourceNotFoundError):
-        await resolver.get("coder_doll", scope=ROOT)
-
-    assert (cold.agent_id, hit.agent_id, backing.calls) == ("coder_doll", "coder_doll", 1)
-
-
-@pytest.mark.asyncio
-async def test_default_cold_read_keeps_actor_visibility():
-    """未声明管理读取时，冷读把 actor 可见性交给 backing：root scope 读不到私有图纸。"""
-    backing = _FakeProfileBacking()
-    backing.profiles["coder_doll"] = _resolved("coder_doll", private_to="coder_doll")
-    resolver, _, _ = _resolver(backing)
-
-    with pytest.raises(ResourceNotFoundError):
-        await resolver.get("coder_doll", scope=ROOT)
-
-
-@pytest.mark.asyncio
-async def test_hit_delivers_isolated_profile_copy():
-    """调用方修改交付的 Profile 不影响后续读取。"""
-    backing = _FakeProfileBacking()
-    backing.profiles["coder_doll"] = _resolved("coder_doll", persona="original")
-    resolver, _, _ = _resolver(backing)
-
-    first = await resolver.get("coder_doll", scope=A1)
-    first.persona = "mutated"
-    again = await resolver.get("coder_doll", scope=A1)
-
-    assert (again.persona, backing.calls) == ("original", 1)
-
-
-@pytest.mark.asyncio
-async def test_profile_read_during_workspace_change_is_retried_before_caching():
-    """冷读期间代次变化：旧解析结果不回填，重读后的当前结果进入缓存。"""
-    backing = _FakeProfileBacking()
-    backing.profiles["coder_doll"] = _resolved("coder_doll", persona="v1")
-    resolver, epochs, _ = _resolver(backing)
-
-    def concurrent_update() -> None:
-        backing.on_fetch = None
-        backing.profiles["coder_doll"] = _resolved("coder_doll", persona="v2")
-        epochs.advance(MAIN)
-
-    backing.on_fetch = concurrent_update
-    result = await resolver.get("coder_doll", scope=A1)
-    cached = await resolver.get("coder_doll", scope=A1)
-
-    assert (result.persona, cached.persona, backing.calls) == ("v2", "v2", 2)
-
-
-@pytest.mark.asyncio
-async def test_same_profile_alias_is_cached_separately_for_each_workspace():
-    """同一 Actor 的同名 Profile 在不同 Workspace 各自解析，不能串用缓存。"""
-    isolated = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolated")
-
-    class WorkspaceBacking:
-        async def get_agent_profile(self, alias, *, scope, enforce_actor_visibility=True):
-            return _resolved(alias, persona=scope.workspace_identity.workspace_id)
-
-    resolver, _, _ = _resolver(WorkspaceBacking())
-    main_profile = await resolver.get("coder_doll", scope=A1)
-    isolated_profile = await resolver.get("coder_doll", scope=isolated)
-    main_again = await resolver.get("coder_doll", scope=A1)
-
-    assert (main_profile.persona, isolated_profile.persona, main_again.persona) == (
-        "main_workspace",
-        "isolated",
-        "main_workspace",
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "failure", [ResourceUnavailableError("存储不可达"), asyncio.CancelledError()]
-)
-async def test_failed_profile_read_does_not_cache_and_next_read_can_recover(failure):
-    """不可达与取消均不写缓存；恢复后重新读取并缓存当前 Profile。"""
-
-    class RecoveringBacking(_FakeProfileBacking):
-        first_read = True
-
-        async def get_agent_profile(self, alias, *, scope, enforce_actor_visibility=True):
-            if self.first_read:
-                self.first_read = False
-                raise failure
-            return await super().get_agent_profile(
-                alias, scope=scope, enforce_actor_visibility=enforce_actor_visibility
-            )
-
-    backing = RecoveringBacking()
-    backing.profiles["coder_doll"] = _resolved("coder_doll", persona="recovered")
-    resolver, _, _ = _resolver(backing)
-    with pytest.raises(type(failure)):
-        await resolver.get("coder_doll", scope=A1)
-    recovered = await resolver.get("coder_doll", scope=A1)
-    backing.profiles["coder_doll"] = _resolved("coder_doll", persona="uncached replacement")
-    cached = await resolver.get("coder_doll", scope=A1)
-
-    assert (recovered.persona, cached.persona, backing.calls) == ("recovered", "recovered", 1)
-
-
-@pytest.mark.asyncio
-async def test_missing_profile_is_reloaded_after_it_becomes_available():
-    """缺失结果不驻留缓存，创建同名图纸后可以重新解析。"""
-    backing = _FakeProfileBacking()
-    resolver, _, _ = _resolver(backing)
-    with pytest.raises(ResourceNotFoundError):
-        await resolver.get("coder_doll", scope=A1)
-    backing.profiles["coder_doll"] = _resolved("coder_doll", persona="newly created")
-
-    recovered = await resolver.get("coder_doll", scope=A1)
-
-    assert (recovered.persona, backing.calls) == ("newly created", 2)
+    with pytest.raises(ResourceUnavailableError):
+        await resolver.get("coder_doll")
+    with pytest.raises(ResourceUnavailableError):
+        await resolver.list()

@@ -115,7 +115,6 @@ async def update_memory(
         content=body.content,
         alias=body.alias,
         tags=body.tags,
-        agent_config=body.agent_config,
         access_policy=body.access_policy,
         actor=actor,
     )

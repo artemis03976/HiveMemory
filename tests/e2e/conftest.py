@@ -90,6 +90,9 @@ def _isolated_config(root: Path, collection_name: str) -> HiveMemoryConfig:
     patchouli.artifacts = patchouli.artifacts.model_copy(
         update={"root_dir": str(root / "artifacts")}
     )
+    patchouli.agent_profiles = patchouli.agent_profiles.model_copy(
+        update={"root_dir": str(root / "agent_profiles")}
+    )
     config.alice.koakuma = config.alice.koakuma.model_copy(
         update={"workspace_path": str(root / "workspace")}
     )

@@ -19,7 +19,6 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
     AttachmentSelectionRequest,
-    ResolvedAgentProfile,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
@@ -51,7 +50,7 @@ async def _gateway_route(**_kwargs):
 
 async def _profile_route(*_args, **_kwargs):
     """GET_AGENT_PROFILE 替身：返回内置 omni_doll 图纸。"""
-    return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+    return OMNI_DOLL_PROFILE
 
 
 def _chat_bus() -> tuple[GlobalSystemBus, PatchouliTurnStub]:

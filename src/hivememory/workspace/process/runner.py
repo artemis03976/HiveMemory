@@ -329,7 +329,7 @@ class TaskProcessRunner:
         process: TaskProcess,
         decision: GatewayDecision,
     ) -> tuple[ExecutionThread, tuple[MemoryAtom, ...], CPUInputManifest]:
-        """PREPARE：解析 Profile、派生主线程、预检索、确认已有话题、读取存储健康与 CPU 分配。
+        """PREPARE：解析 Profile、派生主线程、预检索、确认已有话题、读取存储健康、列出可用 agent 与 CPU 分配。
 
         Profile 解析与附件租借是用户的选择，由 CPUAllocator 在副作用前以系统的
         root 工作 actor 授权。主线程在 Profile 解析之后派生，预检索与已有话题的
@@ -364,6 +364,16 @@ class TaskProcessRunner:
             actor=record.system_actor,
         )
 
+        # 可用 agent 列表：已启用且能通过 CALL 准入的 agent，每轮重新读取，
+        # Profile 文件的改动因此在下一轮生效。
+        available_agents = self._threads.admitted_profiles(
+            thread.handle,
+            await self._allocator.list_enabled_agents(
+                system_actor=record.system_actor,
+                target_workspace=request.target_workspace,
+            ),
+        )
+
         session = self._sessions.get(request.target_workspace, request.session_id)
         manifest = self._allocator.allocate(
             working_set,
@@ -371,6 +381,7 @@ class TaskProcessRunner:
             labels=record.labels,
             user_message=request.message,
             agent_profile=agent_profile,
+            available_agents=available_agents,
             memories=memories,
             storage_available=storage_available,
             selections=list(request.attachments),

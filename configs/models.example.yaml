@@ -6,7 +6,7 @@
 # 前端配置页面、AgentProfile 均通过模型的 id 字段引用对应模型。
 #
 # 字段说明：
-#   id            - 全局唯一标识符，供 AgentProfile.model_name 引用
+#   id            - 全局唯一标识符，供 AgentProfile.model 引用
 #   display_name  - 前端展示名称
 #   litellm_model - 传给 litellm 的完整模型标识符（格式：provider/model-name）
 #   provider      - 提供商标识，用于查 Provider 凭证；留空自动从

@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # Memory Tool Protocol (MTP)
@@ -72,7 +72,7 @@ Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格�
 ```
 
 - 必填 `query`；
-- 可选 `filter`，当前支持 memory type、tags 和 vitality 等解析规则；`type:` 接受 `fact`、`reflection`、`profile`/`user_profile`、`resource`/`res` 与 `agent`/`agent_profile`，只作历史取值的类型（WORK_IN_PROGRESS、CODE_SNIPPET、URL_RESOURCE）没有别名，按未知类型处理；
+- 可选 `filter`，当前支持 memory type、tags 和 vitality 等解析规则；`type:` 接受 `fact`、`reflection`、`profile`/`user_profile` 与 `resource`/`res`，只作历史取值的类型（AGENT_PROFILE、WORK_IN_PROGRESS、CODE_SNIPPET、URL_RESOURCE）没有别名，按未知类型处理；Agent Profile 不是记忆，不出现在检索结果中；
 - filter 中的非法 token 不使整次搜索失败，而是忽略过滤并返回 warning；
 - 提交 `RetrieveRequest` 经 workspace 语义检索能力读取，请求不携带条数，条数由检索器配置的 `retrieval.retriever.top_k`（默认 5）决定；
 - 结果由 MemoryCompiler 编译为 Retrieval Context；
@@ -155,13 +155,13 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 ⟪ CALL | agent_alias | task="..." context_refs=["alias_a"] ⟫
 ```
 
-- TARGET 和 `task` 必填；`context_refs` 可选；
+- TARGET 和 `task` 必填；`context_refs` 可选；TARGET 是 agent_id，取自提示词中常驻的可用 agent 列表（已启用且在本 Workspace 有准入的 agent，见[任务进程](../workspace/task-process.md#6-cpu-分配)第 6 节）；
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
 - Alice RunExecutor 通过协程调用栈挂起 caller frame，经调用方句柄的 `derive_child` 提交 `DeriveCallThreadRequest`（workspace 授权 `agent.call`、解析目标图纸并派生子线程）、以调用方的 `ResolveReferencesRequest` 解析共享上下文，递归运行 callee frame，再以 `MTPCallResponse` 回填；
 - 派生要求调用方的 `agent.call`，内置 Profile 也不跳过；被调用方须在本 Workspace 有准入，未准入或为保留的 `system` 时回填 `mtp.permission.denied`（文案键 `mtp.call.agent_unavailable`），不启动子 frame；目标 Profile 已停用（`AgentProfile.enabled` 为假）时，解析图纸即被拒绝，回填同一组 code 与文案键；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
 - callee frame 以被调用方身份运行：资源操作按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；
 - 子线程随 CALL 返回结束：callee frame 以任何终态收尾、取消沿递归栈清理 CALL，以及派生之后子帧开始运行之前的失败，都同步结束子线程，之后以子线程提交的请求以线程已结束拒绝；子线程已提交的写入不受影响；
-- CALL 只允许 root frame 发起；callee frame 的 `FrameExecutionPolicy` 由被调用方的操作快照翻译并显式移除 CALL，防止递归爆炸；被调用方 Profile 只提供 persona、模型与语言；
+- CALL 只允许 root frame 发起；callee frame 的 `FrameExecutionPolicy` 由被调用方的操作快照翻译并显式移除 CALL，防止递归爆炸；被调用方 Profile 只提供人设与模型参数；
 - 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；未成功结束的子帧不返回 alias，但其已提交写入继续生成；
 - `CANCELLED` 保持 cancelled 终态，`FAILED`、`BUDGET_EXHAUSTED` 会转换为结构化 error CALL response；`SUSPENDED` 是 RunExecutor 继续消费的控制流 trap，不构造 CALL response。
 

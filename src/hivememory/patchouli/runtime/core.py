@@ -410,6 +410,7 @@ class PatchouliRuntime:
     def _build_memory_library(self) -> MemoryLibrary:
         """构建 MemoryLibrary（三层存储协调层）"""
         from hivememory.memory_library import (
+            AgentProfileStore,
             FileBasedStorageAdapter,
             LongTermMemoryStore,
             MemoryLibrary,
@@ -451,6 +452,7 @@ class PatchouliRuntime:
             short_term=short_term,
             mid_term=mid_term,
             long_term=long_term,
+            agent_profiles=AgentProfileStore(self._patchouli_config.agent_profiles.root_dir),
             artifact_store=artifact_store,
         )
 

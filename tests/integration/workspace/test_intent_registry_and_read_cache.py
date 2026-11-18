@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -17,7 +18,6 @@ from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     AgentProfile,
     IndexLayer,
-    MemoryAccessPolicy,
     MemoryAtom,
     MemoryChangeEvent,
     MemoryType,
@@ -36,6 +36,7 @@ from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import (
     ArtifactStore,
@@ -60,12 +61,11 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.cache import AtomCache, ProfileCache, ProfileCacheEntry, WorkspaceEpochs
+from hivememory.workspace.cache import AtomCache, WorkspaceEpochs
 from hivememory.workspace.cache.invalidation import CacheInvalidator
 from hivememory.workspace.capability.actor import ActorAgentService, ActorMemoryService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.contracts import (
-    DeriveCallThreadRequest,
     ResolveReferencesRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
@@ -81,7 +81,6 @@ from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
-    make_identity_scope,
     make_workspace_identity,
     make_workspace_read_view,
 )
@@ -144,6 +143,9 @@ class _Chain:
     bus: GlobalSystemBus
     local_bus: PatchouliBus
     store: MidTermMemoryStore
+    profile_store: AgentProfileStore
+    # 本测试 Workspace 的 Profile 文件所在目录，用于直接改动文件。
+    profile_dir: Path
     runtime: WorkspaceReadView
     memories: ActorMemoryService
     profiles: ActorAgentService
@@ -178,7 +180,8 @@ async def chain(tmp_path):
     store = MidTermMemoryStore(
         QdrantStorageAdapter(_VectorStore()), change_publisher=MemoryChangePublisher(local_bus)
     )
-    library = MemoryLibrary(ShortTermMemoryStore(), store, _UnusedPort())
+    profile_store = AgentProfileStore(tmp_path / "agent_profiles")
+    library = MemoryLibrary(ShortTermMemoryStore(), store, _UnusedPort(), profile_store)
     retrieval = RetrievalFamiliar(_UnusedPort(), library)
     artifacts = ArtifactStore(FilesystemArtifactStorageAdapter(str(tmp_path / "artifacts")))
     generation = MemoryGenerationFamiliar(
@@ -198,7 +201,7 @@ async def chain(tmp_path):
         global_bus=bus,
         public_api=PatchouliPublicApi(
             memory=MemoryManagementService(bus=local_bus),
-            agent_profiles=AgentProfileManagementService(bus=local_bus),
+            agent_profiles=AgentProfileManagementService(store=profile_store, bus=local_bus),
             chat=placeholder,
             memory_tasks=placeholder,
             interactions=placeholder,
@@ -222,6 +225,8 @@ async def chain(tmp_path):
         bus=bus,
         local_bus=local_bus,
         store=store,
+        profile_store=profile_store,
+        profile_dir=tmp_path / "agent_profiles",
         runtime=runtime,
         composition=composition,
         memories=ActorMemoryService(
@@ -248,9 +253,7 @@ async def chain(tmp_path):
         bridge.unmount()
 
 
-def _atom(
-    alias: str = "canonical", *, profile: bool = False, visibility: str = "PUBLIC"
-) -> MemoryAtom:
+def _atom(alias: str = "canonical", *, visibility: str = "PUBLIC") -> MemoryAtom:
     """创建可被真实存储与能力层读取的测试原子；PRIVATE 只对 writer 可见。"""
     return MemoryAtom(
         meta=make_memory_metadata(source_agent_id="writer", user_id="u1", visibility=visibility),
@@ -258,11 +261,9 @@ def _atom(
             title="缓存原子",
             summary="验证管理提交后的读取视图",
             alias=alias,
-            memory_type=MemoryType.AGENT_PROFILE if profile else MemoryType.FACT,
+            memory_type=MemoryType.FACT,
         ),
-        payload=PayloadLayer(
-            content="old content", agent_config={"model_name": "old-model"} if profile else None
-        ),
+        payload=PayloadLayer(content="old content"),
     )
 
 
@@ -288,10 +289,9 @@ async def test_management_update_invalidates_actor_atom_read_before_return(chain
 
 
 @pytest.mark.asyncio
-async def test_profile_source_update_invalidates_profile_configuration(chain):
-    """Profile 的源原子管理变更后，下一次进程阶段解析取得新配置。"""
-    atom = _atom("custom_agent", profile=True)
-    await chain.store.upsert(atom)
+async def test_profile_file_changed_directly_is_resolved_on_the_next_process(chain):
+    """Profile 文件被直接改动后，不重启也不经管理接口，下一次进程阶段解析就取得新配置。"""
+    chain.profile_store.save(AgentProfile(agent_id="custom_agent", model="old-model"))
     system_actor = await chain.composition.authenticate_system()
     allocator = CPUAllocator(
         operation_authorizer=chain.composition.authorizer,
@@ -301,57 +301,15 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
     first = await allocator.resolve_agent_profile(
         agent_id="custom_agent", system_actor=system_actor, target_workspace=WORKSPACE
     )
-    assert first.model_name == "old-model"
+    assert first.model == "old-model"
 
-    await chain.root_memories.update_memory(
-        atom.id,
-        agent_config={"model_name": "new-model"},
-        target_workspace=WORKSPACE,
-        actor=chain.manager,
-    )
+    path = chain.profile_dir / "custom_agent.md"
+    path.write_text(path.read_text(encoding="utf-8").replace("old-model", "new-model"), "utf-8")
     second = await allocator.resolve_agent_profile(
         agent_id="custom_agent", system_actor=system_actor, target_workspace=WORKSPACE
     )
 
-    assert second.model_name == "new-model"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("warm_cache", [False, True], ids=["canonical", "cached"])
-async def test_cpu_profile_loads_private_source_while_call_keeps_caller_visibility(
-    chain, warm_cache: bool
-):
-    """进程按管理语义加载执行者的图纸，CALL 仍按调用方的可见性解析。
-
-    源原子只对 writer 可见，执行者 custom_agent 与 system 都不是它的目标：进程
-    以系统的 root 授权在冷读与缓存命中两条路径都能加载它；随后 reader 经 CALL
-    解析同一图纸仍按"不存在"拒绝，管理读取填充的缓存不能放宽 actor 读取。
-    """
-    atom = _atom("custom_agent", profile=True, visibility="PRIVATE")
-    await chain.store.upsert(atom)
-    if warm_cache:
-        # writer 有权读取此 PRIVATE 源原子，先填充共享读取视图以覆盖命中路径。
-        await chain.runtime.profiles.get(
-            "custom_agent", scope=make_identity_scope(user_id="u1", agent_id="writer")
-        )
-    allocator = CPUAllocator(
-        operation_authorizer=chain.composition.authorizer,
-        profile_reader=chain.runtime.profiles,
-        asset_reader=InMemoryWorkspaceAssetStore(),
-    )
-
-    profile = await allocator.resolve_agent_profile(
-        agent_id="custom_agent",
-        system_actor=await chain.composition.authenticate_system(),
-        target_workspace=WORKSPACE,
-    )
-    with pytest.raises(ResourceNotFoundError) as excinfo:
-        await chain.profiles.resolve_call_target(
-            DeriveCallThreadRequest("custom_agent"), actor=chain.reader
-        )
-
-    assert profile.model_name == "old-model"
-    assert excinfo.value.details == {"resource": "agent_profile", "agent_alias": "custom_agent"}
+    assert second.model == "new-model"
 
 
 @pytest.mark.asyncio
@@ -406,7 +364,9 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
     )
     familiar = MemoryGenerationFamiliar(
         generation_engine=engine,
-        memory_library=MemoryLibrary(ShortTermMemoryStore(), chain.store, _UnusedPort()),
+        memory_library=MemoryLibrary(
+            ShortTermMemoryStore(), chain.store, _UnusedPort(), chain.profile_store
+        ),
         artifact_engine=ArtifactEngine.from_store(artifacts),
     )
     retained = await familiar.create_external_memory(
@@ -628,19 +588,11 @@ async def test_update_rejects_settled_handle_but_accepts_formal_alias(chain):
 @pytest.mark.asyncio
 async def test_subscriber_failure_after_invalidation_preserves_commit_and_advanced_epoch(chain):
     """失效后订阅者抛异常，缓存已清理、代次已推进，存储提交仍正常返回。"""
-    atom = _atom("profile_source")
+    atom = _atom("cached_source")
     await chain.store.upsert(atom)
     atoms = AtomCache(4)
-    profiles = ProfileCache(4)
     epochs = WorkspaceEpochs()
     atoms.put(atom)
-    profiles.put(
-        WORKSPACE,
-        "profile_source",
-        ProfileCacheEntry(
-            AgentProfile(model_name="old-model"), MemoryAccessPolicy.public(), atom.id, 1
-        ),
-    )
 
     class BrokenInvalidator(CacheInvalidator):
         """模拟失效后出现观测代码错误，验证失效不能被回滚。"""
@@ -649,7 +601,7 @@ async def test_subscriber_failure_after_invalidation_preserves_commit_and_advanc
             await super().on_changed(payload=payload)
             raise RuntimeError("after invalidation")
 
-    subscriber = BrokenInvalidator(atom_cache=atoms, profile_cache=profiles, epochs=epochs)
+    subscriber = BrokenInvalidator(atom_cache=atoms, epochs=epochs)
     subscriber.subscribe(chain.bus)
     try:
         updated = await chain.root_memories.update_memory(
@@ -662,11 +614,10 @@ async def test_subscriber_failure_after_invalidation_preserves_commit_and_advanc
         )[0].atom
 
         assert (updated.payload.content, read.payload.content) == ("committed", "committed")
-        assert (
-            atoms.get_by_alias(WORKSPACE, "profile_source"),
-            profiles.get(WORKSPACE, "profile_source"),
-            epochs.current(WORKSPACE),
-        ) == (None, None, 1)
+        assert (atoms.get_by_alias(WORKSPACE, "cached_source"), epochs.current(WORKSPACE)) == (
+            None,
+            1,
+        )
     finally:
         subscriber.unsubscribe()
 

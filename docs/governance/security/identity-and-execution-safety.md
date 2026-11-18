@@ -24,12 +24,12 @@ related_docs:
   - docs/alice/orchestration.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/archive/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-18
 ---
 
 # 身份隔离与执行安全治理
 
-HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性边界，workspace 派生缓存（含 CALL 目标 Profile）已接入 canonical 变更失效，Alice 全部资源操作已经过线程句柄绑定的能力入口，CALL 子线程以被调用方的工作 actor 独立授权并随 CALL 返回结束，每个操作以真正执行它的身份授权（Agent 的 actor 操作或系统的 root 操作），交互中的 Agent 作为参与者显式传递；PendingAtom 的耐久隔离、“谁能调用谁”的委派策略、前端身份状态与 RUN 执行安全仍有缺口。`IdentityScope` 由 `ActorIdentity` 与 `WorkspaceIdentity` 组成，表达一次操作的发起者与目标 Workspace；它只沿该操作的公开调用链传播。Patchouli 在公开边界拆为 `belong_to` 与 `from_actor`，内部、交互记录和后台任务分开携带归属与必要的发起者。来源记录不参与资源授权。
+HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性边界，workspace 原子缓存已接入 canonical 变更失效，Alice 全部资源操作已经过线程句柄绑定的能力入口，CALL 子线程以被调用方的工作 actor 独立授权并随 CALL 返回结束，每个操作以真正执行它的身份授权（Agent 的 actor 操作或系统的 root 操作），交互中的 Agent 作为参与者显式传递；PendingAtom 的耐久隔离、“谁能调用谁”的委派策略、前端身份状态与 RUN 执行安全仍有缺口。`IdentityScope` 由 `ActorIdentity` 与 `WorkspaceIdentity` 组成，表达一次操作的发起者与目标 Workspace；它只沿该操作的公开调用链传播。Patchouli 在公开边界拆为 `belong_to` 与 `from_actor`，内部、交互记录和后台任务分开携带归属与必要的发起者。来源记录不参与资源授权。
 
 这不是单纯的登录页面工作，也不是给每个 handler 再加一个 `if user_id`。它需要统一回答：一次请求、一次 Agent run、一个 PendingAtom、一个 Profile、一个 MemoryAtom 和一段可执行资产分别属于谁；哪个组件拥有最终授权权；缓存、子帧、重试和后台任务如何继承或缩小权限。
 
@@ -37,9 +37,9 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 
 | 边界 | 当前实现基础 | 当前风险 |
 |:---|:---|:---|
-| Memory visibility | MemoryAtom 独立持有归属、`MemoryAccessPolicy` 与来源记录；Patchouli 是可见性所有者 | workspace resolver 在 L1 命中与 L2 交付时重验归属及 actor policy；canonical 变更失效原子、旧 alias 和 Profile 派生项，不提供通知未送达补偿 |
+| Memory visibility | MemoryAtom 独立持有归属、`MemoryAccessPolicy` 与来源记录；Patchouli 是可见性所有者 | workspace resolver 在 L1 命中与 L2 交付时重验归属及 actor policy；canonical 变更失效原子与旧 alias，不提供通知未送达补偿 |
 | PendingAtom | workspace registry 独立保存 `belong_to`、`from_actor` 与 `process_id`；actor API 分别以 `memory.write` / `memory.update` 授权登记、以 `memory.read` 授权回读 | 第一版不设 Pending policy，同 Workspace 中获读授权的 Actor 可读回意图；跨 Workspace 不可读，无持久化 ledger；结算 redirect 仍逐次校验 canonical 可见性 |
-| Agent Profile | Profile 作为 MemoryAtom，主线程 Profile 由任务进程 CPU 分配以系统的 root 授权、按管理语义读取（只检查 Workspace 归属，加载哪份图纸取自认证得到的执行者），CALL 目标经 actor API 的 `agent.call` 按调用方的可见性解析；ProfileCache 按 Workspace/alias 定位，actor 读取命中时以源 policy 对当前 actor 重验 | 主线程与 CALL 目标共用 workspace 读取视图，来源 UUID 失效与代次回填保护已生效；事件通知无持久重放或未送达补偿 |
+| Agent Profile | Profile 是 AgentProfileStore 中的全局文件，不属于任何 Workspace，不是 MemoryAtom，没有可见性；主线程 Profile 由任务进程 CPU 分配以系统的 root 授权读取（加载哪份图纸取自认证得到的执行者），CALL 目标经 actor API 的 `agent.call` 授权后解析，被调用方须在本 Workspace 准入；可用子代理列表只列出已启用且能通过同一准入的 agent；Profile 不缓存，每次解析都直接读文件 | 直接改动 Profile 文件与经 Agent 页修改等同，本机能写数据根的程序可以改写人设与模型选择，但改不了操作权限；“谁能调用谁”没有细粒度策略；Profile 不按用户或 Workspace 隔离，同一实例的全部用户共用一组 Profile |
 | 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的系统阶段（Gateway、Profile、附件、话题确认与建立、存储健康与交互提交）、取消与 Import Bus 的确定话题和交互提交同样以 root 授权、由 `system` 执行，交互提交与确定话题只有 root API 的一组方法；预检索是执行者的 actor 操作，以主线程经操作入口按 `memory.search` 授权 | 能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能，2026-10-29），当前只有 HTTP server 与系统自身的 principal；HTTP 管理面要求管理凭据、后端默认只监听本机地址（2026-11-05），agent 顺手调用管理接口与其他机器都被拒绝。桌面客户端运行时凭据只在主进程与后端的内存中，不在文件与环境变量里，只有桌面窗口能管理（2026-11-10）；开发方式下凭据仍在文件中、只防误用，能读到凭据文件的本机程序仍能经管理路由以 `system` 进入 root API。请求头中的用户身份仍不做证明，沿用本地单用户部署的信任假设 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、任务进程 task、可中断阶段 task、进程输出通道与 `SinkRunOutput` | frame registry/CALL record、进程 task 与可中断阶段 task、输出通道和流序号均按进程或 run 隔离；执行模型只含观测标签；CALL 子帧以被调用方身份运行（子线程记录持有被调用方的工作 actor，按被调用方的白名单与可见性授权），调用方持有 `agent.call` 即可经 CALL 返回值取得被调用方的 PRIVATE 内容，没有“谁能调用谁”的细粒度策略 |
 | MTP permission | Agent 权限只由访问登记的 actor 操作白名单表达，Profile 不承载权限；Alice 把所属线程描述的操作快照翻译为 frame 动词集合，同时驱动提示词与 Koakuma 执行前检查，资源操作由 actor API 逐次授权 | prompt 教学不是硬安全保证；`sys_*` 系统工具不设权限，所有 Agent 都可写文件与执行 Python；白名单只能改配置并重启；子 agent 按被调用方自己的白名单运行，被调用方须在本 Workspace 准入 |
@@ -87,7 +87,7 @@ ExecutionLabels：agent_id/workspace_id 字符串，仅用于提示词、展示�
 资源 owner 内部、交互记录与后台任务：belong_to + 必要的 from_actor
 ```
 
-CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调用方做 Workspace 准入，得到子工作 actor 并登记子线程，子帧的请求按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；子帧的观测标签取子线程描述中的被调用方身份，由线程表生成，仍只用于观测。显式 `context_refs` 由调用方以自己的 READ 读取，只选择共享内容，不签发更广的资源权限。Alice/CPU 的 `RuntimeScope` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签由注册入口或线程表生成并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的源 alias。线程描述携带的操作快照只用于提示词与执行策略，不是授权依据。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
+CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调用方做 Workspace 准入，得到子工作 actor 并登记子线程，子帧的请求按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；子帧的观测标签取子线程描述中的被调用方身份，由线程表生成，仍只用于观测。显式 `context_refs` 由调用方以自己的 READ 读取，只选择共享内容，不签发更广的资源权限。Alice/CPU 的 `RuntimeScope` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签由注册入口或线程表生成并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的 `agent_id`。线程描述携带的操作快照只用于提示词与执行策略，不是授权依据。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
 
 入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（模型见[身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节），应用服务不再解析裸 `user_id`。交互导入（`POST /api/v1/import/turns`）与 MCP 记忆访问（`POST /mcp`）同样没有认证前组装的例外：外部 harness 有自己的接入登记，请求以 `X-Principal-ID` 声明 principal、以 `Authorization: Bearer` 携带接入凭据，网关第一阶段以常量时间比较核对凭据后才承认这个 principal；导入经 `import` adapter 认证，证明来源与参与的 Agent，导入本身由系统以 root 授权执行（不检查 actor 操作白名单，参与的 Agent 不能是 `system`），交互的发起者是参与者；MCP 经 `mcp` adapter 每次工具调用认证一次，只能检索、读取、写入与更新，写入与更新先按白名单授权，通过之后才由系统为这一轮确定话题，被拒的写入不路由、不建立话题、不触发 LRU 结算（[MCP 记忆访问](../../contracts/mcp.md)）。接入凭据是每个外部 principal 一份本地共享密钥，只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；principal 标识接入的 harness，不与 Agent 绑定：同一 harness 可以以不同 Agent 运行，Agent 由经过证明的来源声明；请求头中的用户选择与其他 HTTP 入口一样不做额外证明。非 Agent action 与系统级操作使用单独登记的保留 `system` actor，它是 root 授权唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
 
@@ -103,7 +103,7 @@ Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、Mem
 
 ### 3.3 缓存不承载授权
 
-通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以调用方的归属和发起者重验。workspace 持有 canonical 原子与 alias 索引、全部 Profile 派生缓存；Alice 不保存资源读取缓存。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**。workspace 在 canonical 提交尝试后依次失效原子、旧 alias、来源 Profile 并推进 Workspace 代次，在途点读跨代次时重读一次，仍变化则报资源不可用，不回填旧值；语义检索跨代次仍交付已授权结果，但不预热缓存。失败结果不进入缓存。调用方取得独立副本，不能修改缓存内授权事实。
+通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以调用方的归属和发起者重验。workspace 持有 canonical 原子与 alias 索引的派生缓存，Profile 每次直接读取文件、不缓存；Alice 不保存资源读取缓存。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**。workspace 在 canonical 提交尝试后依次失效原子、旧 alias 并推进 Workspace 代次，在途点读跨代次时重读一次，仍变化则报资源不可用，不回填旧值；语义检索跨代次仍交付已授权结果，但不预热缓存。失败结果不进入缓存。调用方取得独立副本，不能修改缓存内授权事实。
 
 PendingAtom 的全 Workspace 回读只适用于意图：解析到结算后的 canonical 时再次执行当前 actor policy；目标不可读时不交付正文、canonical alias/UUID，也不交付含 UPDATE 基础坐标的 Pending 副本。UPDATE 意图的回读跟随基础原子的可读性，基础不可读时在任何状态下都与不存在相同。UPDATE 只接受可读的正式 atom，不接受 pending 或结算 redirect。MTP READ、RUN、SEARCH、WRITE、UPDATE 与 CALL 的目标 Profile/共享引用全部经操作请求进入 actor API，各自检查对应的 actor 操作。READ 与 RUN 的引用记录由 actor API 为已交付的正式原子自动执行（含缓存命中），失败只记日志，取消正常传播；UPDATE 基础解析不记录。Alice 与 agent_runtime 不导入 `IdentityScope`，也不请求 Patchouli 路由。权限、redirect 防泄露与副本隔离证据见[引用解析测试](../../../tests/unit/workspace/resolution/test_memory_reader.py)和[意图/缓存集成回归](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。
 
@@ -131,9 +131,9 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 ### Phase S1：Patchouli 与 Alice 身份收紧
 
 1. 已完成（2026-10-07）：PendingAtom registry 与引用解析归 workspace，按 Workspace 硬边界回读，不再按整个执行 scope 相等判断。Pending 第一版在全 Workspace 开放（UPDATE 意图跟随基础原子的可读性，2026-10-09），canonical redirect 重新校验资源 policy；旧 scope 校验背景见 [MTP cache scope revalidation 历史记录](../../archive/todo/mtp-cache-scope-revalidation.md)；
-2. 已完成（2026-10-07）：workspace 原子和 Profile 派生缓存按源坐标分区、命中重验、保存/读取副本，canonical 变更事件失效派生项并推进 Workspace 代次；CALL 目标 Profile 于 2026-10-09 纳入同一读取视图与 canonical 失效链。编译上下文等其余共享组件不因 Workspace 自动拆分；
+2. 已完成（2026-10-07）：workspace 原子和 Profile 派生缓存按源坐标分区、命中重验、保存/读取副本，canonical 变更事件失效派生项并推进 Workspace 代次；CALL 目标 Profile 于 2026-10-09 纳入同一读取视图与 canonical 失效链；2026-11-18 起 Profile 改为每次直接读取的文件，Profile 派生缓存随之删除。编译上下文等其余共享组件不因 Workspace 自动拆分；
 3. 已完成（身份第二批）：MemoryLibrary、Artifact 与 lifecycle 内部按归属传递，涉及 actor 可见性的读取另外接收发起者；后台任务独立保存归属与发起者，架构测试限制 Patchouli 内部和五个引擎包使用 `IdentityScope`。跨重启恢复仍由可靠性治理处理，资产 Store 与端口的归属拆分已于 2026-11-06 完成（[归档计划](../../archive/plans/workspace-asset-ownership-split.md)）；
-4. 已完成（2026-11-10）：显式选择的自定义 Profile 缺失或不可见统一为 `ResourceNotFoundError`，已找到但类型或配置不适用为 `ProfileResolutionError`，都不回退 Omni-Doll；只有未指定 alias 或明确选择内置图纸时使用 Omni-Doll，chat 必须给出具体 Agent。权限拒绝统一为 `OperationDeniedError`，以受约束的 reason 区分。CALL 把这几类失败转为各自的 MTP 类别，chat 按 Workspace 领域错误收口并给出稳定错误码（[错误模型](../../contracts/error-model.md)）。证据见 [Profile 解析测试](../../../tests/unit/patchouli/services/test_profile_resolution.py)、[CALL 响应测试](../../../tests/unit/alice/orchestration/call/test_response.py)与[任务进程事件测试](../../../tests/unit/workspace/process/test_process_events.py)；
+4. 已完成（2026-11-10）：显式选择的自定义 Profile 缺失或不可见统一为 `ResourceNotFoundError`，已找到但类型或配置不适用为 `ProfileResolutionError`，都不回退 Omni-Doll（2026-11-18 起 Profile 没有可见性与类型，缺失即 `ResourceNotFoundError`，`ProfileResolutionError` 只剩文件不合格与已停用两种原因）；只有未指定 alias 或明确选择内置图纸时使用 Omni-Doll，chat 必须给出具体 Agent。权限拒绝统一为 `OperationDeniedError`，以受约束的 reason 区分。CALL 把这几类失败转为各自的 MTP 类别，chat 按 Workspace 领域错误收口并给出稳定错误码（[错误模型](../../contracts/error-model.md)）。证据见 [Profile 解析测试](../../../tests/unit/patchouli/services/test_profile_resolution.py)、[CALL 响应测试](../../../tests/unit/alice/orchestration/call/test_response.py)与[任务进程事件测试](../../../tests/unit/workspace/process/test_process_events.py)；
 5. 已完成（2026-11-10）：`actor.operation` 的拒绝与 `chat.run.failed` 以错误码为原因，错误带受约束的 reason 时另带 `data.error_reason`；事件不带异常正文、请求内容与错误 details 的其余字段（[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)第 4.4 节）。证据见[操作请求集成测试](../../../tests/integration/workspace/test_operation_requests.py)与[任务进程事件测试](../../../tests/unit/workspace/process/test_process_events.py)。
 
 Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集成测试](../../../tests/integration/workspace/test_operation_requests.py)、[CALL Profile 集成测试](../../../tests/integration/alice/orchestration/call/test_profile_requests.py)、[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)与 [HTTP 系统 E2E](../../../tests/e2e/system/)。实施历史保留于 [v0.7.0 Alice 能力迁移归档计划](../../archive/plans/v0.7.0-alice-capability-migration.md)。

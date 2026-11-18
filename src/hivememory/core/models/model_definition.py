@@ -2,7 +2,7 @@
 HiveMemory 模型注册表 — 数据模型
 
 ModelDefinition 是注册表中单条模型记录的数据结构；ModelSelection 是使用方对
-注册表模型的选择，以及对生成参数的覆盖。AgentProfile.model_name 与
+注册表模型的选择，以及对生成参数的覆盖。AgentProfile.model 与
 ModelSelection.model_id 通过 id 字段引用对应的模型定义。
 """
 
@@ -32,7 +32,7 @@ class ModelDefinition(BaseModel):
     """
 
     id: str = Field(
-        description="全局唯一标识符，如 'deepseek-chat'。AgentProfile.model_name 通过此 ID 引用模型"
+        description="全局唯一标识符，如 'deepseek-chat'。AgentProfile.model 通过此 ID 引用模型"
     )
     display_name: str = Field(description="前端展示名称，如 'DeepSeek Chat'")
     litellm_model: str = Field(
@@ -65,7 +65,7 @@ class ModelDefinition(BaseModel):
     is_default: bool = Field(
         default=False,
         description=(
-            "是否为系统默认模型。当 AgentProfile.model_name='default' 时，"
+            "是否为系统默认模型。当 AgentProfile.model='default' 时，"
             "注册表将使用此模型。注册表中有且仅有一条记录的 is_default 应为 True"
         ),
     )

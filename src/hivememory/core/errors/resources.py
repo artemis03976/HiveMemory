@@ -71,6 +71,24 @@ class ResourceNotFoundError(WorkspaceDomainError):
     code = "workspace.resource.not_found"
 
 
+class InvalidAgentProfileError(WorkspaceDomainError):
+    """Agent Profile 的标识或字段不满足要求。
+
+    保存时据此拒绝写入；读取时列出会跳过这个文件，按 agent_id 读取则显式失败。
+    ``details["reason"]``：``invalid_agent_id``（标识不能做文件名或是保留名）、
+    ``missing_frontmatter``、``invalid_frontmatter``（不是 YAML 映射）、
+    ``unknown_field``、``invalid_value``、``unreadable``（文件读不出）。
+    """
+
+    code = "workspace.agent_profile.invalid"
+
+
+class AgentProfileExistsError(WorkspaceDomainError):
+    """新建 Agent Profile 时同名的 Profile 已经存在；agent_id 创建后不可改，新建不覆盖。"""
+
+    code = "workspace.agent_profile.exists"
+
+
 class ResourceNotVisibleError(WorkspaceDomainError):
     """资源存在但当前 Actor 未通过可见性授权。
 
@@ -126,6 +144,8 @@ __all__ = [
     "StaleAssetResultError",
     "AssetOperationConflictError",
     "ResourceNotFoundError",
+    "InvalidAgentProfileError",
+    "AgentProfileExistsError",
     "ResourceNotVisibleError",
     "ResourceUnavailableError",
     "MemoryAliasConflictError",

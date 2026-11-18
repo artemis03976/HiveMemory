@@ -1,13 +1,12 @@
 """Memory 相关的 Response 模型"""
 
 from datetime import datetime
-from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
 from hivememory.core.models import MemoryAccessPolicy, MemoryAtom, MemoryVisibility
 
-# 管理创建可选的类型：Agent Profile 有独立的创建入口，只作历史取值的类型不再产生。
+# 管理创建可选的类型：只作历史取值的类型（含 Agent Profile）不再产生。
 _ALLOWED_MEMORY_TYPES = {
     "FACT",
     "REFLECTION",
@@ -71,7 +70,6 @@ class MemoryUpdateRequest(BaseModel):
     content: str | None = None
     alias: str | None = None
     tags: list[str] | None = None
-    agent_config: dict[str, Any] | None = None
     access_policy: MemoryAccessPolicy | None = Field(
         default=None, description="新的 Agent 读取策略；省略表示不修改"
     )

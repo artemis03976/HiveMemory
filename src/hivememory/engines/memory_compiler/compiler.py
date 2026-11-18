@@ -6,8 +6,9 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal, overload
 
 from hivememory.config.memory_compiler import CompactContextStrategyConfig
-from hivememory.core.models import MemoryAtom, MemoryType
+from hivememory.core.models import AgentProfile, MemoryAtom
 from hivememory.engines.memory_compiler.builders import (
+    build_agent_profile_ir,
     build_memory_atom_ir,
     build_pending_atom_ir,
     build_resolve_result_ir,
@@ -28,8 +29,11 @@ if TYPE_CHECKING:
     from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement
     from hivememory.core.models.reference import ReferenceResolution
 
-    # 公开编译源；运行时由 ``_build_unit_ir`` 按同一集合分派。
-    CompilableMemory = MemoryAtom | PendingAtom | ReferenceResolution | PendingAtomSettlement
+    # 公开编译源；运行时由 ``_build_unit_ir`` 按同一集合分派。AgentProfile 不是记忆，
+    # 只为可用 agent 列表编译成菜单项（``AGENT_PROFILE_MENU``）。
+    CompilableMemory = (
+        MemoryAtom | PendingAtom | ReferenceResolution | PendingAtomSettlement | AgentProfile
+    )
 
 
 class MemoryCompiler:
@@ -204,6 +208,8 @@ class MemoryCompiler:
 
         if isinstance(source, MemoryAtom):
             return build_memory_atom_ir(source), options
+        if isinstance(source, AgentProfile):
+            return build_agent_profile_ir(source), options
         if isinstance(source, PendingAtom):
             return build_pending_atom_ir(source), options
         if isinstance(source, ReferenceResolution):
@@ -211,7 +217,8 @@ class MemoryCompiler:
 
         raise TypeError(
             f"Unsupported source type: {type(source).__name__}. "
-            "Expected MemoryAtom, PendingAtom, ReferenceResolution, or PendingAtomSettlement."
+            "Expected MemoryAtom, PendingAtom, ReferenceResolution, PendingAtomSettlement, "
+            "or AgentProfile."
         )
 
     def _build_unit_irs(
@@ -241,20 +248,7 @@ class MemoryCompiler:
         self,
         units: list[MemoryUnitIR],
     ) -> list[MemorySectionIR]:
-        memories: list[MemoryUnitIR] = []
-        agent_profiles: list[MemoryUnitIR] = []
-        for unit in units:
-            if unit.content.memory_type == MemoryType.AGENT_PROFILE.value:
-                agent_profiles.append(unit)
-            else:
-                memories.append(unit)
-
-        sections: list[MemorySectionIR] = []
-        if memories:
-            sections.append(MemorySectionIR(kind="memories", units=memories))
-        if agent_profiles:
-            sections.append(MemorySectionIR(kind="agent_profiles", units=agent_profiles))
-        return sections
+        return [MemorySectionIR(kind="memories", units=units)] if units else []
 
     def _build_default_sections(
         self,
@@ -300,7 +294,7 @@ def embedding_inputs_changed(before: MemoryAtom, after: MemoryAtom) -> bool:
     """两版原子编译出的向量输入文本是否不同；相同时完整提交可以保留既有向量。
 
     比较的是 dense 与 sparse 两份实际编译文本，而不是字段清单：正文、
-    ``agent_config``、关系或生命周期变化不触发重算，标签顺序变化会触发。
+    关系或生命周期变化不触发重算，标签顺序变化会触发。
     """
     compiler = MemoryCompiler()
     return any(

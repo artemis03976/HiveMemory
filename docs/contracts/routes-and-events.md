@@ -30,7 +30,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # 公开路由与事件
@@ -111,10 +111,10 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.memory.create` | `create_memory` | `identity_scope`、`MemoryCreation`（创建材料；类型不得为 `AGENT_PROFILE`；`access_policy` 为 `None` 时为 PUBLIC） | 持久化后的 `MemoryAtom` |
+| `patchouli.public.memory.create` | `create_memory` | `identity_scope`、`MemoryCreation`（创建材料；`access_policy` 为 `None` 时为 PUBLIC） | 持久化后的 `MemoryAtom` |
 | `patchouli.public.memory.list` | `list_memories` | `identity_scope`、query、filters、limit、exclude、cursor、refresh | `MemoryListPage`：一页记忆、下一页游标与总数。没有 query 时按存储顺序翻页，排除的类型在存储侧过滤，总数按同一过滤条件计数；有 query 时按相关度返回、不翻页，总数是本次条数 |
 | `patchouli.public.memory.get` | `get_memory` | memory id、`identity_scope`、refresh | `MemoryAtom | None` |
-| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope`、`MemoryEdit`（部分编辑，`None` 表示不修改；记忆与 Profile 共用，`agent_config` 只对 `AGENT_PROFILE` 有效，`access_policy` 只对其他类型有效，修改策略不产生新版本） | `MemoryAtom | None` |
+| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope`、`MemoryEdit`（部分编辑，`None` 表示不修改；修改策略不产生新版本） | `MemoryAtom | None` |
 | `patchouli.public.memory.delete` | `delete_memory` | `identity_scope`、memory id | `bool` |
 | `patchouli.public.memory.record_feedback` | `record_feedback` | memory id、`identity_scope`、positive、source | 记录结果 |
 
@@ -127,10 +127,12 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.memory_task.list` | `list_memory_tasks` | `identity_scope` | 本 Workspace 的 task 列表 |
 | `patchouli.public.memory_task.get` | `get_memory_task` | task id、`identity_scope` | task；越域与不存在统一抛 `ResourceNotFoundError` |
 | `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id、`identity_scope` | `bool`；越域与不存在统一抛 `ResourceNotFoundError` |
-| `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`AgentProfileCreation`（创建材料，alias 必填） | 持久化后的 `MemoryAtom` |
-| `patchouli.public.agent_profile.list` | `list_agent_profiles` | `identity_scope`、limit | profile atom 列表 |
-| `patchouli.public.agent_profile.seed_presets` | `seed_preset_agent_profiles` | `belong_to`（`WorkspaceIdentity`） | 写入的 alias 列表；以该 Workspace 的 `system` 写入缺少的预设 Profile，已存在的 alias 跳过，不经授权；只供初次部署 |
-| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要）、`enforce_actor_visibility`（默认真；假为管理读取，只校验 Workspace 归属，供任务进程以 root scope 加载执行者的图纸） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失或越权抛 `ResourceNotFoundError`，类型不符、配置无效或已停用抛 `ProfileResolutionError`（[错误模型](./error-model.md#45-memory-输入校验与存储错误)） |
+| `patchouli.public.agent_profile.create` | `create_agent_profile` | `agent_id`、`fields`（title、summary、persona、model、temperature、top_p、enabled 中给出的部分） | `StoredAgentProfile`（Profile 与文件的修改时间）；同名已存在抛 `AgentProfileExistsError`，标识或字段不合格抛 `InvalidAgentProfileError` |
+| `patchouli.public.agent_profile.update` | `update_agent_profile` | `agent_id`、`changes`（同上，只改给出的字段；`agent_id` 不可改） | `StoredAgentProfile`；不存在抛 `ResourceNotFoundError` |
+| `patchouli.public.agent_profile.delete` | `delete_agent_profile` | `agent_id` | `bool`（是否确有 Profile 被删除） |
+| `patchouli.public.agent_profile.list` | `list_agent_profiles` | 无 | 按 `agent_id` 排序的 `StoredAgentProfile` 列表，含停用的；不合格的文件不在其中 |
+| `patchouli.public.agent_profile.seed_presets` | `seed_preset_agent_profiles` | 无 | 写入的 `agent_id` 列表；写入缺少的预设 Profile 文件，已有同名文件的跳过，不经授权；只供初次部署 |
+| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias | 可以执行的 `AgentProfile`；缺失抛 `ResourceNotFoundError`，文件不合格或已停用抛 `ProfileResolutionError`（[错误模型](./error-model.md#45-memory-输入校验与存储错误)） |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
 | `patchouli.public.topic.prepare` | `TopicManagementService.prepare_topic` | `identity_scope`、`target_topic_id`、新话题的 `new_topic_title` / `new_topic_summary` | 真实话题标识；已有话题确认存在并刷新驻留（不存在抛 `ResourceNotFoundError`），`NEW_TOPIC` 以标题与摘要建立新话题，池满时先按 LRU 结算（候选都被占用抛 `TopicBusyError`）；不检索 |
@@ -269,7 +271,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 - MCP 入口（`POST /mcp`）以请求头声明的 principal、凭据与 (user, 具体 Agent) 经 `mcp` adapter 认证，每次工具调用认证一次，契约见 [MCP 记忆访问](./mcp.md)。
 - 访问登记的管理路由分两组。接入登记属于 System：`GET /api/v1/access/principals` 与 `PUT /api/v1/access/principals/{principal_id}`（启停、adapter 与可声明的 Agent），与提供商、模型接口一样不经认证网关、只由管理凭据保护，不读取身份请求头；外部来源的登记与删除只经下面的插件路由。访问记录经 root API：`GET /api/v1/access/actors`，用户级记录 `PUT/DELETE /api/v1/access/actors/user`，精确记录 `PUT/DELETE /api/v1/access/actors/agents/{agent_id}`，以请求的 (user, `system`) 工作 actor 授权，只作用于它驻留的 Workspace。接入登记的响应只给凭据来源（`env`、`generated` 或 `null`）与打码值，不返回凭据明文，进程内来源标为 `editable: false`。禁用的访问记录不能带操作白名单，请求以 422 拒绝；冲突与不存在的映射见[错误模型](./error-model.md#44-workspace-与访问边界错误)。
 - 外部 harness 插件的管理路由（`server/routers/plugins.py`）只由管理凭据保护：`GET /api/v1/plugins` 返回插件目录、版本与四个支持的 harness 的状态；`POST /api/v1/plugins/{harness}/install`（`harness` 为 `claude-code`、`codex`、`pi`、`dsh`，其他值 422）代为运行 harness 的插件命令，成功后登记接入来源、为缺省 Agent 补访问记录（经 root API，以请求的 (user, `system`) 工作 actor 授权）并把凭据写进 Windows 用户环境变量，请求体 `run_plugin_commands: false` 表示用户已手动装好插件、只做后面几步；`POST /api/v1/plugins/{harness}/uninstall` 卸载插件并删除来源、凭据与写入的环境变量，访问记录保留。插件命令失败不是 HTTP 错误：两个动作都以 200 返回状态与 `failure`（`unavailable`、`harness_missing`、`settings_unreadable`、`command_failed`、`command_timeout`、`unexpected_output`，带失败的命令与输出的最后几行；`settings_unreadable` 是 Claude Code 的用户设置文件读不懂、没有改动，输出中是文件位置）；安装失败时什么都不登记，卸载时接入总会删除。
-- 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
+- 管理读取（Memory/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
 - Memory task list 按快照的必需 `belong_to` 过滤；get/cancel 对越域与不存在统一抛 `ResourceNotFoundError`，HTTP 统一映射为 404，任务 ID 不授予观察或取消能力。
 - 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。
 

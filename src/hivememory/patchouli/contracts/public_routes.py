@@ -10,18 +10,18 @@ from typing import TYPE_CHECKING
 from hivememory.core.contracts.route import route
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from typing import Any
     from uuid import UUID
 
     from hivememory.core.models import (
         ActorIdentity,
+        AgentProfile,
         IdentityScope,
         MemoryAtom,
-        ResolvedAgentProfile,
+        StoredAgentProfile,
         TopicData,
         TopicSnapshot,
-        WorkspaceIdentity,
     )
     from hivememory.core.protocol.models import InteractionPayload, RetrievalRequest
     from hivememory.patchouli.contracts.interaction_submission import (
@@ -34,7 +34,6 @@ if TYPE_CHECKING:
         MemoryIntentSubmissionResult,
     )
     from hivememory.patchouli.contracts.memory_management import (
-        AgentProfileCreation,
         MemoryCreation,
         MemoryEdit,
         MemoryListPage,
@@ -111,23 +110,36 @@ class PatchouliRoutes:
         """请求取消目标 Workspace 的记忆生成任务。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
+    # Agent Profile 是全局的，不属于任何 Workspace：以下路由不接收 scope，调用方在
+    # 调用之前完成授权，agent 能在哪个 Workspace 工作由访问登记决定。
+
     @route("patchouli.public.agent_profile.create")
-    async def AGENT_PROFILE_CREATE(
-        identity_scope: IdentityScope, creation: AgentProfileCreation
-    ) -> MemoryAtom:
-        """以调用方提交的材料创建目标 Workspace 的 Agent Profile，返回持久化后的原子。"""
+    async def AGENT_PROFILE_CREATE(agent_id: str, fields: Mapping[str, Any]) -> StoredAgentProfile:
+        """新建 Agent Profile；同名 Profile 已存在时拒绝，不覆盖。
+
+        ``fields`` 是 title、summary、persona、model、temperature、top_p 与 enabled 中
+        给出的部分，其余取默认值；不合格时以 ``InvalidAgentProfileError`` 拒绝。
+        """
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("patchouli.public.agent_profile.update")
+    async def AGENT_PROFILE_UPDATE(agent_id: str, changes: Mapping[str, Any]) -> StoredAgentProfile:
+        """修改已有 Profile 中给出的字段，agent_id 不变；不存在时抛出 ``ResourceNotFoundError``。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("patchouli.public.agent_profile.delete")
+    async def AGENT_PROFILE_DELETE(agent_id: str) -> bool:
+        """删除 Profile，返回是否确有 Profile 被删除。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.agent_profile.seed_presets")
-    async def AGENT_PROFILE_SEED_PRESETS(belong_to: WorkspaceIdentity) -> list[str]:
-        """初次部署时向 Workspace 写入尚不存在的预设 Profile，返回写入的 alias；以该 Workspace 的 system 直接写入，不经授权。"""
+    async def AGENT_PROFILE_SEED_PRESETS() -> list[str]:
+        """初次部署时写入尚不存在的预设 Profile，返回写入的 agent_id；不经授权。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.agent_profile.list")
-    async def AGENT_PROFILE_LIST(
-        *, identity_scope: IdentityScope, limit: int = 100
-    ) -> list[MemoryAtom]:
-        """列出当前发起者可见的 Agent Profile 原子。"""
+    async def AGENT_PROFILE_LIST() -> list[StoredAgentProfile]:
+        """按 agent_id 排序列出全部合格的 Profile，含停用的。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.topic.list_active")
@@ -155,16 +167,11 @@ class PatchouliRoutes:
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.get_agent_profile")
-    async def GET_AGENT_PROFILE(
-        agent_alias: str | None,
-        *,
-        identity_scope: IdentityScope,
-        enforce_actor_visibility: bool = True,
-    ) -> ResolvedAgentProfile:
-        """Profile 定义解析 backing：唯一解析规则 + 源原子 policy 依据与关联。
+    async def GET_AGENT_PROFILE(agent_alias: str | None) -> AgentProfile:
+        """解析可以执行的 Profile：内置 omni_doll，或已启用的 Profile 文件。
 
-        ``enforce_actor_visibility=False`` 只用于管理读取：仍校验 Workspace 归属，
-        不按 scope 的 actor 检查源原子的可见性。
+        缺失时抛出 ``ResourceNotFoundError``；文件不合格或已停用时抛出
+        ``ProfileResolutionError``，不回退到内置 Profile。
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
@@ -301,6 +308,8 @@ class PatchouliRoutes:
         MEMORY_TASK_GET,
         MEMORY_TASK_CANCEL,
         AGENT_PROFILE_CREATE,
+        AGENT_PROFILE_UPDATE,
+        AGENT_PROFILE_DELETE,
         AGENT_PROFILE_LIST,
         AGENT_PROFILE_SEED_PRESETS,
         TOPIC_LIST_ACTIVE,

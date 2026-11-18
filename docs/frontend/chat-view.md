@@ -25,7 +25,7 @@ related_docs:
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
   - docs/gateway/workflow.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # Chat 视图
@@ -56,7 +56,7 @@ OmniInput 在发送前组装：
 
 用户导向基础选择（`user_id + workspace_id`）不在请求体中重复传递：`services/identity.ts` 统一以请求头 `x-user-id`/`x-workspace-id` 携带。server 解析身份声明，任务进程的注册入口经认证网关认证执行者与系统的 root 工作 actor，各阶段调用授权时才组装 `IdentityScope`。请求体中的 `session_id` 指定本次使用的会话资源，不参与身份构造；后端校验会话属于请求的 Workspace，且没有其他进程占用。发送时冻结当前会话与 Agent，防止流中切换目标。
 
-`@` 菜单和 Agent 胶囊只改变本轮使用的 Agent，输入中的 `@name` 会在选中后被移除，不作为文本 mention 发送。可选列表来自 Profile 列表接口，只列出启用的 Agent，停用的 Agent 仍能在历史消息中显示名称；内置的 `omni_doll` 由后端代码提供、没有源记忆原子，不在接口结果中，前端把它固定放在列表首位，后端已有同名图纸时以后端为准（`hooks/useAgents.ts`）。Agent 管理页只展示后端真实存在的图纸。持久化的 Agent ID 若不再存在，前端回退到 `omni_doll`。
+`@` 菜单和 Agent 胶囊只改变本轮使用的 Agent，输入中的 `@name` 会在选中后被移除，不作为文本 mention 发送。可选列表来自 Profile 列表接口，只列出启用的 Agent，停用的 Agent 仍能在历史消息中显示名称；内置的 `omni_doll` 由后端代码提供、不对应 Profile 文件（这个 Agent ID 也不能用于新建），不在接口结果中，前端把它固定放在列表首位（`hooks/useAgents.ts`）。Agent 管理页只展示后端的 Profile 文件。持久化的 Agent ID 若不再存在，前端回退到 `omni_doll`。
 
 请求通过 `POST /api/v1/chat` 建立 fetch SSE。前端在收到 `process_id` 事件后，停止按钮会向 `POST /api/v1/chat/stop` 发出 best-effort 取消；stop 请求体只携带 `process_id`，身份选择仍来自统一请求头。后端把请求认证为 (user, `system`) 的工作 actor，对进程的 Workspace 执行 root 授权；授权拒绝与进程不存在都按 not found 处理。本地状态依次区分 preparing、streaming、cancelling、finalizing 和最终 completed/cancelled/failed。停止请求并不等于已经停止，仍需等待后端 `run_status` 或 `done` 给出终态；停止被后端拒绝时恢复为 streaming，可以再次停止。
 

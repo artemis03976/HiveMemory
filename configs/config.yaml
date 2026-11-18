@@ -187,6 +187,11 @@ patchouli:
     root_dir: ".hivememory/artifacts"
     max_inline_summary_chars: 500
 
+  # Agent Profile：<root_dir>/<agent_id>.md，一个 Profile 一个文件，全部 Workspace 共用；
+  # 直接改动文件不需要重启，下一次读取就生效。
+  agent_profiles:
+    root_dir: ".hivememory/agent_profiles"
+
 # ========== Workspace 运行时配置 ==========
 workspace:
   # 会话只在进程内保存，容量用尽时显式拒绝新增。
@@ -200,7 +205,6 @@ workspace:
   # 当前性由失效事件协作保证，容量只影响命中率与内存占用。
   cache:
     atom_capacity: 4096
-    profile_capacity: 256
 
 # ========== Alice 子系统配置 ==========
 alice:

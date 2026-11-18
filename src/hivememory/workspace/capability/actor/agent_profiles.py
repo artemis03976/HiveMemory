@@ -1,4 +1,4 @@
-"""actor CALL API：操作授权后经 Profile 读取视图解析目标图纸，保留资源可见性。"""
+"""actor CALL API：以 ``agent.call`` 授权后经 Profile 读取器解析被调用方的图纸。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class ActorAgentService:
-    """actor 资源入口：在入口以工作 actor 授权，转为本次操作的 scope。"""
+    """actor 资源入口：在入口以工作 actor 授权 ``agent.call``，再读取全局的图纸。"""
 
     def __init__(
         self,
@@ -32,16 +32,13 @@ class ActorAgentService:
         *,
         actor: WorkingActor,
     ) -> AgentProfile:
-        """CALL 的 actor 操作（``agent.call``）：以调用方可见的图纸确定被调用方。
+        """CALL 的 actor 操作（``agent.call``）：确定被调用方的图纸。
 
-        ``actor`` 是调用方线程的工作 actor，目标取它的驻留 Workspace；图纸按
-        调用方的可见性解析。只做权限检查与图纸解析，结果只有图纸、不含身份；
-        子线程的派生与结束是线程的生命周期动作，由操作入口在同一次提交内交给
-        线程表。未指定 alias 或显式选择 ``default`` / ``omni_doll`` 时返回内置
-        Profile；自定义 alias 缺失、不可见、类型不符或配置损坏均显式失败，不
-        降级为默认配置。
+        ``actor`` 是调用方线程的工作 actor，授权目标取它的驻留 Workspace。只做权限检查
+        与图纸解析，图纸是全局的，结果只有图纸、不含身份；被调用方在 Workspace 中的准入
+        与子线程的派生是线程的生命周期动作，由操作入口在同一次提交内交给线程表。未指定
+        alias 或显式选择 ``default`` / ``omni_doll`` 时返回内置 Profile；自定义 alias
+        缺失、文件不合格或已停用均显式失败，不降级为默认配置。
         """
-        scope = self._authorizer.authorize_agent(
-            actor, WorkspaceOperation.AGENT_CALL, actor.workspace
-        )
-        return await self._profile_reader.get(request.agent_alias, scope=scope)
+        self._authorizer.authorize_agent(actor, WorkspaceOperation.AGENT_CALL, actor.workspace)
+        return await self._profile_reader.get(request.agent_alias)

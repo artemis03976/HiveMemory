@@ -18,7 +18,6 @@ from hivememory import __version__
 from hivememory.config.app import load_app_config
 from hivememory.mcp_server import create_http_app, create_mcp_server
 from hivememory.server.deps import (
-    default_request_workspace,
     get_system,
     init_system,
     init_websocket_log_broadcasting,
@@ -60,23 +59,15 @@ logger = logging.getLogger(__name__)
 # 门面在每次工具调用时取得，因此可以在模块导入时先于系统装配构造。
 
 
-async def _warm_up_and_seed_presets(system: "HiveMemorySystem") -> None:
-    """预热推理模型，再完成初次部署的预设 Agent 写入：写入要计算嵌入，放在预热之后。
-
-    模型没有就绪时不写入：写入会再次触发模型加载，就绪检查就看不到“加载失败”，桌面端
-    无法提示用户。写入失败只记录日志、不留标记，下次启动重试；不影响服务。
-    """
-    await system.readiness_service.warmup_models()
-    if not await system.readiness_service.is_models_ready():
-        logger.warning("推理模型未就绪，跳过初次部署的预设 Agent 写入，下次启动重试")
-        return
+async def _seed_presets(system: "HiveMemorySystem") -> None:
+    """完成初次部署的预设 Agent 写入；失败只记录日志、不留标记，下次启动重试，不影响服务。"""
     try:
-        created = await system.seed_preset_agent_profiles(default_request_workspace())
+        created = await system.seed_preset_agent_profiles()
     except Exception:
         logger.exception("初次部署写入预设 Agent 失败: reason=preset_agent_profiles_failed")
         return
     if created:
-        logger.info("初次部署写入预设 Agent: aliases=%s", ",".join(created))
+        logger.info("初次部署写入预设 Agent: agent_ids=%s", ",".join(created))
 
 
 async def _update_copied_plugins(system: "HiveMemorySystem") -> None:
@@ -126,8 +117,10 @@ async def lifespan(app: FastAPI):
         ws_manager = init_websocket_log_broadcasting(system.config)
         app.state.ws_manager = ws_manager  # 存储到 app state
 
-        # 后台预热推理模型并完成初次部署的预设 Agent 写入（不阻塞服务启动）
-        asyncio.create_task(_warm_up_and_seed_presets(system))
+        # 预设 Agent 是 Profile 文件，写入不需要模型，在接受请求之前完成；
+        # 推理模型在后台预热，不阻塞服务启动。
+        await _seed_presets(system)
+        asyncio.create_task(system.readiness_service.warmup_models())
         # 安装版覆盖安装之后，插件目录随程序换成新版本；复制安装的插件要重新安装才能
         # 读到。开发方式的 checkout 由开发者自己更新，不在启动时改动 harness。
         if is_desktop_mode(app):

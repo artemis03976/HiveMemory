@@ -11,7 +11,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
+from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
@@ -68,7 +68,7 @@ async def completion_chain(
         )
 
     async def profile(*_args, **_kwargs):
-        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+        return OMNI_DOLL_PROFILE
 
     async def submit(*, payload, interaction_id, requested_topic_id, **_kwargs):
         probe.entered.set()

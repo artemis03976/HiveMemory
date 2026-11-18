@@ -2,7 +2,7 @@ import type { RegisteredModel } from '@/types/model';
 
 /** Profile 中的模型参数；生成参数为 null 时表示沿用模型定义。 */
 export interface AgentModelConfig {
-  model_name?: string;
+  model?: string;
   temperature?: number | null;
   top_p?: number | null;
 }
@@ -22,8 +22,8 @@ export function effectiveModelParams(
   agent: AgentModelConfig | null | undefined,
   models: RegisteredModel[],
 ): EffectiveParam[] {
-  const modelId = sessionModelId || agent?.model_name || models.find((m) => m.is_default)?.id;
-  const modelSource: EffectiveParam['source'] = sessionModelId ? '本次会话' : agent?.model_name ? '来自 Agent' : '模型默认';
+  const modelId = sessionModelId || agent?.model || models.find((m) => m.is_default)?.id;
+  const modelSource: EffectiveParam['source'] = sessionModelId ? '本次会话' : agent?.model ? '来自 Agent' : '模型默认';
   const model = models.find((m) => m.id === modelId);
 
   const fromAgentOrModel = (label: string, agentValue: number | null | undefined, modelValue: number | undefined): EffectiveParam => {

@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # Plans
@@ -18,7 +18,7 @@ last_reviewed: 2026-11-17
 
 版本目标：生成核心的升级（按 2026-11-16 的顺序取第 1 步，Claude 整理，待 owner 确认），摘要见 [ROADMAP](../ROADMAP.md) 第 4.2 节。
 
-- 记忆类型的收敛：第一个方向（owner，2026-11-17）。第一份计划“去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移”已于 2026-11-17 归档，见 [Archived Plans](../archive/plans/README.md#v080)；同一方向的下一份计划是 AGENT_PROFILE 移到 AgentProfileStore，尚未建立，设计见[类型体系](../ideas/memory-type-system.md)第 6.3 节；
+- 记忆类型的收敛：第一个方向（owner，2026-11-17）。两份计划“去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移”（2026-11-17）与“AgentProfileStore：Agent Profile 移出中期记忆库，以文件保存并热重载”（2026-11-18，日常实例的迁移待 owner 执行）都已归档，见 [Archived Plans](../archive/plans/README.md#v080)；
 - 馆长 agent 等其余方向：阻塞问题见总纲第 4.1 节。
 
 owner 于 2026-11-13 进入 v0.8，重新设计记忆的核心机制；设计讨论见总纲 [记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)，以及按主题拆出的[写入链路](../ideas/memory-flow-write-path.md)、[库的形状、图索引与保存形态](../ideas/memory-library-shape-and-index.md)、[类型体系](../ideas/memory-type-system.md)与[评测集](../ideas/memory-evaluation-benchmarks.md)；外部项目与文章的事实见[外部参考](../research/memory-core-external-references.md)。

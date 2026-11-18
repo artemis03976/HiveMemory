@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from hivememory.core.models import IdentityScope, MemoryAtom, ResolvedAgentProfile
+from hivememory.core.models import AgentProfile, IdentityScope, MemoryAtom, StoredAgentProfile
 from hivememory.core.protocol.models import RetrievalRequest
 
 
@@ -50,17 +50,15 @@ class CanonicalReadBackend(Protocol):
         """语义检索，按领域排序返回完整原子列表。"""
         ...
 
-    async def get_agent_profile(
-        self,
-        agent_alias: str | None,
-        *,
-        scope: IdentityScope,
-        enforce_actor_visibility: bool = True,
-    ) -> ResolvedAgentProfile:
-        """Profile 定义解析：AgentProfile + 源原子 policy 依据与关联。
+    async def get_agent_profile(self, agent_alias: str | None) -> AgentProfile:
+        """解析可以执行的 Profile；缺失、文件不合格与已停用都显式失败。
 
-        ``enforce_actor_visibility=False`` 是管理读取，只校验 Workspace 归属。
+        Profile 是全局的，不接收 scope：调用方在调用之前完成授权。
         """
+        ...
+
+    async def list_agent_profiles(self) -> list[StoredAgentProfile]:
+        """列出全部合格的 Profile，含停用的。"""
         ...
 
 

@@ -1179,8 +1179,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
     @pytest.mark.asyncio
     async def test_update_external_memory_builds_manual_version_artifact(self):
-        # agent_config 只允许 Profile 设置；以 Profile 覆盖全部可编辑字段。
-        atom = _make_memory_atom(memory_type=MemoryType.AGENT_PROFILE)
+        atom = _make_memory_atom()
         original_version = atom.meta.version
         version_ref = _artifact_ref("version_2", ArtifactType.MEMORY_VERSION)
 
@@ -1203,7 +1202,6 @@ class TestMemoryGenerationFamiliarArtifacts:
             content="Updated content",
             alias="updated-alias",
             tags=["updated"],
-            agent_config={"mode": "test"},
         )
 
         assert result is atom
@@ -1212,7 +1210,6 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert atom.payload.content == "Updated content"
         assert atom.index.alias == "updated-alias"
         assert atom.index.tags == ["updated"]
-        assert atom.payload.agent_config == {"mode": "test"}
         # 提交边界推进版本与内容时间/衰减基准，置信度重置 1.0
         assert atom.meta.version == original_version + 1
         assert atom.meta.updated_at == FIXED_NOW
@@ -1236,9 +1233,9 @@ class TestMemoryGenerationFamiliarArtifacts:
         mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=True)
 
     @pytest.mark.asyncio
-    async def test_update_external_memory_agent_config_only_skips_vector_recompute(self):
-        """仅 agent_config 变化不属 embedding 输入，提交时保留既有向量"""
-        atom = _make_memory_atom(memory_type=MemoryType.AGENT_PROFILE)
+    async def test_update_external_memory_content_only_skips_vector_recompute(self):
+        """仅正文变化不属 embedding 输入，提交时保留既有向量"""
+        atom = _make_memory_atom()
 
         artifact_engine = _memory_artifact_engine()
         mid_term = Mock()
@@ -1252,7 +1249,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         await familiar.update_external_memory(
             atom.id,
             belong_to=_identity_scope().workspace_identity,
-            agent_config={"mode": "only-config"},
+            content="only the body changes",
         )
 
         mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=False)
@@ -1424,8 +1421,6 @@ async def test_merge_without_write_handle_returns_no_settlement():
         "missing",
         "invisible",
         "policy",
-        "retained_profile",
-        "absorbed_profile",
         "same_memory",
         "model_output",
     ],
@@ -1445,10 +1440,6 @@ async def test_merge_rejects_invalid_inputs_without_writing(failure):
         store.memories[absorbed.id].meta.access_policy = MemoryAccessPolicy(
             visibility="PRIVATE", target_agent_id=spec.from_actor.agent_id
         )
-    elif failure == "retained_profile":
-        store.memories[retained.id].index.memory_type = MemoryType.AGENT_PROFILE
-    elif failure == "absorbed_profile":
-        store.memories[absorbed.id].index.memory_type = MemoryType.AGENT_PROFILE
     elif failure == "same_memory":
         spec.request.merge_focus.absorbed_memory_id = str(retained.id)
     elif failure == "model_output":

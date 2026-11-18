@@ -90,8 +90,8 @@ class RootMemoryService:
     ) -> MemoryListPage:
         """管理读取入口（root 授权）：在目标 Workspace 中列出一页 Memory。
 
-        按 owner-management 语义列出该 Workspace 的 Memory（不含 Agent
-        Profile），不做 Agent ``MemoryAccessPolicy`` 过滤；没有 ``query``
+        按 owner-management 语义列出该 Workspace 的 Memory，不做 Agent
+        ``MemoryAccessPolicy`` 过滤；没有 ``query``
         时把上一页的 ``next_cursor`` 作为 ``cursor`` 传回即取得下一页。
         """
         scope = self._authorizer.authorize_root(actor, target_workspace)
@@ -102,7 +102,6 @@ class RootMemoryService:
             query=query,
             filters=filters if filters else None,
             limit=limit,
-            exclude_types=[MemoryType.AGENT_PROFILE.value],
             cursor=cursor,
             refresh_vitality=True,
         )
@@ -136,7 +135,6 @@ class RootMemoryService:
         content: str | None = None,
         alias: str | None = None,
         tags: list[str] | None = None,
-        agent_config: dict | None = None,
         access_policy: MemoryAccessPolicy | None = None,
         actor: WorkingActor,
     ) -> MemoryAtom:
@@ -155,7 +153,6 @@ class RootMemoryService:
                 content=content,
                 alias=alias,
                 tags=tuple(tags) if tags is not None else None,
-                agent_config=agent_config,
                 access_policy=access_policy,
             ),
         )

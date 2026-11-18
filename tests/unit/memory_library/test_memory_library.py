@@ -80,6 +80,7 @@ class TestMemoryLibraryArchiveRevive:
         self.mock_long_term = Mock(spec=LongTermMemoryStore)
         self.mock_artifact_store = None
         self.library = MemoryLibrary(
+            agent_profiles=Mock(),
             short_term=self.mock_short_term,
             mid_term=self.mock_mid_term,
             long_term=self.mock_long_term,
@@ -170,6 +171,7 @@ class TestMemoryLibraryStorageHealth:
         self.long_term = Mock(spec=LongTermMemoryStore)
         self.artifact_store = Mock(spec=ArtifactStore)
         self.library = MemoryLibrary(
+            agent_profiles=Mock(),
             short_term=self.short_term,
             mid_term=self.mid_term,
             long_term=self.long_term,
@@ -249,6 +251,7 @@ class TestMemoryLibraryStorageHealth:
     @pytest.mark.asyncio
     async def test_check_storage_health_marks_missing_artifact_store_disabled(self):
         library = MemoryLibrary(
+            agent_profiles=Mock(),
             short_term=self.short_term,
             mid_term=self.mid_term,
             long_term=self.long_term,

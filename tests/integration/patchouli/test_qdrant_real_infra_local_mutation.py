@@ -158,18 +158,18 @@ async def test_patch_payload_preserves_vectors_and_non_target_fields(store):
 async def test_upsert_without_recompute_preserves_vectors_on_real_qdrant(store):
     """recompute_vectors=False：embedding 不重算，向量逐位一致且 payload 更新。"""
     mid_term, qdrant = store
-    atom = _memory("agent config carrier")
-    atom.payload.agent_config = {"model_name": "v1"}
+    atom = _memory("content before edit")
 
     await mid_term.upsert(atom)
     vectors_before, _ = await _dense_vectors(qdrant, atom)
 
     updated = atom.model_copy(deep=True)
-    updated.payload.agent_config = {"model_name": "v2"}
+    updated.payload.content = "content after edit"
+    updated.meta.version += 1
     await mid_term.upsert(updated, recompute_vectors=False)
 
     vectors_after, payload_after = await _dense_vectors(qdrant, atom)
     assert vectors_after == vectors_before
-    assert payload_after["payload"]["agent_config"] == {"model_name": "v2"}
-    # payload 其余键同步替换（同一提交的完整 payload）。
-    assert payload_after["payload"]["content"] == "agent config carrier"
+    # payload 整份替换（同一提交的完整 payload）。
+    assert payload_after["payload"]["content"] == "content after edit"
+    assert payload_after["meta"]["version"] == updated.meta.version

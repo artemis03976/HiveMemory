@@ -43,8 +43,8 @@ class CallContextProvider:
         """经调用方提交函数派生子线程，再以调用方权限编译共享上下文。
 
         内置 Profile 同样提交 CALL 派生，不能绕过 ``agent.call`` 授权；
-        context_refs 另提交 READ 请求，仍需要 ``memory.read``。错误交给 CALL 响应边界统一呈现，
-        此处不持有另一份 Profile 缓存。派生成功之后共享上下文读取失败或被
+        context_refs 另提交 READ 请求，仍需要 ``memory.read``。错误交给 CALL 响应边界统一呈现。
+        派生成功之后共享上下文读取失败或被
         取消时，子帧不会运行，先同步结束子线程再传播。
         """
         callee = await caller_frame.submit_operation.derive_child(

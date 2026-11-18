@@ -6,7 +6,7 @@ from hivememory.core.errors import DomainError, WorkspaceDomainError
 
 
 class ProfileResolutionError(WorkspaceDomainError):
-    """已找到的 Agent Profile 类型或配置不满足执行要求，或已被停用。
+    """已找到的 Agent Profile 文件不合格，或已被停用。
 
     这是对 Workspace 资源的受控拒绝，不是系统故障：任务进程按 Workspace 领域错误
     收口，流式错误与失败事件都给出本错误码，失败事件另带受约束的原因，不报成通用的
@@ -19,7 +19,7 @@ class ProfileResolutionError(WorkspaceDomainError):
         self,
         *,
         agent_alias: str,
-        reason: Literal["type_mismatch", "invalid_config", "profile_disabled"],
+        reason: Literal["invalid_config", "profile_disabled"],
     ) -> None:
         super().__init__(details={"agent_alias": agent_alias, "reason": reason})
 

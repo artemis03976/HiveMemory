@@ -23,7 +23,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/architecture/data-model.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-18
 ---
 
 # 系统边界与所有权
@@ -137,7 +137,7 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 - MemoryAtom、索引、payload、版本与 artifact 引用；
 - 活跃话题、语义缓冲、interaction 及 TopicAssetBinding；
 - Workspace-owned Topic、Memory、Artifact 的归属校验与领域生命周期；
-- Agent Profile 的长期表示；
+- Agent Profile 的文件存储（AgentProfileStore，不是记忆）；
 - 记忆生成任务与维护状态；
 - 检索缓存、生命周期统计和引用/反馈记录。
 
@@ -178,7 +178,7 @@ Alice 直接消费含只读 `ExecutionLabels`、已解析语言与定稿提示�
 
 模型解析经 `agent_runtime.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
-写入意图登记与完整引用解析由 workspace 唯一拥有。完整原子与主进程、CALL 目标 Profile 的派生缓存也归 workspace，按源 Workspace 键控并在交付时重新授权；Alice 不持有 Profile resolver 或缓存。
+写入意图登记与完整引用解析由 workspace 唯一拥有。完整原子的派生缓存也归 workspace，按源 Workspace 键控并在交付时重新授权；Profile 由 workspace 的 Profile 读取器每次直接读文件，不缓存；Alice 不持有 Profile resolver 或缓存。
 
 Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical 变更事件内联失效 workspace 读取缓存。Alice 只消费操作请求返回的独立解析结果，不订阅结算事件，也不持有写入意图状态。
 

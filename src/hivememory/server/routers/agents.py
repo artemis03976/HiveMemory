@@ -1,11 +1,16 @@
-"""Agents 路由 — Agent Profile 列表"""
+"""Agents 路由 — Agent Profile 的新建、列出、编辑与删除（管理用例，actor 为保留 system）"""
 
 from fastapi import APIRouter, Depends
 
 from hivememory.core.access import WorkingActor
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.server.deps import get_request_actor, get_root_agent_service
 from hivememory.server.error_handlers import error_responses
-from hivememory.server.models.agent import AgentCreateRequest, AgentProfileResponse
+from hivememory.server.models.agent import (
+    AgentCreateRequest,
+    AgentProfileResponse,
+    AgentUpdateRequest,
+)
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 
 router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["agents"])
@@ -17,18 +22,14 @@ async def create_agent(
     service: RootAgentProfileService = Depends(get_root_agent_service),
     actor: WorkingActor = Depends(get_request_actor),
 ):
-    """创建新的 Agent Profile（管理用例，actor 为保留 system）"""
-    atom = await service.create_agent_profile(
+    """新建 Agent Profile；同名已存在时返回 409，不覆盖"""
+    stored = await service.create_agent_profile(
+        body.agent_id,
+        body.fields(),
         target_workspace=actor.workspace,
-        title=body.title,
-        alias=body.alias,
-        summary=body.summary,
-        content=body.content,
-        tags=body.tags,
-        agent_config=body.agent_config,
         actor=actor,
     )
-    return AgentProfileResponse.from_atom(atom)
+    return AgentProfileResponse.from_stored(stored)
 
 
 @router.get("/agents", response_model=list[AgentProfileResponse])
@@ -36,10 +37,37 @@ async def list_agents(
     service: RootAgentProfileService = Depends(get_root_agent_service),
     actor: WorkingActor = Depends(get_request_actor),
 ):
-    """列出所有 Agent Profile（管理用例，actor 为保留 system）"""
-    atoms = await service.list_agent_profiles(
+    """按 agent_id 列出全部合格的 Agent Profile，含停用的"""
+    profiles = await service.list_agent_profiles(target_workspace=actor.workspace, actor=actor)
+    return [AgentProfileResponse.from_stored(stored) for stored in profiles]
+
+
+@router.patch("/agents/{agent_id}", response_model=AgentProfileResponse)
+async def update_agent(
+    agent_id: str,
+    body: AgentUpdateRequest,
+    service: RootAgentProfileService = Depends(get_root_agent_service),
+    actor: WorkingActor = Depends(get_request_actor),
+):
+    """修改 Agent Profile 中请求给出的字段；agent_id 不可改"""
+    stored = await service.update_agent_profile(
+        agent_id,
+        body.changes(),
         target_workspace=actor.workspace,
-        limit=100,
         actor=actor,
     )
-    return [AgentProfileResponse.from_atom(atom) for atom in atoms]
+    return AgentProfileResponse.from_stored(stored)
+
+
+@router.delete("/agents/{agent_id}", status_code=204)
+async def delete_agent(
+    agent_id: str,
+    service: RootAgentProfileService = Depends(get_root_agent_service),
+    actor: WorkingActor = Depends(get_request_actor),
+):
+    """删除 Agent Profile"""
+    deleted = await service.delete_agent_profile(
+        agent_id, target_workspace=actor.workspace, actor=actor
+    )
+    if not deleted:
+        raise ResourceNotFoundError()

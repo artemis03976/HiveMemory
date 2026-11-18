@@ -119,7 +119,7 @@ class _FakeBacking:
         self._fetched()
         return results
 
-    async def get_agent_profile(self, agent_alias, *, scope):  # pragma: no cover
+    async def get_agent_profile(self, agent_alias):  # pragma: no cover
         raise AssertionError("alias resolver 不读取 Profile")
 
 

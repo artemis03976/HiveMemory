@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # Agent Runtime
@@ -48,7 +48,7 @@ AgentRunService
 
 `hivememory.agent_runtime` 包根是 Alice 与组合根唯一使用的公开接口，导出门面、工厂、帧模型、输出端口、模型解析与 MTP 生成器等契约。`runtime.py` 的 `build_agent_runtime` 接收运行、Koakuma 与记忆编译配置、组合根注入的 LLM 服务（`infrastructure.llm.base.BaseLLMService`）以及可选模型解析端口，在服务之上建立 MTP 生成器并装配执行循环，返回门面；执行层不自行构造模型客户端，也不导入提供商 SDK。`frame.py` 保存帧状态、策略与 `RuntimeScope`，`loop.py` 推进单帧，`model/` 负责解析、预算与 MTP 生成，`mtp/` 负责分派与动词，`tools/` 提供系统工具与它们共用的受限执行器。
 
-Koakuma 直接满足 `MTPExecutor` 协议。`ExecutionFrame`、`FrameSpec` 与 `MTPExecutionContext` 都要求显式提交函数和策略，`FrameExecutionPolicy` 要求显式动词集合；不存在缺省放行。帧未覆盖迭代上限时由门面从 runtime 配置统一取值。写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有，执行层只消费 CPU 驱动交付的提交函数。
+Koakuma 直接满足 `MTPExecutor` 协议。`ExecutionFrame`、`FrameSpec` 与 `MTPExecutionContext` 都要求显式提交函数和策略，`FrameExecutionPolicy` 要求显式动词集合；不存在缺省放行。帧未覆盖迭代上限时由门面从 runtime 配置统一取值。写入意图登记、完整引用解析与原子缓存由 workspace 持有，执行层只消费 CPU 驱动交付的提交函数。
 
 当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, model_selection, output_sink)`，`output_sink` 必填。帧生成总是流式：自然语言增量逐条送达 sink，不需要增量的调用方由 sink 自行丢弃；Agent Runtime 不接收 generation mode。这样同一帧只有一种模型调用形态，模型无文本、停止时的部分输出等语义不随调用方变化。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。
 
@@ -82,7 +82,7 @@ ExecutionFrame
 
 ## 3. 输入上下文与 Prompt 组装
 
-`AgentRunService` 直接消费任务进程交来的 `CPUInputManifest`（完整字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)），在创建 ExecutionFrame 后交给 Agent Runtime。进程已解析 Profile 与提示词语言，并把环境通知、人设编译为 `instructions`，把记忆与附件编译为 `turn_context`。Alice 不从 Profile 或原子重新渲染这些内容，只决定两段不透明文本的放置位置；Profile 在主帧仍用于模型参数与展示。
+`AgentRunService` 直接消费任务进程交来的 `CPUInputManifest`（完整字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)），在创建 ExecutionFrame 后交给 Agent Runtime。进程已解析 Profile 与提示词语言，并把环境通知、人设与可用子代理列表编译为 `instructions`，把记忆与附件编译为 `turn_context`。Alice 不从 Profile 或原子重新渲染这些内容，只决定两段不透明文本的放置位置；Profile 在主帧仍用于模型参数与展示。
 
 Alice 在创建主帧前按“三明治”顺序组装消息：
 
@@ -125,12 +125,12 @@ User    current user message
 
 ```text
 会话的 model_selection（ModelSelection）
-  > Agent Profile model_name/temperature/top_p
+  > Agent Profile model/temperature/top_p
   > ModelRegistry definition
 ```
 
 - 会话的选择与 Gateway、Patchouli 的组件配置是同一个类型 `ModelSelection`（`core.models.model_definition`）：`model_id` 与 temperature、top_p、max_tokens 都可以不给，不给的项沿用下一层；Alice 按上面的顺序拼出这一帧的选择；
-- 会话 `model_id` 与 Profile `model_name` 都被解释为注册表 ID；
+- 会话 `model_id` 与 Profile `model` 都被解释为注册表 ID；
 - api key/base 来自注册表解析结果，为空时由提供商 SDK 从环境变量读取；
 - 注册表解析失败在 `run_frame()` 边界形成 `FAILED`，不静默换成另一个模型；
 - 模型解析经 `agent_runtime.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入。端口回答两个问题，各返回一个已有类型：`select_model(model_id)` 按 ID 取模型定义（`"default"` 为默认模型），Alice 从中读上下文窗口与展示名；`resolve(selection)` 返回合并后的请求参数 `LLMRequestParams`，Gateway 与 Patchouli 也只调用它。两次查询之间没有 `await`，`"default"` 不会在中途指向另一个模型；
@@ -186,7 +186,7 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 - `mtp_start`：Runtime 已识别并准备执行一条指令；
 - `mtp_result`：指令的 success/error/ack/suspend 等状态；
 - 被调用 frame 事件仍使用相同类型，通过 `scope/frame_id/action_id/agent_id` 命名空间区分；为兼容既有 SSE 客户端，Alice 仍可提供 `depth` 展示字段，但它不再参与 Runtime 控制流；
-- frame 展示的 `agent_id` 优先取 Profile 的来源 alias（`AgentProfile.agent_id`），空值回退 `RuntimeScope.labels.agent_id`，即所属线程的标签：子帧回退到被调用方；
+- frame 展示的 `agent_id` 优先取 Profile 的 `agent_id`（Profile 文件名），空值回退 `RuntimeScope.labels.agent_id`，即所属线程的标签：子帧回退到被调用方；
 - `context_compaction`：根 frame 创建前的压缩开始与结束统计，不属于帧输出或轮次事实；
 - 终态是 `AgentRunService` 返回的 `CPUExecutionResult`，包括完整检查点，作为 CPU 端口 `execute` 的返回值交回；Alice 不把结果序列化成 `done`。面向 HTTP 的 `done` 由任务进程投影。
 

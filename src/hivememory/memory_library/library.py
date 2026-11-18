@@ -2,7 +2,8 @@
 MemoryLibrary — 三级存储协调层（书库）
 
 持有 ShortTermMemoryStore / MidTermMemoryStore / LongTermMemoryStore，
-负责各层之间的状态转移（archive / revive）。
+负责各层之间的状态转移（archive / revive）。ArtifactStore 与 AgentProfileStore 也由它
+持有，但不在三层之中，不参与状态转移。
 
 状态转移协议：
     短期 → 中期：由 Topic 结算触发的记忆生成驱动，Library 提供两端读写能力
@@ -21,6 +22,7 @@ from hivememory.core.models import (
     WorkspaceIdentity,
     WorkspaceMemoryKey,
 )
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.models import (
     StorageHealthComponent,
     StorageHealthReport,
@@ -43,6 +45,7 @@ class MemoryLibrary:
         short_term  — 工作台（内存 buffer，活跃话题）
         mid_term    — 主书库（向量数据库，已入库记忆）
         long_term   — 冷藏库（文件系统，低活跃度记忆）
+        agent_profiles — 人偶图纸柜（每个 Agent Profile 一个文件，不是记忆）
     """
 
     def __init__(
@@ -50,11 +53,13 @@ class MemoryLibrary:
         short_term: ShortTermMemoryStore,
         mid_term: MidTermMemoryStore,
         long_term: LongTermMemoryStore,
+        agent_profiles: AgentProfileStore,
         artifact_store: ArtifactStore | None = None,
     ) -> None:
         self.short_term = short_term
         self.mid_term = mid_term
         self.long_term = long_term
+        self.agent_profiles = agent_profiles
         self.artifact_store = artifact_store
         logger.info("MemoryLibrary 初始化完成")
 

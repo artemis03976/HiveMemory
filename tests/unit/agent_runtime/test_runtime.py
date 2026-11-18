@@ -201,7 +201,7 @@ def test_session_selection_overrides_profile_before_registry_defaults():
         runtime_config=AgentRuntimeConfig(), loop_executor=MagicMock(), model_registry=resolver
     )
     profile = OMNI_DOLL_PROFILE.model_copy(
-        update={"model_name": "profile-model", "temperature": 0.9, "top_p": 0.7}
+        update={"model": "profile-model", "temperature": 0.9, "top_p": 0.7}
     )
 
     runtime.resolve_model(profile, ModelSelection(temperature=0.2, max_tokens=256))

@@ -22,9 +22,6 @@ class WorkspaceCacheConfig(BaseModel):
     """workspace 派生缓存容量。"""
 
     atom_capacity: int = Field(default=4096, ge=1, description="完整原子缓存的全局 LRU 容量")
-    profile_capacity: int = Field(
-        default=256, ge=1, description="Profile 解析结果缓存的全局 LRU 容量"
-    )
 
     model_config = ConfigDict(extra="forbid")
 

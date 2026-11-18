@@ -140,10 +140,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Agent Unavailable] 子代理 '{agent_alias}' 当前不可用。\n"
         "Suggestion: 请改用其他子代理，或不调用子代理继续完成任务。"
     ),
-    "mtp.call.profile_type_mismatch": (
-        "[Type Mismatch] alias '{agent_alias}' 不是 Agent Profile。\n"
-        "Suggestion: 请从可用子代理列表中选择 Agent Profile alias。"
-    ),
     "mtp.call.profile_invalid": (
         "[Invalid Agent Profile] 子代理 Profile '{agent_alias}' 的配置无效。\n"
         "Suggestion: 请修复 Profile 配置或选择其他子代理。"
@@ -321,10 +317,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
     "mtp.call.agent_unavailable": (
         "[Agent Unavailable] Sub-agent '{agent_alias}' is not available.\n"
         "Suggestion: Choose another sub-agent, or continue the task without calling one."
-    ),
-    "mtp.call.profile_type_mismatch": (
-        "[Type Mismatch] Alias '{agent_alias}' is not an Agent Profile.\n"
-        "Suggestion: Choose an Agent Profile alias from the available sub-agent list."
     ),
     "mtp.call.profile_invalid": (
         "[Invalid Agent Profile] Sub-agent profile '{agent_alias}' has invalid configuration.\n"

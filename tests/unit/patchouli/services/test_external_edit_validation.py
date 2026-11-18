@@ -83,11 +83,10 @@ async def test_invalid_edit_is_rejected_without_commit(tmp_path, edit, field):
     [
         ({"memory_type": MemoryType.FACT, "title": "   "}, "title"),
         ({"memory_type": MemoryType.FACT, "title": "t", "summary": "x" * 501}, "summary"),
-        ({"memory_type": MemoryType.AGENT_PROFILE, "title": "t"}, "alias"),
     ],
 )
 async def test_invalid_creation_is_rejected_without_commit(tmp_path, materials, field):
-    """创建材料不满足模型或类型约束时以 InvalidMemoryFieldError 拒绝，不写入任何记录。"""
+    """创建材料不满足模型约束时以 InvalidMemoryFieldError 拒绝，不写入任何记录。"""
     identity_scope = make_memory_identity_scope()
     familiar, mid_term = _familiar([], _artifact_engine(tmp_path))
 
@@ -131,40 +130,6 @@ async def test_edit_equal_after_normalization_creates_no_version(tmp_path):
 
     assert result is not None
     assert result.meta.version == 1
-    assert len(mid_term.upsert_calls) == upserts_before
-    assert await _version_artifacts(tmp_path, identity_scope, atom.id) == []
-
-
-@pytest.mark.asyncio
-async def test_clearing_agent_profile_alias_is_rejected(tmp_path):
-    """AGENT_PROFILE 依赖 alias 寻址：清空 alias 的编辑被拒绝且不提交。"""
-    identity_scope, atom, familiar, mid_term = await _setup(
-        tmp_path, memory_type=MemoryType.AGENT_PROFILE
-    )
-    upserts_before = len(mid_term.upsert_calls)
-
-    with pytest.raises(InvalidMemoryFieldError, match="alias"):
-        await familiar.update_external_memory(
-            atom.id, belong_to=identity_scope.workspace_identity, alias="  "
-        )
-
-    assert len(mid_term.upsert_calls) == upserts_before
-    assert await _version_artifacts(tmp_path, identity_scope, atom.id) == []
-
-
-@pytest.mark.asyncio
-async def test_agent_config_edit_on_regular_memory_is_rejected(tmp_path):
-    """agent_config 只对 AGENT_PROFILE 有效：对普通记忆提交时拒绝且不提交版本。"""
-    identity_scope, atom, familiar, mid_term = await _setup(tmp_path)
-    upserts_before = len(mid_term.upsert_calls)
-
-    with pytest.raises(InvalidMemoryFieldError, match="agent_config"):
-        await familiar.update_external_memory(
-            atom.id,
-            belong_to=identity_scope.workspace_identity,
-            agent_config={"model_name": "x"},
-        )
-
     assert len(mid_term.upsert_calls) == upserts_before
     assert await _version_artifacts(tmp_path, identity_scope, atom.id) == []
 
@@ -234,24 +199,3 @@ async def test_content_and_policy_edit_keeps_both(tmp_path):
     assert stored.index.title == "Edited title"
     assert stored.meta.version == 2
     assert stored.meta.access_policy == _PRIVATE_TO_DSH
-
-
-@pytest.mark.asyncio
-async def test_policy_edit_on_agent_profile_is_rejected(tmp_path):
-    """Profile 的读取策略不经记忆编辑修改：拒绝且内容与策略都不变。"""
-    identity_scope, atom, familiar, mid_term = await _setup(
-        tmp_path, memory_type=MemoryType.AGENT_PROFILE
-    )
-    upserts_before = len(mid_term.upsert_calls)
-
-    with pytest.raises(InvalidMemoryFieldError, match="access_policy"):
-        await familiar.update_external_memory(
-            atom.id,
-            belong_to=identity_scope.workspace_identity,
-            title="Edited title",
-            access_policy=_PRIVATE_TO_DSH,
-        )
-
-    stored = await _stored(mid_term, identity_scope, atom.id)
-    assert stored.meta.access_policy == MemoryAccessPolicy.public()
-    assert len(mid_term.upsert_calls) == upserts_before

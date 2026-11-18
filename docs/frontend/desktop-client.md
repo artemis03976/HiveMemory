@@ -19,7 +19,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/system/configuration.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # 桌面客户端
@@ -109,9 +109,9 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 | 删除 | 保留 |
 |:---|:---|
-| 记忆库（Qdrant 存储，包括全部记忆与 Agent Profile）、Artifact、长期归档、关闭时写盘的生成工作、写入句柄与生成任务历史（各含读不回的 rejected 文件）、预设 Agent 的写入标记 | 配置、Provider 密钥、harness 接入凭据、推理模型缓存、日志 |
+| 记忆库（Qdrant 存储）、Artifact、长期归档、关闭时写盘的生成工作、写入句柄与生成任务历史（各含读不回的 rejected 文件）、预设 Agent 的写入标记 | Agent Profile 文件、配置、Provider 密钥、harness 接入凭据、推理模型缓存、日志 |
 
-步骤：主进程正常关闭后端与 Qdrant，删除 Qdrant 存储目录，再以一次性模式 `python -m hivememory.server --delete-memory-data` 运行后端，按配置删除后端拥有的路径（相对路径按数据根解析），然后重启应用。重启后记忆库为空，预设 Agent 重新写入。只删除上面列出的路径，不删除数据根本身：数据根指向 checkout 时，仓库文件、随仓库发布的 `configs\` 文件与 `.hivememory\dev.env` 都不受影响。
+步骤：主进程正常关闭后端与 Qdrant，删除 Qdrant 存储目录，再以一次性模式 `python -m hivememory.server --delete-memory-data` 运行后端，按配置删除后端拥有的路径（相对路径按数据根解析），然后重启应用。重启后记忆库为空；预设 Agent 只写入缺少的文件，已有的 Profile 文件不变。只删除上面列出的路径，不删除数据根本身：数据根指向 checkout 时，仓库文件、随仓库发布的 `configs\` 文件与 `.hivememory\dev.env` 都不受影响。
 
 卸载只删除程序与快捷方式，保留数据根与 userData；删除数据只经这个入口。
 
@@ -129,11 +129,11 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 **预设 Agent**：数据根第一次启动时写入预设的 Agent Profile（coder_doll、reviewer_doll），预设内容在 `patchouli/application/preset_agent_profiles.py`。
 
-- server 的 lifespan 在模型预热之后，调用门面的 `seed_preset_agent_profiles`，目标是不带身份声明的请求所在的 Workspace，也就是桌面窗口管理的 Workspace。
+- server 的 lifespan 在接受请求之前调用门面的 `seed_preset_agent_profiles`，推理模型随后在后台预热；目标是不带身份声明的请求所在的 Workspace，也就是桌面窗口管理的 Workspace。
 - 门面在数据根中没有标记文件（`system.preset_agent_profiles_marker`，默认 `.hivememory\preset_agent_profiles_seeded`）时，经 Patchouli 公开路由 `patchouli.public.agent_profile.seed_presets` 写入缺少的预设，成功后写下标记。
-- Patchouli 以该 Workspace 的 `system` 为发起者直接写入，已存在的 alias 跳过，不经认证网关、root API 与授权：这时还没有任何调用方，写入的也只是随程序发布的内容。
+- Patchouli 把预设直接写成 Profile 文件，已有同名文件的跳过，不经认证网关、root API 与授权：这时还没有任何调用方，写入的也只是随程序发布的内容。
 - 标记让写入只发生一次，用户删掉预设 Agent 后重启不会写回；删除记忆数据会一并删除标记。
-- 模型没有就绪时不写入：写入要计算嵌入，会再次触发模型加载，就绪检查就看不到“加载失败”。写入失败只记录日志、不留标记，下次启动重试。
+- 写入不需要模型。写入失败只记录日志、不留标记，下次启动重试，不影响服务。
 
 ## 8. 打包与升级
 

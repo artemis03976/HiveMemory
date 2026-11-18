@@ -33,7 +33,7 @@ class MemoryType(str, Enum):
     REFLECTION = "REFLECTION"  # 经验总结、错误反思
     USER_PROFILE = "USER_PROFILE"  # 用户偏好、习惯
     RESOURCE = "RESOURCE"  # 外部资源：它是什么、为什么值得去看、在哪里；真相留在源头
-    AGENT_PROFILE = "AGENT_PROFILE"  # 人偶图纸 (多智能体系统)
+    AGENT_PROFILE = "AGENT_PROFILE"  # 历史取值：人偶图纸，现在是 AgentProfileStore 中的文件
     CODE_SNIPPET = "CODE_SNIPPET"  # 历史取值：代码片段
     URL_RESOURCE = "URL_RESOURCE"  # 历史取值：外部文档快照
     WORK_IN_PROGRESS = "WORK_IN_PROGRESS"  # 历史取值：未完成的任务状态
@@ -41,7 +41,12 @@ class MemoryType(str, Enum):
 
 # 只作为历史取值保留的类型：生成、检索过滤与管理入口都不给出。
 HISTORICAL_MEMORY_TYPES: frozenset[MemoryType] = frozenset(
-    {MemoryType.CODE_SNIPPET, MemoryType.URL_RESOURCE, MemoryType.WORK_IN_PROGRESS}
+    {
+        MemoryType.AGENT_PROFILE,
+        MemoryType.CODE_SNIPPET,
+        MemoryType.URL_RESOURCE,
+        MemoryType.WORK_IN_PROGRESS,
+    }
 )
 
 
@@ -292,8 +297,7 @@ class Artifacts(BaseModel):
     Artifacts - 原始数据与溯源信息
     通常不加载到 Context, 仅按需查询
 
-    只保留 append-only 的 Artifact 引用、生命周期事件与冷存储/复活定位；
-    可版本化的 Agent Profile 内容在 ``PayloadLayer.agent_config``。
+    只保留 append-only 的 Artifact 引用、生命周期事件与冷存储/复活定位。
     """
 
     # ---- 正式溯源层 ----
@@ -322,16 +326,12 @@ class PayloadLayer(BaseModel):
 
     content: str = Field(..., description="Markdown格式的核心内容")
 
-    # 可版本化的 Agent Profile 内容（人偶图纸配置）。
-    # 变化按内容版本处理但不触发向量重算。
-    agent_config: dict[str, Any] | None = Field(
-        default=None,
-        description="人偶图纸配置: {model_name, temperature, top_p, language}",
-    )
-
     artifacts: Artifacts = Field(default_factory=Artifacts, description="原始数据存根")
 
+    # 忽略未知字段：历史记录（包括 Agent Profile 原子的版本快照）带有已删除的
+    # ``agent_config``，仍要能解码。
     model_config = ConfigDict(
+        extra="ignore",
         validate_assignment=True,
         json_schema_extra={
             "example": {

@@ -44,6 +44,8 @@ _HTTP_ERROR_TEXT_ZH = {
     "workspace.resource.not_found": "资源不存在或不可访问",
     "workspace.resource.unavailable": "服务当前不可用，请稍后重试",
     "memory.field.invalid": "记忆字段不符合要求，请检查输入",
+    "workspace.agent_profile.invalid": "Agent 的标识或字段不符合要求，请检查输入",
+    "workspace.agent_profile.exists": "同名的 Agent 已经存在，请更换标识",
     "workspace.memory.alias_conflict": "记忆别名冲突，请更换别名",
     "workspace.memory.intent.pending_update_not_allowed": (
         "这条记忆仍在生成中，不能作为更新的对象，生成完成后请改用正式 alias"
@@ -151,6 +153,8 @@ _HTTP_ERROR_TEXT_EN = {
     "workspace.resource.not_found": "The resource does not exist or is not accessible",
     "workspace.resource.unavailable": "The service is unavailable right now; try again later",
     "memory.field.invalid": "The memory fields are invalid; check the input",
+    "workspace.agent_profile.invalid": "The agent id or fields are invalid; check the input",
+    "workspace.agent_profile.exists": "An agent with this id already exists; choose another id",
     "workspace.memory.alias_conflict": "The memory alias conflicts; choose another alias",
     "workspace.memory.intent.pending_update_not_allowed": (
         "This memory is still being generated and cannot be updated; once generation finishes, "

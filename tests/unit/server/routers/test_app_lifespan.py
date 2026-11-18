@@ -65,10 +65,11 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
         configure_logging.assert_called_once_with(config.logging)
         init_system.assert_called_once_with(config)
         mock_system.start.assert_awaited_once()
-        # 预设 Agent 的写入要计算嵌入，排在预热之后，写进不带身份声明的请求所在的 Workspace。
+        # 预设 Agent 是 Profile 文件，不等模型预热，在接受请求之前写进不带身份声明的
+        # 请求所在的 Workspace；预热随后在后台进行。
         assert steps.mock_calls == [
+            call.seed(),
             call.warmup(),
-            call.seed(app_module.default_request_workspace()),
         ]
         shutdown_system.assert_awaited_once()
         shutdown_ws.assert_awaited_once_with(ws_manager)
@@ -114,16 +115,3 @@ async def test_lifespan_in_desktop_mode_keeps_desktop_credential_and_writes_no_f
         await asyncio.sleep(0)
 
     assert not credential_path.exists()
-
-
-@pytest.mark.asyncio
-async def test_preset_agents_are_not_seeded_while_models_are_not_ready():
-    """模型没有就绪时不写预设 Agent：写入会再次触发模型加载，就绪检查就看不到加载失败。"""
-    system = MagicMock()
-    system.readiness_service.warmup_models = AsyncMock()
-    system.readiness_service.is_models_ready = AsyncMock(return_value=False)
-    system.seed_preset_agent_profiles = AsyncMock(return_value=[])
-
-    await app_module._warm_up_and_seed_presets(system)
-
-    system.seed_preset_agent_profiles.assert_not_awaited()

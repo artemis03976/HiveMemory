@@ -374,9 +374,6 @@ class MemoryGenerationEngine:
         if result is None:
             return None
         memory_type = _producible_memory_type(result.memory_type) or retained.index.memory_type
-        # 普通记忆不能经模型输出变为 Profile；Profile 的创建有独立入口。
-        if memory_type == MemoryType.AGENT_PROFILE:
-            return None
         index = IndexLayer(
             title=result.title,
             summary=result.summary,
@@ -544,16 +541,13 @@ class MemoryGenerationEngine:
             taken=taken_aliases,
         )
 
-        # 相似时也先保留独立的新记忆；策略不同或任一方是 Profile 时不提名合并，
-        # 避免扩大可见范围或覆盖承载结构化配置的 Profile；命中 kept_apart_from
-        # 中的记忆时也不提名。
+        # 相似时也先保留独立的新记忆；策略不同时不提名合并，避免扩大可见范围；
+        # 命中 kept_apart_from 中的记忆时也不提名。
         merge_target_id = None
         if decision == DuplicateDecision.SIMILAR:
             existing_memory = _require_matched_memory(decision, existing_memory)
             if (
                 existing_memory.meta.access_policy == memory.meta.access_policy
-                and existing_memory.index.memory_type != MemoryType.AGENT_PROFILE
-                and memory.index.memory_type != MemoryType.AGENT_PROFILE
                 and str(existing_memory.id) not in kept_apart_from
             ):
                 merge_target_id = str(existing_memory.id)

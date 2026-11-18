@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # 数据模型与可变性边界
@@ -39,7 +39,7 @@ HiveMemory 不把固定 token 切片或整段 session 直接当作长期记忆�
 这个粒度不是“只保存最终答案”的机械清洗规则。原始过程里可能包含决定结论可信度的证据、失败尝试和约束；系统应把适合工作上下文的精炼内容与可追溯的原始材料分开，而不是为了降低 token 成本删除证据。由此形成了延续至当前模型的冰山结构：
 
 - `index` 是水面上的检索视图，保存 title、summary、tags、type 和向量等用于发现记忆的信息；
-- `payload` 是 Agent 真正消费的主体内容，保存结构化正文、可版本化的 `agent_config`（Agent Profile 内容）与 append-only 的 artifacts 聚合（引用、生命周期事件、冷存储定位）；
+- `payload` 是 Agent 真正消费的主体内容，保存结构化正文与 append-only 的 artifacts 聚合（引用、生命周期事件、冷存储定位）；Agent Profile 不是记忆，不在 MemoryAtom 中（[MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)第 1.5 节）；
 - `artifacts`（payload 内）通过 `ArtifactRef` 引用原始输入与版本历史，使精炼结论仍能回到证据；
 - `meta` 保存归属与读取策略（`workspace_identity`/`access_policy`）、结构化来源（`provenance`）、内容修订序号（`version`）与生命周期动态状态（`lifecycle`）四类互不替代的治理信息；
 - `relations` 为版本与知识关系提供结构位置，但当前并非所有关系字段都已有完整业务行为。

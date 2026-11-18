@@ -30,7 +30,6 @@ MEMORY_TYPE_ALIAS_PREFIX: dict[str, str] = {
     "REFLECTION": "ref",
     "USER_PROFILE": "user",
     "RESOURCE": "res",
-    "AGENT_PROFILE": "agent",
 }
 
 # 后缀清洗后的最大长度；加上前缀与消歧后缀仍低于 IndexLayer.alias 的 60 字符上限。

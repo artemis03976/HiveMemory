@@ -46,24 +46,32 @@ def _commands(events: list[dict[str, Any]]) -> list[str]:
 
 
 async def _caller_with_coder_doll(system, e2e_user) -> str:
-    """取一个新的测试用户，并在其 Workspace 中经 root 管理入口创建 coder_doll。
+    """取一个新的测试用户，并经 root 管理入口确保 coder_doll 存在。
 
-    CALL 目标按调用方的 Workspace 解析，Profile 必须与调用方同属一个 Workspace。
+    Profile 是全局的，会话级系统中只建立一次；被调用方能否被 CALL 由调用方 Workspace
+    的访问登记决定，测试用户的 Workspace 都已登记准入。
     """
     user_id = e2e_user()
     workspace = workspace_for(user_id)
+    actor = await root_actor(system, workspace)
+    existing = await system.root_agent_service.list_agent_profiles(
+        target_workspace=workspace, actor=actor
+    )
+    if any(stored.profile.agent_id == "coder_doll" for stored in existing):
+        return user_id
     await system.root_agent_service.create_agent_profile(
+        "coder_doll",
+        {
+            "title": "Coder Doll",
+            "summary": "专用于代码生成的子代理",
+            "persona": (
+                "你是 coder_doll，擅长编写简洁、正确、可读的 Python 代码。"
+                "在收到任务时优先直接给出可运行实现。"
+            ),
+            "temperature": 0.2,
+        },
         target_workspace=workspace,
-        title="Coder Doll",
-        alias="coder_doll",
-        summary="专用于代码生成的子代理",
-        content=(
-            "你是 coder_doll，擅长编写简洁、正确、可读的 Python 代码。"
-            "在收到任务时优先直接给出可运行实现。"
-        ),
-        tags=["agent", "profile", "coder"],
-        agent_config={"model_name": "default", "temperature": 0.2},
-        actor=await root_actor(system, workspace),
+        actor=actor,
     )
     return user_id
 

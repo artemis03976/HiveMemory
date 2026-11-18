@@ -20,7 +20,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/capability.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-18
 ---
 
 # 执行线程
@@ -81,7 +81,7 @@ PREPARE 开始时，执行器把刚解析的图纸交给 `ProcessThreads.derive_
 
 ## 6. CALL 派生与子线程
 
-`agent.call` 与派生分开。actor API 的 `resolve_call_target` 只负责 actor 操作：以调用方线程的工作 actor 授权 `agent.call`，再以调用方的 scope 读取目标 Profile（对调用方不可见与不存在相同），结果只有图纸、不含身份。调用方只能唤起它看得见的 Agent，这是调用方自己的操作。派生是线程的生命周期动作，由入口的 `derive_child_thread(request, *, thread)` 在一次提交内依次完成：
+`agent.call` 与派生分开。actor API 的 `resolve_call_target` 只负责 actor 操作：以调用方线程的工作 actor 授权 `agent.call`，再解析目标 Profile（Profile 是全局的，读取不带 scope），结果只有图纸、不含身份。Profile 没有可见性，能唤起谁由 `agent.call` 与被调用方的准入决定。派生是线程的生命周期动作，由入口的 `derive_child_thread(request, *, thread)` 在一次提交内依次完成：
 
 1. `resolve` 确认调用方存活，取得调用方的工作 actor；
 2. `resolve_call_target` 以它解析图纸；

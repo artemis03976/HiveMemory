@@ -39,7 +39,6 @@ from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
     ExecutionLabels,
-    ResolvedAgentProfile,
     WorkspaceIdentity,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
@@ -187,8 +186,8 @@ def _turn_bus() -> tuple[GlobalSystemBus, PatchouliTurnStub]:
     async def gateway(**_kwargs):
         return GatewayDecisionOutcome(decision=make_gateway_decision())
 
-    async def profile(_agent_id, *, identity_scope, **_kwargs):
-        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+    async def profile(_agent_id, **_kwargs):
+        return OMNI_DOLL_PROFILE
 
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)

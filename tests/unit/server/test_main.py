@@ -146,13 +146,14 @@ def test_desktop_mode_without_credential_exits_before_serving(monkeypatch, deskt
 
 def test_delete_memory_data_removes_only_memory_paths(tmp_path):
     """只删 Artifact、长期归档、关闭时写盘的三份文件（保存的生成工作、写入句柄、生成任务历史，
-    各含 rejected 文件）与预设 Agent 标记；配置、模型缓存与其他文件保留。"""
+    各含 rejected 文件）与预设 Agent 标记；Agent Profile 文件、配置、模型缓存与其他文件保留。"""
     data = tmp_path / ".hivememory"
     config = HiveMemoryConfig(
         system={"preset_agent_profiles_marker": str(data / "seeded")},
         workspace={"write_intents": {"record_file": str(data / "write_intents.json")}},
         patchouli={
             "artifacts": {"root_dir": str(data / "artifacts")},
+            "agent_profiles": {"root_dir": str(data / "agent_profiles")},
             "lifecycle": {"archiver": {"archive_dir": str(tmp_path / "data" / "archived")}},
             "shutdown": {
                 "pending_work_file": str(data / "pending_generation.json"),
@@ -172,6 +173,7 @@ def test_delete_memory_data_removes_only_memory_paths(tmp_path):
         data / "seeded",
     ]
     kept_files = [
+        data / "agent_profiles" / "coder_doll.md",
         tmp_path / "configs" / "config.local.yaml",
         tmp_path / "data" / "model_cache" / "model.onnx",
         tmp_path / ".hivememory" / "logs" / "hivememory.log",

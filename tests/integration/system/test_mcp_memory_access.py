@@ -234,7 +234,6 @@ def _compose(
     read_view = WorkspaceReadView(
         backing=BusCanonicalReadBackend(bus),
         atom_capacity=16,
-        profile_capacity=16,
         intent_record_file=INTENT_RECORD_FILE,
         intent_retention=INTENT_RETENTION,
     )

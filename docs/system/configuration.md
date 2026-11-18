@@ -20,7 +20,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # System 配置与注册表
@@ -46,8 +46,8 @@ last_reviewed: 2026-11-17
 | `import_bus` | `config.import_bus` | 导入请求体上限、提交后等待应用的时限 | System Import Bus |
 | `memory_compiler` | `config.memory_compiler` | 编译策略 | MemoryCompiler 所有者；由组合根注入 workspace 任务进程（检索结果编译）与 Alice（MTP 输出编译） |
 | `attachment_parser` / `attachment_compiler` | `config.attachments` | 附件解析资源限制；附件编译预算 | 附件解析器 / AttachmentCompiler；`attachment_compiler` 由组合根注入 workspace 任务进程 |
-| `workspace` | `config.workspace` | 读取视图缓存容量、会话容量、任务进程关闭等待与写入句柄登记 | workspace |
-| `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置；Patchouli 另有 Librarian 的模型选择与生成参数（`llm`） | 对应子系统 |
+| `workspace` | `config.workspace` | 读取视图的原子缓存容量、会话容量、任务进程关闭等待与写入句柄登记 | workspace |
+| `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置；Patchouli 另有 Librarian 的模型选择与生成参数（`llm`）与 Agent Profile 文件的根目录（`agent_profiles.root_dir`） | 对应子系统 |
 
 访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 Import Bus 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace](../workspace/README.md)。
 
@@ -62,6 +62,10 @@ last_reviewed: 2026-11-17
 话题折叠的 LLM 摘要以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60，大于 0）为每次调用的时限，只在 `relay.engine.type` 为 `llm` 时存在；超时与提供商失败一样回退为规则摘要。折叠在交互提交队列中以独立工作项执行，这一项决定一次折叠最多占用一个执行槽多久。随仓库发布的 `configs/config.yaml` 不写这一项，按默认值运行，语义见[感知与短期话题](../patchouli/perception.md#5-page-folding)。
 
 推理模型的驻留方式按模型配置：`shared.embedding.default` 与 `patchouli.retrieval.reranker` 各有 `residency` 与 `idle_timeout_seconds`。`residency` 取 `resident`（加载后一直驻留到进程结束）或 `idle_unload`（空闲超过时限即卸载，下一次使用时重新加载），两处默认都是 `idle_unload`；`idle_timeout_seconds` 是空闲时限（大于 0），嵌入模型默认 1800 秒、重排模型默认 600 秒。检查周期与开关在 `scheduler.tasks.model_idle_unload_interval_seconds`（默认 60 秒）与 `enable_model_idle_unload`（默认开启）；关闭该任务时模型不卸载。内存充足的机器可以把两处 `residency` 设为 `resident`。语义见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
+
+`patchouli.agent_profiles.root_dir`（默认 `.hivememory/agent_profiles`，相对工作目录即数据根）是 Agent Profile 文件的根目录，一个 Profile 一个文件，不按 Workspace 分目录（[MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)第 1.5 节）。
+
+升级注意（Agent Profile 移出记忆库）：Agent Profile 改为 `patchouli.agent_profiles.root_dir` 下的文件，`workspace.cache.profile_capacity` 随 Profile 缓存删除，个人覆盖或 `HIVEMEMORY__*` 环境变量中仍写着它时启动失败，需要删除。中期库里已有的 Profile 原子不会自动转成文件：新版本把它们当作普通记忆，这些 Agent 不能执行，也不在 Agent 页中。一次性迁移脚本在换装之前、旧版本运行时把它们写成文件，日常库迁移后已删除（提交 `677baa51`）。
 
 升级注意（推理模型驻留）：新增的驻留配置都有默认值，旧配置无需修改即可加载；升级后两个模型默认空闲卸载，想保持加载后一直驻留的原行为，把两处 `residency` 设为 `resident`。`/health/ready` 的含义随之变化：它表示模型至少成功加载过一次，不再表示模型此刻在内存中（[应用服务](./application-services.md#3-系统级服务)）。
 
@@ -98,13 +102,13 @@ last_reviewed: 2026-11-17
 
 `allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆目标，解析后一律以不可运行拒绝）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的系统阶段（Gateway、Profile 解析、附件租借、确定话题、交互提交）由系统执行、不检查执行 Agent 的白名单；预检索是执行 Agent 的检索操作，只在它持有 `memory.search` 时进行。白名单为空的 Agent 因此也能完成对话，只是没有预检索，也不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样由系统执行，不检查参与 Agent 的白名单；插件页安装插件时，为插件的缺省 Agent 补一条 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的精确记录（已有时不改动），供四个记忆工具逐次授权；导入与确定话题本身不读取白名单，写入与更新则先经白名单授权、通过后才确定话题；精确记录优先于用户级记录，这些 Agent 因此不继承 `memory.run` 与 `agent.call`（[Import Bus](./import-bus.md#41-认证与授权)、[MCP 记忆访问](../contracts/mcp.md)）。
 
-访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 的 `agent_config` 不再承载权限，`sys_*` 系统工具不设权限。白名单可以在设置页的“接入与权限”中编辑，也可以修改本文件后重启。
+访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 不承载权限，`sys_*` 系统工具不设权限。白名单可以在设置页的“接入与权限”中编辑，也可以修改本文件后重启。
 
 保留的 `system` 记录只登记准入，不得配置 `allowed_operations`：root 授权只要求 actor 是 `system`，不读取白名单。管理入口、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，用户级记录不覆盖它，因此用于对话、导入或 MCP 写入的 Workspace 都要为该用户单独登记 `system`，否则以 403 `actor_not_admitted` 拒绝。预设 Agent 不经接入登记写入（[桌面客户端](../frontend/desktop-client.md#7-推理模型与首次部署)）；更早生成的生效登记中残留的 `hivememory:profile-injector` 已不再使用，留着不影响启动。
 
 升级注意（能力层分为 root API 与 actor API）：旧名称 `resource.read`、`resource.search`、`profile.read`、`asset.acquire`、`interaction.submit`、`memory_intent.submit`、`task.observe` 与 `management.*` 已删除，配置中出现时装载失败并指出值与记录坐标；`system` 记录配置任何 operation 时同样装载失败。自定义过该文件的部署应改用新名称，并删除 `system` 记录上的 `allowed_operations`。旧 `memory_intent.submit` 拆为 `memory.write` 与 `memory.update`；RUN 的记忆目标改为需要 `memory.run`（不再借用 READ）。缺少对应操作时，MTP 权限拒绝沿用 `mtp.permission.verb_denied` 文案键，缺少 `agent.call` 时 CALL 以准备失败回填。
 
-升级注意（Agent 操作白名单）：Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 已删除，存量图纸中的这两个键在解析时被忽略、不需要迁移，前端也不再提供对应开关。曾依赖它们收窄动词的 Agent，现在按访问登记执行（默认用户级记录为全部六项）；需要收窄时，在本文件为该 Agent 增加精确记录。系统工具无法再按 Agent 限制。CALL 子 Agent 不再按被调用方 Profile 收窄，与父 Agent 的动词集合一致（去掉 CALL）。
+升级注意（Agent 操作白名单）：Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 已删除，前端也不再提供对应开关；Profile 迁成文件时这两个键被丢弃，文件的 frontmatter 中出现它们时这个文件不合格。曾依赖它们收窄动词的 Agent，现在按访问登记执行（默认用户级记录为全部六项）；需要收窄时，在本文件为该 Agent 增加精确记录。系统工具无法再按 Agent 限制。CALL 子 Agent 不再按被调用方 Profile 收窄，与父 Agent 的动词集合一致（去掉 CALL）。
 
 升级注意（执行线程层）：CALL 派生的子 Agent 以目标 Agent 的身份运行，需要目标在同一 Workspace 有准入记录，并按目标自己的白名单授权。随仓库发布的默认登记以用户级记录覆盖该用户的全部 Agent，行为不受影响；只为个别 Agent 配置精确记录的登记，需要为 CALL 目标补充记录，否则这些 CALL 以“agent 不可用”失败。内置图纸（未指定目标、`default` 或 `omni_doll`）以 `omni_doll` 身份运行。
 

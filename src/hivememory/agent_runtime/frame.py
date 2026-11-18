@@ -128,7 +128,7 @@ class ExecutionFrame:
     def __repr__(self) -> str:
         return (
             f"ExecutionFrame(frame={self.runtime_scope.frame_id}, "
-            f"agent={self.agent_profile.model_name}, "
+            f"agent={self.agent_profile.model}, "
             f"topic={self.topic_id}, "
             f"harvested={len(self.harvested_aliases)})"
         )

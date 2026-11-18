@@ -43,6 +43,7 @@ from hivememory.memory_library.adapters.artifact import (
 )
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import (
     ArtifactStore,
@@ -181,6 +182,7 @@ async def test_revive_fails_when_alias_was_taken_during_archive(qdrant_mid_term,
     store, _ = qdrant_mid_term
     scope = _scope()
     library = MemoryLibrary(
+        agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
         short_term=ShortTermMemoryStore(),
         mid_term=store,
         long_term=LongTermMemoryStore(

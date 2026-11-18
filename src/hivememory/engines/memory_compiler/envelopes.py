@@ -75,13 +75,7 @@ def _resolve_section_units(
     """将 section.units 按检索策略编译为 artifacts；已有 artifacts 则直接返回。"""
     if not section.units:
         return section
-    if section.kind == "agent_profiles":
-        artifacts = _compile_units_for_target(
-            section.units,
-            MemoryCompileTarget.AGENT_PROFILE_MENU,
-            options,
-        )
-    elif section.kind == "default":
+    if section.kind == "default":
         artifacts = _compile_units_for_target(
             section.units,
             MemoryCompileTarget.SHARED_CONTEXT,
@@ -213,8 +207,6 @@ def _compile_retrieval_context(
     for section in sections:
         if section.kind == "memories":
             parts.append(_render_retrieval_memories_section(section, language))
-        elif section.kind == "agent_profiles":
-            parts.append(_render_retrieval_agent_profiles_section(section, language))
         elif section.artifacts:
             parts.append("".join(artifact.text for artifact in section.artifacts))
         elif section.empty_text:
@@ -229,18 +221,6 @@ def _render_retrieval_memories_section(
     language: str | None,
 ) -> str:
     title = get_memory_section_title("memories", language)
-    if section.artifacts:
-        return f"\n### {title}\n" + "".join(artifact.text for artifact in section.artifacts)
-    if section.empty_text:
-        return f"\n### {title}\n{section.empty_text}"
-    return ""
-
-
-def _render_retrieval_agent_profiles_section(
-    section: MemorySectionIR,
-    language: str | None,
-) -> str:
-    title = get_memory_section_title("agent_profiles", language)
     if section.artifacts:
         return f"\n### {title}\n" + "".join(artifact.text for artifact in section.artifacts)
     if section.empty_text:

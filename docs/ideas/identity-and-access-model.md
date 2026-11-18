@@ -36,7 +36,7 @@ related_docs:
   - docs/archive/plans/unified-identity-authorization-entry.md
   - docs/archive/plans/workspace-asset-ownership-split.md
   - docs/archive/plans/memory-visibility-management.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-18
 ---
 
 # 身份与访问体系
@@ -248,7 +248,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 需要回答：
 
 - **授予模型**：谁能对哪个非驻留 Workspace 做什么。分析（2026-10-10）：一次跨 Workspace 的操作要同时满足 agent 自身的白名单与目标一侧的授予；
-- **agent 的身份**：Agent Profile 是某个 Workspace 中的记忆原子，`agent_id` 即其 alias，只在该 Workspace 内唯一，不同 Workspace 中的同名 agent 是两条独立的原子。“同一 agent 在不同 Workspace 有不同能力”只会出现在穿透访问中，那时 actor 身份需要带上驻留 Workspace（分析，2026-10-10）；
+- **agent 的身份**（owner，2026-11-18）：agent 的定义是全局的，它作为工作者进入 Workspace，不是 Workspace 的资产。Agent Profile 是 AgentProfileStore 中的全局文件，`agent_id` 在实例内唯一；能否在某个 Workspace 工作、在那里能做什么，由该 Workspace 的访问登记决定。2026-10-10 的分析以“Profile 是某个 Workspace 中的记忆原子、同名 agent 在不同 Workspace 是两条独立的原子”为前提，这个前提来自 v0.6.2 把全部中期读取按 Workspace 限定时的连带结果，并非决定，已不成立。穿透访问中，“同一 agent 在不同 Workspace 有不同能力”仍由各 Workspace 的访问登记表达，工作 actor 的驻留 Workspace 区分它此刻在哪里工作；
 - **目标的表达**：执行一侧如何给出目标，见本节末尾的 T-5b；
 - **资源边界**：资源 owner 仍按目标 Workspace 校验归属；同一进程内会同时出现多个目标 Workspace 的资源，派生缓存按派生源坐标键控，不能从 scope 的存在推导隔离；
 - **与子网的关系**：Mount、Bridge 与能力子网是更完整的形态（[AE2 Idea](./ae2-hivememory-architecture-analogy.md)，GitHub Epic #92 的主子网部分），穿透访问的授予模型应能向它扩展。
@@ -278,6 +278,8 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 - **root 的声明范围**（owner，2026-10-20）：能以保留的 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问，其他接入来源不能声明 `system`。已落实（2026-10-29，[记忆访问计划](../archive/plans/v0.7.1-memory-access-mcp.md)）：接入登记的 `allow_system_actor` 逐个声明能否声明 `system`，默认不能，server 显式允许，外部 harness 不能（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。2026-11-06 起，系统自身的 principal `hivememory:system` 同样允许，供任务进程与 Import Bus 执行系统级操作（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。预设 Agent 的注入不在这条规则的范围内（owner，2026-10-20）：只在初次部署时进行，不经过权限系统。已随桌面客户端落地（2026-11-10）：数据根第一次启动、模型就绪后，System 经 Patchouli 以所属 Workspace 的 `system` 直接写入预设，留下标记只写一次；原来的注入脚本与它的接入登记 `hivememory:profile-injector` 已删除（[桌面客户端](../frontend/desktop-client.md#7-推理模型与首次部署)）。
 
 **相关 Todo 与治理工作包**
+
+- `agent_id` 是名字而不是不透明的 id（owner，2026-11-18 提出）：它是 `ActorIdentity` 的一部分，访问登记、外部接入的 `allowed_agent_ids`、对话请求、会话记录、记忆来源与 CALL 都按它引用，只给 Agent Profile 加一个 id 解决不了改名；是否换成不透明的 id 归这条线，与 [Agent 别名改名 Todo](../todo/agent-alias-rename.md) 一起考虑。v0.8.0 的 AgentProfileStore 保持 `agent_id` 作为不可改的标识（owner，2026-11-18）。
 
 - 前端身份切换时的持久化、失效与清理：不单独追踪，出现登录或 Workspace 切换时再计划（owner，2026-11-09；原 Todo 删除前的最后版本见 commit `3cfdec9d`），对应[身份治理](../governance/security/identity-and-execution-safety.md) Phase S4；
 - 身份与威胁模型清单（身份治理 Phase S0）：身份输入与授权所有者的盘点已由[现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)完成（2026-11-05）；越权、Profile 过期等最小复现样本不单独立项，随相关条目实施时补上（owner，2026-11-06）。

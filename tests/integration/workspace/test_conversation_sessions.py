@@ -5,7 +5,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.errors import OperationDeniedError
-from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
+from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -108,9 +108,7 @@ async def test_submitted_turns_are_saved_with_applied_topic_and_agents_can_switc
         )
 
     async def profile(agent_id, **kwargs):
-        return ResolvedAgentProfile(
-            profile=OMNI_DOLL_PROFILE,
-        )
+        return OMNI_DOLL_PROFILE
 
     patchouli = PatchouliTurnStub().install(bus)
     bus.register(GatewayPublicRoutes.PROCESS, gateway)

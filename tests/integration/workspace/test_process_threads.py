@@ -16,7 +16,6 @@ from hivememory.core.models import (
     ActorIdentity,
     AgentProfile,
     ExecutionLabels,
-    ResolvedAgentProfile,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
@@ -578,7 +577,7 @@ def process_chain():
         return GatewayDecisionOutcome(decision=make_gateway_decision())
 
     async def profile(*_args, **_kwargs):
-        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+        return OMNI_DOLL_PROFILE
 
     async def submit(*, identity_scope, interaction_id, requested_topic_id, **_kwargs):
         assert chain.cpu.finished

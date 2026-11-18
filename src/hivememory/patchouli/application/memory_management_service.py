@@ -4,13 +4,11 @@ from typing import Any
 from uuid import UUID
 
 from hivememory.core.errors import (
-    InvalidMemoryFieldError,
     ResourceUnavailableError,
 )
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
-    MemoryType,
     require_identity_scope,
 )
 from hivememory.core.models.query import QueryFilters
@@ -47,9 +45,6 @@ class MemoryManagementService:
     ) -> MemoryAtom:
         """以提交的材料在目标 Workspace 中创建记忆，来源记录取自本次发起者。"""
         scope = require_identity_scope(identity_scope)
-        if creation.memory_type is MemoryType.AGENT_PROFILE:
-            # Profile 只经 Profile 创建入口创建，记忆入口不能借道绕开 Profile 的约束。
-            raise InvalidMemoryFieldError("AGENT_PROFILE 只能经 Agent Profile 创建入口创建")
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_CREATE,
             scope.workspace_identity,
@@ -131,7 +126,6 @@ class MemoryManagementService:
             content=edit.content,
             alias=edit.alias,
             tags=list(edit.tags) if edit.tags is not None else None,
-            agent_config=edit.agent_config,
             access_policy=edit.access_policy,
         )
 

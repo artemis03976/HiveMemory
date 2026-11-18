@@ -10,13 +10,14 @@ code_paths:
   - src/hivememory/infrastructure/rerank/
   - src/hivememory/patchouli/service.py
   - src/hivememory/core/models/agent.py
+  - src/hivememory/memory_library/agent_profiles.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-18
 ---
 
 # 记忆检索
@@ -47,7 +48,7 @@ RetrievalRequest
 
 `RetrievalEngine` 是很薄的执行层：编排召回与重排两个阶段，在重排之后做唯一一次截取，并统计 latency/count。业务过滤、话题读取、Agent Profile 读取和生命周期副作用由 RetrievalFamiliar 承担。
 
-## 2. 三种读取面
+## 2. 读取面
 
 ### 2.1 短期话题读取
 
@@ -57,13 +58,19 @@ RetrievalFamiliar 通过 MemoryLibrary.short_term 返回不可变 `TopicData` �
 
 ### 2.2 中期记忆读取
 
-中期读取包括 UUID、alias、scroll/list 和相关性搜索，内部方法显式接收归属与发起者。Agent Profile 也以 `MemoryType.AGENT_PROFILE` 的 MemoryAtom 保存。只有未指定 Profile 时才允许使用内置 `OMNI_DOLL_PROFILE` fallback；`default` / `omni_doll` 是对该内置 Profile 的直接选择。显式自定义 alias 在公共边界必须携带 `IdentityScope`，拆分后先通过 Workspace ownership hard filter，再执行 Workspace 内的 PUBLIC / TEAM / PRIVATE actor policy；缺失、越权、类型不符、配置无效、已停用或存储失败都显式返回对应结构化错误。
-
-Profile 的 `agent_config.enabled`（`AgentProfile.enabled`，缺省为启用，没有这个键的存量 Profile 读作启用）为假时，解析在类型与配置校验之后以 `ProfileResolutionError(reason="profile_disabled")` 拒绝：以停用的 Agent 发起对话时，任务进程在 PREPARE 开始解析 Profile 时失败；CALL 到停用的子 Agent 时，调用方得到“目标不可用”（[错误模型](../contracts/error-model.md#45-memory-输入校验与存储错误)）。停用只决定图纸能否用于执行，不是操作权限，权限仍只由 Workspace 访问登记表达；Agent Profile 列表照常返回停用的 Profile，管理页据此显示与切换。拒绝放在唯一的解析实现中，任务进程与 CALL 两条加载路径因此得到同一个判定。
+中期读取包括 UUID、alias、scroll/list 和相关性搜索，内部方法显式接收归属与发起者。
 
 ### 2.3 长期归档读取
 
 Familiar 可查询 archive records 或检查 `is_archived`，但普通检索只搜索中期 Qdrant。长期冷藏记忆不会自动混入召回，也不会因搜索 miss 自动 revive。
+
+### 2.4 Agent Profile 解析
+
+`RetrievalFamiliar.get_agent_profile` 是 Profile 解析的唯一实现，读取 AgentProfileStore 中的文件（[MemoryLibrary](./memory-library.md#15-agent-profile人偶图纸)第 1.5 节），任务进程加载执行者的图纸与 CALL 解析被调用方都经它。只有未指定 Profile 时才使用内置 `OMNI_DOLL_PROFILE`；`default` / `omni_doll` 是对该内置 Profile 的直接选择，每次交出独立副本。其余 `agent_id` 读取同名的 Profile 文件：没有文件时为 `ResourceNotFoundError`；文件不合格时为 `ProfileResolutionError(reason="invalid_config")`；`enabled` 为假时为 `ProfileResolutionError(reason="profile_disabled")`。三种失败都不降级为内置 Profile。每次解析都直接读文件，改动在下一次解析时生效。
+
+Profile 是全局的，没有可见性，解析路由不接收 `IdentityScope`：调用方在解析之前已经完成授权（任务进程以 root 授权，CALL 以 `agent.call`）。以停用的 Agent 发起对话时，任务进程在 PREPARE 开始解析 Profile 时失败；CALL 到停用的子 Agent 时，调用方得到“目标不可用”（[错误模型](../contracts/error-model.md#45-memory-输入校验与存储错误)）。停用只决定图纸能否用于执行，不是操作权限，权限仍只由 Workspace 访问登记表达；Agent Profile 列表照常返回停用的 Profile，管理页据此显示与切换。拒绝放在唯一的解析实现中，任务进程与 CALL 两条加载路径因此得到同一个判定。
+
+Profile 不是记忆，不出现在检索结果中：预检索、MTP SEARCH 与 MCP `memory_search` 都只返回记忆原子。迁移之前留在中期库的 `AGENT_PROFILE` 原子照常解码，按普通记忆交付，但不再被解析为 agent。
 
 ## 3. 身份与可见性过滤
 
@@ -71,7 +78,7 @@ Familiar 可查询 archive records 或检查 `is_archived`，但普通检索只�
 
 Qdrant 当前先要求记忆的 `workspace_identity` 与请求 Workspace 完全匹配；归属只由 canonical owner/workspace 投影字段表达，对旧 main-workspace 记录的受控兼容分支已随存量迁移完成删除（不再存在 `meta.user_id` OR 分支与 legacy visibility 分支）。通过 ownership hard filter 后，再按记忆的 actor read policy 选择：`PUBLIC` 对 Workspace 内所有已获准执行者可读，`TEAM` 仅目标 team 可读，`PRIVATE` 仅目标 agent 可读。因而 `PUBLIC` 也不表示跨 Workspace 或跨用户公开。
 
-QdrantStorageAdapter 对 UUID、alias、scroll 与 search 返回的每个原子重验归属与读取策略，不能仅信任向量服务的过滤结果。`enforce_actor_visibility=False` 只用于已经授权的管理读取，预过滤与返回校验均跳过 actor policy，Workspace hard boundary 和业务过滤仍生效；Agent 检索与 Profile 解析不使用该开关。来源字段和贡献者筛选只是业务过滤，不构成读取授权。
+QdrantStorageAdapter 对 UUID、alias、scroll 与 search 返回的每个原子重验归属与读取策略，不能仅信任向量服务的过滤结果。`enforce_actor_visibility=False` 只用于已经授权的管理读取，预过滤与返回校验均跳过 actor policy，Workspace hard boundary 和业务过滤仍生效；Agent 检索不使用该开关。来源字段和贡献者筛选只是业务过滤，不构成读取授权。
 
 当前 converter 尚未把 `tags` 与 `time_range` 转为 Qdrant 条件；它们出现在模型中，但不是已经生效的过滤能力。文档和 API 不能仅因字段存在就宣称完整支持。
 
@@ -145,7 +152,7 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 
 ## 8. 失败与降级
 
-普通检索传播中立的存储故障、未知程序异常与取消；dense/sparse/hybrid 的失败不伪装为空成功。重排阶段是唯一的保守降级：重排模型未加载或重排计算失败时返回召回结果（第 5 节），不影响召回本身的失败传播。Profile 缺失/不可见使用 `ResourceNotFoundError`，已找到但类型或配置无效、或已停用使用 `ProfileResolutionError`，由 CALL 或 CPU 分配边界各自处理，不回退 Omni-Doll。这个边界让调用方区分书库离线、配置损坏与真正无命中；分类见[错误模型](../contracts/error-model.md)。
+普通检索传播中立的存储故障、未知程序异常与取消；dense/sparse/hybrid 的失败不伪装为空成功。重排阶段是唯一的保守降级：重排模型未加载或重排计算失败时返回召回结果（第 5 节），不影响召回本身的失败传播。Profile 缺失使用 `ResourceNotFoundError`，文件不合格或已停用使用 `ProfileResolutionError`，由 CALL 或 CPU 分配边界各自处理，不回退 Omni-Doll。这个边界让调用方区分书库离线、配置损坏与真正无命中；分类见[错误模型](../contracts/error-model.md)。
 
 空 response 表示成功读取后没有命中，或调用策略显式跳过检索；健康判断使用独立的 health 契约，不能从一次空结果推断依赖状态。
 

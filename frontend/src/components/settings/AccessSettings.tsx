@@ -313,8 +313,8 @@ export function AccessSettings() {
   };
 
   const profileAgents = rawAgents
-    .map((a) => a.alias)
-    .filter((alias) => !records.some((r) => r.agent_id === alias));
+    .map((a) => a.agent_id)
+    .filter((agentId) => !records.some((r) => r.agent_id === agentId));
 
   if (loading) {
     return (
@@ -416,7 +416,7 @@ export function AccessSettings() {
                 className="bg-field border border-line rounded-lg px-3 py-1.5 text-sm text-fg"
               >
                 <option value="">从已有 Agent 中选择</option>
-                {profileAgents.map((alias) => <option key={alias} value={alias}>{alias}</option>)}
+                {profileAgents.map((agentId) => <option key={agentId} value={agentId}>{agentId}</option>)}
               </select>
             )}
             <button onClick={() => void addRecord()} disabled={busy || !newAgent.trim()} className={buttonCls}>
