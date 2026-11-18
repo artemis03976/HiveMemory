@@ -12,7 +12,7 @@ last_reviewed: 2026-11-18
 
 ## v0.8.0
 
-- [AgentProfileStore：Agent Profile 移出中期记忆库，以文件保存并热重载](./v0.8.0-agent-profile-store.md)：2026-11-18，分支 `feat/v0.8.0-agent-profile-store`（尚未提交）；[MemoryLibrary 与存储层](../../patchouli/memory-library.md#15-agent-profile人偶图纸)、[任务进程](../../workspace/task-process.md#6-cpu-分配)
+- [AgentProfileStore：Agent Profile 移出中期记忆库，以文件保存并热重载](./v0.8.0-agent-profile-store.md)：2026-11-18，PR #226；[MemoryLibrary 与存储层](../../patchouli/memory-library.md#15-agent-profile人偶图纸)、[任务进程](../../workspace/task-process.md#6-cpu-分配)
 - [记忆类型的收敛：去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](./v0.8.0-memory-type-convergence.md)：2026-11-17，PR #225；[Patchouli 生成](../../patchouli/generation.md#3-三种生成模式)、[MTP 契约](../../contracts/mtp.md#33-run)
 
 ## v0.7.3
