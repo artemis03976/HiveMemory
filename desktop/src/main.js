@@ -240,8 +240,8 @@ async function deleteMemoryData() {
     message: '删除全部记忆数据？',
     detail:
       `数据目录：${services.layout.dataRoot}\n\n` +
-      '会删除：全部记忆与 Agent（包括预设 Agent，重启后重新写入）、来源与版本记录、长期归档，以及还没生成完的记忆工作。\n\n' +
-      '会保留：配置、Provider 密钥、harness 接入凭据、推理模型与日志。删除后 HiveMemory 会重新启动，可以直接继续使用。',
+      '会删除：全部记忆、来源与版本记录、长期归档，以及还没生成完的记忆工作。\n\n' +
+      '会保留：Agent、配置、Provider 密钥、harness 接入凭据、推理模型与日志。删除后 HiveMemory 会重新启动，可以直接继续使用。',
     buttons: ['继续', '取消'],
     defaultId: 1,
     cancelId: 1,
