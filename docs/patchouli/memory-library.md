@@ -6,23 +6,24 @@ scope: storage-ownership-and-tier-transitions
 code_paths:
   - src/hivememory/memory_library/
   - src/hivememory/infrastructure/storage/
+  - src/hivememory/memory_library/agent_profiles.py
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # MemoryLibrary 与存储层
 
-MemoryLibrary 是 Patchouli 对记忆存储所有权的工程表达。它不是一个对所有后端都透明的万能 Repository，也不负责决定何时生成记忆；它把短期话题、中期可检索记忆、长期冷存储和 artifact 旁路放在同一个组合边界内，并确保跨层状态转移只有一个编排者。
+MemoryLibrary 是 Patchouli 对记忆存储所有权的工程表达。它不是一个对所有后端都透明的万能 Repository，也不负责决定何时生成记忆；它把短期话题、中期可检索记忆、长期冷存储、artifact 旁路与 Agent Profile 文件放在同一个组合边界内，并确保跨层状态转移只有一个编排者。
 
 早期实现让感知层直接创建短期 store，让 archiver 同时知道向量库与文件系统，让 generation 又直接决定落库。这样的组件各自都能完成局部任务，却没有任何一个位置能够回答“这条记忆此刻究竟在哪一层”。MemoryLibrary 的首要价值不是减少代码，而是建立存储事实的单一所有者。
 
 代码位于 L2 的 `hivememory.memory_library`，与 engines 同层（2026-11-09 从 Patchouli 包内下移）：存储层只依赖 core、engines 的模型与编解码和 infrastructure，engines 的查重检索、生命周期与 Artifact 构建又直接使用存储类型，放在 Patchouli 包内时这些用法都成了向上导入。所有权不随代码位置改变：只有 Patchouli runtime 构造并持有它，分层测试只允许 Patchouli 与 engines 导入它，其他子系统经 Patchouli 的公开 route 访问记忆与 Artifact。
 
-## 1. 四种存储角色
+## 1. 存储角色
 
 ```text
 MemoryLibrary
@@ -32,9 +33,12 @@ MemoryLibrary
   │    └─ QdrantStorageAdapter -> QdrantMemoryStore
   ├─ LongTermMemoryStore -> LongTermStoragePort
   │    └─ FileBasedStorageAdapter
-  └─ ArtifactStore -> ArtifactStoragePort
-       └─ FilesystemArtifactStorageAdapter (optional)
+  ├─ ArtifactStore -> ArtifactStoragePort
+  │    └─ FilesystemArtifactStorageAdapter (optional)
+  └─ AgentProfileStore（每个 Agent Profile 一个 Markdown 文件）
 ```
+
+前三个是三层记忆存储，记忆在它们之间迁移；ArtifactStore 与 AgentProfileStore 属于 MemoryLibrary，但不在三层之中，不参与冷热迁移。
 
 ### 1.1 短期：话题工作台
 
@@ -52,7 +56,7 @@ MemoryLibrary
 
 中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。集合按一个 segment 优化：Qdrant 缺省按 CPU 核数分 segment，每个 segment 为稠密向量、稀疏向量与 payload 各预分配 32 MB，475 条记忆在 24 核的机器上分成 8 个、占 865 MB 磁盘，一个 segment 约 160 MB；个人规模的记忆量用不上多个 segment 的并行检索。新集合按此建立，按缺省配置建立的已有集合在启动时改为一个 segment，由 Qdrant 的优化器在后台合并。它提供完整原子提交 `upsert(memory, recompute_vectors=...)`、受限局部更新 `patch_payload(key, patch)`、UUID/alias 读取、删除、scroll、计数、维护遍历以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
 
-scroll 按 Qdrant 的 point ID 顺序读取一页，返回本页与下一页的游标（取完时为空），顺序与写入时间无关；需要完整列表的调用方跟随游标取全后自行排序。计数与 scroll 使用同一组归属、可见性与业务过滤条件；业务过滤可以排除指定类型，排除在存储侧完成，所以每页条数与计数都不受影响。管理列表以此排除 Agent Profile。
+scroll 按 Qdrant 的 point ID 顺序读取一页，返回本页与下一页的游标（取完时为空），顺序与写入时间无关；需要完整列表的调用方跟随游标取全后自行排序。计数与 scroll 使用同一组归属、可见性与业务过滤条件；业务过滤可以排除指定类型，排除在存储侧完成，所以每页条数与计数都不受影响。
 
 Actor 读取（UUID、alias、scroll 与 search）独立接收 `belong_to` 和必填 `from_actor`，先检查资源归属，再应用 `MemoryAccessPolicy`。Qdrant 条件只是预过滤，adapter 在返回对象前再次校验归属与 actor 可见性；管理读取可以显式关闭 actor policy，但不能关闭归属校验。已获管理授权的内容编辑、删除、生命周期 patch 与按复合键读取只按资源归属定位，不把来源 Agent 当作授权条件，也不在 Store 内重组 `IdentityScope`。
 
@@ -60,11 +64,11 @@ Actor 读取（UUID、alias、scroll 与 search）独立接收 `belong_to` 和�
 
 持久化 payload 的读取统一经 `decode_memory_payload` 规范化，只接受 Memory schema `"2.1"`（其他版本 fail closed；整数 `2` 的兼容解码分支已随 2026-09-23 全量迁移完成而删除，迁移执行记录见[归档 Plan](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)附录 B.5）。
 
-`upsert(recompute_vectors=False)` 用于 embedding 输入未变化的完整提交（如仅修改 `payload.agent_config`）：以 `set_payload` 替换整份 payload 并原样保留向量。`patch_payload` 是动态状态与资源策略的唯一持久化路径：只接受 `meta.lifecycle.*` 七个白名单字段与 `meta.access_policy` 整体替换，按嵌套键做 Qdrant 局部更新，不重算向量、不写版本 Artifact、不改内容时间与版本；未知路径、空 patch 或未通过领域校验的值直接拒绝。
+`upsert(recompute_vectors=False)` 用于 embedding 输入未变化的完整提交（如仅修改正文）：以 `set_payload` 替换整份 payload 并原样保留向量。`patch_payload` 是动态状态与资源策略的唯一持久化路径：只接受 `meta.lifecycle.*` 七个白名单字段与 `meta.access_policy` 整体替换，按嵌套键做 Qdrant 局部更新，不重算向量、不写版本 Artifact、不改内容时间与版本；未知路径、空 patch 或未通过领域校验的值直接拒绝。
 
-记忆的读取策略在创建时确定：管理入口的手动创建可以给出 PUBLIC 或指向一个 Agent 的 PRIVATE，没有给出时为 PUBLIC；被动提取、Agent 的写入与 Agent Profile 都是 PUBLIC。创建之后策略只有一个修改入口：管理编辑经 `MemoryGenerationFamiliar` 以 `patch_payload` 替换 `meta.access_policy`（[管理页面](../frontend/management-views.md#111-可见范围)）。同一次编辑也改了内容时，先提交内容、再替换策略：内容提交写回的是编辑开始时读到的整条原子，先写的策略会被它改回旧值；两步之间没有原子保证，策略写入失败时内容已经提交。Agent Profile 的策略决定 CALL 能否看到这个 Agent，记忆编辑对它提交策略时以 `InvalidMemoryFieldError` 拒绝。策略变更同样经下文的变更事件让读取视图失效，Mode C 修订写回前沿用当前策略（[Patchouli 生成](./generation.md#33-mode-c主动-update)）。
+记忆的读取策略在创建时确定：管理入口的手动创建可以给出 PUBLIC 或指向一个 Agent 的 PRIVATE，没有给出时为 PUBLIC；被动提取与 Agent 的写入都是 PUBLIC。创建之后策略只有一个修改入口：管理编辑经 `MemoryGenerationFamiliar` 以 `patch_payload` 替换 `meta.access_policy`（[管理页面](../frontend/management-views.md#111-可见范围)）。同一次编辑也改了内容时，先提交内容、再替换策略：内容提交写回的是编辑开始时读到的整条原子，先写的策略会被它改回旧值；两步之间没有原子保证，策略写入失败时内容已经提交。策略变更同样经下文的变更事件让读取视图失效，Mode C 修订写回前沿用当前策略（[Patchouli 生成](./generation.md#33-mode-c主动-update)）。
 
-alias 在同一 Workspace 的中期库内唯一。`upsert` 是全部完整写入（生成、手工编辑、Profile 管理创建、revive）的汇聚点，在主后端写入前检查 alias 是否已被同一 Workspace 的其他 Memory 占用，冲突时抛 `MemoryAliasConflictError`（`reason=alias_occupied`）且不产生任何写入；没有 alias 的原子不参与该约束，原子自身已持有该 alias 视为可用。归档即释放 alias，revive 时撞名显式失败；`patch_payload` 白名单不含 `index.alias`，不需要校验。精确 alias 查询命中多条时 fail closed（`reason=ambiguous_alias`），不按存储顺序任取其一。并发写入者之间“检查→写入”的竞态不在保证范围内。
+alias 在同一 Workspace 的中期库内唯一。`upsert` 是全部完整写入（生成、手工编辑、revive）的汇聚点，在主后端写入前检查 alias 是否已被同一 Workspace 的其他 Memory 占用，冲突时抛 `MemoryAliasConflictError`（`reason=alias_occupied`）且不产生任何写入；没有 alias 的原子不参与该约束，原子自身已持有该 alias 视为可用。归档即释放 alias，revive 时撞名显式失败；`patch_payload` 白名单不含 `index.alias`，不需要校验。精确 alias 查询命中多条时 fail closed（`reason=ambiguous_alias`），不按存储顺序任取其一。并发写入者之间“检查→写入”的竞态不在保证范围内。
 
 `MidTermMemoryStore` 可以持有一个 primary 和可选 secondary port。完整写入、payload patch 与删除按顺序把同一变更同步到各 secondary 并传播存储错误，读取只走 primary。当前 Runtime 只装配 Qdrant primary；secondary 仍是扩展点，不代表已经拥有多后端一致性协议。
 
@@ -85,6 +89,14 @@ ArtifactStore 不属于三段冷热迁移链。它保存原始交互、外源文
 详细模型与一致性边界见[Artifacts 与来源追踪](./artifacts.md)。
 
 Artifact 的 get、exists、list 与 verify 只接收 `belong_to`；ref 中的归属、索引与文件内归属必须一致。归属不能从 turn actor 或 provenance 推导，历史 actor 中的 session 字段也不影响资源寻址。
+
+### 1.5 Agent Profile：人偶图纸
+
+AgentProfileStore 保存 Alice 的“人偶图纸”：一个 Agent Profile 一个 Markdown 文件，位于 `<agent_profiles.root_dir>/<agent_id>.md`。文件名就是 `agent_id`，只用小写字母、数字、`_` 与 `-`（至多 60 个字符；Windows 文件名不分大小写，大小写不同的两个 id 会指向同一个文件），不能是内置的 `default`、`omni_doll` 与保留的 `system`；创建后不可改。frontmatter 只有 `title`（用户给它起的名字，用于展示）、`summary`（它负责的功能）、`model`（模型注册表中的模型 id）、`temperature`、`top_p`（为空时沿用模型定义）与 `enabled`；正文是人设提示词。没有标签、访问策略、版本与生命力，也不保留编辑历史：Profile 不是记忆原子，不经过 `MemoryGenerationFamiliar`，Profile 曾是中期记忆时写下的版本 Artifact 原样保留（`AGENT_PROFILE` 因此只作历史取值留在 `MemoryType` 中）。
+
+读取与列出每次都直接读目录，不设缓存：直接改动文件与经 Agent 页保存等同，下一次读取就生效，后端不需要重启。写入与读取共用同一套校验：保存先按读取的规则校验，再写临时文件、替换原文件，替换失败时原文件不变；读取时不合格的文件（文件名、frontmatter 字段或取值不合法）在列出时跳过并记一条带原因码的日志，按 `agent_id` 读取时以 `InvalidAgentProfileError` 失败，解析为可执行的 Profile 时转为 `invalid_config`（[检索](./retrieval.md#24-agent-profile-解析)第 2.4 节）。取值按严格模式校验，`temperature: "0.3"` 这类字符串数字也被拒绝。保存时间取文件的修改时间。
+
+Profile 是全局的，不属于任何 Workspace，也没有可见性：agent 作为工作者进入 Workspace，能否在某个 Workspace 执行或被调用，由该 Workspace 访问登记的准入与 CALL 授权决定（[执行线程](../workspace/execution-threads.md)）。同一实例的全部用户共用这一组 Profile。删除记忆数据不删除 Profile 文件（[桌面客户端](../frontend/desktop-client.md#6-删除记忆数据)）。管理（新建、编辑、删除、列出）由 Patchouli 的 `AgentProfileManagementService` 直接读写本 Store；新建遇到同名文件时以 `AgentProfileExistsError` 拒绝，不覆盖。
 
 ## 2. 状态转移
 
@@ -129,7 +141,7 @@ Revive 当前由 Patchouli local route 暴露给内部用例。它是显式状�
 
 ## 3. 健康语义
 
-`MemoryLibrary.check_storage_health()` 聚合四类组件：
+`MemoryLibrary.check_storage_health()` 聚合四类组件（AgentProfileStore 是本地目录，不参与健康检查）：
 
 - short term、mid term、long term 是 required；
 - artifact store 为 optional，关闭时报告 `healthy=true, required=false, detail=disabled`；
@@ -146,7 +158,8 @@ Patchouli 的 `RUNTIME_STORAGE_HEALTH` 使用该聚合结果。任务进程在 P
 - `storage`：Qdrant 地址、collection、向量维度、部署与启动参数；
 - `perception.engine.max_resident_topics`：短期活跃话题上限；
 - `lifecycle.archiver`：冷存储目录与压缩；
-- `artifacts`：artifact 根目录、摘要内联长度和各 builder 开关；**memory 版本记录组件关闭时内容 create/update 会失败**（Runtime 装配处输出启动诊断，既有读取与 lifecycle 更新不受影响）。
+- `artifacts`：artifact 根目录、摘要内联长度和各 builder 开关；**memory 版本记录组件关闭时内容 create/update 会失败**（Runtime 装配处输出启动诊断，既有读取与 lifecycle 更新不受影响）；
+- `agent_profiles.root_dir`：Agent Profile 文件的根目录，默认 `.hivememory/agent_profiles`，相对路径按工作目录（数据根）解析。
 
 Runtime 是唯一装配入口。Engine、Familiar 和应用服务不能自行重新读取配置并创建另一套 store，否则会破坏“同一进程只有一个 MemoryLibrary 状态图”的前提。
 

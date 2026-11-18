@@ -31,7 +31,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # 跨边界错误模型
@@ -131,7 +131,6 @@ cause        内部原因，只供调试，序列化时排除
 | `mtp.memory.not_found` | 保留的兼容类别，当前无生产路径 |
 | `mtp.memory.intent_rejected` | 写入意图明确未接纳 |
 | `mtp.memory.intent_unknown` | 派发结果未知，原句柄可能继续结算 |
-| `mtp.memory.type_mismatch` | 记忆类型不适用于操作（CALL 目标不是 Agent Profile） |
 | `mtp.argument.invalid` | 参数缺失或格式错误 |
 | `mtp.permission.denied` | frame 动词集合（由输入清单或被调用方的操作快照翻译，子帧移除 CALL）、Workspace actor 操作拒绝，或 CALL 目标不可用 |
 | `mtp.system.storage_offline` | 存储离线 |
@@ -297,16 +296,18 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 |:---|:---|:---|:---|
 | `InvalidMemoryFieldError` | 接收外部输入的 Memory 构造/编辑点（管理创建、外部编辑），包装 Pydantic `ValidationError` | 422 | 调用方提交的字段取值不满足领域约束；内部保留字段诊断，HTTP 返回固定安全提示，与程序错误区分 |
 | `StorageWriteError` | Qdrant 写入路径（`upsert_memory` / `patch_memory_payload` 等） | 5xx | 存储写入失败的结构化表达，与 `StorageOfflineError`/`StorageReadError` 同族；失败沿调用链传播，不能被吞成成功或空结果 |
-| `MemoryAliasConflictError`（`workspace.memory.alias_conflict`） | 中期库 `upsert` 写入前校验、生成侧 `AliasGenerator`、精确 alias 查询 | 409（Memory 与 Agent Profile 管理 HTTP 入口） | 同一 Workspace 中期库内的 alias 唯一性不变量被破坏；`details.reason` 区分 `alias_occupied`（被其他 Memory 占用，本次不写入）、`alias_candidates_exhausted`（消歧候选耗尽）与 `ambiguous_alias`（精确查询命中多条，读取 fail closed） |
+| `MemoryAliasConflictError`（`workspace.memory.alias_conflict`） | 中期库 `upsert` 写入前校验、生成侧 `AliasGenerator`、精确 alias 查询 | 409（Memory 管理 HTTP 入口） | 同一 Workspace 中期库内的 alias 唯一性不变量被破坏；`details.reason` 区分 `alias_occupied`（被其他 Memory 占用，本次不写入）、`alias_candidates_exhausted`（消歧候选耗尽）与 `ambiguous_alias`（精确查询命中多条，读取 fail closed） |
 | `MemoryUpdateBaseChangedError`（`workspace.memory.update_base_changed`） | Familiar 修订写回前的重读 | 不经 HTTP 呈现；UPDATE 任务以该原因码失败收尾，写入意图的失败事件带上它，读取句柄时说明基础在排队期间被修改、需要重新读取后再更新 | 基础记忆的内容版本与 UPDATE 登记时记下的不同，修订不写回，期间的修改保留；`details` 带 `memory_id`、`base_version` 与 `current_version` |
-| `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`） | Familiar 的合并路径 | 不经 HTTP 呈现；合并任务以 `merge_aborted.<details.reason>` 失败收尾，任务快照的公开 error 仍是固定说明 | 两条记忆的合并在读取、条件、版本或模型输出上不满足要求，两条记忆都保持不变，不回退为追加或覆盖；`details.reason` 区分 `memory_missing`（任一记忆缺失或对发起者不可见）、`not_mergeable`（访问策略不同、任一方是 Profile，或吸收自身）、`version_changed`（写回前内容版本已变）与 `model_output_invalid`（模型输出为空、无法解析或把类型改为 Profile） |
+| `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`） | Familiar 的合并路径 | 不经 HTTP 呈现；合并任务以 `merge_aborted.<details.reason>` 失败收尾，任务快照的公开 error 仍是固定说明 | 两条记忆的合并在读取、条件、版本或模型输出上不满足要求，两条记忆都保持不变，不回退为追加或覆盖；`details.reason` 区分 `memory_missing`（任一记忆缺失或对发起者不可见）、`not_mergeable`（访问策略不同，或吸收自身）、`version_changed`（写回前内容版本已变）与 `model_output_invalid`（模型输出为空或无法解析） |
+| `InvalidAgentProfileError`（`workspace.agent_profile.invalid`） | AgentProfileStore 的保存与读取 | 422（Agent 管理 HTTP 入口；`reason` 只公开 `invalid_agent_id`、`unknown_field`、`invalid_value`、`unreadable`） | Agent Profile 的标识或字段不合格：保存时拒绝写入；读取时列出跳过这个文件，按 `agent_id` 解析时转为 `ProfileResolutionError(invalid_config)`；`details.reason` 另有读取文件时的 `missing_frontmatter`、`invalid_frontmatter` |
+| `AgentProfileExistsError`（`workspace.agent_profile.exists`） | Profile 管理服务的新建 | 409 | 同名的 Profile 文件已经存在；`agent_id` 创建后不可改，新建不覆盖 |
 | `MemoryDecodeError` | Memory codec 读取边界 | 5xx | payload 无法安全归一化为 schema `"2.1"`（缺 `schema_version`、未知版本、投影不一致等），fail closed |
 
 Memory 领域模型的 `validate_assignment` 使构造与就地赋值执行同一套约束；外部编辑入口把值相等判定为无变化时不产生版本（§3.2 语义见 Patchouli 生成文档）。
 
 存储适配器仅将已知 SDK/连接故障转换为 `StorageOfflineError`（`storage.offline`）、`StorageReadError`（`storage.read_failed`）或 `StorageWriteError`（`storage.write_failed`），保留操作上下文与 cause。检索故障不返回空成功；写入故障不证明副作用未发生。局部模型、payload 解码与程序异常不冒充离线，取消原样传播。
 
-Profile 缺失和不可见统一隐藏为 `ResourceNotFoundError`；已找到但类型/配置不适用或已停用时为 `ProfileResolutionError`，reason 仅为 `type_mismatch` / `invalid_config` / `profile_disabled`（`AgentProfile.enabled` 为假），必须携带 `agent_alias`。CALL 在出口转为既有 MTP 类别（停用映射为目标不可用，第 4.4 节），CPU 分配按失败收尾，两者都不回退默认 Profile。`ProfileResolutionError` 是 Workspace 领域错误：chat 中 SSE `error` 事件的 `code` 与 `chat.run.failed` 的 `reason` 都是 `patchouli.profile.resolution_failed`，原因在事件的 `data.error_reason`，不按系统错误呈现。
+Profile 缺失为 `ResourceNotFoundError`；文件不合格或已停用时为 `ProfileResolutionError`，reason 仅为 `invalid_config` / `profile_disabled`（`AgentProfile.enabled` 为假），必须携带 `agent_alias`。CALL 在出口转为既有 MTP 类别（停用映射为目标不可用，第 4.4 节），CPU 分配按失败收尾，两者都不回退默认 Profile。`ProfileResolutionError` 是 Workspace 领域错误：chat 中 SSE `error` 事件的 `code` 与 `chat.run.failed` 的 `reason` 都是 `patchouli.profile.resolution_failed`，原因在事件的 `data.error_reason`，不按系统错误呈现。
 
 Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明确的容量/停止接纳使用 `TopicSettleAdmissionError`。任务进程的交互提交没有跨过成功边界时，进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败：`stage` 为 `interaction_admission` 时接纳被拒，`reason` 取 `capacity_rejected` / `queue_stopped`；为 `interaction_apply` 时接纳后没有应用成功，`reason` 为 `apply_failed`（异常类名放在诊断字段 `error_class`），不设时限的等待停在应用之前只会因队列停止，`reason` 为 `queue_stopped`。其他提交异常原样传播，不能据此声称没有副作用。交互没有应用成功时（含提交异常），会话仍保存这一轮，话题为空；进程按失败收口。这个错误是 `workspace.contracts.errors` 中的 Workspace 领域错误：`stage`、`reason` 与 `error_class` 在 `details` 中，`chat.run.failed` 的 `reason` 与 SSE `error` 事件的 `code` 都是 `patchouli.interaction.finalization_failed`，前端据此提示会话已保存这一轮、记忆没有提交成功。生成任务的明确拒绝仅覆盖接纳前 codec、lane、容量与停止错误；任意 TypeError/ValueError、重复任务或未知队列失败保留 UNKNOWN 与原句柄结算权。
 

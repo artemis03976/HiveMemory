@@ -14,7 +14,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/todo/frontend-ui-polish.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-18
 ---
 
 # HiveMemory Frontend
@@ -55,7 +55,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 |:---|:---|:---|
 | Chat | 会话管理与历史恢复、逐轮 Agent 选择、`#` 话题引用、MTP/子 Agent 卡片、逐轮话题标题、消息的复制/反馈/重新生成、引用记忆、记忆任务与本会话的模型配置 | sessions API、chat SSE、topics API、memory tasks、RuntimeEvent |
 | Memory Library | 长期记忆的浏览、客户端筛选、语义检索、创建、编辑与删除；短期话题池的查看、结算、丢弃与在对话中引用 | memories API、topics API；读取失败时显示错误，debug 模式下回退 mock |
-| Agent Management | Agent Profile 列表、创建、编辑、启用/停用与删除 | agents API + generic memories API；读取失败时提示，debug 模式下回退 mock |
+| Agent Management | Agent Profile 列表、创建、编辑、启用/停用与删除 | agents API；读取失败时提示，debug 模式下回退 mock |
 | Settings | 主配置的常用与高级两层、外观（主题）、提供商凭证、模型注册表、接入与权限 | config/providers/models/access API |
 | 运行（Terminal 入口） | 运行时事件按一次运行展示的列表与时间线，以及后端日志尾部；只看不改 | RuntimeEvent 流、logs WebSocket |
 

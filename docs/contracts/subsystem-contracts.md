@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # 子系统公共契约
@@ -155,7 +155,7 @@ storage.available() -> bool
 | Interaction | 提交 `InteractionPayload` 到指定或新话题（新话题可附标题与摘要）并等待应用，查询交互进度与等待应用（第 3.6 节）；提交接收 scope（归属）与显式的参与者（发起者），进入 submission lane 时由 `InteractionSubmission.belong_to/from_actor` 独立携带 |
 | Memory | 携带 `IdentityScope` 的 create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases；create/update 在提交边界生成完整版本记录（无历史不成功），无变化的编辑不创建版本 |
 | Memory Task | 携带 `IdentityScope` 的 list/get/cancel；按 task 的 `belong_to` 检查归属，get/cancel 对越域与不存在统一抛 `ResourceNotFoundError` |
-| Agent Profile | 携带 `IdentityScope` 的 create/list/get；get（Profile 解析 backing）另有 `enforce_actor_visibility`，默认按 scope 的 actor 检查源原子可见性，假为管理读取，只校验 Workspace 归属 |
+| Agent Profile | create/update/delete/list/get，读写 AgentProfileStore 中的文件；Profile 是全局的、没有可见性，路由不接收 `IdentityScope`，授权在调用方一侧的 root API 或 actor API 完成；get 解析可以执行的 Profile（[检索](../patchouli/retrieval.md#24-agent-profile-解析)第 2.4 节） |
 | Topic | 携带 `IdentityScope` 的 list active、topic data、prepare（第 3.2 节）、manual settle、evict；Patchouli owner 拒绝越域 topic |
 | Citation 与命中 | 记录正式记忆引用，workspace 引用交付统一使用 `workspace.reference_read` 来源；为 actor 的检索记录命中（第 3.3 节） |
 | Readiness | 模型 warmup、预取与 ready 查询；存储健康（第 3.3 节） |
@@ -168,7 +168,7 @@ Profile、Topic 与交互提交的公共失败定义在 `patchouli.contracts.err
 
 ### 3.5 工作 actor 与操作授权
 
-Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService`（引用、检索命中与存储健康）以 `IdentityScope` 接收操作身份，不接收工作 actor，也不做操作授权。操作授权在调用方一侧的授权点以真正执行这项操作的身份完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_agent(actor, operation, target)` 检查 actor 操作白名单，目标取工作 actor 的驻留 Workspace，任务进程的预检索也是执行者的 actor 操作，经操作入口到达这里；root API 用 `authorize_root(actor, target)`，只接受保留的 `system`，HTTP 管理路由、任务进程的系统阶段（确定话题、存储健康与交互提交）与 Import Bus 都经它，Gateway 的话题读取与 Profile、附件由执行器与 CPU 分配在调用前以 root 授权。root API 的每个方法在入口授权一次，方法内部依次调用的公开路由沿用同一个 scope，不再各自授权；交互的参与者另以 `participant` 显式传递。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
+Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService`（引用、检索命中与存储健康）以 `IdentityScope` 接收操作身份，不接收工作 actor，也不做操作授权；不涉及任何 Workspace 资源的存储健康与 Agent Profile 路由不接收 scope。操作授权在调用方一侧的授权点以真正执行这项操作的身份完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_agent(actor, operation, target)` 检查 actor 操作白名单，目标取工作 actor 的驻留 Workspace，任务进程的预检索也是执行者的 actor 操作，经操作入口到达这里；root API 用 `authorize_root(actor, target)`，只接受保留的 `system`，HTTP 管理路由、任务进程的系统阶段（确定话题、存储健康与交互提交）与 Import Bus 都经它，Gateway 的话题读取与 Profile、附件由执行器与 CPU 分配在调用前以 root 授权。root API 的每个方法在入口授权一次，方法内部依次调用的公开路由沿用同一个 scope，不再各自授权；交互的参与者另以 `participant` 显式传递。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
@@ -240,7 +240,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 | 字段 | 语义 |
 |:---|:---|
 | `language: str` | 进程取自语言设置的提示词语言；CPU 的教学、摘要与执行期回填（Alice 的 MTP 结果、错误与 CALL 响应）都沿用该值，不再重新读取 |
-| `instructions: str` | 环境通知、人设段，按此顺序连接；无内容时为空字符串 |
+| `instructions: str` | 环境通知、人设段与可用 agent 列表（“可用子代理”一节，列表为空时省略），按此顺序连接；无内容时为空字符串 |
 | `turn_context: str` | 记忆段、附件段，按此顺序连接；无内容时为空字符串 |
 
 这两段文本是不透明的固定输入：CPU 决定放置位置，不解析或改写。分段使 Alice 可以在人设与本轮材料之间插入自己的历史摘要，也不要求其他 CPU 采用 Alice 的消息布局或历史管理方式。编译不读取 CPU 配置；存储不可用时总是附加中立离线通知，不取决于是否开启 MTP 教学。
@@ -253,7 +253,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 |:---|:---|
 | `thread_id: str` | 线程标识：主线程为 `main`，CALL 子线程按派生顺序为 `child-1`、`child-2`…… |
 | `labels: ExecutionLabels` | 线程自己的观测标签：主线程为注册标签，子线程为被调用方与注册时的 workspace；由线程表生成，CPU 不从图纸推导 |
-| `agent_profile: AgentProfile` | 本线程运行的图纸，供模型参数、人设与展示使用；主线程的图纸是进程在 PREPARE 开始、派生主线程之前以 root 授权、按管理语义经读取视图解析的执行者 Profile |
+| `agent_profile: AgentProfile` | 本线程运行的图纸，供模型参数、人设与展示使用；主线程的图纸是进程在 PREPARE 开始、派生主线程之前以 root 授权经读取视图解析的执行者 Profile |
 | `allowed_operations: frozenset[WorkspaceOperation]` | 派生时按本线程的工作 actor 读取的 actor 操作快照，空白名单得到空集合 |
 
 操作快照只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。CPU 驱动以公共 `OperationEntry` 把执行线程绑定为提交函数（通用实现 `ThreadOperationSubmitter`，见 4.6），操作适配器只提交操作请求；线程句柄不含身份，CPU 一侧取不到任何工作 actor。Actor 阶段结束（`execute` 返回终态结果，或提前结束）时主线程与 CALL 派生的全部子线程即被结束，子线程也可能已随 CALL 返回结束；此后的提交以 `ThreadEndedError` 拒绝。
@@ -317,7 +317,7 @@ Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局�
 - WRITE/UPDATE 经操作请求登记 workspace 意图并实时派发，生成队列接纳后返回 ACK；Alice 不持有登记；
 - 有输出的 completed/cancelled/failed 都封口，由任务进程经 root API 提交交互；无输出或进程异常不提交；
 - Agent Profile 不承载权限；frame 的 MTP 动词集合由所属线程描述的 `allowed_operations` 翻译而来（RUN 始终可用，`sys_*` 系统工具不设权限），提交到 workspace 的请求仍由 actor API 逐次授权；
-- CALL 仅允许根 frame 发起；子 frame 是以被调用方身份运行的子线程，动词集合由被调用方的操作快照翻译并去掉 CALL，不能继续递归 CALL；被调用方 Profile 只提供人设、模型与语言，子 frame 的观测标签取子线程描述；
+- CALL 仅允许根 frame 发起；子 frame 是以被调用方身份运行的子线程，动词集合由被调用方的操作快照翻译并去掉 CALL，不能继续递归 CALL；被调用方 Profile 只提供人设与模型参数，子 frame 的观测标签取子线程描述；
 - 子线程随 CALL 返回结束：子帧以任何终态收尾、取消沿递归栈清理 CALL，以及派生之后子帧开始运行之前的失败，都经子线程的提交函数同步结束子线程；Alice 不结束主线程。
 
 ### 4.6 操作请求与线程句柄
@@ -362,12 +362,13 @@ Gateway command outcome（解析结果）
 
 Gateway decision outcome
   -> PREPARE
-       -> 解析执行者的 Agent Profile（系统以 root 授权，经 workspace 的 Profile 读取视图按管理语义读取）
+       -> 解析执行者的 Agent Profile（系统以 root 授权，经 workspace 的 Profile 读取视图读取）
        -> 线程表以执行者派生主线程
        -> 预检索：经操作入口以主线程提交检索（执行者的 memory.search，没有时不检索），actor API 随检索记录命中
        -> Gateway 指向已有话题：经 root API 为一轮确定话题（确认存在并刷新驻留），冻结派发话题
        -> 经 root API 读取存储健康
-       -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
+       -> 列出已启用的 Profile（root 授权），线程表按子线程准入筛出可用 agent 列表
+       -> CPU 分配：附件租借、附件、记忆与可用 agent 列表编译、组装输入清单
   -> Actor 执行：把主线程的描述与线程句柄交给 CPU 端口（当前为 Alice）并等待返回
        -> CALL：经操作入口派生子线程（被调用方准入），线程表登记
        -> WRITE/UPDATE：授权后取得派发话题；还没有时，进程经 root API 以 Gateway 的标题与摘要建立话题并冻结

@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -58,7 +58,7 @@ CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只解析�
 
 Runtime 不从命令文本相信身份或权限。执行上下文、提交函数与策略均为必填，策略没有默认放行动词集合。每次执行都由 frame 构造 `MTPExecutionContext`，主要包含：
 
-- `agent_profile`：语言等运行描述，不承载权限；
+- `agent_profile`：本帧的图纸（人设与模型参数），不承载权限，也不带语言；
 - `runtime_scope`：run、frame 与 action 坐标及冻结的 `ExecutionLabels`；标签仅用于观测，不携带授权身份或 parent/depth 拓扑信息；
 - `submit_operation`：CPU 驱动绑定了线程句柄的请求提交函数，root 绑定主线程、CALL 子帧绑定以被调用方身份派生的子线程，不暴露线程句柄、工作 actor 或目标选择；CPU 执行结束后全部线程结束，再提交会被拒绝；
 - `execution_policy`：frame 的 MTP 动词集合、每帧预算与 CALL 等控制流硬限制；
@@ -74,7 +74,7 @@ Agent 的权限只由 Workspace 访问登记的 actor 操作白名单表达，Ag
 2. **执行层强制**：Koakuma 在分发前以 frame 的 `FrameExecutionPolicy` 检查动词，集合外的动词以 `agent_fault` 结构化错误回填，且不提交任何操作请求；模型不能通过改写 prompt 或手工生成 MTP 绕过；
 3. **资源授权**：提交到 workspace 的请求由 actor API 按访问登记逐次授权，例如 RUN 的记忆目标还需要 `memory.run`。动词集合只是快照，不是授权依据。
 
-CALL 子帧的动词集合由被调用方的操作快照翻译并显式移除 CALL，被调用方 Profile 只提供 persona、模型与语言；Koakuma 以 frame policy 硬拒绝递归调用，当前只支持根 run 的串行一层 CALL。提示层是可用性引导，执行层与资源授权才是判定；三者由同一集合驱动，不会出现 prompt 教授被禁用动词的情况。
+CALL 子帧的动词集合由被调用方的操作快照翻译并显式移除 CALL，被调用方 Profile 只提供 persona 与模型参数；Koakuma 以 frame policy 硬拒绝递归调用，当前只支持根 run 的串行一层 CALL。提示层是可用性引导，执行层与资源授权才是判定；三者由同一集合驱动，不会出现 prompt 教授被禁用动词的情况。
 
 ## 4. 六个动词在 Runtime 中的兑现
 
@@ -191,6 +191,6 @@ Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 syscall 注册表动态生成。注册表与提示词可能漂移；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为执行结果的 `failed`，CALL callee 映射为稳定的 budget error；
-- Koakuma 的执行机制由内核工厂装配并由 AliceSystem 持有，写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有；frame registry、CALL ledger 与 stream sequence 按 run 隔离。
+- Koakuma 的执行机制由内核工厂装配并由 AliceSystem 持有，写入意图登记、完整引用解析与原子缓存由 workspace 持有；frame registry、CALL ledger 与 stream sequence 按 run 隔离。
 
 当前 MTP Runtime 已经形成“文本协议、结构化解析、双层权限、受控 handler 与可恢复错误”的完整闭环，但它仍是面向单进程可信部署的实验性执行层。文档和上层产品都不应把它包装成强隔离插件平台、持久化工作流引擎或任意代码安全沙箱。

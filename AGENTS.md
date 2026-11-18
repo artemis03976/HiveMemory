@@ -72,7 +72,7 @@
 关键所有权约束：
 
 - Patchouli 是 Memory、Topic、Artifact、Interaction 和记忆任务的权威所有者；Topic、Memory、Artifact 的 Workspace 归属由 Patchouli 领域规则校验。
-- Alice 只拥有本次 Agent run 的 frame、turn events、工具调用与 ACK 别名清单；写入意图登记、完整引用解析、引用记录副作用以及可失效的原子/Profile 缓存属于 workspace。Alice 不请求 Patchouli 公开路由。
+- Alice 只拥有本次 Agent run 的 frame、turn events、工具调用与 ACK 别名清单；写入意图登记、完整引用解析、引用记录副作用、可失效的原子缓存以及 Profile 读取属于 workspace。Alice 不请求 Patchouli 公开路由。
 - System 拥有 Import Bus 的进程内控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表持有；`WorkspaceAsset` 及其 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。

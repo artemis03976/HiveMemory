@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # 记忆生成
@@ -184,7 +184,7 @@ Mode A 的每条草稿与 Mode B 的草稿都按 MemoryCompiler 的 `DENSE_EMBED
 
 查重命中后不改写已有记忆。早先的实现用草稿整体覆盖命中的记忆：同一项目的记忆增多后，同一工作的前后阶段被空闲结算拆到不同话题，后一阶段的草稿连续覆盖前一阶段的记忆，最初的设计决定只剩在版本记录里。现在命中时先把草稿保存为独立的新记忆，再由生成队列中的合并任务把两条记忆融合为一条。草稿先落库，因此关闭、队列拒绝或合并失败最多留下两条相似的记忆，不会丢失内容。合并不复用 Mode C：Mode C 的输入是一条记忆加修改指令与新材料，合并的输入是两条地位对等的正式记忆。
 
-合并条件是 M 与 N 的访问策略相同，两者都不是 `AGENT_PROFILE`，且对 WRITE 而言 M 不是本话题主动写入结算到的记忆（第 4.2 节）。策略不同的两条记忆合并后会改变一方的可见范围；Profile 承载结构化配置，不能交给模型融合。生成的记忆都是 PUBLIC，策略不同只会出现在经管理入口改过策略的记忆上。不满足条件时 N 是一条普通的新记忆。
+合并条件是 M 与 N 的访问策略相同，且对 WRITE 而言 M 不是本话题主动写入结算到的记忆（第 4.2 节）。策略不同的两条记忆合并后会改变一方的可见范围。生成的记忆都是 PUBLIC，策略不同只会出现在经管理入口改过策略的记忆上。不满足条件时 N 是一条普通的新记忆。
 
 ### 4.1 合并任务
 
@@ -246,9 +246,9 @@ artifact。因此 `TimeoutError`、`ConnectionError`、模型异常以及普通�
 `intent_id` 派生稳定 task/work identity：进程内重复 dispatch 会复用已有任务，且相同 identity 携带不同
 spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 reconciliation 仍留待后续持久化/I2 阶段处理。
 
-手工 memory create/update 同样通过 Familiar，两者都只接收调用方提交的字段材料：创建由 Familiar 构造原子，记忆 ID、来源记录（取本次发起者）、默认访问策略、生命周期与完整时间戳都在提交边界确定，字段非法以 `InvalidMemoryFieldError` 拒绝，类型相关约束与 alias 唯一性在写版本记录之前检查；创建时没有给出 alias 的记忆同样以 `mem_<记忆 ID>` 命名并落库，Agent Profile 除外；记忆管理入口不接受 `AGENT_PROFILE`，Profile 只经 Profile 管理入口创建，类型由入口固定。
+手工 memory create/update 同样通过 Familiar，两者都只接收调用方提交的字段材料：创建由 Familiar 构造原子，记忆 ID、来源记录（取本次发起者）、默认访问策略、生命周期与完整时间戳都在提交边界确定，字段非法以 `InvalidMemoryFieldError` 拒绝，alias 唯一性在写版本记录之前检查；创建时没有给出 alias 的记忆同样以 `mem_<记忆 ID>` 命名并落库。HTTP 的记忆管理入口不接受只作历史取值的类型（包括 `AGENT_PROFILE`）。
 
-类型相关约束有两条：`AGENT_PROFILE` 必须带 alias（按 alias 寻址与 CALL）；`payload.agent_config` 只允许 `AGENT_PROFILE` 设置。`agent_config` 的唯一读取方是 Profile 解析，写在其他类型上只会生成无人使用的内容版本，调用方也得不到字段无效的反馈。记忆与 Profile 共用编辑路由，HTTP 的 `PATCH /api/v1/memories/{id}` 同时是前端保存 Agent 的入口，入口无法按类型区分，因此由 Familiar 在提交边界按原子类型检查，违反时以 `InvalidMemoryFieldError` 拒绝且不写版本记录。约束放在提交边界而不是 Memory 模型：模型约束同样作用于读取解码，收紧会让既有不合规记录无法读取。
+Agent Profile 不是记忆，不经过 Familiar：它是 AgentProfileStore 中的文件，由 Patchouli 的 Profile 管理服务直接读写，没有版本记录（[MemoryLibrary](./memory-library.md#15-agent-profile人偶图纸)第 1.5 节）。
 
 编辑捕获 before snapshot，仅当传入值与当前值不同（值相等判定）才递增 version 并生成 MANUAL_EDIT version artifact，无变化调用原样返回。
 
@@ -286,7 +286,7 @@ WaitResult/WaitSummary。等待使用 `asyncio.shield`，超时返回当前 `PEN
 
 合并任务成功且结果带句柄时，Controller 经结算发布者发布改指事件 `patchouli.events.pending_atom.merged`，由 PatchouliBridge 转发为同名全局事件，载荷是 `MERGED` 结算与被吸收记忆的 ID。句柄此前已经以 `CREATED` 结算过一次，改指因此不占用“每个 alias 一次终态”的保留，发布失败只记录 warning，不改写任何任务终态。workspace 登记只对仍以 `CREATED` 指向被吸收记忆的句柄替换结算（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。
 
-PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中期 Store 的独立变更事件负责原子、alias 与 Profile 派生项失效，所有正式记忆重新读取都经过当前授权；两种事件的作用见[MemoryLibrary](./memory-library.md#12-中期当前可检索书库)。
+PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中期 Store 的独立变更事件负责原子与 alias 派生项失效，所有正式记忆重新读取都经过当前授权；两种事件的作用见[MemoryLibrary](./memory-library.md#12-中期当前可检索书库)。
 
 ### 6.1 失败原因码
 

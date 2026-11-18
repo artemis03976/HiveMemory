@@ -24,7 +24,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-18
 ---
 
 # 多 Agent 编排
@@ -49,7 +49,7 @@ AliceSystem
 
 - AgentRunService 是内部运行用例：`run_agent` 面向运行层的 `RunOutput`，创建根 frame 与每次 run 的 Executor，返回 CPU 中立执行结果并发布终态观测；模型预算、视图与压缩交给独立的 `RootContextBuilder`，结果投影放在 `run/result.py`；它是 Alice 作为 CPU 的最外层，被取消时把已产生的输出与已完成检查点组装为 cancelled 结果返回，不再传播取消，没有可交回的内容时才原样传播；
 - AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它把进程交来的主线程绑定为提交函数、检查宿主启停，每次执行都以 `SinkRunOutput` 直接等待运行服务，交互事件推送给进程的 sink，类型化结果作为返回值交回；
-- AliceSystem 是子系统装配根，通过内核工厂构造 AgentRuntime。Profile 读取与缓存归 workspace，内核不参与多帧调度；
+- AliceSystem 是子系统装配根，通过内核工厂构造 AgentRuntime。Profile 读取归 workspace，内核不参与多帧调度；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并在根帧终态只记录一次 run 结果；意图收尾属于任务进程；
 - AgentRunOutput 是调度与当前请求交互输出之间的窄端口，只承载 frame 输出与 CALL 边界；上下文层的 `ContextProgressOutput` 只承载压缩进度。运行层的 `RunOutput` 合并两者并补充 run 绑定与取消观测信息，生产实现只有 `interface/output.py` 的 `SinkRunOutput`，不缓存事件；
@@ -112,17 +112,17 @@ current frame emits CALL
 
 未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 和其他 Profile 一样不携带权限，frame 可用的 verb 只由执行线程的操作快照决定，操作快照取自访问登记的白名单；因此后续新增能力不会因为使用内置 Profile 而自动可用。
 
-所有 alias，包括未指定、`default` 与 `omni_doll`，都由 CallContextProvider 经调用方句柄的 `derive_child` 提交 `DeriveCallThreadRequest`：workspace 的操作入口以调用方的线程授权 `agent.call` 并解析目标图纸，再由线程表以被调用方（Profile 的 `agent_id`，内置图纸为 `omni_doll`）做 Workspace 准入、派生并登记子线程；CPU 驱动把子线程绑定为它自己的句柄，CallContextProvider 只拿到该句柄，它交出的子线程描述包含目标 Profile、被调用方的操作快照与被调用方的观测标签。`context_refs` 另以调用方的 READ 请求逐项解析，需要调用方的 `memory.read`，仅缺失引用或明确的冷读依赖故障被跳过，授权、线程结束与程序错误传播到 CALL 出口，已派生的子线程随之结束。读取视图统一承担 Profile 解析、Workspace/alias 坐标定位、当前 actor 命中重验与 canonical 源变更失效。Patchouli 作为 Profile atom 所有者执行 Workspace ownership 和资源 policy 校验，再解析 persona、模型与语言。Alice 不保存另一份 Profile cache；管理入口修改源原子后，下一次 CALL 会通过失效视图读取新配置。子 frame 的 `FrameExecutionPolicy` 按每次 CALL 由被调用方的操作快照翻译后去掉 CALL 得到，不从 Profile 派生，也不进入 cache。
+所有 alias，包括未指定、`default` 与 `omni_doll`，都由 CallContextProvider 经调用方句柄的 `derive_child` 提交 `DeriveCallThreadRequest`：workspace 的操作入口以调用方的线程授权 `agent.call` 并解析目标图纸，再由线程表以被调用方（Profile 的 `agent_id`，内置图纸为 `omni_doll`）做 Workspace 准入、派生并登记子线程；CPU 驱动把子线程绑定为它自己的句柄，CallContextProvider 只拿到该句柄，它交出的子线程描述包含目标 Profile、被调用方的操作快照与被调用方的观测标签。`context_refs` 另以调用方的 READ 请求逐项解析，需要调用方的 `memory.read`，仅缺失引用或明确的冷读依赖故障被跳过，授权、线程结束与程序错误传播到 CALL 出口，已派生的子线程随之结束。目标图纸经读取视图交给 Patchouli 解析：Profile 是调用方驻留 Workspace 中按 `agent_id` 寻址的文件，没有可见性，Patchouli 每次都直接读文件，不缓存（[MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)）。Alice 也不保存 Profile；经 Agent 页或直接改动文件之后，下一次 CALL 读取新配置。子 frame 的 `FrameExecutionPolicy` 按每次 CALL 由被调用方的操作快照翻译后去掉 CALL 得到，不从 Profile 派生。
 
-子帧消息由 `CallCoordinator` 直接组装：MTP 教学 → 被调用方人格 → 共享上下文，随后是原样任务用户消息；空片段省略，全部为空时不创建系统消息。语言取被调用方 Profile，缺省时回退进程默认值；人格复用 `prompts.compilation.render_persona`。教学读取 Alice 的 Koakuma 配置，直接使用子帧策略已排除 CALL 的动词集合，布局层不再过滤一次。子帧不继承根帧的固定输入或会话摘要；它是 Alice 的内部 harness 行为，根帧的进程侧编译不承担这项职责。
+子帧消息由 `CallCoordinator` 直接组装：MTP 教学 → 被调用方人格 → 共享上下文，随后是原样任务用户消息；空片段省略，全部为空时不创建系统消息。语言沿用调用方 frame 的语言；人格复用 `prompts.compilation.render_persona`。教学读取 Alice 的 Koakuma 配置，直接使用子帧策略已排除 CALL 的动词集合，布局层不再过滤一次。子帧不继承根帧的固定输入或会话摘要；它是 Alice 的内部 harness 行为，根帧的进程侧编译不承担这项职责。
 
 显式失败通过 `MTPCallResponse.error` 回填，不再启动子 frame：
 
 | 场景 | 稳定 code | message key |
 |:---|:---|:---|
-| alias 不存在或源原子不可见 | `mtp.alias.not_found` | `mtp.call.profile_not_found` |
+| `agent_id` 没有对应的 Profile 文件 | `mtp.alias.not_found` | `mtp.call.profile_not_found` |
 | 缺少 `agent.call` 操作授权 | `mtp.permission.denied` | `mtp.permission.verb_denied` |
-| alias 类型不符 / Profile 配置无效 | `mtp.memory.type_mismatch` / `mtp.argument.invalid` | `mtp.call.profile_type_mismatch` / `mtp.call.profile_invalid` |
+| Profile 文件不合格 | `mtp.argument.invalid` | `mtp.call.profile_invalid` |
 | Profile 已停用，或被调用方在本 Workspace 没有准入 | `mtp.permission.denied` | `mtp.call.agent_unavailable` |
 | Profile route 或读取失败 | 对应 `mtp.system.*` | `mtp.call.profile_load_failed` 或底层稳定 key |
 | Profile 引用的模型不可用 | `mtp.system.service_unavailable` | `mtp.call_response.model_unavailable` |
@@ -131,7 +131,7 @@ Profile 生产者和读取视图只抛中立错误。`preparation_error_response
 
 CALL 的 `tool_call` 挂起时没有结局，回填时补全为子帧的最终 success/error/cancelled 状态，与回填给 Agent 的响应一致；内部 cause 只进入日志，不回填给 Agent。
 
-Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARCH：相关图纸可以在 memory context 中以 Agent Profile 菜单出现，主 Agent 随后用 alias 发起 CALL。Alice 当前不维护硬编码 team，也不会根据模糊需求动态创建 Profile。
+可用的子 Agent 不靠检索发现：任务进程每轮在 PREPARE 中列出已启用、且在本 Workspace 能通过 CALL 时同一准入的 Profile，每项是 `agent_id` 加上由 `title` 与 `summary` 拼成的一句描述，作为“可用子代理”一节常驻根帧的 `instructions`，没有可用 agent 时整节省略（[任务进程](../workspace/task-process.md#6-cpu-分配)）。主 Agent 随后用 `agent_id` 发起 CALL；被调用方的人设只在它被 CALL 时载入。Alice 当前不维护硬编码 team，也不会根据模糊需求动态创建 Profile。
 
 ### 3.2 共享上下文
 
@@ -173,7 +173,7 @@ root frame
   └─ continue root frame
 ```
 
-软限制由 CallCoordinator 组装子帧提示词时实现：MTP 教学按被调用方的动词集合渲染，CALL 已在构造策略时移除，因此不会出现在教学中。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[执行线程](../workspace/execution-threads.md#63-子线程以被调用方身份运行)）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
+软限制由 CallCoordinator 组装子帧提示词时实现：MTP 教学按被调用方的动词集合渲染，CALL 已在构造策略时移除，因此不会出现在教学中。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona 与模型参数。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[执行线程](../workspace/execution-threads.md#63-子线程以被调用方身份运行)）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
 
 这是能力策略，不是 RunExecutor 的结构限制：执行器对所有 frame 使用同一个递归入口，不包含 `RootTurn/CalleeTurn` 分支。未来允许嵌套 CALL 时可以沿用这条递归路径；并行 sibling CALL 可在一次 suspension 能表达多个请求后，于当前递归层使用结构化并发。持久化 DAG、跨进程恢复和 review loop 仍属于后置方向。
 
@@ -199,7 +199,7 @@ caller 与 callee 各自使用自己线程的提交函数：callee 登记的意�
 
 这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。每次 run 独占的 `SinkRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`，逐项 `await` 任务进程的事件 sink；背压由进程的输出通道施加，通道写满时 sink 等待。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。运行服务返回的 `CPUExecutionResult` 中的 `turn_events` 才是结构化的一轮事实，由任务进程封口后交给 Patchouli。
 
-frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内置图纸为 `omni_doll`），空值回退该 frame 所属线程的标签：主 frame 为注册标签，子 frame 为被调用方；`sub_agent_start`、`sub_agent_end` 的 `agent_id` 仍取 CALL 请求的目标 alias。`agent.run.*` 的 agent/workspace 字段始终取输入清单的注册标签，不从 Profile 或子帧重新推导身份；逐帧的预算守卫拦截 `agent.context.budget_exceeded` 报告拦截 frame 所属线程的标签，子帧被拦截时报告被调用方。
+frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（Profile 文件名，内置图纸为 `omni_doll`），空值回退该 frame 所属线程的标签：主 frame 为注册标签，子 frame 为被调用方；`sub_agent_start`、`sub_agent_end` 的 `agent_id` 仍取 CALL 请求的目标 alias。`agent.run.*` 的 agent/workspace 字段始终取输入清单的注册标签，不从 Profile 或子帧重新推导身份；逐帧的预算守卫拦截 `agent.context.budget_exceeded` 报告拦截 frame 所属线程的标签，子帧被拦截时报告被调用方。
 
 交互输出不会自动转发到 RuntimeEventBus。后者通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期、压缩统计与逐帧预算守卫拦截，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压，交付方离开时经停止请求取消本次 run。即使二者包含相同的 `agent_run_id/process_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
 
@@ -230,11 +230,11 @@ frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内�
 - Pending alias 的 IPC 收割与能力层的意图实时派发是两条不同用途的数据流；
 - `context_refs` 必须经过操作请求的 workspace 引用解析与 MemoryCompiler，不能通过裸 UUID 或字符串拼接绕过 alias/状态语义；
 - CALL 权限与预算必须随 frame policy 传播，不能只依赖 prompt 告诫模型；取消沿拥有 Alice run 的 task 递归展开，不通过 session 建立第二套控制面；
-- Profile 与完整引用解析缓存只由 workspace 持有，Alice 不另建派生状态真相；观测标签不能成为资源授权依据。
+- 完整引用解析与原子缓存只由 workspace 持有，Profile 每次直接读取文件；Alice 不另建派生状态真相；观测标签不能成为资源授权依据。
 
 ## 10. 当前限制
 
-- 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 对调用方可见与被调用方的准入，没有“谁能调用谁”的细粒度策略；被调用方读到的 PRIVATE 记忆可能经 CALL 返回值交给调用方；
+- 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 存在且已启用与被调用方的准入，没有“谁能调用谁”的细粒度策略；被调用方读到的 PRIVATE 记忆可能经 CALL 返回值交给调用方；
 - frame registry 与 CallRecord 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次 run 独占的 `SinkRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；

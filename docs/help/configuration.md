@@ -21,7 +21,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # HiveMemory 配置指南
@@ -103,7 +103,7 @@ configs/providers.secrets.example.yaml
 
 `configs/models.yaml` 是模型定义的当前单一注册表。它是本机的个人配置，不受版本控制：首次启动时从随仓库发布的 `configs/models.example.yaml` 原样生成，此后模型页面的改动只写回 `models.yaml`，升级不会改动它；删掉它，下次启动从模板重新生成。每条记录主要包含：
 
-- `id`：Agent Profile、Chat override 和组件配置引用的稳定 ID；
+- `id`：Agent Profile 的 `model`、Chat override 和组件配置引用的稳定 ID；
 - `display_name`：前端展示名；
 - `litellm_model`：交给 LiteLLM 的实际模型名；
 - `provider`：用于解析凭证；
@@ -182,6 +182,16 @@ Claude Code、DeepSeek Harness 等外部工具的对话经 `POST /api/v1/import/
 - 后端启动时把对应语言的 skill 写入插件目录：pi 与 dsh 重新打开即读到；Claude Code 与 Codex 保存的是插件的副本，要在插件页重新安装一次。
 - 新生成的记忆也随语言设置：记忆生成的提示词跟着切换，设为英文之后新记忆用英文写。已有的记忆不翻译。
 - 桌面安装版首次部署时，Windows 的界面语言不是中文就写入 `en`。
+
+### 5.5 Agent Profile 文件
+
+Agent 页中的每个 Agent 是一个 Markdown 文件：`<patchouli.agent_profiles.root_dir>/<agent_id>.md`，全部 Workspace 共用，`root_dir` 默认 `.hivememory/agent_profiles`，相对路径按工作目录解析（桌面客户端即数据根）。文件名就是 Agent ID；frontmatter 只能写 `title`、`summary`、`model`、`temperature`、`top_p` 与 `enabled`，正文是系统指令。格式与校验规则见 [MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)。
+
+- 直接编辑文件与在 Agent 页保存等同，不需要重启，后端下一轮对话就按新文件运行；Agent 页与对话页要重新进入才显示改动；
+- 不合格的文件（文件名不是小写字母、数字、`_` 与 `-`，frontmatter 有其他字段或取值不合法）不出现在 Agent 列表中，后端日志记一条警告，带文件路径与原因；以它对话或调用它都会失败，不会改用默认 Agent；
+- 修改 `root_dir` 后重启生效。
+
+升级时需要删除的旧配置项见[配置](../system/configuration.md#1-配置树)第 1 节的升级注意。
 
 ## 6. 当前 Settings 页面限制
 

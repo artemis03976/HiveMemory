@@ -10,7 +10,7 @@ updates:
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-11-17
+last_reviewed: 2026-11-18
 ---
 
 # 三餐推荐助手 产品规格文档 (Meal Assistant Product Spec)
@@ -105,9 +105,9 @@ last_reviewed: 2026-11-17
 
 # 3 记忆类型映射 (Memory Type Mapping)
 
-本场景下 HiveMemory 可以产生的五种记忆类型的使用情况：
+本场景下 HiveMemory 可以产生的四种记忆类型的使用情况：
 
-`MemoryType` 中可以产生的是这五种通用类型（`WORK_IN_PROGRESS`、`CODE_SNIPPET` 与 `URL_RESOURCE` 只作为历史取值保留），并没有专门的“餐食历史”“库存”或“菜谱”枚举。下表是产品层的语义映射，不会新增后端类型。`QueryFilters` 模型虽然声明了 `time_range`，当前 MTP filter parser 和 Retrieval 实现却尚未把它接成端到端能力；因此“近期”首先依赖记忆正文中的明确日期、`sys_clock` 和语义检索，不能假定存在名为 `recent_meals` 的专用索引或可靠的硬时间过滤。
+`MemoryType` 中可以产生的是这四种通用类型（`AGENT_PROFILE`、`WORK_IN_PROGRESS`、`CODE_SNIPPET` 与 `URL_RESOURCE` 只作为历史取值保留；本助手的 Agent Profile 是单独保存的文件，不是记忆，见第 11 节），并没有专门的“餐食历史”“库存”或“菜谱”枚举。下表是产品层的语义映射，不会新增后端类型。`QueryFilters` 模型虽然声明了 `time_range`，当前 MTP filter parser 和 Retrieval 实现却尚未把它接成端到端能力；因此“近期”首先依赖记忆正文中的明确日期、`sys_clock` 和语义检索，不能假定存在名为 `recent_meals` 的专用索引或可靠的硬时间过滤。
 
 | 记忆类型 | 本场景用途 | 使用频率 | MTP 指令 |
 |:---|:---|:---|:---|
@@ -115,9 +115,8 @@ last_reviewed: 2026-11-17
 | `FACT` | 菜谱内容、用户会做的菜、库存食材、带日期的饮食记录 | 高 | `WRITE` / `SEARCH` |
 | `REFLECTION` | 用户对某次推荐的反馈（如"这个菜太咸了"） | 中 | `WRITE` / `SEARCH` |
 | `RESOURCE` | （可选）外部菜谱链接：说明菜谱在哪里、为什么值得看，不抄录菜谱全文 | 低/可选 | `WRITE` |
-| `AGENT_PROFILE` | 本助手的 Agent 配置 | 一次性 | 由系统初始化 |
 
-**核心记忆类型为前三种**，后两种为可选扩展，第一版不强制实现。
+**核心记忆类型为前三种**，`RESOURCE` 为可选扩展，第一版不强制实现。
 
 ---
 
@@ -311,14 +310,15 @@ Alice Agent Runtime 推理（LLM/MTP）
 
 | 字段 | 建议值 | 说明 |
 |:---|:---|:---|
-| 显示名称 `title` | `三餐推荐助手` | 面向用户的名称 |
-| 别名 `alias` | `meal_assistant` | 固定 Agent ID，使用 snake_case |
-| 简介 `summary` | `记住饮食偏好、近期餐食、会做的菜与现有食材，并据此推荐下一餐。` | 明确能力边界，不承诺营养或医疗建议 |
-| 标签 `tags` | `meal-assistant`, `recommendation`, `memory`, `personal` | 用于识别和检索 Agent Profile |
-| 模型 `model_name` | `default` | 先沿用当前注册表的默认模型，避免为 MVP 引入模型选型变量 |
+| Agent ID `agent_id` | `meal_assistant` | 固定 Agent ID，也是 Profile 的文件名，只用小写字母、数字、`_` 与 `-`，创建后不可改 |
+| 名称 `title` | `三餐推荐助手` | 面向用户的名称 |
+| 描述 `summary` | `记住饮食偏好、近期餐食、会做的菜与现有食材，并据此推荐下一餐。` | 明确能力边界，不承诺营养或医疗建议；与名称一起出现在其他 Agent 的可用子代理列表中 |
+| 模型 `model` | `default` | 先沿用当前注册表的默认模型，避免为 MVP 引入模型选型变量 |
 | 温度 `temperature` | `0.3` | 推荐可以有少量变化，但记忆判断和约束执行应相对稳定 |
-| 语言 `language` | `zh` | 与目标用户及 system prompt 一致 |
+| 启用 `enabled` | `true` | 停用后不能以它对话 |
 | 操作权限（访问登记，不在 Profile 中） | `memory.read`、`memory.search`、`memory.write`、`memory.update` | 对应 READ、SEARCH、WRITE、UPDATE；不授予 `memory.run` 与 `agent.call`。RUN 的系统工具始终可用，`RUN` 仅用于访问时钟 |
+
+Profile 没有语言字段：提示词语言由全局语言设置 `i18n.language` 决定，本应用使用默认的 `zh`，与目标用户及 system prompt 一致。
 
 > **当前权限粒度说明**：Agent 权限由访问登记表达，RUN 不执行任何记忆，不授予 `memory.run` 时记忆目标在授权处就被拒绝，不授予 `agent.call` 即可拒绝 CALL。但 `sys_*` 系统工具不设 Agent 权限：网络、文件和 Python REPL 无法按 Agent 关闭，只能依赖 system prompt，并非安全边界。MVP 通过明确禁止相关行为和加入权限自测来控制风险；只有真实使用证明需要时，再为系统工具设立权限。
 
@@ -336,14 +336,18 @@ Alice Agent Runtime 推理（LLM/MTP）
       - "memory.update"
 ```
 
-对应的 `agent_config`：
+对应的 Profile 文件（默认位置 `.hivememory/agent_profiles/meal_assistant.md`，正文是 11.3 的完整 system prompt）：
 
-```json
-{
-  "model_name": "default",
-  "temperature": 0.3,
-  "language": "zh"
-}
+```markdown
+---
+title: 三餐推荐助手
+summary: 记住饮食偏好、近期餐食、会做的菜与现有食材，并据此推荐下一餐。
+model: default
+temperature: 0.3
+enabled: true
+---
+
+<粘贴 11.3 的完整 system prompt>
 ```
 
 ## 11.3 System Prompt（可直接使用）
@@ -386,22 +390,18 @@ Alice Agent Runtime 推理（LLM/MTP）
 
 ## 11.4 首次创建方式
 
-可以在现有 Agent 管理界面中创建一个 Agent，将 11.2 的字段分别填入，并把 11.3 的完整内容粘贴到“系统指令”。管理界面不提供权限编辑：操作权限需按 11.2 在 `configs/workspace_actors.yaml` 中为 `meal_assistant` 增加精确记录，并重启服务。
+可以在现有 Agent 管理界面中创建一个 Agent，将 11.2 的字段分别填入，并把 11.3 的完整内容粘贴到“系统指令”；也可以直接写入 11.2 的 Profile 文件，不需要重启，下一轮对话即生效。管理界面不提供权限编辑：操作权限需按 11.2 在 `configs/workspace_actors.yaml` 中为 `meal_assistant` 增加精确记录，并重启服务。
 
-若直接调用 API，可向 `POST /api/v1/agents` 提交以下结构，其中 `content` 填入 11.3 的完整 system prompt：
+若直接调用 API，可向 `POST /api/v1/agents` 提交以下结构，其中 `persona` 填入 11.3 的完整 system prompt：
 
 ```json
 {
+  "agent_id": "meal_assistant",
   "title": "三餐推荐助手",
-  "alias": "meal_assistant",
   "summary": "记住饮食偏好、近期餐食、会做的菜与现有食材，并据此推荐下一餐。",
-  "content": "<粘贴 11.3 的完整 system prompt>",
-  "tags": ["meal-assistant", "recommendation", "memory", "personal"],
-  "agent_config": {
-    "model_name": "default",
-    "temperature": 0.3,
-    "language": "zh"
-  }
+  "persona": "<粘贴 11.3 的完整 system prompt>",
+  "model": "default",
+  "temperature": 0.3
 }
 ```
 

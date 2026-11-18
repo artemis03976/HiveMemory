@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-18
 ---
 
 # Alice
@@ -51,7 +51,7 @@ Alice 不负责：
 - 把 `WRITE` / `UPDATE` ACK 当作正式记忆落库成功；
 - 为不受信任代码提供强安全沙箱。
 
-chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 通过 CPU 端口、公共模型与 `workspace.contracts.OperationSubmitter` 交接；资源请求由 `WorkspaceOperationEntry` 经线程表判定 CPU 附上的线程存活后分派，写入意图登记、完整引用解析和全部原子/Profile 读取缓存属于 workspace。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
+chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 通过 CPU 端口、公共模型与 `workspace.contracts.OperationSubmitter` 交接；资源请求由 `WorkspaceOperationEntry` 经线程表判定 CPU 附上的线程存活后分派，写入意图登记、完整引用解析、原子读取缓存与 Profile 读取属于 workspace。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ## 2. Alice 与 AgentRuntime 为什么是两层
 
@@ -81,24 +81,26 @@ Alice 内部依赖方向为 `interface → run → {context, orchestration} → 
 
 ## 3. 人偶图纸：人格与权限分离
 
-Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投影。它延续“万物皆记忆”的设计：专业 Agent 不通过新增 Python 子类注册，而以可存储、可检索、可演化的图纸存在；workspace 在主进程分配或 CALL 派生时读取解析结果 `AgentProfile`，再交给 Alice。
+Agent Profile 是 Patchouli 的 AgentProfileStore 中的一个 Markdown 文件，不是记忆原子，也不参与检索（文件格式与校验见 [MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)）。专业 Agent 不通过新增 Python 子类注册，而以可直接编辑的图纸存在：在 Agent 页保存与直接改动文件等同，下一次读取就生效；workspace 在主进程分配或 CALL 派生时读取解析结果 `AgentProfile`，再交给 Alice。
 
 一张图纸分为两部分：
 
-- “灵魂”：`persona`，来自 MemoryAtom 正文，描述角色、工作方式和领域偏好；
-- “骨架”：模型名、temperature、top_p 与语言，来自结构化 `agent_config`。
+- “灵魂”：`persona`，即 Profile 文件的正文，描述角色、工作方式和领域偏好；
+- “骨架”：模型 id `model`、`temperature` 与 `top_p`，来自 frontmatter。
 
-`AgentProfile.agent_id` 是 Profile 的身份，解析时取自源原子的 `index.alias`，覆盖 `agent_config` 中的同名键；builtin Profile 的 `agent_id` 为 `None`。由于 alias 在同一 Workspace 的中期库内唯一（见 [MemoryLibrary](../patchouli/memory-library.md)第 1.2 节），`agent_id` 在同一 Workspace 内同样唯一。可见性不进入 Profile 模型，仍由源原子的 `MemoryAccessPolicy` 表达。
+frontmatter 中另有 `title`（用户给它起的名字）与 `summary`（它负责的功能），用于展示，也拼成其他 Agent 看到的可用子代理列表项。
 
-主帧的人格由任务进程编译到 `instructions`，Alice 原样放置，不从 Profile 重渲染；Profile 仍用于模型选择与展示。CALL 子帧是 Alice 内部的 harness 职责，`CallCoordinator` 按被调用方 Profile 渲染人格，复用与进程相同的中立渲染函数。
+`AgentProfile.agent_id` 是 Profile 的身份，取自文件名，创建后不可改；内置 Profile 的 `agent_id` 为 `omni_doll`。Profile 是全局的，不按 Workspace 分目录，`agent_id` 在整个实例内唯一。Profile 没有可见性：agent 作为工作者进入 Workspace，能否在某个 Workspace 执行或被调用，由该 Workspace 访问登记的准入与 CALL 授权决定。
 
-图纸不承载权限。Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达：它与 Profile 原子是否存在、由谁编辑无关，也同样适用于没有 Profile 原子的外部 Actor。Alice 把输入清单携带的操作快照翻译为 frame 的 MTP 动词集合，用它裁剪 MTP 教学并在 Koakuma 执行前检查动词；资源操作仍由 actor API 逐次授权（[MTP Runtime](./mtp-runtime.md#3-动词集合的三层检查)第 3 节）。若把权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它，因此提示词层只降低误用概率，执行层与 workspace 授权才是闸门。`agent_config` 中残留的旧权限键（`allowed_mtp_verbs`、`allowed_sys_tools`）在解析时被忽略。
+主帧的人格由任务进程编译到 `instructions`，Alice 原样放置，不从 Profile 重渲染；Profile 仍用于模型选择与展示。同一段 `instructions` 在人格之后还有任务进程编译的可用子代理列表（[任务进程](../workspace/task-process.md#6-cpu-分配)），主 Agent 据此用 `agent_id` 发起 CALL。CALL 子帧是 Alice 内部的 harness 职责，`CallCoordinator` 按被调用方 Profile 渲染人格，复用与进程相同的中立渲染函数；子帧不能 CALL，因此没有可用子代理列表。
 
-图纸可以停用：`agent_config.enabled`（`AgentProfile.enabled`，缺省为启用）为假时，Profile 解析拒绝这张图纸，以它发起对话或把它作为 CALL 目标都会失败（[检索](../patchouli/retrieval.md#22-中期记忆读取)）。停用只决定图纸能否用于执行，与操作权限无关；不加载 Profile 的外部 harness 不受影响。
+图纸不承载权限。Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达：它与 Profile 文件是否存在、由谁编辑无关，也同样适用于没有 Profile 的外部 Actor。Alice 把输入清单携带的操作快照翻译为 frame 的 MTP 动词集合，用它裁剪 MTP 教学并在 Koakuma 执行前检查动词；资源操作仍由 actor API 逐次授权（[MTP Runtime](./mtp-runtime.md#3-动词集合的三层检查)第 3 节）。若把权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它，因此提示词层只降低误用概率，执行层与 workspace 授权才是闸门。Profile 文件的 frontmatter 没有权限字段，写入其他字段的文件按不合格处理。
 
-未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，温度与 Top P 为空，运行时沿用注册表默认模型的参数。它和其他 Profile 一样不携带权限：能使用哪些操作，同样只由 Workspace 访问登记中它的 actor 操作白名单决定（上一段）。因此新增 MTP verb 或 syscall 不会因为选择了内置 Profile 而自动可用。
+图纸可以停用：frontmatter 的 `enabled`（`AgentProfile.enabled`，缺省为启用）为假时，Profile 解析拒绝这张图纸，以它发起对话或把它作为 CALL 目标都会失败，它也不出现在可用子代理列表中（[检索](../patchouli/retrieval.md)）。停用只决定图纸能否用于执行，与操作权限无关；不加载 Profile 的外部 harness 不受影响。
 
-主 Agent 的 Profile 由任务进程在 PREPARE 开始时以系统的 root 授权、按管理语义读取（只检查 Workspace 归属，不按 Agent 的可见性裁剪），不要求任何 actor 操作，随主线程描述交给 Alice；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权、按调用方的可见性解析，再由线程表以被调用方准入后派生子线程。操作入口按 CPU 附上的线程句柄解析出线程的工作 actor，交给 actor API；actor API 以它在驻留 Workspace 授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。显式 alias 不存在、越权、配置无效、已停用、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 不对应 Profile 文件，无特定 persona、模型为 `default`，温度与 Top P 为空，运行时沿用注册表默认模型的参数。它和其他 Profile 一样不携带权限：能使用哪些操作，同样只由 Workspace 访问登记中它的 actor 操作白名单决定（上一段）。因此新增 MTP verb 或 syscall 不会因为选择了内置 Profile 而自动可用。
+
+主 Agent 的 Profile 由任务进程在 PREPARE 开始时以系统的 root 授权读取，不要求任何 actor 操作，随主线程描述交给 Alice；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权后解析，再由线程表以被调用方准入后派生子线程。操作入口按 CPU 附上的线程句柄解析出线程的工作 actor，交给 actor API；actor API 以它在驻留 Workspace 授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界。Profile 不缓存：每次解析都直接读取当前的 Profile 文件，文件的改动在下一次解析时生效。显式 `agent_id` 没有对应文件、缺少 `agent.call`、文件不合格、已停用、被调用方没有准入、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 
@@ -155,7 +157,7 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 Alice 与 agent_runtime 不持有 local bus，也不请求 Patchouli 公开路由；检索、引用与 CALL Profile 读取均提交 workspace 操作请求。PendingAtom 结算由 workspace 登记消费，派生读取缓存由 `WorkspaceReadView.close()` 清理。
 
-`CPUInputManifest` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份；运行服务把清单的操作快照翻译为根帧的 MTP 动词集合，只供提示词与 frame 执行策略使用。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（源 alias），空值回退标签。标签不参与资源授权。
+`CPUInputManifest` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份；运行服务把清单的操作快照翻译为根帧的 MTP 动词集合，只供提示词与 frame 执行策略使用。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（Profile 文件名），空值回退标签。标签不参与资源授权。
 
 每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent，终态事件载荷中的迭代统计从主 frame 进度取得。CPU 以返回的类型化执行结果标识终态；任务进程负责面向客户端的 `done` 投影。在终态前被取消时发出 cancelled 观测事件，失败时发出 failed 事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
 
@@ -187,7 +189,7 @@ Alice 与 agent_runtime 不持有 local bus，也不请求 Patchouli 公开路�
 
 ## 9. 当前限制与设计张力
 
-- 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 对调用方可见与被调用方的准入，没有“谁能调用谁”的细粒度策略；被调用方读到的 PRIVATE 记忆可能经 CALL 返回值交给调用方；
+- 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 存在且已启用与被调用方的准入，没有“谁能调用谁”的细粒度策略；被调用方读到的 PRIVATE 记忆可能经 CALL 返回值交给调用方；
 - 每次 run 的 frame registry 与 CallRecord 由独立 `RunSession` 持有，stream sequence 由流式输出端口持有；`RunExecutor` 用协程递归表达 CALL 的挂起与重入，不维护单活动 frame 状态机；Chat application 在更上层拥有可取消阶段 task。
 - 子 Agent 异常会被包装为 CALL error 交给主 Agent 继续处理；取消、预算耗尽和意外挂起分别保持 cancelled 或稳定 error，不会被视作成功返回；
 - Alice 的 Agent frame 不持久化，进程重启后不能恢复；workspace 的派生 cache 同样不跨重启保存；统一恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；

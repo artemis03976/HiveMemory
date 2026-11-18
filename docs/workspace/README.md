@@ -37,7 +37,7 @@ Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspac
 
 HiveMemory 引入 Workspace，不是为了给现有对象再增加一个筛选字段，而是为了回答同一个问题的三个部分：谁在执行、资源归属于哪个稳定边界、一次后台或重试操作应当沿用哪一份身份事实。操作、记录与后台任务分别携带符合其寿命的身份数据，Topic、Memory、Artifact、WorkspaceAsset 以及它们的 binding/ref 生命周期才能在共享进程运行时中保持稳定归属。
 
-Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：queue、registry、scheduler、runtime 和 EventBus 继续共享——它们是不拥有领域状态的处理管道，谈不上按 Workspace 分区。缓存按所有权分两类：跨子系统事实源（WorkspaceAssetStore）属于 workspace，由组合根装配、关闭时最后清理，并在最终寻址处校验；完整原子与主进程、CALL 目标 Profile 的派生视图由 workspace 读取视图持有；Alice 不维护资源读取缓存。已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
+Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：queue、registry、scheduler、runtime 和 EventBus 继续共享——它们是不拥有领域状态的处理管道，谈不上按 Workspace 分区。缓存按所有权分两类：跨子系统事实源（WorkspaceAssetStore）属于 workspace，由组合根装配、关闭时最后清理，并在最终寻址处校验；完整原子的派生缓存由 workspace 读取视图持有，Profile 每次直接读文件、不缓存；Alice 不维护资源读取缓存。已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
 
 在这个意义上，当前 Workspace 已经形成一个初步的“ME 网络”概念。这里的“ME 网络”是借用 AE2 的架构隐喻，不是代码中的独立类、网络进程或完整运行时；它指的是一片能够被稳定寻址、由同一资源归属边界约束、并通过明确交接承载执行结果的最小资源网络：
 
@@ -103,7 +103,7 @@ workspace 负责：
 - **能力层**：只供保留 `system` 的 root API 与只经操作入口供 actor 使用的 actor API；操作入口服务执行线程的线程提交与 MCP 入口的请求级提交（[能力层](./capability.md)）；
 - **任务进程**：唯一注册入口、进程表与 chat 任务进程的四阶段编排，含 CPU 分配与交互记录封口（[任务进程](./task-process.md)），以及 Actor 阶段内的执行线程（[执行线程](./execution-threads.md)）；
 - **会话资源**：ConversationSession 与 CPU 中立的压缩检查点（[会话资源](./sessions.md)）；
-- **读取视图与写入意图**：完整原子与 Profile 的派生缓存、引用解析、写入意图登记与实时派发（[读取视图与写入意图](./read-view-and-write-intents.md)）；
+- **读取视图与写入意图**：完整原子的派生缓存、Profile 读取、引用解析、写入意图登记与实时派发（[读取视图与写入意图](./read-view-and-write-intents.md)）；
 - **WorkspaceAsset**：进程内资产 working set、上传与解析交接（[WorkspaceAsset](./assets.md)）。
 
 workspace 不负责：

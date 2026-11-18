@@ -21,7 +21,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # 前端管理页面
@@ -34,7 +34,7 @@ last_reviewed: 2026-11-12
 
 ### 1.1 长期记忆
 
-长期记忆加载时逐页调用 `GET /api/v1/memories?limit=100`，跟随响应的 `next_cursor` 取完整个记忆库（不含 Agent Profile）。后端按存储顺序翻页，顺序与写入时间无关，只取一页会得到与时间无关的子集，所以必须取全后由浏览器排序。页头的总数取自响应的 `total`。
+长期记忆加载时逐页调用 `GET /api/v1/memories?limit=100`，跟随响应的 `next_cursor` 取完整个记忆库。后端按存储顺序翻页，顺序与写入时间无关，只取一页会得到与时间无关的子集，所以必须取全后由浏览器排序。页头的总数取自响应的 `total`。
 
 搜索分两种模式：
 
@@ -54,17 +54,17 @@ last_reviewed: 2026-11-12
 - 通过 `DELETE /api/v1/memories/{id}` 删除记忆：删除需要二次确认，页面先移除，后端删除失败时放回并提示；
 - 在对话页的引用记忆面板与消息的反馈按钮上提交 feedback（[Chat 视图](./chat-view.md)）。
 
-创建菜单不提供 `AGENT_PROFILE` 与 `TOOL`，避免把专业 Profile 和工具资产当成普通文本记忆随意播种。Agent Profile 由独立页面管理。
+创建菜单不提供 `TOOL`，避免把工具资产当成普通文本记忆随意播种。Agent Profile 不是记忆，由独立的 Agent 页管理（第 2 节）。
 
 #### 1.1.1 可见范围
 
-可见范围是后端 `MemoryAccessPolicy` 在管理页的编辑入口，也是用户修改记忆可见性的唯一入口：被动提取、Agent 的写入与 Agent Profile 都生成所有 Agent 可见的记忆（[Patchouli 生成](../patchouli/generation.md)）。页面只呈现两种：所有 Agent（`PUBLIC`）与只有一个 Agent（`PRIVATE`，目标是 agent_id）；管理接口不接受 `TEAM`，生产中也没有 Team 归属的来源。
+可见范围是后端 `MemoryAccessPolicy` 在管理页的编辑入口，也是用户修改记忆可见性的唯一入口：被动提取与 Agent 的写入都生成所有 Agent 可见的记忆（[Patchouli 生成](../patchouli/generation.md)）。页面只呈现两种：所有 Agent（`PUBLIC`）与只有一个 Agent（`PRIVATE`，目标是 agent_id）；管理接口不接受 `TEAM`，生产中也没有 Team 归属的来源。
 
 - **含义**：可见范围只约束 Agent 的检索与读取（chat 的预检索、MTP 与 MCP），不授予任何操作，管理页始终能看到全部记忆。它也不是保密：被动结算的查重看不到只对某个 Agent 可见的记忆，之后的对话里再提到同一件事，仍可能提取出一条所有 Agent 可见的新记忆，两条的策略不同也不会合并。这段说明在“注入记忆”中直接显示，在详情中放在悬停提示里。
 - **控件**：创建与详情编辑共用一个下拉框（`MemoryVisibilitySelect`）：第一项“所有 Agent”，其后按“外部接入”“对话 Agent”两组直接列出 agent_id。选中即确定目标，没有选了“只有一个 Agent”却没有目标的中间状态，不需要额外的必填校验。详情的可见范围是标签下面单独一张卡片，查看时显示值与一句解释，编辑时换成下拉框。
 - **候选 Agent**：取当前 Workspace 访问记录中的具体 agent_id（不含用户级记录与保留的 `system`）和 Agent 列表（含内置的 omni_doll），有 Profile 的归入对话 Agent（`hooks/useVisibilityAgents.ts`、`utils/memoryVisibility.ts`）。两个来源都是已有接口；后端不核对目标是否存在。
 - **目标不在候选中**：Agent 已删除或改名时，下拉框把原目标单独列在最前，用户不改动即原样保留。只有两个来源都读取成功时才判定为“已不在列表中”：详情只显示警示，说明现在没有 Agent 能检索到这条记忆；卡片与列表的标记改用警示色。任一来源读取失败时不作判断，避免误报。
-- **提交**：创建默认所有 Agent，请求总是带 `access_policy`。详情保存时只在可见范围改变时带上 `access_policy`；后端在内容提交之后单独替换策略，不产生新版本、不改更新时间（[MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)）。策略写入失败时内容已经保存，请求按失败提示，重新保存会补上策略。Agent Profile 的策略不经这里修改，后端拒绝对 Profile 提交 `access_policy`。
+- **提交**：创建默认所有 Agent，请求总是带 `access_policy`。详情保存时只在可见范围改变时带上 `access_policy`；后端在内容提交之后单独替换策略，不产生新版本、不改更新时间（[MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)）。策略写入失败时内容已经保存，请求按失败提示，重新保存会补上策略。
 
 ### 1.2 短期话题池
 
@@ -107,33 +107,34 @@ last_reviewed: 2026-11-12
 
 ## 2. Agent Management
 
-Agent Profile 是存储在 Patchouli 中的 `AGENT_PROFILE` 记忆，也是 Alice 的“人偶图纸”。前端管理页负责把结构化 Profile 投影为可编辑表单，而不重新定义 Agent Runtime 的权限语义。
+Agent Profile 是 Alice 的“人偶图纸”，保存在 Patchouli 的 AgentProfileStore 中：一个 Agent 一个 Markdown 文件，不是记忆（文件格式与校验见 [MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)）。前端管理页负责把 Profile 投影为可编辑表单，而不重新定义 Agent Runtime 的权限语义。在 Agent 页保存与直接改动 Profile 文件等同，后端下一次读取就生效。
 
 ### 2.1 页面与当前能力
 
-左栏（300px）是标题与说明、搜索与新建，搜索匹配名称、描述、别名与标签；列表每行写图标、名称、别名与状态：启用、已停用或草稿（尚未保存）。右侧按卡片编辑选中的 Agent：
+左栏（300px）是标题与说明、搜索与新建，搜索匹配名称、描述与 Agent ID；列表每行写图标、名称、Agent ID 与状态：启用、已停用或草稿（尚未保存）。右侧按卡片编辑选中的 Agent：
 
-- **身份**：图标、名称、别名与一句话描述；右上是启用开关、“撤销更改”与“保存”。停用时下方出现说明条。
-- **模型**：模型从模型注册表中选择，另有“模型注册表的默认模型”一项（保存为 `default`），保存的仍是 `agent_config.model_name`。当前值不在注册表中时仍列出并标注“不在注册表中”，提示对话时会解析失败；读不到注册表时不做这个判断。温度用滑块调整。Top P 可以留空，留空即沿用模型定义，拖动滑块即为这个 Agent 单独设置，也可以改回沿用；保存为 `agent_config.top_p`，留空为 `null`。
-- **系统指令**：人设与行为准则，带字数。
-- **标签**。
+- **身份**：图标、名称（`title`）、Agent ID（`agent_id`）与一句话描述（`summary`）；右上是启用开关、“撤销更改”与“保存”。停用时下方出现说明条。名称与描述拼成其他 Agent 提示词中可用子代理列表的一项（[任务进程](../workspace/task-process.md#6-cpu-分配)）。
+- **模型**：模型从模型注册表中选择，另有“模型注册表的默认模型”一项（保存为 `default`），保存为 `model`。当前值不在注册表中时仍列出并标注“不在注册表中”，提示对话时会解析失败；读不到注册表时不做这个判断。温度用滑块调整。Top P 可以留空，留空即沿用模型定义，拖动滑块即为这个 Agent 单独设置，也可以改回沿用；保存为 `top_p`，留空为 `null`。
+- **系统指令**：人设与行为准则（`persona`，即 Profile 文件的正文），带字数。
 - **操作权限**：写明权限不在这里设置，按钮跳到设置页的“接入与权限”（第 3.3 节）。
-- **底部**：创建与最近保存的时间，取自 Agent 列表接口返回的 `created_at`、`updated_at`（Profile 记忆的元数据）；保存成功后以保存的时刻显示“最近保存”，尚未保存的草稿写“尚未保存”。删除 Agent 需要二次确认。
+- **底部**：最近保存的时间，取自 Agent 列表接口返回的 `updated_at`，即 Profile 文件的修改时间，直接改动文件同样会推进它；保存成功后页面以后端读回的 Profile 刷新这个 Agent，显示新的保存时间，尚未保存的草稿写“尚未保存”。删除 Agent 需要二次确认。
 
-Agent 不带语言：提示词语言由设置页“系统”一节的语言设置统一决定（第 3.4 节），保存时不写 `agent_config.language`，存量图纸中的这个键在读取时被忽略。
+Agent 不带语言：提示词语言由设置页“系统”一节的语言设置统一决定（第 3.4 节），Profile 文件没有语言字段。
 
-新建在本地生成一个启用的草稿，保存时通过 `POST /api/v1/agents` 创建 Profile；已存在的 Profile 通过通用 memory `PATCH` / `DELETE` 更新和删除，`agent_config` 原样透传。后端 agents router 当前只提供 create/list，这一组合成立的前提是 Agent Profile 继续保持 MemoryAtom 的一种，而不是另建平行实体。内置的默认 Agent 由后端代码提供，没有 Profile 记忆，不出现在 Agent 页，对话页仍可以选择它。
+新建在本地生成一个启用的草稿（Agent ID 预填 `new_agent_` 加时间戳），保存时通过 `POST /api/v1/agents` 创建 Profile，同名的 Profile 已存在时后端以 `workspace.agent_profile.exists`（409）拒绝、不覆盖；已存在的 Profile 通过 `PATCH /api/v1/agents/{agent_id}` 修改、`DELETE /api/v1/agents/{agent_id}` 删除。Agent ID 不能做文件名或字段取值不合格时，后端以 `workspace.agent_profile.invalid`（422）拒绝，页面在“保存失败”的提示中带上后端给出的原因。内置的默认 Agent 由后端代码提供，不对应 Profile 文件，不出现在 Agent 页，对话页仍可以选择它。
 
 ### 2.2 启用与停用
 
-`enabled` 写在 Profile 记忆的 `payload.agent_config` 中，缺省为启用，没有这个字段的已存 Profile 读作启用。它只表示这个 Profile 能否用于对话：停用的 Agent 不出现在对话页的 Agent 选择与 `@` 提及中，已有消息里仍显示它的名称；以它发起对话，或经 CALL 调用它时，后端的 Profile 解析以 `profile_disabled` 拒绝，CALL 的调用方看到的是“当前不可用”（[Patchouli 检索](../patchouli/retrieval.md)、[Chat 视图](./chat-view.md)）。
+`enabled` 是 Profile 文件 frontmatter 中的一项，新建时缺省为启用。它只表示这个 Profile 能否用于对话：停用的 Agent 不出现在对话页的 Agent 选择与 `@` 提及中，也不出现在其他 Agent 的可用子代理列表中，已有消息里仍显示它的名称；以它发起对话，或经 CALL 调用它时，后端的 Profile 解析以 `profile_disabled` 拒绝，CALL 的调用方看到的是“当前不可用”（[Patchouli 检索](../patchouli/retrieval.md)、[Chat 视图](./chat-view.md)）。
 
 `enabled` 不是操作权限，也不改变访问登记；plugin 模式的 harness 不使用 Profile，不受它影响。
 
 ### 2.3 权限与状态限制
 
 - 管理页不编辑权限：Agent Profile 不承载权限，Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，在 Settings 的“接入与权限”中编辑（第 3.3 节），`sys_*` 系统工具不设权限；
-- 别名只在尚未保存的草稿中可以修改，保存后只读：对话、访问登记、会话记录与 CALL 都以别名指代这个 Agent，改名需要同时更新这些引用，见 [Todo](../todo/agent-alias-rename.md)；
+- Agent ID 只在尚未保存的草稿中可以修改，保存后只读：它是 Profile 的文件名，对话、访问登记、会话记录与 CALL 都以它指代这个 Agent，改名需要同时更新这些引用，见 [Todo](../todo/agent-alias-rename.md)；
+- Agent 页与对话页只在打开时读取一次 Agent 列表：直接改动 Profile 文件之后，后端下一轮对话就按新文件运行，页面要重新进入才显示改动；在 Agent 页保存的是表单中的全部字段，会覆盖期间对文件的直接改动，后写者为准；
+- 不合格的 Profile 文件（手改后字段或取值不合法）不出现在列表中，后端日志记下文件与原因；
 - Profile 获取失败时列表为空，右侧显示原因：后端拒绝时是后端给出的原因，连不上后端或管理凭据失效时只写“数据暂不可用”；只有 debug 模式回退到 `MOCK_AGENT_CONFIGS`，这些条目看似可编辑，但保存仍需要真实后端。
 
 权限的后端契约与 runtime 闸门以 [MTP 契约](../contracts/mtp.md)第 4 节和 [System 配置](../system/configuration.md)的访问登记为准。
@@ -201,7 +202,7 @@ Model 页面通过 `/api/v1/models` 管理本机的生效文件 `configs/models.
 |:---|:---|:---|
 | Memory Library | `hooks/useMemories.ts`、`components/memory/`、`stores/memory/viewStore.ts`、`services/memoryApi.ts`；翻页取全由 `frontend/tests/memory-api.test.mjs`（`node --test`）验证，统一的时间格式由 `date-time.test.mjs` 验证；可见范围的候选合并与取值互换由 `memory-visibility.test.mjs` 验证 | `tests/unit/server/routers/test_memories.py`（含可见范围的透传与 TEAM 的拒绝）；可见范围的创建与修改由 `tests/unit/patchouli/services/test_external_edit_validation.py` 验证，经真实路由改策略后其他 Agent 读不到由 `tests/integration/patchouli/test_memory_management_edit_route.py` 验证；翻页、类型排除与计数经真实 Qdrant 内存模式的 `tests/integration/patchouli/test_memory_management_listing.py` |
 | 短期话题池 | `components/memory/TopicPool.tsx`、`stores/topic/topicStore.ts`、`services/topicApi.ts`、`utils/topicPool.ts`；自动结算的估算与 tokens 的显示由 `frontend/tests/topic-pool.test.mjs` 验证 | `tests/unit/server/routers/test_topics.py` |
-| Agent Management | `hooks/useAgents.ts`、`useAgentManagement.ts`、`components/agent/`、`services/agentApi.ts` | `test_agents.py`（含创建与保存时间）、停用的 Profile 由 `tests/unit/patchouli/services/test_profile_resolution.py` 验证、Patchouli agent profile tests |
+| Agent Management | `hooks/useAgents.ts`、`useAgentManagement.ts`、`components/agent/`、`services/agentApi.ts` | `tests/unit/server/routers/test_agents.py`（新建、修改、删除与列出，`agent_id` 不可改）；Profile 文件的读写与校验由 `tests/unit/memory_library/test_agent_profiles.py` 验证，停用的 Profile 由 `tests/unit/patchouli/services/test_profile_resolution.py` 验证 |
 | Settings | `hooks/useSettings.ts`、`components/settings/TieredSettings.tsx`、`constants/settingsSchema.ts`、`services/configApi.ts`；debug 模式的模拟配置为每个字段给出与控件相符的值，由 `frontend/tests/settings-mock-config.test.mjs` 验证 | `test_config.py`，其中校验字段表中的每条路径都存在于主配置 |
 | Provider Registry | `ProviderSettings.tsx`、`providerRegistryApi.ts` | `test_providers_router.py`、`test_provider_registry.py` |
 | Model Registry | `ModelRegistrySettings.tsx`、`modelRegistryApi.ts` | `test_models_router.py`、`test_model_registry.py` |

@@ -23,7 +23,7 @@ related_docs:
   - docs/contracts/mcp.md
   - docs/patchouli/generation.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # 读取视图与写入意图
@@ -32,24 +32,24 @@ actor 读取经 workspace 读取视图完成，写入意图在正式落库之前
 
 ## 1. 读取视图
 
-`WorkspaceReadView`（`workspace/read_view.py`）聚合 actor 读取路径的三层：L0 写入意图登记、L1 完整原子缓存与 Profile 缓存、L2 经 `CanonicalReadBackend` 冷读并回填。读取视图提供两个读取器：`MemoryReader`（`.memory`）解析引用，`ProfileResolver`（`.profiles`）读取主进程执行者与 CALL 目标的 Profile。它只负责引用定位、交付授权与缓存，不做检索排序、去重或内容解释，也没有写路径。root API 的管理读取不经读取视图（[能力层](./capability.md#4-两种读取视角)）。
+`WorkspaceReadView`（`workspace/read_view.py`）聚合 actor 读取路径的三层：L0 写入意图登记、L1 完整原子缓存、L2 经 `CanonicalReadBackend` 冷读并回填。读取视图提供两个读取器：`MemoryReader`（`.memory`）解析引用，`ProfileResolver`（`.profiles`）解析主进程执行者与 CALL 目标的 Profile、列出全部 Profile。它只负责引用定位、交付授权与缓存，不做检索排序、去重或内容解释，也没有写路径。root API 的管理读取不经读取视图（[能力层](./capability.md#4-两种读取视角)）。
 
 语义检索能力预热完整原子缓存：MTP SEARCH、MCP 的检索与任务进程的预检索都经 actor API 的同一个检索方法进入读取视图，结果逐条做归属校验与交付授权后交付，并获得同样的预热。
 
 ### 1.1 派生缓存的键控
 
-派生视图按派生源坐标键控：完整原子缓存按 `(WorkspaceIdentity, memory_id)` 寻址并维护 alias 索引，Profile 缓存按 `(WorkspaceIdentity, agent_alias)` 寻址，随条目保存源原子 policy 与 UUID。命中后对当前发起者逐次授权，不缓存授权结论；保存与交付均复制嵌套可变对象。主进程与 CALL 目标经同一个 `ProfileResolver` 读取、共用同一份缓存，但交付语义不同：
+派生视图按派生源坐标键控：完整原子缓存按 `(WorkspaceIdentity, memory_id)` 寻址并维护 alias 索引。命中后对当前发起者逐次授权，不缓存授权结论；保存与交付均复制嵌套可变对象。
 
-- **CALL 目标**是调用方自己的 actor 操作：actor API 先检查 `agent.call`（内置 Profile 同样检查），再按调用方检查源原子可见性，调用方只能唤起它看得见的 Agent；
-- **主进程执行者的 Profile** 是用户为这一轮作出的选择：CPU 分配以系统的 root scope 读取、加载哪份图纸取自认证得到的执行者，按管理语义交付（`enforce_actor_visibility=False`）。缓存命中与经 Patchouli `GET_AGENT_PROFILE` 的冷读都只检查 Workspace 归属，不按 scope 的 actor 检查可见性：指向其他 Agent 的 PRIVATE 图纸也能被它自己的进程加载，与 root API 读取记忆的管理语义相同。如果按 Agent 的可见性读取，用户为 Agent 选择的图纸反而可能对它不可见；以 `system` 的可见性读取则读不出任何 PRIVATE 图纸。
+Profile 不缓存：它是 Patchouli 每次都直接读取的文件（[MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)第 1.5 节），文件的改动在下一次读取时生效，`ProfileResolver` 因此只做读取，读取视图关闭后与记忆读取一样显式失败。Profile 没有可见性，读取只按授权点组装的 scope 定位 Workspace；主进程与 CALL 目标经同一个 `ProfileResolver` 解析，区别只在授权：
 
-管理读取由一个参数切换而非另设读取器，是因为两种语义共用同一份按 `(WorkspaceIdentity, agent_alias)` 键控的缓存与同一条失效路径；缓存条目随存源原子 policy，管理读取填入的条目在之后的 CALL 命中时仍按调用方授权。跳过可见性的管理读取只由 CPU 分配发起，由架构测试守护。
+- **CALL 目标**是调用方自己的 actor 操作：actor API 先检查 `agent.call`（内置 Profile 同样检查），再以调用方的 scope 解析图纸；被调用方在 Workspace 中的准入由线程表在派生子线程时检查（[执行线程](./execution-threads.md)）；
+- **主进程执行者的 Profile** 是用户为这一轮作出的选择：CPU 分配以系统的 root scope 解析，加载哪份图纸取自认证得到的执行者；可用 agent 列表同样以 root scope 列出（[任务进程](./task-process.md#6-cpu-分配)第 6 节）。
 
 这与事实源的规则不同：跨子系统的 WorkspaceAssetStore 等事实源以 `WorkspaceIdentity` 参与资源复合键，在最终边界校验归属（[身份与授权](./identity-and-authorization.md#5-资源归属与寻址)）。
 
 ### 1.2 canonical 变更与失效
 
-canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.lifecycle` 动态状态的 patch 不发布，缓存原子的统计值可能较旧）；workspace 依次失效原子及 alias、失效源原子的 Profile 条目、推进 Workspace 代次。两个读取器共用一个 `ColdReadGuard`：冷读前记录代次，读取返回后比对，代次变化说明读取期间发生过 canonical 变更，旧值既不回填也不作为成功结果返回，有限次重试后显式失败，避免旧值在变更后重新进入缓存；读取视图关闭后拒绝新读，关闭前发出的冷读结果仍交还调用方但不再回填。通知只携带资源引用，不回放值，不做未送达补齐或重试。发布在提交调用内联完成，订阅者只做纯内存的失效与代次推进，不回填也不调用外部：提交返回时缓存已不可能命中旧值，订阅者也没有会失败而留下过期条目的步骤。组合根装配时即订阅，System 停止时先解除订阅再关闭读取视图（[Workspace](./README.md#52-停止)）。
+canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.lifecycle` 动态状态的 patch 不发布，缓存原子的统计值可能较旧）；workspace 依次失效原子及 alias、推进 Workspace 代次。记忆读取器的冷读受 `ColdReadGuard` 守护，Profile 读取器只共用它的关闭状态：冷读前记录代次，读取返回后比对，代次变化说明读取期间发生过 canonical 变更，旧值既不回填也不作为成功结果返回，有限次重试后显式失败，避免旧值在变更后重新进入缓存；读取视图关闭后拒绝新读，关闭前发出的冷读结果仍交还调用方但不再回填。通知只携带资源引用，不回放值，不做未送达补齐或重试。发布在提交调用内联完成，订阅者只做纯内存的失效与代次推进，不回填也不调用外部：提交返回时缓存已不可能命中旧值，订阅者也没有会失败而留下过期条目的步骤。组合根装配时即订阅，System 停止时先解除订阅再关闭读取视图（[Workspace](./README.md#52-停止)）。
 
 ## 2. 写入意图为什么由 workspace 持有
 

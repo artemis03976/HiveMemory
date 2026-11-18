@@ -10,12 +10,12 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-18
 ---
 
 # MemoryCompiler
 
-MemoryCompiler 把持久化记忆编译成一次任务能够使用的工作视图。它存在的根本原因是：同一条 MemoryAtom 在向量化、检索注入、读取结果、Agent Profile 菜单和子 Agent 共享上下文中，不应复制成五套逐渐漂移的字符串模板；但它也不能变成决定检索、权限、运行时策略和工具执行的另一个 God Object。
+MemoryCompiler 把持久化记忆编译成一次任务能够使用的工作视图。它存在的根本原因是：同一条 MemoryAtom 在向量化、检索注入、读取结果和子 Agent 共享上下文中，不应复制成多套逐渐漂移的字符串模板；但它也不能变成决定检索、权限、运行时策略和工具执行的另一个 God Object。
 
 因此，Compiler 只做两件事：把不同记忆类源归一为中间表示，再按明确 target 生成文本与元数据。谁选择源、谁拥有权限、何时运行 Agent，仍由调用方负责。
 
@@ -24,7 +24,7 @@ MemoryCompiler 把持久化记忆编译成一次任务能够使用的工作视�
 ## 1. 编译管线
 
 ```text
-MemoryAtom | PendingAtom | ReferenceResolution | PendingAtomSettlement
+MemoryAtom | PendingAtom | ReferenceResolution | PendingAtomSettlement | AgentProfile
   -> source builder
   -> MemoryUnitIR
   -> unit target handler
@@ -61,7 +61,7 @@ IR 的意义是让 target handler 面对稳定语义，而不是知道 MemoryAto
 | `SHARED_CONTEXT` | 子 Agent 共享的单元视图 |
 | `DENSE_EMBEDDING` | Qdrant dense vector 与 cross-encoder 输入 |
 | `SPARSE_EMBEDDING` | Qdrant sparse vector 输入 |
-| `AGENT_PROFILE_MENU` | Agent Profile 候选菜单 |
+| `AGENT_PROFILE_MENU` | 可用 agent 列表的一项：`<agent_profile alias="agent_id">title: summary</agent_profile>`，只接受 `AgentProfile` 源（它不是记忆，只为这一个 target 编译） |
 | `RUNNABLE_TOOL` | 仅保留枚举，当前显式抛出 Phase 3 reserved 错误 |
 
 Unit 编译单个源返回 CompiledMemory；列表源长度不为 1 时返回同长度列表，长度为 1 时同样返回单个 CompiledMemory。`compile` 以 overload 声明这一区分：单个源经 unit target、以及任意源经 envelope target 的返回类型都是 CompiledMemory。CompiledMemory 除 text 外还保留 source kind、alias、memory id、status 与 metadata，使运行时不必从文本反向猜测 redirect 或 pending 状态。
@@ -70,12 +70,12 @@ Unit 编译单个源返回 CompiledMemory；列表源长度不为 1 时返回同
 
 Envelope 把多个 unit 分 section 组织成完整上下文：
 
-- `RETRIEVAL_CONTEXT`：区分普通 memories 与 agent profiles，添加本地化 header/footer；header/footer 是提示词中预检索上下文的引导，调用方可以以 `include_header_footer=False` 关闭，工具结果（MCP 的 `memory_search`）因此不带它们；
+- `RETRIEVAL_CONTEXT`：把记忆组织为 memories 一节，添加本地化 header/footer；header/footer 是提示词中预检索上下文的引导，调用方可以以 `include_header_footer=False` 关闭，工具结果（MCP 的 `memory_search`）因此不带它们；
 - `SHARED_CONTEXT_INJECTION`：为子 Agent 生成带说明的共享上下文。
 
 读取结果没有 envelope：调用方逐项编译 `READ_RESULT`，自己组合多项结果与局部提示。读取是取得正文全文的途径，`READ_RESULT` 因此不截断：`PROMPT_FULL` 与 `SHARED_CONTEXT` 按 `max_content_length` 截断正文时，附带的提示指引 Agent 读取这条记忆；读取若同样截断，照提示读取只会得到相同的文本。
 
-Retrieval context 中，Agent Profile 使用 `AGENT_PROFILE_MENU`，普通记忆按 retrieval strategy 选择 full/index。其他默认 section 当前使用 `SHARED_CONTEXT` 编译。
+Retrieval context 中，记忆按 retrieval strategy 选择 full/index，不再单列 Agent Profile。其他默认 section 当前使用 `SHARED_CONTEXT` 编译。可用 agent 列表不是检索结果：任务进程在 CPU 分配时把每个可用 agent 编译为 `AGENT_PROFILE_MENU` 项，由中立提示词编译放进常驻的“可用子代理”一节（[任务进程](../workspace/task-process.md)）。
 
 ## 5. Retrieval context 策略
 
