@@ -126,6 +126,7 @@ last_reviewed: 2026-11-17
 | 2026-11-16 | 新的类型体系先在已有的对话数据上回放，检验 LLM 能否稳定把握它的边界，再写进计划 | 本文第 4.2 节、[类型体系](./memory-type-system.md)第 9 节、本文第 7 节 |
 | 2026-11-16 | 首份计划落在类型体系；先在已有的对话数据上完成回放检验（补一小组 chatbot 式样本），项目持久的回放需求之后由一套回放工具承担 | [类型体系](./memory-type-system.md)第 1、9.1 节 |
 | 2026-11-16 | 公开评测集（LoCoMo、LongMemEval 等）与建模 agent 工作流的数据集属于 v0.8 的内容，需要尽早提上日程，单独成一份 Idea | [评测集](./memory-evaluation-benchmarks.md)第 1 节 |
+| 2026-11-18 | Agent Profile 移出中期库后不再作为记忆原子看待，也不再遵循记忆原子的结构；手动编辑的历史不保留；直接修改本地文件与经 Agent 页修改等同，需要热重载 | [类型体系](./memory-type-system.md)第 6.3 节 |
 | 2026-11-17 | 类型收敛建立计划前的两项：库中已有的 WIP、CODE_SNIPPET 与 URL_RESOURCE 逐条列出，由 owner 决定改类型还是删除；AgentProfileStore 用文件存储，一个 Agent Profile 一个文件 | [类型体系](./memory-type-system.md)第 6.3 节、第 7 节开头 |
 | 2026-11-17 | 记忆类型的收敛只作为 v0.8.0 的第一个方向实现。v0.8 参考 v0.7 的版本规划重新考虑：v0.8.0 的版本目标为生成核心的升级（按 2026-11-16 的顺序取第 1 步，Claude 整理，待 owner 确认）；一个版本围绕一个功能，由几份能各自验收的计划完成，计划只在能立即执行时建立 | [类型体系](./memory-type-system.md)第 7 节开头；[ROADMAP](../ROADMAP.md) 第 4.2 节 |
 | 2026-11-16 | 回放与对照组之后，新旧类别在稳定性上没有区别、类别依旧不平衡，能否引导按预期用法使用两边都测不了。首份计划只实施已移出类型的三处（WIP、AGENT_PROFILE、可运行）与 CODE_SNIPPET、URL_RESOURCE 合并为统一的资源记忆类型；FACT、用户一侧、REFLECTION 与只存在于记忆中的代码的重新划分不进入首份计划，FACT、REFLECTION、USER_PROFILE 维持现状 | [类型体系](./memory-type-system.md)第 1 节、第 7 节开头、第 9.2 节 |

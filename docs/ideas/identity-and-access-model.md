@@ -279,6 +279,8 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 **相关 Todo 与治理工作包**
 
+- `agent_id` 是名字而不是不透明的 id（owner，2026-11-18 提出）：它是 `ActorIdentity` 的一部分，访问登记、外部接入的 `allowed_agent_ids`、对话请求、会话记录、记忆来源与 CALL 都按它引用，只给 Agent Profile 加一个 id 解决不了改名；是否换成不透明的 id 归这条线，与 [Agent 别名改名 Todo](../todo/agent-alias-rename.md) 一起考虑。v0.8.0 的 AgentProfileStore 保持 `agent_id` 作为不可改的标识（owner，2026-11-18）。
+
 - 前端身份切换时的持久化、失效与清理：不单独追踪，出现登录或 Workspace 切换时再计划（owner，2026-11-09；原 Todo 删除前的最后版本见 commit `3cfdec9d`），对应[身份治理](../governance/security/identity-and-execution-safety.md) Phase S4；
 - 身份与威胁模型清单（身份治理 Phase S0）：身份输入与授权所有者的盘点已由[现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)完成（2026-11-05）；越权、Profile 过期等最小复现样本不单独立项，随相关条目实施时补上（owner，2026-11-06）。
 
