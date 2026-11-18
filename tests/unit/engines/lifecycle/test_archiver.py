@@ -1,5 +1,6 @@
 """针对替代旧版 archiver 的长期文件存储的单元测试。"""
 
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -113,3 +114,19 @@ class TestFileBasedStorageAdapter:
         restarted = FileBasedStorageAdapter(str(tmp_path), compress=False)
 
         assert await restarted.is_archived(_key(memory)) is True
+
+    @pytest.mark.asyncio
+    async def test_overwrite_in_later_month_keeps_only_the_new_file(self, tmp_path):
+        """文件按写入当月分目录：覆盖写入落到新目录时删除旧文件，冷库只留一份可读回的副本。"""
+        now = datetime(2026, 10, 29, tzinfo=UTC)
+        adapter = FileBasedStorageAdapter(str(tmp_path), compress=True, now=lambda: now)
+        memory = _make_memory()
+        await adapter.persist(memory)
+
+        now = datetime(2026, 11, 17, tzinfo=UTC)
+        memory.payload.content = "Rewritten"
+        await adapter.persist(memory)
+
+        files = list(tmp_path.rglob("*.json.gz"))
+        assert [file.parent.name for file in files] == ["2026-11"]
+        assert (await adapter.load(_key(memory))).payload.content == "Rewritten"

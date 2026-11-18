@@ -70,7 +70,8 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             memory_id=memory.id,
         )
         index_key = self._index_key(key)
-        if index_key in self._index:
+        previous = self._index.get(index_key)
+        if previous is not None:
             logger.warning("记忆已在冷存储中，覆盖写入: memory_id=%s", memory.id)
 
         data = memory.model_dump(mode="json")
@@ -92,6 +93,9 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             compressed_size_bytes=file_path.stat().st_size if file_path.exists() else None,
         )
         self._save_index()
+        # 文件按写入当月分目录：覆盖写入落在别的目录时，旧文件已不在索引中，随之删除。
+        if previous is not None and Path(previous.storage_path) != file_path:
+            Path(previous.storage_path).unlink(missing_ok=True)
         logger.debug("持久化记忆到冷存储: memory_id=%s", memory.id)
 
     async def load(self, key: WorkspaceMemoryKey) -> MemoryAtom:

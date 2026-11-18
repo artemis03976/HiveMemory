@@ -23,14 +23,13 @@ from uuid import UUID
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import WorkspaceIdentity
 
-# MTP 别名系统: MemoryType -> 别名前缀映射
+# MTP 别名系统: MemoryType -> 别名前缀映射。只作历史取值的类型不再产生新记忆，没有前缀；
+# 已有记忆的 alias 是对外标识，不随类型改变。
 MEMORY_TYPE_ALIAS_PREFIX: dict[str, str] = {
-    "CODE_SNIPPET": "code",
     "FACT": "fact",
-    "URL_RESOURCE": "url",
     "REFLECTION": "ref",
     "USER_PROFILE": "user",
-    "WORK_IN_PROGRESS": "wip",
+    "RESOURCE": "res",
     "AGENT_PROFILE": "agent",
 }
 
@@ -64,11 +63,11 @@ class AliasGenerator:
         >>> generator = AliasGenerator(mid_term)
         >>> await generator.generate(
         ...     workspace_identity=workspace,
-        ...     memory_type="CODE_SNIPPET",
+        ...     memory_type="RESOURCE",
         ...     alias_suffix="quicksort_impl",
         ...     title="Quick Sort",
         ... )
-        'code_quicksort_impl'
+        'res_quicksort_impl'
     """
 
     def __init__(self, holders: AliasHolderLookup, *, max_attempts: int = 20) -> None:
@@ -92,7 +91,7 @@ class AliasGenerator:
 
         Args:
             workspace_identity: 别名唯一性的作用域
-            memory_type: 记忆类型字符串 (e.g. "CODE_SNIPPET")
+            memory_type: 记忆类型字符串 (e.g. "RESOURCE")
             alias_suffix: LLM 生成的别名后缀 (可能为空)
             title: 记忆标题 (用于 fallback)
             memory_id: 这条记忆的 id，无法构造候选时用于回退别名
@@ -143,12 +142,12 @@ class AliasGenerator:
             4. 清洗并验证最终别名格式
 
         Args:
-            memory_type: 记忆类型字符串 (e.g. "CODE_SNIPPET")
+            memory_type: 记忆类型字符串 (e.g. "RESOURCE")
             alias_suffix: LLM 生成的别名后缀 (可能为空)
             title: 记忆标题 (用于 fallback)
 
         Returns:
-            完整别名 (e.g. "code_quicksort_impl"), 或 None
+            完整别名 (e.g. "res_quicksort_impl"), 或 None
         """
         prefix = MEMORY_TYPE_ALIAS_PREFIX.get(memory_type, "mem")
 

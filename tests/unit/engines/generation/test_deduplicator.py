@@ -33,7 +33,7 @@ class TestMemoryDeduplicator:
             title="Python Quicksort",
             summary="Implementation of quicksort",
             tags=["algorithm", "python"],
-            memory_type="CODE_SNIPPET",
+            memory_type="RESOURCE",
             content="def quicksort(): pass",
             confidence_score=0.9,
             has_value=True,
@@ -50,7 +50,7 @@ class TestMemoryDeduplicator:
                 title="Python Quicksort",
                 summary="Old summary",
                 tags=["python", "sort"],
-                memory_type=MemoryType.CODE_SNIPPET,
+                memory_type=MemoryType.RESOURCE,
             ),
             payload=PayloadLayer(content="def quicksort(): pass"),
         )

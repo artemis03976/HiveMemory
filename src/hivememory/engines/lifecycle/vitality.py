@@ -64,12 +64,10 @@ class VitalityCalculator:
 
         # 构建固有价值权重字典 (I 作为抗衰减调制因子)
         self._intrinsic_weights = {
-            MemoryType.CODE_SNIPPET: self.config.code_snippet_weight,
             MemoryType.FACT: self.config.fact_weight,
-            MemoryType.URL_RESOURCE: self.config.url_resource_weight,
+            MemoryType.RESOURCE: self.config.resource_weight,
             MemoryType.REFLECTION: self.config.reflection_weight,
             MemoryType.USER_PROFILE: self.config.user_profile_weight,
-            MemoryType.WORK_IN_PROGRESS: self.config.work_in_progress_weight,
         }
 
     def calculate(self, memory: MemoryAtom) -> float:
@@ -127,8 +125,8 @@ class VitalityCalculator:
         公式: D(t) = exp(-λ_eff · t),  λ_eff = λ · (2 - I)
 
         - t=0 时: D(0) = 1.0 (无衰减)
-        - I=1.0 (CODE_SNIPPET): λ_eff = λ (衰减最慢)
-        - I=0.5 (WORK_IN_PROGRESS): λ_eff = 1.5λ (衰减更快)
+        - I=1.0: λ_eff = λ (衰减最慢)
+        - I=0.5 (default_weight): λ_eff = 1.5λ (衰减更快)
         - λ=0.01, t=100 天, I=1.0: D(100) ≈ 0.37
 
         Args:
@@ -167,12 +165,10 @@ class VitalityCalculator:
 
 
 INTRINSIC_VALUE_WEIGHTS = {
-    MemoryType.CODE_SNIPPET: 1.0,
     MemoryType.FACT: 0.9,
-    MemoryType.URL_RESOURCE: 0.8,
+    MemoryType.RESOURCE: 0.8,
     MemoryType.REFLECTION: 0.7,
     MemoryType.USER_PROFILE: 0.6,
-    MemoryType.WORK_IN_PROGRESS: 0.5,
 }
 
 

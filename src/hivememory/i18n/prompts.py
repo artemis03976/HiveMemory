@@ -20,18 +20,18 @@ _SYSTEM_PROMPT_TEXT_EN = {
 }
 
 _MTP_VERB_TEXT_ZH = {
-    "SEARCH": '发现未知记忆。Target=`*`。参数: `query="..."`，可选 `filter="type:CODE"` (类型: CODE, FACT, URL, REFLECTION, PROFILE, WIP)。',
+    "SEARCH": '发现未知记忆。Target=`*`。参数: `query="..."`，可选 `filter="type:RESOURCE"` (类型: FACT, REFLECTION, PROFILE, RESOURCE)。',
     "READ": "获取完整内容。Target=`alias` 或 `[alias1, alias2]` (使用列表批量读取)。",
-    "RUN": '执行工具。Target=`tool_alias`。参数: `key="value"`。',
+    "RUN": '执行系统工具。Target=`tool_alias`。参数: `key="value"`。',
     "WRITE": '保存有价值的洞察。Target=`*`。参数: `title="..." content=`...``。返回运行时 pending alias (draft_*)。',
     "UPDATE": '修正已有记忆。Target=`alias`。参数: `instruction="..."`。返回运行时 pending alias (rev_*)。',
     "CALL": '委托子代理执行专项任务。Target=`agent_alias` (来自可用子代理列表)。参数: `topic="..."`，可选 `context_refs="[alias1, alias2]"` 共享记忆。',
 }
 
 _MTP_VERB_TEXT_EN = {
-    "SEARCH": 'Discover unknown memories. Target=`*`. Args: `query="..."`, optional `filter="type:CODE"` (types: CODE, FACT, URL, REFLECTION, PROFILE, WIP).',
+    "SEARCH": 'Discover unknown memories. Target=`*`. Args: `query="..."`, optional `filter="type:RESOURCE"` (types: FACT, REFLECTION, PROFILE, RESOURCE).',
     "READ": "Fetch full content. Target=`alias` or `[alias1, alias2]` (use LIST for batching).",
-    "RUN": 'Execute a tool. Target=`tool_alias`. Args: `key="value"`.',
+    "RUN": 'Execute a system tool. Target=`tool_alias`. Args: `key="value"`.',
     "WRITE": 'Save valuable insights. Target=`*`. Args: `title="..." content=`...``. Returns a pending alias (draft_*).',
     "UPDATE": 'Patch existing memory. Target=`alias`. Args: `instruction="..."`. Returns a pending alias (rev_*).',
     "CALL": 'Delegate to a sub-agent. Target=`agent_alias` (from Available Sub-Agents list). Args: `topic="..."`, optional `context_refs="[alias1, alias2]"` to share memories.',
@@ -405,8 +405,8 @@ _GENERATION_PROMPT_TEXT_ZH = {
 两条记忆描述同一件事，或同一工作的不同阶段。保留双方仍然有效的内容，不要整体替换任何一方。
 状态、结论或进度冲突时以标明的较新记忆为准，同时保留被取代的决定曾经存在的事实及其背景。
 标题与摘要必须覆盖合并后的全部要点：检索只使用标题、类型、标签与摘要，不读取正文。
-正文输出完整的 Markdown；标签概括合并内容，类型从 CODE_SNIPPET、FACT、URL_RESOURCE、
-REFLECTION、USER_PROFILE、WORK_IN_PROGRESS 中选择。不要生成别名或修改身份。
+正文输出完整的 Markdown；标签概括合并内容，类型从 FACT、REFLECTION、USER_PROFILE、
+RESOURCE 中选择。不要生成别名或修改身份。
 
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
 
@@ -437,27 +437,26 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 4. **置信度评估**: 区分"用户明确陈述"(高) vs "AI推理"(低)
 
 ## 记忆类型 (memory_type)
-- **CODE_SNIPPET**: 代码片段、函数实现、配置文件
-- **FACT**: 明确事实、业务规则、参数定义
-- **URL_RESOURCE**: 外部文档、API文档快照
+- **FACT**: 明确事实、业务规则、参数定义。陈述某样东西怎样运作的内容，即使引用了文件路径或网址，也是 FACT。只存在于对话中的代码（写给用户、没有提交的脚本，在控制台执行过的查询，修好问题的一行命令）也是 FACT，代码部分原样保留
 - **REFLECTION**: 经验总结、错误反思、教训
 - **USER_PROFILE**: 用户偏好、习惯设定
-- **WORK_IN_PROGRESS**: 未完成的任务状态
+- **RESOURCE**: 对一个外部资源（网页、文件、代码、文档）的记忆。正文说明它是什么、为什么值得去看、在哪里（路径、符号名、网址），把读者引向源头；不抄录源头的内容，真相留在源头
 
 ## 过程条目
 对话片段中每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）、子 Agent 交回的消息（[Subagent]）与以 "- " 开头的过程条目：
 - **[Subagent]**: 被委托的子 Agent 结束时交回当前 Agent 的通知，带它的结局与最后的输出，是子 Agent 的结论，与助手正文同等对待；子 Agent 依据的工具观察不在片段中
 - **THOUGHT**: Agent 的推理与思考，不是用户的陈述，也不是已经验证的事实；不能单独作为记忆的事实依据，主要由它得出的内容应降低置信度
 - **TOOL / RESULT**: 外部工具的调用（工具名与参数）及其返回结果。结果是对外部系统的观察，可以作为事实依据；标为 (error) 的结果表示调用出错，可用于提炼错误原因与修复经验
-- **SEARCH / READ / RUN**: 记忆系统内部操作（检索、读取记忆与运行记忆中的工具）的一行摘要；SEARCH 与 READ 读回的是已有记忆，不要把它们重复提取为新记忆
+- **SEARCH / READ / RUN**: 记忆系统内部操作（检索、读取记忆与运行系统工具）的一行摘要；SEARCH 与 READ 读回的是已有记忆，不要把它们重复提取为新记忆
 - 过长的工具结果已被截断，"…[N chars omitted]…" 处省略了中段。不要推测被省略的内容
 
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
 
 ## 拆分粒度
-一段对话可能包含多件彼此独立、之后会被分别查找的事：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一项工作的当前状态。每件事写成一条记忆，标题与摘要要让人能单独检索到它。
+一段对话可能包含多件彼此独立、之后会被分别查找的事：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一个值得以后复用的外部资源。每件事写成一条记忆，标题与摘要要让人能单独检索到它。
 - 同一件事的背景、过程与结论放在同一条里，不拆开
+- 一项工作做到哪了（进度、下一步、待办）不写成记忆；其中得出的结论、决定与尚未解决的问题本身照常成条
 - 只是顺带提及、没有结论的内容不单独成条
 - 不为凑数拆分：整段只讨论一件事时只输出一条
 
@@ -484,12 +483,10 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 - 格式: snake_case，2-4 个单词，总长度不超过 30 字符
 - 应当具有语义辨识度，能让人一眼理解记忆内容
 - 示例:
-  - 代码类: "quicksort_impl", "date_parser", "login_auth"
   - 事实类: "project_env", "api_rate_limit", "db_connection_config"
-  - URL类: "python_datetime_docs", "k8s_deploy_guide"
   - 反思类: "avoid_global_state", "test_before_deploy"
   - 用户画像: "prefers_typescript", "timezone_utc8"
-  - 进行中: "refactor_auth_module", "migrate_to_v2"
+  - 资源类: "python_datetime_docs", "k8s_deploy_guide", "auth_middleware_src"
 - 如果对话无价值 (has_value=false)，alias_suffix 可以为空字符串
 """,
         "user_prompt": """
@@ -515,18 +512,16 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 4. **强制入库**: 除非内容完全错误或无意义，否则必须生成记忆 (has_value=true, confidence_score=1.0)
 
 ## 记忆类型 (memory_type)
-- **CODE_SNIPPET**: 代码片段、函数实现、配置文件
-- **FACT**: 明确事实、业务规则、参数定义
-- **URL_RESOURCE**: 外部文档、API文档快照
+- **FACT**: 明确事实、业务规则、参数定义。陈述某样东西怎样运作的内容，即使引用了文件路径或网址，也是 FACT。只存在于对话中的代码（写给用户、没有提交的脚本，在控制台执行过的查询，修好问题的一行命令）也是 FACT，代码部分原样保留
 - **REFLECTION**: 经验总结、错误反思、教训
 - **USER_PROFILE**: 用户偏好、习惯设定
-- **WORK_IN_PROGRESS**: 未完成的任务状态
+- **RESOURCE**: 对一个外部资源（网页、文件、代码、文档）的记忆。正文说明它是什么、为什么值得去看、在哪里（路径、符号名、网址），把读者引向源头；不抄录源头的内容，真相留在源头
 
 ## 背景对话中的过程条目
 - 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）、子 Agent 交回的消息（[Subagent]）与以 "- " 开头的过程条目
 - **[Subagent]** 是被委托的子 Agent 结束时交回的通知，带它的结局与最后的输出，是子 Agent 的结论，与助手正文同等对待
 - **THOUGHT** 是 Agent 的推理，不能用来证实草稿；**TOOL / RESULT** 是外部工具的调用与返回结果，可以用来验证与补全草稿，标为 (error) 的结果表示调用出错
-- **SEARCH / READ / RUN** 是记忆系统内部操作（检索、读取记忆与运行记忆中的工具）的一行摘要
+- **SEARCH / READ / RUN** 是记忆系统内部操作（检索、读取记忆与运行系统工具）的一行摘要
 - "…[N chars omitted]…" 处省略了过长工具结果的中段，不要推测被省略的内容
 
 ## 敏感信息
@@ -662,7 +657,7 @@ content from both; do not replace either memory wholesale. When status, conclusi
 conflict, prefer the memory marked as newer, while retaining the fact and context of superseded decisions.
 The title and summary must cover all merged key points: retrieval uses only title, type, tags, and summary,
 not the body. Return the complete Markdown body and tags describing the merged content. Choose a type
-from CODE_SNIPPET, FACT, URL_RESOURCE, REFLECTION, USER_PROFILE, WORK_IN_PROGRESS.
+from FACT, REFLECTION, USER_PROFILE, RESOURCE.
 Do not generate aliases or change identities.
 
 Do not store secrets, tokens, passwords, certificates, or credentials from connection strings.
@@ -695,27 +690,26 @@ Analyze conversation snippets between the user and the AI assistant, extract and
 4. **Confidence Assessment**: Distinguish "explicit user statements" (high) from "AI inference" (low).
 
 ## Memory Types (memory_type)
-- **CODE_SNIPPET**: Code snippets, function implementations, configuration files.
-- **FACT**: Explicit facts, business rules, parameter definitions.
-- **URL_RESOURCE**: External documentation or API documentation snapshots.
+- **FACT**: Explicit facts, business rules, parameter definitions. Content that states how something works is a FACT even when it cites a file path or URL. Code that exists only in the conversation (a script written for the user and never committed, a query run in a console, a one-line command that fixed a problem) is also a FACT; keep the code verbatim.
 - **REFLECTION**: Lessons learned, error reflections, experience summaries.
 - **USER_PROFILE**: User preferences and habitual settings.
-- **WORK_IN_PROGRESS**: Unfinished task state.
+- **RESOURCE**: A memory of an external resource (web page, file, code, document). The body says what it is, why it is worth looking at, and where it is (path, symbol name, URL), pointing the reader to the source. Do not copy the source's content; the truth stays at the source.
 
 ## Process Entries
 Each turn of a conversation snippet starts with [User], followed in order by the assistant's text ([Assistant]), messages handed back by subagents ([Subagent]), and process entries starting with "- ":
 - **[Subagent]**: The notice a delegated subagent handed back to the current Agent when it finished, carrying its outcome and final output. Treat it as the subagent's conclusions, like the assistant's text; the tool observations behind it are not in the snippet.
 - **THOUGHT**: The Agent's reasoning. It is neither a user statement nor a verified fact; do not use it alone as the factual basis of a memory, and lower the confidence of content that mainly comes from it.
 - **TOOL / RESULT**: A call to an external tool (tool name and arguments) and what it returned. Results are observations of external systems and may serve as factual basis; a result marked (error) means the call failed and can be used to extract causes and fixes.
-- **SEARCH / READ / RUN**: One-line summaries of internal memory-system operations (searching and reading memories, and running tools stored in memories). What SEARCH and READ read back are existing memories; do not extract them again as new memories.
+- **SEARCH / READ / RUN**: One-line summaries of internal memory-system operations (searching and reading memories, and running system tools). What SEARCH and READ read back are existing memories; do not extract them again as new memories.
 - Overlong tool results have been truncated: "…[N chars omitted]…" marks an omitted middle part. Do not guess the omitted content.
 
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
 
 ## Granularity
-A conversation may contain several independent things that will later be looked up separately: a decision and its reasons, a fact or configuration, a solved problem and its fix, a preference or lesson, the current state of a piece of work. Write each one as its own memory, with a title and summary that let it be retrieved on its own.
+A conversation may contain several independent things that will later be looked up separately: a decision and its reasons, a fact or configuration, a solved problem and its fix, a preference or lesson, an external resource worth reusing later. Write each one as its own memory, with a title and summary that let it be retrieved on its own.
 - Keep the background, process, and conclusion of the same thing in one memory; do not split them.
+- Do not write down how far a piece of work has got (progress, next steps, to-dos); the conclusions, decisions, and unresolved problems it produced are memories as usual.
 - Do not make a separate memory for something mentioned only in passing without a conclusion.
 - Do not split for the sake of numbers: if the whole conversation is about one thing, output one memory.
 
@@ -742,12 +736,10 @@ Generate a short snake_case alias suffix for each memory for semantic addressing
 - Format: snake_case, 2-4 words, no more than 30 characters.
 - It should be semantically recognizable at a glance.
 - Examples:
-  - Code: "quicksort_impl", "date_parser", "login_auth"
   - Facts: "project_env", "api_rate_limit", "db_connection_config"
-  - URLs: "python_datetime_docs", "k8s_deploy_guide"
   - Reflections: "avoid_global_state", "test_before_deploy"
   - User profile: "prefers_typescript", "timezone_utc8"
-  - Work in progress: "refactor_auth_module", "migrate_to_v2"
+  - Resources: "python_datetime_docs", "k8s_deploy_guide", "auth_middleware_src"
 - If the conversation has no value (has_value=false), alias_suffix may be an empty string.
 """,
         "user_prompt": """
@@ -773,18 +765,16 @@ Your task is not to discover value from the conversation, but to verify and stru
 4. **Force storage**: Unless the content is completely wrong or meaningless, generate a memory (has_value=true, confidence_score=1.0).
 
 ## Memory Types (memory_type)
-- **CODE_SNIPPET**: Code snippets, function implementations, configuration files.
-- **FACT**: Explicit facts, business rules, parameter definitions.
-- **URL_RESOURCE**: External documentation or API documentation snapshots.
+- **FACT**: Explicit facts, business rules, parameter definitions. Content that states how something works is a FACT even when it cites a file path or URL. Code that exists only in the conversation (a script written for the user and never committed, a query run in a console, a one-line command that fixed a problem) is also a FACT; keep the code verbatim.
 - **REFLECTION**: Lessons learned, error reflections, experience summaries.
 - **USER_PROFILE**: User preferences and habitual settings.
-- **WORK_IN_PROGRESS**: Unfinished task state.
+- **RESOURCE**: A memory of an external resource (web page, file, code, document). The body says what it is, why it is worth looking at, and where it is (path, symbol name, URL), pointing the reader to the source. Do not copy the source's content; the truth stays at the source.
 
 ## Process Entries in the Background Conversation
 - Each turn starts with [User], followed in order by the assistant's text ([Assistant]), messages handed back by subagents ([Subagent]), and process entries starting with "- ".
 - **[Subagent]** is the notice a delegated subagent handed back when it finished, carrying its outcome and final output; treat it as the subagent's conclusions, like the assistant's text.
 - **THOUGHT** is the Agent's reasoning and cannot confirm the draft; **TOOL / RESULT** is a call to an external tool and what it returned, which may be used to verify and enrich the draft. A result marked (error) means the call failed.
-- **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations (searching and reading memories, and running tools stored in memories).
+- **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations (searching and reading memories, and running system tools).
 - "…[N chars omitted]…" marks an omitted middle part of an overlong tool result. Do not guess the omitted content.
 
 ## Sensitive Information

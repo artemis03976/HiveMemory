@@ -16,7 +16,7 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.errors import MemoryAliasConflictError
-from hivememory.core.models import MemoryType, WriteFocus
+from hivememory.core.models import HISTORICAL_MEMORY_TYPES, MemoryType, WriteFocus
 from hivememory.engines.generation.alias import MEMORY_TYPE_ALIAS_PREFIX, AliasGenerator
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import (
@@ -57,12 +57,10 @@ class TestBuildCandidate:
     @pytest.mark.parametrize(
         ("memory_type", "suffix", "expected"),
         [
-            ("CODE_SNIPPET", "quicksort_impl", "code_quicksort_impl"),
             ("FACT", "project_env", "fact_project_env"),
-            ("URL_RESOURCE", "python_datetime_docs", "url_python_datetime_docs"),
             ("REFLECTION", "avoid_global_state", "ref_avoid_global_state"),
             ("USER_PROFILE", "prefers_typescript", "user_prefers_typescript"),
-            ("WORK_IN_PROGRESS", "refactor_auth", "wip_refactor_auth"),
+            ("RESOURCE", "python_datetime_docs", "res_python_datetime_docs"),
             ("AGENT_PROFILE", "coder_doll", "agent_coder_doll"),
         ],
     )
@@ -76,9 +74,13 @@ class TestBuildCandidate:
             "mem_test_thing"
         )
 
-    def test_prefix_mapping_covers_every_memory_type(self):
-        """每个 MemoryType 都有对应前缀，新增类型不会静默落到 mem_。"""
-        missing = [t.value for t in MemoryType if t.value not in MEMORY_TYPE_ALIAS_PREFIX]
+    def test_prefix_mapping_covers_every_producible_memory_type(self):
+        """可以产生的类型都有对应前缀，新增类型不会静默落到 mem_；只作历史取值的类型没有前缀。"""
+        missing = [
+            t.value
+            for t in MemoryType
+            if t not in HISTORICAL_MEMORY_TYPES and t.value not in MEMORY_TYPE_ALIAS_PREFIX
+        ]
         assert missing == []
 
     def test_fallback_from_title(self):
@@ -90,13 +92,13 @@ class TestBuildCandidate:
     def test_fallback_from_title_strips_special_chars(self):
         """title 含特殊字符与非 ASCII 字符时清洗。"""
         assert AliasGenerator.build_candidate(
-            "CODE_SNIPPET", "", "Python utils: parse_date() 函数"
-        ) == ("code_python_utils_parse_date")
+            "RESOURCE", "", "Python utils: parse_date() 函数"
+        ) == ("res_python_utils_parse_date")
 
     def test_suffix_sanitization(self):
         """后缀小写化并移除非 snake_case 字符。"""
-        assert AliasGenerator.build_candidate("CODE_SNIPPET", "  UPPER Case!! ", "x") == (
-            "code_uppercase"
+        assert AliasGenerator.build_candidate("RESOURCE", "  UPPER Case!! ", "x") == (
+            "res_uppercase"
         )
 
     def test_consecutive_underscores_collapsed(self):

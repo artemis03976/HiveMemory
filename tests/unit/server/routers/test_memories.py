@@ -207,7 +207,7 @@ class TestMemoriesRouter:
                 "title": "Created memory",
                 "summary": "A sufficiently long memory summary",
                 "content": "Created memory content",
-                "memory_type": "FACT",
+                "memory_type": "RESOURCE",
                 "tags": ["created", "ui"],
                 "alias": "created-memory",
             },
@@ -218,7 +218,7 @@ class TestMemoriesRouter:
         assert data["title"] == "Created memory"
         assert data["summary"] == "A sufficiently long memory summary"
         assert data["content"] == "Created memory content"
-        assert data["memory_type"] == "FACT"
+        assert data["memory_type"] == "RESOURCE"
         assert set(data["tags"]) == {"created", "ui"}
         assert data["alias"] == "created-memory"
         assert data["user_id"] == "default"
@@ -231,12 +231,14 @@ class TestMemoriesRouter:
         assert atom.workspace_identity.owner_user_id == "default"
         assert atom.index.title == "Created memory"
         assert atom.index.summary == "A sufficiently long memory summary"
-        assert atom.index.memory_type == MemoryType.FACT
+        assert atom.index.memory_type == MemoryType.RESOURCE
         assert set(atom.index.tags) == {"created", "ui"}
         assert atom.index.alias == "created-memory"
         assert atom.payload.content == "Created memory content"
 
-    def test_create_memory_rejects_invalid_memory_type(self):
+    @pytest.mark.parametrize("memory_type", ["AGENT_PROFILE", "CODE_SNIPPET"])
+    def test_create_memory_rejects_invalid_memory_type(self, memory_type):
+        """管理创建不接受 Agent Profile（有独立入口）与只作历史取值的旧类型。"""
         storage = MagicMock()
 
         app = _create_test_app(storage)
@@ -249,7 +251,7 @@ class TestMemoriesRouter:
                 "title": "Created memory",
                 "summary": "A sufficiently long memory summary",
                 "content": "Created memory content",
-                "memory_type": "AGENT_PROFILE",
+                "memory_type": memory_type,
                 "tags": ["created"],
             },
         )

@@ -7,13 +7,12 @@ from pydantic import BaseModel, Field, field_validator
 
 from hivememory.core.models import MemoryAccessPolicy, MemoryAtom, MemoryVisibility
 
+# 管理创建可选的类型：Agent Profile 有独立的创建入口，只作历史取值的类型不再产生。
 _ALLOWED_MEMORY_TYPES = {
-    "CODE_SNIPPET",
     "FACT",
-    "URL_RESOURCE",
     "REFLECTION",
     "USER_PROFILE",
-    "WORK_IN_PROGRESS",
+    "RESOURCE",
 }
 
 

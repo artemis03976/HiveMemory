@@ -23,15 +23,26 @@ from hivememory.utils.time import require_utc, utc_now
 
 
 class MemoryType(str, Enum):
-    """记忆类型枚举 - 用于区分记忆的应用场景"""
+    """记忆类型枚举 - 用于区分记忆的应用场景
 
-    CODE_SNIPPET = "CODE_SNIPPET"  # 代码片段、函数实现
+    ``HISTORICAL_MEMORY_TYPES`` 中的取值不再产生：版本快照是只追加的历史，
+    记着写入当时的类型，仍要按 schema 严格解码，所以这些取值留在枚举中。
+    """
+
     FACT = "FACT"  # 事实、业务规则、参数定义
-    URL_RESOURCE = "URL_RESOURCE"  # 外部文档快照
     REFLECTION = "REFLECTION"  # 经验总结、错误反思
     USER_PROFILE = "USER_PROFILE"  # 用户偏好、习惯
-    WORK_IN_PROGRESS = "WORK_IN_PROGRESS"  # 未完成的任务状态
+    RESOURCE = "RESOURCE"  # 外部资源：它是什么、为什么值得去看、在哪里；真相留在源头
     AGENT_PROFILE = "AGENT_PROFILE"  # 人偶图纸 (多智能体系统)
+    CODE_SNIPPET = "CODE_SNIPPET"  # 历史取值：代码片段
+    URL_RESOURCE = "URL_RESOURCE"  # 历史取值：外部文档快照
+    WORK_IN_PROGRESS = "WORK_IN_PROGRESS"  # 历史取值：未完成的任务状态
+
+
+# 只作为历史取值保留的类型：生成、检索过滤与管理入口都不给出。
+HISTORICAL_MEMORY_TYPES: frozenset[MemoryType] = frozenset(
+    {MemoryType.CODE_SNIPPET, MemoryType.URL_RESOURCE, MemoryType.WORK_IN_PROGRESS}
+)
 
 
 class MemoryVisibility(str, Enum):
@@ -263,11 +274,11 @@ class IndexLayer(BaseModel):
         validate_assignment=True,
         json_schema_extra={
             "example": {
-                "title": "Python utils: parse_date 函数实现",
-                "summary": "基于 datetime 库实现的日期解析工具，支持 ISO8601 与多种自定义格式。",
-                "tags": ["python", "datetime", "utils", "code-implementation"],
-                "memory_type": "CODE_SNIPPET",
-                "alias": "code_parse_date",
+                "title": "Python utils: parse_date 日期解析入口",
+                "summary": "utils/dates.py 的 parse_date 支持 ISO8601 与多种自定义格式，解析日期先读它。",
+                "tags": ["python", "datetime", "utils"],
+                "memory_type": "RESOURCE",
+                "alias": "res_parse_date",
             }
         },
     )
@@ -434,12 +445,14 @@ class MemoryAtom(BaseModel):
                     "lifecycle": {"decay_anchor_at": "2026-09-22T12:00:00Z"},
                 },
                 "index": {
-                    "title": "Python date parsing utility",
-                    "summary": "Robust date parser supporting multiple formats",
+                    "title": "Python date parsing entry point",
+                    "summary": "Where the date parser lives and why to read it first",
                     "tags": ["python", "utils", "datetime"],
-                    "memory_type": "CODE_SNIPPET",
+                    "memory_type": "RESOURCE",
                 },
-                "payload": {"content": "```python\ndef parse_date(s): ...\n```"},
+                "payload": {
+                    "content": "`parse_date` in `utils/dates.py`; read it before parsing dates."
+                },
             }
         },
     )

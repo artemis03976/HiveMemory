@@ -340,8 +340,8 @@ class TestQdrantMemoryStore:
                 title="My Tool",
                 summary="A code snippet tool for testing",
                 tags=["tool"],
-                memory_type=MemoryType.CODE_SNIPPET,
-                alias="code_my_tool",
+                memory_type=MemoryType.RESOURCE,
+                alias="res_my_tool",
             ),
             payload=PayloadLayer(content="print('hello')"),
         )
@@ -353,12 +353,12 @@ class TestQdrantMemoryStore:
 
         identity_scope = _identity_scope()
         result = await storage.get_memory_by_alias(
-            "code_my_tool",
+            "res_my_tool",
             query_filter=_alias_filter(identity_scope),
         )
 
         assert result is not None
-        assert result.index.alias == "code_my_tool"
+        assert result.index.alias == "res_my_tool"
         assert result.payload.content == "print('hello')"
         storage.client.scroll.assert_called_once()
 

@@ -13,7 +13,6 @@ from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     MemoryAtom,
-    MemoryType,
     PendingAtom,
     ReferenceResolution,
     UpdateFocus,
@@ -311,36 +310,28 @@ class ActorMemoryService:
         *,
         actor: WorkingActor,
     ) -> ReferenceResolution:
-        """解析 RUN 的单个执行目标（``memory.run``），只为可执行的目标记录正式引用。
+        """解析 RUN 的单个执行目标（``memory.run``），不记录引用。
 
         RUN 与 READ 独立授权；资源可见性沿用同一读取视图，返回中立解析结果，
-        目标是否可执行仍由 Actor 的工具运行时判断并拒绝。只有 ``CODE_SNIPPET``
-        能被 RUN 执行，其他类型的目标会被拒绝、不构成一次使用，因此不记录引用。
+        供 Actor 的工具运行时给出 pending、重定向与已结束句柄的提示。没有记忆可以
+        运行：解析到的记忆都会被拒绝，不构成一次使用，因此不记录引用。
         """
         scope = self._authorize(actor, WorkspaceOperation.MEMORY_RUN)
-        resolutions = await self._resolve_and_record_citations(
-            [request.alias], scope=scope, runnable_only=True
-        )
-        return resolutions[0]
+        (resolution,) = await self._reader.resolve_references([request.alias], scope=scope)
+        return resolution
 
     async def _resolve_and_record_citations(
         self,
         aliases: list[str],
         *,
         scope: IdentityScope,
-        runnable_only: bool = False,
     ) -> list[ReferenceResolution]:
-        """复用 READ/RUN 的解析与引用记录，权限只由各自的公共入口检查。
-
-        ``runnable_only`` 为真时（RUN）只为 ``CODE_SNIPPET`` 原子记录引用。
-        """
+        """READ 的解析与引用记录，权限由公共入口检查。"""
         results = await self._reader.resolve_references(aliases, scope=scope)
         cited: set[UUID] = set()
         for result in results:
             atom = result.atom
             if result.kind not in ("atom", "redirect") or atom is None or atom.id in cited:
-                continue
-            if runnable_only and atom.index.memory_type != MemoryType.CODE_SNIPPET:
                 continue
             # 去重发生在尝试前：同批失败不重试，以免已提交但应答失败时重复计数。
             cited.add(atom.id)

@@ -32,8 +32,8 @@ class TestKoakumaAliasPreference:
         """alias 为空字符串时 fallback 到运行时生成"""
         mem = MagicMock()
         mem.index.alias = ""
-        mem.index.memory_type.value = "CODE_SNIPPET"
+        mem.index.memory_type.value = "RESOURCE"
         mem.index.title = "Parse Date"
 
         result = MemoryAtom.get_alias(mem)
-        assert result == "code_parse_date"
+        assert result == "resource_parse_date"

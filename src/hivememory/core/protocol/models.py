@@ -33,7 +33,7 @@ class RetrievalRequest(BaseModel):
     过滤语义：
     - Patchouli 在公共边界把 ``identity_scope`` 拆为资源归属与发起者：归属是
       Workspace 硬边界，可见性按发起者过滤
-    - MTP SEARCH 指令可通过 filters 字段叠加额外过滤维度 (如 type:CODE)
+    - MTP SEARCH 指令可通过 filters 字段叠加额外过滤维度 (如 type:RESOURCE)
 
     Attributes:
         semantic_query: 指代消解后的完整查询，用于语义检索

@@ -1,4 +1,4 @@
-import { BookOpen, Code2, Link, Lightbulb, Loader, User, Wrench, FileQuestion, type LucideIcon } from 'lucide-react';
+import { BookOpen, Link, Lightbulb, User, Wrench, FileQuestion, type LucideIcon } from 'lucide-react';
 import type { MemoryType } from '@/types/memory';
 
 /**
@@ -7,11 +7,9 @@ import type { MemoryType } from '@/types/memory';
  */
 const TYPE_STYLE: Record<MemoryType, { icon: LucideIcon; tile: string }> = {
   FACT: { icon: BookOpen, tile: 'bg-type-wood/15 text-type-wood' },
-  CODE_SNIPPET: { icon: Code2, tile: 'bg-type-water/15 text-type-water' },
-  URL_RESOURCE: { icon: Link, tile: 'bg-type-metal/15 text-type-metal' },
   REFLECTION: { icon: Lightbulb, tile: 'bg-type-fire/15 text-type-fire' },
   USER_PROFILE: { icon: User, tile: 'bg-type-moon/15 text-type-moon' },
-  WORK_IN_PROGRESS: { icon: Loader, tile: 'bg-type-sun/15 text-type-sun' },
+  RESOURCE: { icon: Link, tile: 'bg-type-metal/15 text-type-metal' },
   TOOL: { icon: Wrench, tile: 'bg-type-earth/15 text-type-earth' },
 };
 

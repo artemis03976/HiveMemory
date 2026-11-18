@@ -26,7 +26,7 @@ class MTPVerb(str, Enum):
     核心能力:
         SEARCH - 检索候选记忆
         READ   - 读取具体记忆内容
-        RUN    - 调用系统工具或执行代码记忆
+        RUN    - 调用系统工具（记忆目标一律不可运行）
         WRITE  - 异步保存信号
         UPDATE - 异步更新信号
         CALL   - 子代理调用（多智能体场景）

@@ -2,28 +2,20 @@
 
 from __future__ import annotations
 
-import logging
-
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.tools.types import Syscall
-from hivememory.agent_runtime.tools.user import execute_user_tool
-from hivememory.core.models import MemoryType
 from hivememory.core.mtp import (
     MTPCommand,
     MTPResponse,
     MTPResponseStatus,
-    MTPWarningInfo,
 )
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     InvalidArgumentError,
-    MemoryTypeMismatchError,
 )
 from hivememory.workspace.contracts import (
     ResolveRunTargetRequest,
 )
-
-logger = logging.getLogger(__name__)
 
 
 async def handle_run(
@@ -31,14 +23,15 @@ async def handle_run(
     context: MTPExecutionContext,
     *,
     syscall_registry: dict[str, Syscall],
-    timeout_seconds: int,
 ) -> MTPResponse:
     """
     处理 RUN 指令
 
     两层分发:
-    - 系统工具快速路径: 命中 syscall 注册表的 sys_* 工具在本地执行
-    - 用户工具路径: 经 ResolveRunTargetRequest 解析 CODE_SNIPPET 记忆 → 沙箱执行
+    - 系统工具: 命中 syscall 注册表的 sys_* 工具在本地执行
+    - 记忆别名: 经 ResolveRunTargetRequest 授权并解析，解析到的记忆一律以“不可运行”
+      拒绝：能否运行是某一份内容相对某个环境的性质，记忆上没有这项判定，生成链
+      写下的也只是知识，不产出可执行物
 
     Type B 动作类响应
 
@@ -63,28 +56,17 @@ async def handle_run(
         result = syscall.handler(command.args)
         return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
-    # 用户工具路径。RUN 以自己的操作请求进入读取视图，
-    # 与 READ 的许可独立；交付执行目标时仍由 workspace 记录正式引用。
+    # 记忆别名。RUN 以自己的操作请求进入读取视图，与 READ 的许可独立，
+    # 没有 memory.run 的执行者在这里被拒绝。
     # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
     resolved = await context.submit_operation(ResolveRunTargetRequest(alias=alias))
-    warnings: list[MTPWarningInfo] = []
     if resolved.kind == "pending":
         raise InvalidArgumentError(
             message_key="mtp.run.pending_not_runnable",
             params={"alias": alias},
         )
     if resolved.kind == "redirect" and resolved.atom is not None:
-        canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
-        warnings.append(
-            MTPWarningInfo(
-                message_key="mtp.run.alias_redirected",
-                params={
-                    "requested_alias": alias,
-                    "canonical_alias": canonical_alias,
-                },
-            )
-        )
-        alias = canonical_alias
+        alias = resolved.canonical_alias or resolved.atom.get_alias()
     elif resolved.kind in {"discarded", "failed", "expired"}:
         raise AliasNotFoundError(
             message_key="mtp.run.terminal_alias_not_runnable",
@@ -95,19 +77,7 @@ async def handle_run(
             message_key="mtp.run.alias_not_found",
             params={"alias": alias},
         )
-    atom = resolved.atom
-
-    # 校验类型必须是 CODE_SNIPPET
-    if atom.index.memory_type != MemoryType.CODE_SNIPPET:
-        raise MemoryTypeMismatchError(
-            message_key="mtp.run.type_mismatch",
-            params={"alias": alias, "memory_type": atom.index.memory_type.value},
-        )
-
-    # 使用缓存的代码执行
-    code = atom.payload.content
-    logger.debug("User tool executing: alias=%s memory_id=%s", alias, atom.id)
-    response = execute_user_tool(code, command.args, timeout_seconds=timeout_seconds)
-    if warnings:
-        response.warnings = [*warnings, *response.warnings]
-    return response
+    raise InvalidArgumentError(
+        message_key="mtp.run.memory_not_runnable",
+        params={"alias": alias},
+    )

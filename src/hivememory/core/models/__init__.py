@@ -38,6 +38,7 @@ from .interaction import (
     validate_turn_events,
 )
 from .memory import (
+    HISTORICAL_MEMORY_TYPES,
     Artifacts,
     IndexLayer,
     MemoryAccessPolicy,
@@ -125,6 +126,7 @@ __all__ = [
     "MemoryEventType",
     "MemoryEventLog",
     "MemoryType",
+    "HISTORICAL_MEMORY_TYPES",
     "MemoryVisibility",
     "MemoryAccessPolicy",
     "VerificationStatus",

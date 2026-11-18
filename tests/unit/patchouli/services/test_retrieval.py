@@ -124,13 +124,13 @@ class TestRetrievalFamiliarRetrieve:
 
     @pytest.mark.asyncio
     async def test_retrieve_with_memory_type_filter(self):
-        filters = QueryFilters(memory_type="CODE_SNIPPET")
+        filters = QueryFilters(memory_type="RESOURCE")
         self.mock_engine.retrieve.return_value = _make_engine_result()
 
         await self.familiar.retrieve(_make_request(filters=filters))
 
         query = self.mock_engine.retrieve.call_args[1]["query"]
-        assert query.filters.memory_type == "CODE_SNIPPET"
+        assert query.filters.memory_type == "RESOURCE"
 
     @pytest.mark.asyncio
     async def test_retrieve_with_tags_filter(self):
@@ -268,7 +268,7 @@ class TestRetrievalFamiliarIdentityPropagation:
             QueryFilters.model_validate(
                 {
                     "identity": {"user_id": "hacker", "agent_id": "evil"},
-                    "memory_type": MemoryType.CODE_SNIPPET,
+                    "memory_type": MemoryType.RESOURCE,
                 }
             )
 

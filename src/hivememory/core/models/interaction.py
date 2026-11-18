@@ -117,7 +117,7 @@ class TurnEvent(BaseModel):
       结局到达时由 ``with_outcome`` 补全。``action_id`` 标识这次调用。
     - ``verb`` 与 ``tool_name`` 互斥，回答“调用了什么”：前者是 HiveMemory
       能力，后者是外部工具的名字；MTP 指令无法解析时二者都为空。
-    - ``targets`` 是动词的作用对象：READ 的 alias，RUN 的工具或代码记忆，
+    - ``targets`` 是动词的作用对象：READ 的 alias，RUN 的工具或记忆别名，
       UPDATE 的记忆，CALL 的 Agent；SEARCH 与 WRITE 的通配目标为空。
       ``tool_args`` 只放作用对象以外的参数。
     - ``status`` 与 ``result`` 是结局与执行者收到的返回原文，同时出现或

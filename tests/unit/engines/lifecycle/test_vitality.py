@@ -33,7 +33,7 @@ class TestVitalityCalculator:
     def test_calculate_new_memory(self):
         """测试新创建的记忆分数 (三段式: V_0·D(0) + A(0) + B(0) = 100)"""
         memory = self._create_memory(
-            confidence=0.9, memory_type=MemoryType.CODE_SNIPPET, access_count=0, days_ago=0
+            confidence=0.9, memory_type=MemoryType.FACT, access_count=0, days_ago=0
         )
 
         score = self.calculator.calculate(memory)
@@ -91,36 +91,34 @@ class TestVitalityCalculator:
         """测试分数限制在 [0, 100]"""
         # 极低分数记忆
         memory_low = self._create_memory(
-            confidence=0.1, memory_type=MemoryType.WORK_IN_PROGRESS, access_count=0, days_ago=1000
+            confidence=0.1, memory_type=MemoryType.USER_PROFILE, access_count=0, days_ago=1000
         )
 
         # 极高分数记忆
         memory_high = self._create_memory(
-            confidence=1.0, memory_type=MemoryType.CODE_SNIPPET, access_count=100, days_ago=0
+            confidence=1.0, memory_type=MemoryType.FACT, access_count=100, days_ago=0
         )
 
         score_low = self.calculator.calculate(memory_low)
         score_high = self.calculator.calculate(memory_high)
 
-        # 1000 天 WIP 衰减后分数趋近 0（clamp 下限）；0 天 CODE + 100 次访问必 clamp 到 100
+        # 1000 天 USER_PROFILE 衰减后分数趋近 0（clamp 下限）；0 天 FACT + 100 次访问必 clamp 到 100
         assert score_low < 0.001
         assert score_high == 100.0
 
-    def test_different_memory_types(self):
-        """测试不同记忆类型的分数差异"""
-        # 相同条件，不同类型
-        memory_code = self._create_memory(
-            confidence=0.9, memory_type=MemoryType.CODE_SNIPPET, access_count=0, days_ago=10
-        )
-        memory_wip = self._create_memory(
-            confidence=0.9, memory_type=MemoryType.WORK_IN_PROGRESS, access_count=0, days_ago=10
+    def test_resource_decay_uses_configured_resource_weight(self):
+        """资源记忆的固有价值取配置的 resource_weight：I=1.0、10 天后 D=exp(-0.1)，V≈90.48。"""
+        config = VitalityCalculatorConfig(resource_weight=1.0)
+        calculator = VitalityCalculator(config, now=lambda: FIXED_NOW)
+        memory = self._create_memory(
+            confidence=0.9,
+            memory_type=MemoryType.RESOURCE,
+            access_count=0,
+            days_ago=10,
+            now=FIXED_NOW,
         )
 
-        score_code = self.calculator.calculate(memory_code)
-        score_wip = self.calculator.calculate(memory_wip)
-
-        # CODE_SNIPPET 应该比 WORK_IN_PROGRESS 分数高
-        assert score_code > score_wip
+        assert calculator.calculate(memory) == pytest.approx(90.48, rel=1e-3)
 
     def _create_memory(
         self,

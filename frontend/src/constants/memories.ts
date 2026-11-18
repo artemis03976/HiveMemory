@@ -44,9 +44,9 @@ export const MOCK_MEMORIES: MemoryAtom[] = [
     id: 'mock-2',
     title: 'React useEffect 清理函数最佳实践',
     summary: '在 useEffect 中返回清理函数用于取消订阅、清除定时器、中止请求等，避免内存泄漏。清理函数在组件卸载或依赖项变化时执行。',
-    memory_type: 'CODE_SNIPPET',
+    memory_type: 'FACT',
     tags: ['react', 'hooks', 'javascript', 'best-practice'],
-    alias: 'code_react_useeffect_cleanup',
+    alias: 'fact_react_useeffect_cleanup',
     content: `# React useEffect 清理函数
 
 ## 基本用法
@@ -112,9 +112,9 @@ useEffect(() => {
     id: 'mock-3',
     title: 'Tailwind CSS 毛玻璃效果实现',
     summary: '使用 backdrop-blur 和半透明背景色实现毛玻璃（Glassmorphism）效果。需要配合 border 和 shadow 增强层次感。',
-    memory_type: 'CODE_SNIPPET',
+    memory_type: 'FACT',
     tags: ['css', 'tailwind', 'ui', 'glassmorphism'],
-    alias: 'code_tailwind_glassmorphism',
+    alias: 'fact_tailwind_glassmorphism',
     content: `# Tailwind CSS 毛玻璃效果
 
 ## 基础实现
@@ -167,9 +167,9 @@ useEffect(() => {
     id: 'mock-4',
     title: 'Qdrant 向量数据库配置',
     summary: 'Qdrant 是高性能向量数据库，支持密集向量和稀疏向量混合检索。配置包括集合创建、向量维度、距离度量等。',
-    memory_type: 'URL_RESOURCE',
+    memory_type: 'RESOURCE',
     tags: ['qdrant', 'vector-db', 'configuration', 'database'],
-    alias: 'resource_qdrant_config',
+    alias: 'res_qdrant_config',
     content: `# Qdrant 向量数据库配置指南
 
 ## 基本配置
@@ -266,49 +266,6 @@ results = client.search(
     vitality_score: 45.5,
     user_id: 'user-001',
     access_count: 15,
-    access_policy: { visibility: 'PUBLIC' },
-  },
-  {
-    id: 'mock-6',
-    title: '记忆花园 UI 实现进行中',
-    summary: '正在实现记忆花园面板，包括卡片视图、列表视图、搜索过滤、详情模态框等功能。使用 Framer Motion 实现动画效果。',
-    memory_type: 'WORK_IN_PROGRESS',
-    tags: ['frontend', 'react', 'ui', 'memory-garden'],
-    alias: null,
-    content: `# 记忆花园 UI 实现
-
-## 已完成
-- [x] TypeScript 类型定义
-- [x] useMemories API hook
-- [x] MemoryCard 组件
-- [x] MemoryGrid 布局
-- [x] SearchBar 双模搜索
-- [x] FilterControls 筛选器
-- [x] MemoryDetailModal 详情弹窗
-
-## 进行中
-- [ ] 响应式布局优化
-- [ ] 加载骨架屏
-- [ ] 错误边界处理
-
-## 待实现
-- [ ] 编辑记忆功能
-- [ ] 固定/锁定功能
-- [ ] 手动创建记忆
-- [ ] 批量操作
-- [ ] 导出功能
-
-## 技术栈
-- React 19 + TypeScript
-- Framer Motion 动画
-- Tailwind CSS 样式
-- React Markdown 渲染`,
-    created_at: '2025-01-16T08:00:00Z',
-    updated_at: '2025-01-16T12:30:00Z',
-    confidence_score: 0.42,
-    vitality_score: 92.0,
-    user_id: 'user-001',
-    access_count: 1,
     access_policy: { visibility: 'PUBLIC' },
   },
 ];

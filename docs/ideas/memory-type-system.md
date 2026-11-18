@@ -26,7 +26,7 @@ related_docs:
   - docs/ideas/memory-as-tool-skill-plugin-boundary.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/applications/MealAssistantProductSpec.md
-last_reviewed: 2026-11-16
+last_reviewed: 2026-11-17
 ---
 
 # 记忆核心：类型体系
@@ -161,6 +161,8 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 
 ### 6.1 WORK_IN_PROGRESS 的去留
 
+**已实施**（2026-11-17，[归档计划](../archive/plans/v0.8.0-memory-type-convergence.md)）：WORK_IN_PROGRESS 只作为历史取值留在 `MemoryType` 中，生成、MTP 过滤、管理入口、前端与 guide skill 都不再给出；被动提取的拆分规则改为“做到哪了”不写成记忆，结论、决定与尚未解决的问题照常成条；库中已有的 WIP 按 owner 逐条决定迁移。回放显示进度快照仍有十余条改写成 FACT 出现（归档计划第 11.4 节），与下面“只删标签不够”的判断一致。当前事实见 [Patchouli 生成](../patchouli/generation.md#3-三种生成模式)第 3 节；下面的现状写的是实施之前。
+
 现状（以代码为准）：
 
 - 类型只在产生时决定一次：修订与手动编辑都改不了类型，只有合并会由模型重选（[总纲](./memory-flow-short-to-mid-term.md)第 2.1 节）。一条 WIP 即使被修订为"已完成"，标题、摘要与类型仍是进行中的样子。
@@ -180,6 +182,8 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 - 暂不处理：外部 harness 现在只能检索记忆、搜不到交互记录；时间线的读取做出来之前，"上次停在哪"只能靠当时写下的结论与决定间接保留。
 
 ### 6.2 CODE_SNIPPET 与可运行
+
+**已实施**（2026-11-17，[归档计划](../archive/plans/v0.8.0-memory-type-convergence.md)）：决定第 4 点的关闭已落地，RUN 的记忆目标仍经 `memory.run` 授权与解析，解析到的记忆一律以不可运行拒绝、不记录引用，`sys_*` 不变（[MTP 契约](../contracts/mtp.md#33-run)第 3.3 节）。可运行的轴、环境声明与 RUN 的重新打开仍是本节的候选；下面的现状写的是实施之前。
 
 现状：CODE_SNIPPET 同时承担三件事：生成提示词中"代码片段、函数实现、配置文件"这类知识；RUN 唯一接受的类型；最高的固有价值。类型充当了 RUN 的门槛，但生成链写出的 CODE_SNIPPET 基本运行不了（[总纲](./memory-flow-short-to-mid-term.md)第 2.4 节）；能否运行实际上是某一份内容的性质，不是类型的。
 
@@ -204,7 +208,7 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 
 - 编译已有预留的位置：MemoryCompiler 的编译目标 `RUNNABLE_TOOL`，与提示词注入、向量文本等目标并列。
 - AOT 在写入或结算之后编译并试运行，结果可以作为验证状态的写入方，接回第一版设计中"运行验证成功"的回路（本文第 2 节、[总纲](./memory-flow-short-to-mid-term.md)第 2.3 节）；JIT 在 RUN 时编译，简单但没有验证信号。两者的取舍与 HiveMemory 宿主哪些环境，留给 MaaT（[MaaT Idea](./memory-as-tool-skill-plugin-boundary.md)）。
-- 关闭用户工具路径随之要改：[MTP 契约](../contracts/mtp.md)中 RUN 的用户工具一节，RUN 的错误提示（现在写的是"只能执行 CODE_SNIPPET"），actor API 中只为 CODE_SNIPPET 记录引用的解析分支（[actor 记忆操作](../../src/hivememory/workspace/capability/actor/memory.py)），以及把记忆正文放进沙箱执行的用户工具（[RUN](../../src/hivememory/agent_runtime/mtp/verbs/run.py)、[用户工具](../../src/hivememory/agent_runtime/tools/user.py)）。
+- 关闭用户工具路径随之要改：[MTP 契约](../contracts/mtp.md)中 RUN 的用户工具一节，RUN 的错误提示（现在写的是"只能执行 CODE_SNIPPET"），actor API 中只为 CODE_SNIPPET 记录引用的解析分支（[actor 记忆操作](../../src/hivememory/workspace/capability/actor/memory.py)），以及把记忆正文放进沙箱执行的用户工具（[RUN](../../src/hivememory/agent_runtime/mtp/verbs/run.py)、用户工具（`agent_runtime/tools/user.py`，2026-11-17 删除））。
 - CODE_SNIPPET 是否作为"代码形态的知识"保留为类型，已由第 7.1 节回答：源头在别处的代码归资源记忆，只存在于记忆中的代码是资产本身，并入经历或知识（第 7.5 节；首份计划中落在 FACT，见第 7 节开头）；它的其他特点（依附外部真相、靠锚点被找到）并不是代码独有的。
 
 ### 6.3 AGENT_PROFILE 移出中期库
@@ -236,7 +240,7 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 - 只存在于记忆中的代码：第 7.5 节把它并入经历或知识，这两类不在首份计划中，暂时落在 FACT。
 - 生命周期（以代码为准）：类型现在决定两处，固有价值权重（`configs/config.yaml`：CODE_SNIPPET 1.0、FACT 0.9、URL_RESOURCE 0.8、REFLECTION 0.7、USER_PROFILE 0.6、WORK_IN_PROGRESS 0.5）与归档豁免（AGENT_PROFILE 与 USER_PROFILE，[垃圾回收器](../../src/hivememory/engines/lifecycle/garbage_collector.py)）。WIP 的权重随类型去掉；AGENT_PROFILE 移出中期记忆库后不再参与归档，豁免只剩 USER_PROFILE；合并后资源记忆的权重取 0.8：真相在源头、会过时，不该是最抗衰减的一类，CODE_SNIPPET 的 1.0 原本对应"代码本身是资产"，这部分随只存在于记忆中的代码落在 FACT（0.9）。
 
-**计划**：第一份计划 [去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](../plans/v0.8.0-memory-type-convergence.md) 已起草（2026-11-17）；AGENT_PROFILE 移到 AgentProfileStore 是同一方向的下一份计划。
+**计划**：第一份计划 [去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](../archive/plans/v0.8.0-memory-type-convergence.md) 已实施并归档（2026-11-17），日常与开发实例都已迁移；AGENT_PROFILE 移到 AgentProfileStore 是同一方向的下一份计划，尚未建立。
 
 **建立计划前的两项**（owner，2026-11-17，已决定）：
 
@@ -250,6 +254,8 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 - 手动编辑的版本记录沿用版本快照 Artifact，文件只保存当前版本。
 
 ### 7.1 资源记忆（已决定，owner，2026-11-16）
+
+**已实施**（2026-11-17，[归档计划](../archive/plans/v0.8.0-memory-type-convergence.md)）：CODE_SNIPPET 与 URL_RESOURCE 合并为 `RESOURCE`（alias 前缀 `res`，固有价值权重 0.8），旧值只作历史取值。生成提示词按窄定义写（owner，2026-11-17）：资源记忆的主体是指出某样东西在哪里、是什么、为什么值得去看，陈述“怎样运作”的内容即使引用路径也归 FACT，只存在于对话中的代码也归 FACT。下面的候选细节（冰山三层、锚点、维护）没有实施。
 
 CODE_SNIPPET 与 URL_RESOURCE 是同质的：两者都想表达对一个外部资源的记忆，对应最初痛点中的"外源信息的高成本与易逝性"（第 1 节）。但存下的内容本身就是快照，会随时间过时；"外源"也难以定义；存了一份文档的副本，不如直接去读那份文档，现代 harness 可以随时读取，并且保证是最新的。所以资源记忆存的应当是引向源头的说明，而不是源头的副本。
 

@@ -223,7 +223,7 @@ CPU: Intel Xeon Silver 4214R
         "title": "Python 快速排序实现",
         "summary": "使用 Python 实现的快速排序算法，包含详细注释",
         "tags": ["Python", "算法", "排序", "代码"],
-        "memory_type": "CODE_SNIPPET",
+        "memory_type": "FACT",
         "content": """```python
 def quicksort(arr):
     \"\"\"

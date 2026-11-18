@@ -80,6 +80,16 @@ def test_snapshot_memory_atom_roundtrips_full_structure():
     assert snapshot["payload"]["content"] == "content"
 
 
+def test_snapshot_with_historical_memory_type_still_decodes():
+    """版本快照记着写入当时的类型：只作历史取值的旧类型照常按 schema 解码。"""
+    snapshot = snapshot_memory_atom(_atom())
+    snapshot["index"]["memory_type"] = "WORK_IN_PROGRESS"
+
+    assert validate_memory_atom_snapshot(snapshot).index.memory_type == (
+        MemoryType.WORK_IN_PROGRESS
+    )
+
+
 def test_snapshot_validation_rejects_missing_keys():
     """快照缺必需顶层键时 fail closed。"""
     incomplete = {"schema_version": "2.1", "id": "x"}
