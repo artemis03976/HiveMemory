@@ -18,6 +18,7 @@ from hivememory.core.access import WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
+    AgentProfile,
     AttachmentSelectionRequest,
     IndexLayer,
     MemoryAtom,
@@ -77,22 +78,13 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         adapters=("http",),
         default_workspace=workspace,
     )
-    await stack.mid_term.upsert(
-        MemoryAtom(
-            meta=make_memory_metadata(user_id="u1", source_agent_id=actor.agent_id),
-            index=IndexLayer(
-                alias=actor.agent_id, title="只读执行图纸", memory_type=MemoryType.AGENT_PROFILE
-            ),
-            payload=PayloadLayer(
-                content="根据已有资料回答",
-                # 旧客户端残留全量许可也不能扩大访问登记的能力。
-                agent_config={
-                    "model_name": "fake-test-model",
-                    "allowed_mtp_verbs": None,
-                    "allowed_sys_tools": None,
-                },
-            ),
-        )
+    stack.agent_profiles.save(
+        AgentProfile(
+            agent_id=actor.agent_id,
+            title="只读执行图纸",
+            persona="根据已有资料回答",
+            model="fake-test-model",
+        ),
     )
     runtime = make_workspace_read_view(stack.bus)
     entry = WorkspaceOperationEntry(
@@ -232,21 +224,14 @@ async def test_http_chat_with_only_search_completes_with_executor_visible_inputs
         adapters=("http",),
         default_workspace=workspace,
     )
-    profile = MemoryAtom(
-        meta=make_memory_metadata(
-            user_id="u1", source_agent_id=actor.agent_id, visibility=MemoryVisibility.PRIVATE
-        ),
-        index=IndexLayer(
-            alias=actor.agent_id,
+    stack.agent_profiles.save(
+        AgentProfile(
+            agent_id=actor.agent_id,
             title="只有检索许可的执行 Profile",
-            memory_type=MemoryType.AGENT_PROFILE,
-        ),
-        payload=PayloadLayer(
-            content="仅生成本轮回复的专属人设",
-            agent_config={"model_name": "fake-test-model", "allowed_mtp_verbs": []},
+            persona="仅生成本轮回复的专属人设",
+            model="fake-test-model",
         ),
     )
-    await stack.mid_term.upsert(profile)
     memories = []
     for alias, source_agent, visibility, content in (
         ("fact_public", "other_agent", MemoryVisibility.PUBLIC, "本轮公共资料"),
@@ -357,11 +342,11 @@ async def test_http_chat_with_only_search_completes_with_executor_visible_inputs
         # 图纸与操作快照随主线程的描述交给 CPU，白名单原样交出。
         (main_thread,) = cpu.threads
         assert main_thread.agent_profile.agent_id == actor.agent_id
-        assert main_thread.agent_profile.persona == profile.payload.content
+        assert main_thread.agent_profile.persona == "仅生成本轮回复的专属人设"
         assert main_thread.allowed_operations == frozenset({WorkspaceOperation.MEMORY_SEARCH})
         assert "本轮选中的附件正文" in manifest.turn_context
         (messages,) = llm_messages
-        assert profile.payload.content in messages[0]["content"]
+        assert "仅生成本轮回复的专属人设" in messages[0]["content"]
         assert "他人的私有资料" not in "\n".join(item["content"] for item in messages)
 
         # finalize 由 system 执行，真实话题记录的发起者仍是本轮的执行者。

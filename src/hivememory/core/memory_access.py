@@ -27,8 +27,7 @@ def memory_belongs_to_workspace(
 def access_policy_permits(policy: MemoryAccessPolicy, actor_identity: ActorIdentity) -> bool:
     """在 ownership 已通过后，按资源 policy 判定当前 Actor 能否读取。
 
-    只接收 policy 本身：Profile 解析缓存条目只随存源原子的 policy 依据，
-    不持有完整原子，命中时以本函数逐次授权。
+    只接收 policy 本身，调用方持有完整原子或只持有它的 policy 都可以使用。
     """
     if policy.visibility == MemoryVisibility.PUBLIC:
         return True

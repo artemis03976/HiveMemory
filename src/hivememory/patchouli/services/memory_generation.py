@@ -212,12 +212,8 @@ class MemoryGenerationFamiliar:
 
     @staticmethod
     def _require_mergeable(retained: MemoryAtom, absorbed: MemoryAtom) -> None:
-        """不同策略或 Profile 不能融合；同一条记忆也不能吸收自身。"""
-        if (
-            retained.id == absorbed.id
-            or retained.meta.access_policy != absorbed.meta.access_policy
-            or MemoryType.AGENT_PROFILE in {retained.index.memory_type, absorbed.index.memory_type}
-        ):
+        """不同策略不能融合；同一条记忆也不能吸收自身。"""
+        if retained.id == absorbed.id or retained.meta.access_policy != absorbed.meta.access_policy:
             raise MemoryMergeAbortedError(details={"reason": "not_mergeable"})
 
     async def _read_merge_version(
@@ -250,7 +246,6 @@ class MemoryGenerationFamiliar:
         content: str = "",
         tags: list[str] | None = None,
         alias: str | None = None,
-        agent_config: dict[str, Any] | None = None,
         access_policy: MemoryAccessPolicy | None = None,
     ) -> MemoryAtom:
         """以外部提交的材料创建记忆原子并持久化。
@@ -258,7 +253,7 @@ class MemoryGenerationFamiliar:
         原子的身份、时间戳、来源记录与生命周期都在这里确定：创建时点取提交
         边界的同一时刻（created/updated/decay 同值），来源记录取本次发起者，
         只作展示、不参与可见性授权；没有给出读取策略时为 PUBLIC；没有给出
-        别名时以 ``mem_<memory id>`` 命名（Agent Profile 除外）。字段非法以
+        别名时以 ``mem_<memory id>`` 命名。字段非法以
         ``InvalidMemoryFieldError`` 拒绝。
         """
         try:
@@ -269,7 +264,7 @@ class MemoryGenerationFamiliar:
                 memory_type=memory_type,
                 alias=alias,
             )
-            payload = PayloadLayer(content=content, agent_config=agent_config)
+            payload = PayloadLayer(content=content)
         except ValidationError as exc:
             raise InvalidMemoryFieldError.from_validation_error(exc) from exc
         commit_now = require_utc(self._now())
@@ -290,9 +285,8 @@ class MemoryGenerationFamiliar:
             index=index,
             payload=payload,
         )
-        if atom.index.alias is None and memory_type != MemoryType.AGENT_PROFILE:
-            # 没有给出别名时与生成路径一致，以这条记忆的 id 命名并落库，保证可按别名寻址；
-            # Agent Profile 的别名就是 agent_id，必须显式给出，由提交边界拒绝。
+        if atom.index.alias is None:
+            # 没有给出别名时与生成路径一致，以这条记忆的 id 命名并落库，保证可按别名寻址。
             atom.index.alias = fallback_alias(atom.id)
         await self._attach_memory_artifact(
             atom=atom,
@@ -317,7 +311,6 @@ class MemoryGenerationFamiliar:
         content: str | None = None,
         alias: str | None = None,
         tags: list[str] | None = None,
-        agent_config: dict | None = None,
         access_policy: MemoryAccessPolicy | None = None,
     ) -> MemoryAtom | None:
         """对外部手动的记忆编辑进行持久化处理。
@@ -331,9 +324,6 @@ class MemoryGenerationFamiliar:
         atom = await self._mid_term.get_by_key(key)
         if atom is None:
             return None
-        if access_policy is not None and atom.index.memory_type == MemoryType.AGENT_PROFILE:
-            # Profile 的策略决定 CALL 能否看到这个 Agent，不经记忆编辑修改。
-            raise InvalidMemoryFieldError("AGENT_PROFILE 的 access_policy 不能经记忆编辑修改")
 
         commit_now = require_utc(self._now())
         # 修改前的完整原子：版本记录的 snapshot_before 与向量输入比较都以它为准。
@@ -345,7 +335,6 @@ class MemoryGenerationFamiliar:
             content=content,
             alias=alias,
             tags=tags,
-            agent_config=agent_config,
         )
         if changed_fields:
             await self._commit_external_edit(atom, before_snapshot, changed_fields, commit_now)
@@ -394,7 +383,6 @@ class MemoryGenerationFamiliar:
         content: str | None,
         alias: str | None,
         tags: list[str] | None,
-        agent_config: dict | None,
     ) -> list[str]:
         """按字段应用外部编辑，返回实际发生变化的字段。
 
@@ -408,7 +396,6 @@ class MemoryGenerationFamiliar:
             (atom.payload, "content", content),
             (atom.index, "alias", alias),
             (atom.index, "tags", tags),
-            (atom.payload, "agent_config", agent_config),
         )
         changed_fields: list[str] = []
         for layer, field, value in edits:
@@ -793,11 +780,9 @@ class MemoryGenerationFamiliar:
 
         ``now`` 为提交边界时点：版本记录 ``changed_at`` 与事件 ``at`` 使用
         同一时点。全部内容提交（外部创建/编辑与生成
-        CREATE/UPDATE）都经过这里，类型相关的内容约束与 alias 唯一性在写
-        Artifact 之前检查：alias 冲突时不留下孤立版本记录（upsert
-        仍作为不变量兜底重验）。
+        CREATE/UPDATE）都经过这里，alias 唯一性在写 Artifact 之前检查：
+        alias 冲突时不留下孤立版本记录（upsert 仍作为不变量兜底重验）。
         """
-        _require_content_invariants(atom)
         await self._mid_term.ensure_alias_available(atom)
         commit_now = require_utc(now) if now is not None else require_utc(self._now())
 
@@ -920,23 +905,6 @@ class MemoryGenerationFamiliar:
 
 
 __all__ = ["MemoryGenerationFamiliar"]
-
-
-def _require_content_invariants(atom: MemoryAtom) -> None:
-    """内容提交的类型相关约束。
-
-    AGENT_PROFILE 必须带 alias（按 alias 寻址与 CALL）；``agent_config`` 只有
-    Profile 解析会读取，其他类型带上它只会生成无人使用的内容版本，因此只允许
-    AGENT_PROFILE 设置。记忆与 Profile 共用编辑入口，类型差异只能在这里区分。
-
-    约束放在提交边界而不是模型：模型约束同样作用于读取解码，收紧会让既有
-    不合规记录无法读取；提交边界只拒绝新的写入。
-    """
-    is_profile = atom.index.memory_type == MemoryType.AGENT_PROFILE
-    if is_profile and not atom.index.alias:
-        raise InvalidMemoryFieldError("AGENT_PROFILE 必须设置 alias")
-    if not is_profile and atom.payload.agent_config is not None:
-        raise InvalidMemoryFieldError("只有 AGENT_PROFILE 可以设置 agent_config")
 
 
 def _manual_changelog(changed_fields: list[str]) -> str:

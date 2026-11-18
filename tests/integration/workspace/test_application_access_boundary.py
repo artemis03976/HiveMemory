@@ -50,6 +50,7 @@ from hivememory.core.models import (
     PendingAtomSettlement,
 )
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.application import (
@@ -168,7 +169,7 @@ class _FakeRetrievalEngine:
 
 
 @pytest_asyncio.fixture
-async def wired():
+async def wired(tmp_path):
     """装配真实 bridge/application/local-route/统一网关协作链。"""
     qdrant = QdrantMemoryStoreStub()
     await qdrant.setup()
@@ -176,12 +177,14 @@ async def wired():
     local_bus = PatchouliBus()
     global_bus = GlobalSystemBus()
 
+    profile_store = AgentProfileStore(tmp_path / "agent_profiles")
     familiar = RetrievalFamiliar(
         engine=_FakeRetrievalEngine([]),
         memory_library=MemoryLibrary(
             short_term=object(),  # 读取用例不触达短期库
             mid_term=qdrant.store,
             long_term=object(),
+            agent_profiles=profile_store,
         ),
         local_bus=local_bus,
     )
@@ -262,7 +265,7 @@ async def wired():
     # Patchouli 公开路由是授权点以下的资源 owner：不注入共享行为检查，
     # 只接收授权点组装的 IdentityScope。
     memory_service = MemoryManagementService(bus=local_bus)
-    profile_service = AgentProfileManagementService(bus=local_bus)
+    profile_service = AgentProfileManagementService(store=profile_store, bus=local_bus)
     task_service = MemoryTaskManagementService(bus=local_bus)
     interactions = InteractionSubmissionService(interaction_queue=queue)
     memory_intents = MemoryIntentSubmissionService(bus=local_bus)
@@ -603,34 +606,6 @@ async def test_management_memory_reads_with_owner_semantics_independently(wired)
 
     found = await wired.root_memory.get_memory(atom.id, target_workspace=MAIN, actor=manage_actor)
     assert found.payload.content == "managed content"
-
-
-@pytest.mark.asyncio
-async def test_management_profile_list_reads_with_owner_semantics(wired):
-    """root Profile 列表与 Memory 管理读取同为 owner-management：PRIVATE/TEAM Profile 也列出。
-
-    system 不是任何受限 Profile 的目标；若列表按 system 的可见性过滤，管理视图只剩 PUBLIC。
-    """
-    policies = {
-        "agent_public": MemoryAccessPolicy.public(),
-        "agent_private": MemoryAccessPolicy(
-            visibility=MemoryVisibility.PRIVATE, target_agent_id="a1"
-        ),
-        "agent_team": MemoryAccessPolicy(visibility=MemoryVisibility.TEAM, target_team_id="t1"),
-    }
-    for alias, policy in policies.items():
-        atom = await _seed_public_fact(wired.store, alias=alias, content=alias)
-        atom.index.memory_type = MemoryType.AGENT_PROFILE
-        atom.meta.access_policy = policy
-        await wired.store.upsert(atom)
-    await _seed_public_fact(wired.store, alias="fact_not_profile", content="fact")
-    manage_actor = await wired.access.authenticate(agent_id="system", workspace=MAIN)
-
-    profiles = await wired.root_profiles.list_agent_profiles(
-        target_workspace=MAIN, actor=manage_actor
-    )
-
-    assert sorted(profile.index.alias for profile in profiles) == sorted(policies)
 
 
 @pytest.mark.asyncio

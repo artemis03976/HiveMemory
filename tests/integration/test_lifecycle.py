@@ -33,6 +33,7 @@ from hivememory.memory_library import (
     ShortTermMemoryStore,
 )
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -200,6 +201,7 @@ def lifecycle_stack(tmp_path):
         )
     )
     memory_library = MemoryLibrary(
+        agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
         short_term=short_term,
         mid_term=mid_term,
         long_term=long_term,

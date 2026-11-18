@@ -472,7 +472,6 @@ async def test_update_external_without_changes_does_not_bump_version(tmp_path):
         content=None,
         alias=None,
         tags=None,
-        agent_config=None,
     )
     # 传入与当前值完全相同的值同样视为无变化（按值相等判断）。
     result = await familiar.update_external_memory(

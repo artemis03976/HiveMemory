@@ -136,7 +136,8 @@ async def main() -> None:
         for name, turns in fixed_samples().items():
             service = FixedSummaryService()
             prompt = compile_prompt_input(
-                agent_profile=AgentProfile(persona="分析并继续任务。", language="zh"),
+                agent_profile=AgentProfile(persona="分析并继续任务。"),
+                agent_menu_items=(),
                 storage_available=True,
                 memory_context="",
                 attachment_context="",

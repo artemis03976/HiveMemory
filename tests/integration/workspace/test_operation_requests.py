@@ -20,7 +20,6 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     PendingAtomStatus,
-    ResolvedAgentProfile,
     UpdateFocus,
     WriteFocus,
 )
@@ -59,14 +58,8 @@ class _OperationHarness:
         self.bus = GlobalSystemBus()
         self.admission = install_intent_admission(self.bus)
         self.memories: dict[str, MemoryAtom] = {}
-        self.profile_source = MemoryAtom(
-            meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
-            index=IndexLayer(
-                alias="call_target", title="CALL 目标", memory_type=MemoryType.AGENT_PROFILE
-            ),
-            payload=PayloadLayer(
-                content="CALL 目标人设", agent_config={"model_name": "call-model"}
-            ),
+        self.call_target = AgentProfile(
+            agent_id="call_target", title="CALL 目标", persona="CALL 目标人设", model="call-model"
         )
         self.citations: list[dict] = []
         self.owner_calls: list[str] = []
@@ -75,7 +68,6 @@ class _OperationHarness:
         self.runtime = WorkspaceReadView(
             backing=self.backing,
             atom_capacity=32,
-            profile_capacity=16,
             intent_record_file=INTENT_RECORD_FILE,
             intent_retention=INTENT_RETENTION,
         )
@@ -115,18 +107,13 @@ class _OperationHarness:
         self.owner_calls.append(PatchouliRoutes.MEMORY_RETRIEVE)
         return list(self.memories.values())
 
-    async def _get_profile(self, agent_alias, *, identity_scope, enforce_actor_visibility=True):
+    async def _get_profile(self, agent_alias):
         self.owner_calls.append(PatchouliRoutes.GET_AGENT_PROFILE)
-        if agent_alias != self.profile_source.index.alias:
+        if agent_alias != self.call_target.agent_id:
             raise ResourceNotFoundError(
                 details={"resource": "agent_profile", "agent_alias": agent_alias}
             )
-        return ResolvedAgentProfile(
-            profile=AgentProfile.from_atom(self.profile_source),
-            access_policy=self.profile_source.meta.access_policy,
-            source_memory_id=self.profile_source.id,
-            source_version=self.profile_source.meta.version,
-        )
+        return self.call_target
 
     async def _record_citation(self, *, memory_id, source, identity_scope):
         """正式引用的副作用由 RPC 接收端记录，不能由测试伪造服务返回结果。"""
@@ -447,7 +434,7 @@ async def test_call_target_with_only_agent_call_delivers_profile(single_operatio
     )
 
     profile = child.descriptor.agent_profile
-    assert (profile.agent_id, profile.persona, profile.model_name) == (
+    assert (profile.agent_id, profile.persona, profile.model) == (
         "call_target",
         "CALL 目标人设",
         "call-model",
@@ -905,10 +892,10 @@ async def test_call_finishing_profile_load_after_thread_end_cannot_register_chil
     entered, release = asyncio.Event(), asyncio.Event()
     original = harness.backing.get_agent_profile
 
-    async def delayed(alias, *, scope, enforce_actor_visibility=True):
+    async def delayed(alias):
         entered.set()
         await release.wait()
-        return await original(alias, scope=scope, enforce_actor_visibility=enforce_actor_visibility)
+        return await original(alias)
 
     harness.backing.get_agent_profile = delayed
     task = asyncio.create_task(

@@ -25,7 +25,7 @@ from uuid import UUID
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.route import Route
 from hivememory.core.errors import ResourceUnavailableError
-from hivememory.core.models import IdentityScope, MemoryAtom, ResolvedAgentProfile
+from hivememory.core.models import AgentProfile, IdentityScope, MemoryAtom, StoredAgentProfile
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
 
@@ -69,19 +69,11 @@ class BusCanonicalReadBackend:
             request,
         )
 
-    async def get_agent_profile(
-        self,
-        agent_alias: str | None,
-        *,
-        scope: IdentityScope,
-        enforce_actor_visibility: bool = True,
-    ) -> ResolvedAgentProfile:
-        return await self._request(
-            PatchouliRoutes.GET_AGENT_PROFILE,
-            agent_alias,
-            identity_scope=scope,
-            enforce_actor_visibility=enforce_actor_visibility,
-        )
+    async def get_agent_profile(self, agent_alias: str | None) -> AgentProfile:
+        return await self._request(PatchouliRoutes.GET_AGENT_PROFILE, agent_alias)
+
+    async def list_agent_profiles(self) -> list[StoredAgentProfile]:
+        return await self._request(PatchouliRoutes.AGENT_PROFILE_LIST)
 
     async def _request[**P, R](self, route: Route[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         """请求 backing 路由；路由未挂载即库不可达，显式失败。"""

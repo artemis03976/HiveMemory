@@ -11,7 +11,6 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     IdentityScope,
     MemoryAtom,
-    ResolvedAgentProfile,
 )
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
@@ -71,20 +70,21 @@ class MemoryBackend:
             return await self.bus.request(PatchouliRoutes.MEMORY_RETRIEVE, request=request)
         return list(self.memories.values())
 
-    async def get_agent_profile(self, alias, *, scope, enforce_actor_visibility=True):
+    async def get_agent_profile(self, alias):
         # 内存 backing 沿用 Patchouli 的内置图纸规则；入口仍必须先执行
         # agent.call 授权，测试不在 Alice 内另设默认配置回退。
         self.reads.append("get_agent_profile")
         if alias is None or alias.strip() in ("", "default", "omni_doll"):
-            return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
+            return OMNI_DOLL_PROFILE.model_copy(deep=True)
         if self.bus is None:
             raise NotImplementedError("本测试未装配 Profile backing")
-        return await self.bus.request(
-            PatchouliRoutes.GET_AGENT_PROFILE,
-            alias,
-            identity_scope=scope,
-            enforce_actor_visibility=enforce_actor_visibility,
-        )
+        return await self.bus.request(PatchouliRoutes.GET_AGENT_PROFILE, alias)
+
+    async def list_agent_profiles(self):
+        self.reads.append("list_agent_profiles")
+        if self.bus is None:
+            return []
+        return await self.bus.request(PatchouliRoutes.AGENT_PROFILE_LIST)
 
 
 class OperationsHarness:
@@ -102,7 +102,6 @@ class OperationsHarness:
         self.runtime = WorkspaceReadView(
             backing=self.backing,
             atom_capacity=32,
-            profile_capacity=16,
             intent_record_file=INTENT_RECORD_FILE,
             intent_retention=INTENT_RETENTION,
         )

@@ -27,7 +27,6 @@ from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
-    make_identity_scope,
     make_workspace_read_view,
 )
 
@@ -336,9 +335,8 @@ class TestHiveMemorySystem:
         system.config.system.preset_agent_profiles_marker = str(marker)
         seed = AsyncMock(return_value=["coder_doll"])
         system._global_bus.register(PatchouliRoutes.AGENT_PROFILE_SEED_PRESETS, seed)
-        workspace = make_identity_scope().workspace_identity
 
-        assert await system.seed_preset_agent_profiles(workspace) == ["coder_doll"]
+        assert await system.seed_preset_agent_profiles() == ["coder_doll"]
         assert marker.exists()
-        assert await system.seed_preset_agent_profiles(workspace) == []
-        seed.assert_awaited_once_with(workspace)
+        assert await system.seed_preset_agent_profiles() == []
+        seed.assert_awaited_once_with()

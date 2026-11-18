@@ -1,16 +1,16 @@
 """CPU 分配 — 任务进程在进入 Actor 之前准备的全部输入。
 
-CPU 分配由进程完成而不是交给 Actor：Profile 经注入的读取端口解析，
-附件租借经注入的 reader port 取得并登记进进程工作集，附件与记忆文本由
-进程调用共享编译引擎生成，再定稿人格、环境通知与本轮材料并组装输入清单。
-Actor 只消费编译结果，不接触租借或编译配置。
+CPU 分配由进程完成而不是交给 Actor：Profile 与可用 agent 列表经注入的读取端口
+取得，附件租借经注入的 reader port 取得并登记进进程工作集，附件、记忆与可用
+agent 列表的文本由进程调用共享编译引擎生成，再定稿人格、环境通知与本轮材料并
+组装输入清单。Actor 只消费编译结果，不接触租借或编译配置。
 
 附件租借由本分配器取得，也由本分配器释放（:meth:`CPUAllocator.release`）：
 工作集只登记租借，不持有 reader。
 
 授权边界：本层是任务进程的系统阶段授权点——Profile 与附件是用户的选择，
 对用户可见而不是对 Agent 可见，两者都由系统以 root 工作 actor 授权，不借用
-actor 操作。Profile 按管理语义读取，只检查 Workspace 归属；资产库只核对
+actor 操作。Profile 是全局的，没有可见性，授权以本 Workspace 为目标；资产库只核对
 Workspace。检查在对应副作用前执行；CPU 输入清单的观测标签沿用注册时的
 绑定值，不从工作 actor 读取或组装执行身份。
 """
@@ -28,7 +28,6 @@ from hivememory.core.models import (
     AgentProfile,
     AttachmentSelectionRequest,
     ExecutionLabels,
-    IdentityScope,
     MemoryAtom,
     WorkspaceIdentity,
 )
@@ -39,6 +38,7 @@ from hivememory.engines.attachment_compiler import AttachmentCompiler
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
+    MemoryCompileTarget,
     MemoryEnvelopeTarget,
 )
 from hivememory.prompts.compilation import compile_prompt_input
@@ -52,14 +52,12 @@ logger = logging.getLogger(__name__)
 class _AgentProfileReader(Protocol):
     """CPU 分配所需的 Profile 读取端口，由组合根注入读取视图实现。"""
 
-    async def get(
-        self,
-        agent_alias: str | None,
-        *,
-        scope: IdentityScope,
-        enforce_actor_visibility: bool = True,
-    ) -> AgentProfile:
-        """按授权的 scope 解析 Profile；``enforce_actor_visibility=False`` 是管理读取。"""
+    async def get(self, agent_alias: str | None) -> AgentProfile:
+        """解析可以执行的 Profile；缺失、文件不合格或已停用时显式失败。"""
+        ...
+
+    async def list(self) -> list[AgentProfile]:
+        """列出全部合格的 Profile，含停用的。"""
         ...
 
 
@@ -97,23 +95,32 @@ class CPUAllocator:
         system_actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
     ) -> AgentProfile:
-        """以系统的 root 工作 actor 授权后，经读取视图按管理语义解析执行者的 Profile。
+        """以系统的 root 工作 actor 授权后，经读取视图解析执行者的 Profile。
 
         ``agent_id`` 是注册时认证得到的执行者，不能从入口附带的 Profile alias
-        推断。Profile 是用户的选择：读取只检查 Workspace 归属，不按 Agent 的
-        可见性裁剪，指向其他 Agent 的 PRIVATE 图纸也能被它自己的进程加载；
-        读取视图负责缓存及 canonical 变更失效。运行上下文只需要能力描述，源
-        原子的授权依据不进入 run。
+        推断。Profile 是用户的选择，全局而不属于任何 Workspace；每次解析都读取当前的
+        Profile 文件，文件的改动在下一轮生效。
 
         Profile 属于 CPU 分配，但在 PREPARE 开始时解析：主线程以它派生，预检索
         与已有话题的确认都由主线程执行，缺少图纸的请求因此不会检索或刷新话题。
         """
-        scope = self._authorizer.authorize_root(system_actor, target_workspace)
-        return await self._profile_reader.get(
-            agent_id,
-            scope=scope,
-            enforce_actor_visibility=False,
-        )
+        self._authorizer.authorize_root(system_actor, target_workspace)
+        return await self._profile_reader.get(agent_id)
+
+    async def list_enabled_agents(
+        self,
+        *,
+        system_actor: WorkingActor,
+        target_workspace: WorkspaceIdentity,
+    ) -> tuple[AgentProfile, ...]:
+        """以系统的 root 工作 actor 授权后，列出已启用的 Profile。
+
+        这是可用 agent 列表的候选：Profile 是全局的，只有其中在目标 Workspace 有准入的
+        才进入提示词，准入由线程表按派生子线程时的同一规则筛选。
+        """
+        self._authorizer.authorize_root(system_actor, target_workspace)
+        profiles = await self._profile_reader.list()
+        return tuple(profile for profile in profiles if profile.enabled)
 
     def allocate(
         self,
@@ -123,6 +130,7 @@ class CPUAllocator:
         labels: ExecutionLabels,
         user_message: str,
         agent_profile: AgentProfile,
+        available_agents: tuple[AgentProfile, ...],
         memories: tuple[MemoryAtom, ...],
         storage_available: bool,
         selections: list[AttachmentSelectionRequest],
@@ -136,7 +144,9 @@ class CPUAllocator:
         ``memories`` 是预检索的结果，``storage_available`` 决定离线提示；清单的
         话题取工作集已冻结的派发话题，Gateway 指向新话题时为空。Profile 已由
         :meth:`resolve_agent_profile` 提前解析，只用于编译人格段，图纸与操作
-        快照随主线程交给 CPU，不进入清单。附件租借以系统的 root 工作 actor
+        快照随主线程交给 CPU，不进入清单。``available_agents`` 是本 Workspace
+        有准入且已启用的 agent，编译为常驻提示词的可用 agent 列表，为空时
+        提示词中没有这一节。附件租借以系统的 root 工作 actor
         授权，授权检查在租借副作用前执行（``_acquire_selected_attachment``）。
         ``labels`` 由注册入口认证成功后绑定，只供 CPU 的提示词与观测使用，
         不参与授权。stop 请求不打断分配，由调用方在
@@ -172,9 +182,15 @@ class CPUAllocator:
             else ""
         )
 
-        # 3. 提示词：在 CPU 边界前定稿环境通知、人格与本轮材料，语言只解析一次。
+        # 3. 提示词：在 CPU 边界前定稿环境通知、人格、可用 agent 列表与本轮材料，
+        #    语言只解析一次。列表每项只有 agent_id 与一句描述，人设不进列表。
+        agent_menu_items = [
+            self._memory_compiler.compile(agent, MemoryCompileTarget.AGENT_PROFILE_MENU).text
+            for agent in available_agents
+        ]
         prompt = compile_prompt_input(
             agent_profile=agent_profile,
+            agent_menu_items=agent_menu_items,
             storage_available=storage_available,
             memory_context=memory_context,
             attachment_context=attachment_compile_result.attachment_context,

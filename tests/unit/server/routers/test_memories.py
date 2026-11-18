@@ -157,8 +157,6 @@ class _MemoryManagementStub:
                     atom.index.alias = value
                 elif key == "tags":
                     atom.index.tags = value
-                elif key == "agent_config":
-                    atom.payload.agent_config = value
                 elif key == "access_policy":
                     atom.meta.access_policy = value
         except ValidationError as exc:
@@ -236,9 +234,8 @@ class TestMemoriesRouter:
         assert atom.index.alias == "created-memory"
         assert atom.payload.content == "Created memory content"
 
-    @pytest.mark.parametrize("memory_type", ["AGENT_PROFILE", "CODE_SNIPPET"])
-    def test_create_memory_rejects_invalid_memory_type(self, memory_type):
-        """管理创建不接受 Agent Profile（有独立入口）与只作历史取值的旧类型。"""
+    def test_create_memory_rejects_agent_profile_type(self):
+        """管理创建不接受只作历史取值的类型：Agent Profile 已不是记忆，以 AGENT_PROFILE 为代表。"""
         storage = MagicMock()
 
         app = _create_test_app(storage)
@@ -251,7 +248,7 @@ class TestMemoriesRouter:
                 "title": "Created memory",
                 "summary": "A sufficiently long memory summary",
                 "content": "Created memory content",
-                "memory_type": memory_type,
+                "memory_type": "AGENT_PROFILE",
                 "tags": ["created"],
             },
         )

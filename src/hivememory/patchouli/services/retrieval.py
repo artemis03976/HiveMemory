@@ -12,14 +12,13 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from hivememory.core.errors import ResourceNotFoundError
+from hivememory.core.errors import InvalidAgentProfileError, ResourceNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
     AgentProfile,
     MemoryAtom,
     MemoryType,
-    ResolvedAgentProfile,
     TopicData,
     TopicSnapshot,
     WorkspaceIdentity,
@@ -194,53 +193,32 @@ class RetrievalFamiliar:
         )
         return MemoryListPage(memories=tuple(memories), next_cursor=next_cursor, total=total)
 
-    async def get_agent_profile(
-        self,
-        agent_alias: str | None,
-        *,
-        belong_to: WorkspaceIdentity,
-        from_actor: ActorIdentity,
-        enforce_actor_visibility: bool = True,
-    ) -> ResolvedAgentProfile:
-        """
-        Profile 解析的唯一实现：builtin/alias 查找/可见性校验/类型校验/解析
-        只维护在本方法，返回 ``ResolvedAgentProfile``。
+    async def get_agent_profile(self, agent_alias: str | None) -> AgentProfile:
+        """Profile 解析的唯一实现：内置 Profile、按 agent_id 读取文件与三种失败原因。
 
-        只有未指定 alias 或明确选择内置 ``default`` / ``omni_doll`` 时才返回
-        Omni-Doll（无源原子）。任何自定义 alias 的缺失、越权、类型错误或配置
-        损坏都会显式失败，不降级为默认配置。源原子的读取策略与 UUID/版本随
-        结果返回，供 workspace Profile 解析缓存做命中授权与失效对账；可见性
-        校验在此处独立成立（纵深防御）。``enforce_actor_visibility=False`` 只用
-        于管理读取：归属硬边界仍然生效，跳过 ``from_actor`` 的可见性策略。
+        只有未指定 agent_id 或明确选择内置 ``default`` / ``omni_doll`` 时才返回
+        Omni-Doll。其余 agent_id 读取 AgentProfileStore（全局，不按 Workspace 区分）：没有文件时抛出
+        ``ResourceNotFoundError``，文件不合格（``invalid_config``）或已停用
+        （``profile_disabled``）时抛出 ``ProfileResolutionError``，都不降级为内置
+        Profile。每次都直接读文件，文件的改动在下一次解析时生效。
         """
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
-            return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
+            return OMNI_DOLL_PROFILE.model_copy(deep=True)
 
-        atom = await self._memory_library.mid_term.get_by_alias(
-            belong_to,
-            normalized_alias,
-            from_actor=from_actor,
-            enforce_actor_visibility=enforce_actor_visibility,
-        )
-        if atom is None:
+        try:
+            stored = self._memory_library.agent_profiles.get(normalized_alias)
+        except InvalidAgentProfileError as exc:
+            raise ProfileResolutionError(
+                agent_alias=normalized_alias, reason="invalid_config"
+            ) from exc
+        if stored is None:
             raise ResourceNotFoundError(
                 details={"resource": "agent_profile", "agent_alias": normalized_alias}
             )
-        if atom.index.memory_type != MemoryType.AGENT_PROFILE:
-            raise ProfileResolutionError(agent_alias=normalized_alias, reason="type_mismatch")
-
-        profile = AgentProfile.from_atom(atom)
-        if profile is None:
-            raise ProfileResolutionError(agent_alias=normalized_alias, reason="invalid_config")
-        if not profile.enabled:
+        if not stored.profile.enabled:
             raise ProfileResolutionError(agent_alias=normalized_alias, reason="profile_disabled")
-        return ResolvedAgentProfile(
-            profile=profile.model_copy(deep=True),
-            access_policy=atom.meta.access_policy.model_copy(deep=True),
-            source_memory_id=atom.id,
-            source_version=atom.meta.version,
-        )
+        return stored.profile
 
     async def retrieve(self, query: RetrievalQuery) -> list[MemoryAtom]:
         """

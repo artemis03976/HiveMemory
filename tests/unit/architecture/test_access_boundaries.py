@@ -178,30 +178,6 @@ def test_system_principal_is_only_injected_by_the_composition_root():
     assert sites == {"system/assembler.py"}
 
 
-def test_profile_management_read_is_only_requested_by_cpu_allocation():
-    """跳过 Agent 可见性的 Profile 管理读取只由 CPU 分配以 root scope 发起。
-
-    CALL 等 actor 操作必须按调用方的可见性解析图纸；资源 owner（Patchouli）
-    内部的管理读取不在扫描范围。
-    """
-    sites: set[str] = set()
-    for path in _source_files():
-        if _top_package(path) in {"patchouli", "engines"}:
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        if any(
-            isinstance(node, ast.keyword)
-            and node.arg == "enforce_actor_visibility"
-            and not (isinstance(node.value, ast.Constant) and node.value.value is True)
-            and not (
-                isinstance(node.value, ast.Name) and node.value.id == "enforce_actor_visibility"
-            )
-            for node in ast.walk(tree)
-        ):
-            sites.add(path.relative_to(SRC_ROOT).as_posix())
-    assert sites == {"workspace/process/allocation.py"}
-
-
 def test_working_actor_is_only_constructed_by_the_authentication_side():
     """工作 actor 只由认证一侧构造：授权点、入口与 CPU 都只能接收认证得到的值。"""
     assert _constructor_sites("WorkingActor") == {"workspace/authentication.py"}

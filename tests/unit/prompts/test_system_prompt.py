@@ -28,6 +28,7 @@ def test_offline_notice_precedes_persona_without_cpu_configuration(language, exp
     set_language(Language(language))
     compiled = compile_prompt_input(
         agent_profile=AgentProfile(persona="PERSONA"),
+        agent_menu_items=(),
         storage_available=False,
         memory_context="",
         attachment_context="",
@@ -40,8 +41,28 @@ def test_online_empty_persona_and_materials_produce_empty_blocks():
     """在线且没有人格或材料时，不添加空标题、占位内容或连接符。"""
     compiled = compile_prompt_input(
         agent_profile=AgentProfile(persona=""),
+        agent_menu_items=(),
         storage_available=True,
         memory_context="",
         attachment_context="",
     )
     assert (compiled.instructions, compiled.turn_context) == ("", "")
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_agent_menu_follows_persona_and_names_capability_only(language):
+    """可用 agent 列表常驻在人格之后，委托提示只写能力，不写任何协议的指令或动词。"""
+    set_language(Language(language))
+    compiled = compile_prompt_input(
+        agent_profile=AgentProfile(persona="PERSONA"),
+        agent_menu_items=("ITEM_A", "ITEM_B"),
+        storage_available=True,
+        memory_context="",
+        attachment_context="",
+    )
+
+    persona, header, items, guidance = compiled.instructions.split("\n\n")[1:]
+    assert persona == "PERSONA"
+    assert header in ("### 可用子代理 ###", "### AVAILABLE SUB-AGENTS ###")
+    assert items == "ITEM_A\nITEM_B"
+    assert "CALL" not in guidance

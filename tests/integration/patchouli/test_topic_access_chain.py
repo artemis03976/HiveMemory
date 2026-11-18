@@ -80,7 +80,9 @@ def _topic_boundary(*, max_resident_topics: int = 5, clock: _FakeClock | None = 
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=900),
     )
-    library = MemoryLibrary(short_term=store, mid_term=Mock(), long_term=Mock())
+    library = MemoryLibrary(
+        short_term=store, mid_term=Mock(), long_term=Mock(), agent_profiles=Mock()
+    )
     retrieval = RetrievalFamiliar(
         engine=Mock(),
         memory_library=library,

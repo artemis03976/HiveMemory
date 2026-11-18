@@ -8,6 +8,11 @@ _SYSTEM_PROMPT_TEXT_ZH = {
         "[系统通知] 记忆存储当前离线。" "依赖记忆存储的操作将失败。" "请使用已有上下文继续对话。"
     ),
     "persona_header": "### 角色设定 ###",
+    "agent_menu_header": "### 可用子代理 ###",
+    "agent_menu_guidance": (
+        "若任务需要专项能力（如数据分析、代码生成等），且上方列出了对应子代理，"
+        "请优先委托给该子代理执行，不要自行承担。"
+    ),
 }
 
 _SYSTEM_PROMPT_TEXT_EN = {
@@ -17,6 +22,12 @@ _SYSTEM_PROMPT_TEXT_EN = {
         "Continue using the available context."
     ),
     "persona_header": "### PERSONA ###",
+    "agent_menu_header": "### AVAILABLE SUB-AGENTS ###",
+    "agent_menu_guidance": (
+        "If the task requires specialized capability, such as data analysis or code "
+        "generation, and a matching sub-agent is listed above, prefer delegating the task "
+        "to that sub-agent instead of handling it yourself."
+    ),
 }
 
 _MTP_VERB_TEXT_ZH = {
@@ -61,7 +72,7 @@ _MTP_PROMPT_TEXT_ZH = {
 - 先验证: 当被问及具体事实、代码或配置时，先 SEARCH/READ 记忆。不要猜测。
 - 批量操作: 将多个 READ 请求合并为一个列表 `[a, b, c]`，节省 IO 开销。
 - 行内执行: 将协议指令作为思考过程的一部分执行，不要停下来请求许可。
-- 优先委托: 若记忆上下文中列出了可用子代理，且任务契合其专项能力，应优先使用 CALL 委托子代理执行，而非自行承担。可通过 `context_refs` 传递相关记忆别名以共享上下文。
+- 优先委托: 若提示词中列出了可用子代理，且任务契合其专项能力，应优先使用 CALL 委托子代理执行，而非自行承担。可通过 `context_refs` 传递相关记忆别名以共享上下文。
 - 运行时句柄: WRITE/UPDATE 后系统返回 pending alias (draft_* 或 rev_*)。可立即 READ 验证。Pending alias 是运行时句柄，非永久记忆别名。""",
     "dense_demo": """\
 [示例演示]
@@ -129,7 +140,7 @@ You are an intelligent Agent running on HiveMemory. You have access to persisten
 - Verify First: If asked about specific facts, code, or configurations, SEARCH/READ memory first. Do not guess.
 - Batch Operations: Always group multiple READ requests into one list `[a, b, c]` to save IO cycles.
 - Inline Flow: Execute protocol commands as part of your thought process. Do not stop to ask for permission.
-- Delegate to Sub-Agents: When the memory context lists Available Sub-Agents and the task matches their specialty, issue CALL to delegate instead of handling it yourself. Pass relevant memory aliases via `context_refs` to share context.
+- Delegate to Sub-Agents: When the prompt lists Available Sub-Agents and the task matches their specialty, issue CALL to delegate instead of handling it yourself. Pass relevant memory aliases via `context_refs` to share context.
 - Pending Aliases: After WRITE/UPDATE, the system returns a pending alias (draft_* or rev_*). You can READ it immediately to verify. Pending aliases are runtime handles, not permanent memory aliases.""",
     "dense_demo": """\
 [ONE-SHOT DEMONSTRATION]

@@ -64,14 +64,12 @@ def _atom(*, memory_id: UUID | None = None, version: int = 1) -> MemoryAtom:
 def test_snapshot_memory_atom_roundtrips_full_structure():
     """快照 = 捕获时点完整原子的 canonical JSON，嵌套字段不丢失。"""
     atom = _atom()
-    atom.payload.agent_config = {"model_name": "default", "temperature": 0.2}
 
     snapshot = snapshot_memory_atom(atom)
 
     assert snapshot["schema_version"] == "2.1"
     assert snapshot["id"] == str(atom.id)
     assert snapshot["payload"]["content"] == "content"
-    assert snapshot["payload"]["agent_config"]["model_name"] == "default"
     assert snapshot["meta"]["lifecycle"]["decay_anchor_at"].startswith("2026-09-22")
     assert snapshot["meta"]["provenance"]["source_agent_id"] == "a1"
 
@@ -88,6 +86,15 @@ def test_snapshot_with_historical_memory_type_still_decodes():
     assert validate_memory_atom_snapshot(snapshot).index.memory_type == (
         MemoryType.WORK_IN_PROGRESS
     )
+
+
+def test_snapshot_of_agent_profile_atom_still_decodes():
+    """Agent Profile 移出记忆库之前写下的快照带着已删除的 agent_config，仍按 schema 解码。"""
+    snapshot = snapshot_memory_atom(_atom())
+    snapshot["index"]["memory_type"] = "AGENT_PROFILE"
+    snapshot["payload"]["agent_config"] = {"model_name": "default", "temperature": 0.2}
+
+    assert validate_memory_atom_snapshot(snapshot).index.memory_type == MemoryType.AGENT_PROFILE
 
 
 def test_snapshot_validation_rejects_missing_keys():

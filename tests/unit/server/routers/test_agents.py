@@ -1,189 +1,135 @@
 """
 Agents 路由单元测试
+
+路由经真实的 root API 与 Patchouli Profile 管理服务读写临时目录中的 Profile 文件；
+只有 HTTP 访问依赖替换为测试组合。
 """
 
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkingActor
-from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.memory_library.agent_profiles import AgentProfileStore
+from hivememory.patchouli.application import AgentProfileManagementService
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.agents import router
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
-from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_server_access_overrides
 
 
-def _create_test_app(storage):
+@pytest.fixture
+def client(tmp_path):
     app = FastAPI()
     install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
 
     bus = GlobalSystemBus()
-    management = _AgentProfileManagementStub(storage)
-    bus.register(
-        PatchouliRoutes.AGENT_PROFILE_CREATE,
-        management.create_agent_profile,
-    )
-    bus.register(
-        PatchouliRoutes.AGENT_PROFILE_LIST,
-        management.list_agent_profiles,
-    )
-    # 管理用例执行 root 授权：服务与访问依赖共享同一组合的操作授权者，
-    # Profile 管理不进入 actor 的读取视图。
+    management = AgentProfileManagementService(store=AgentProfileStore(tmp_path), bus=AsyncMock())
+    for route, handler in (
+        (PatchouliRoutes.AGENT_PROFILE_CREATE, management.create_agent_profile),
+        (PatchouliRoutes.AGENT_PROFILE_UPDATE, management.update_agent_profile),
+        (PatchouliRoutes.AGENT_PROFILE_DELETE, management.delete_agent_profile),
+        (PatchouliRoutes.AGENT_PROFILE_LIST, management.list_agent_profiles),
+    ):
+        bus.register(route, handler)
     overrides, composition = make_server_access_overrides()
-    service = RootAgentProfileService(
-        global_bus=bus,
-        operation_authorizer=composition.authorizer,
-    )
+    service = RootAgentProfileService(global_bus=bus, operation_authorizer=composition.authorizer)
     app.dependency_overrides[deps.get_root_agent_service] = lambda: service
     app.dependency_overrides.update(overrides)
-
-    return app
-
-
-class _AgentProfileManagementStub:
-    def __init__(self, storage):
-        self.storage = storage
-
-    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope 与创建材料，不接收 access。
-    async def create_agent_profile(self, identity_scope, creation):
-        # 与 Familiar 相同的契约：以材料构造 Profile 原子，非法输入以 InvalidMemoryFieldError 拒绝。
-        try:
-            index = IndexLayer(
-                title=creation.title,
-                summary=creation.summary,
-                tags=list(creation.tags),
-                memory_type=MemoryType.AGENT_PROFILE,
-                alias=creation.alias,
-            )
-        except ValidationError as exc:
-            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
-        atom = MemoryAtom(
-            meta=make_memory_metadata(
-                source_agent_id=identity_scope.actor_identity.agent_id,
-                user_id=identity_scope.workspace_identity.owner_user_id,
-            ),
-            index=index,
-            payload=PayloadLayer(content=creation.content, agent_config=creation.agent_config),
-        )
-        self.storage.upsert_memory(atom)
-        return atom
-
-    async def list_agent_profiles(self, *, identity_scope, limit=100):
-        return self.storage.get_all_memories(
-            filters={"index.memory_type": "AGENT_PROFILE"},
-            limit=limit,
-        )
+    return TestClient(app)
 
 
-def test_list_agents_returns_200_and_passes_limit():
-    storage = MagicMock()
-    storage.get_all_memories.return_value = []
-
-    app = _create_test_app(storage)
-    client = TestClient(app)
-
-    response = client.get("/api/v1/agents")
-    assert response.status_code == 200
-    # limit=100 由 router/service 层透传；stub 内部的 filter 属于 stub 自身行为，不在此处断言
-    assert storage.get_all_memories.call_args.kwargs["limit"] == 100
+def _create(client, agent_id="coder_doll", **fields):
+    return client.post("/api/v1/agents", json={"agent_id": agent_id, **fields})
 
 
-def test_list_agents_returns_creation_and_update_times():
-    created = datetime(2026, 10, 12, 8, 0, tzinfo=UTC)
-    updated = datetime(2026, 11, 9, 14, 20, tzinfo=UTC)
-    meta = make_memory_metadata(source_agent_id="system", user_id="u1").model_copy(
-        update={"created_at": created, "updated_at": updated}
-    )
-    atom = MemoryAtom(
-        meta=meta,
-        index=IndexLayer(
-            title="Reviewer Doll",
-            summary="严格的代码审查专家",
-            memory_type=MemoryType.AGENT_PROFILE,
-            alias="reviewer_doll",
-        ),
-        payload=PayloadLayer(content="只指出能复现的问题"),
-    )
-    storage = MagicMock()
-    storage.get_all_memories.return_value = [atom]
-
-    response = TestClient(_create_test_app(storage)).get("/api/v1/agents")
-
-    assert response.status_code == 200
-    (profile,) = response.json()
-    assert datetime.fromisoformat(profile["created_at"]) == created
-    assert datetime.fromisoformat(profile["updated_at"]) == updated
-
-
-def test_create_agent_rejects_blank_title_with_422():
-    """Agent 名称去除空白后必填：返回 422 与字段原因，而不是 500，且不写入。"""
-    storage = MagicMock()
-    client = TestClient(_create_test_app(storage))
-
-    response = client.post(
-        "/api/v1/agents",
-        json={"title": "  ", "alias": "reviewer_doll"},
+def test_created_agent_is_listed_with_its_save_time(client):
+    created = _create(
+        client, title="写代码的", summary="Python 开发", persona="严谨", temperature=0.2
     )
 
-    assert response.status_code == 422
-    assert response.json() == {
-        "error": "memory.field.invalid",
-        "detail": "记忆字段不符合要求，请检查输入",
+    assert created.status_code == 201
+    listed = client.get("/api/v1/agents")
+    assert listed.status_code == 200
+    (agent,) = listed.json()
+    assert {key: value for key, value in agent.items() if key != "updated_at"} == {
+        "agent_id": "coder_doll",
+        "title": "写代码的",
+        "summary": "Python 开发",
+        "persona": "严谨",
+        "model": "default",
+        "temperature": 0.2,
+        "top_p": None,
+        "enabled": True,
     }
-    storage.upsert_memory.assert_not_called()
+    assert agent["updated_at"] == created.json()["updated_at"]
 
 
-def test_create_agent_alias_conflict_returns_409():
-    """Agent alias（即 agent_id）已被占用时返回 409，而不是 500。"""
-    storage = MagicMock()
-    storage.upsert_memory.side_effect = MemoryAliasConflictError(
-        "alias 已被同一 Workspace 内的其他记忆占用",
-        details={"alias": "reviewer_doll", "reason": "alias_occupied"},
-    )
-    client = TestClient(_create_test_app(storage))
+def test_create_with_taken_agent_id_returns_409(client):
+    _create(client, title="原来的")
 
-    response = client.post(
-        "/api/v1/agents",
-        json={"title": "Reviewer", "alias": "reviewer_doll"},
-    )
+    response = _create(client, title="新的")
 
     assert response.status_code == 409
+    assert response.json()["error"] == "workspace.agent_profile.exists"
+    assert client.get("/api/v1/agents").json()[0]["title"] == "原来的"
 
 
-def test_list_agents_passes_target_workspace_and_actor():
-    """路由只取得认证得到的 (user, system) 工作 actor 与目标 workspace，并以此调用能力层。"""
-    service = MagicMock()
-    service.list_agent_profiles = AsyncMock(return_value=[])
+@pytest.mark.parametrize(
+    ("agent_id", "fields", "reason"),
+    [
+        ("Coder Doll", {}, "invalid_agent_id"),
+        ("omni_doll", {}, "invalid_agent_id"),
+        ("coder_doll", {"temperature": 3.0}, "invalid_value"),
+    ],
+)
+def test_invalid_agent_is_rejected_with_422(client, agent_id, fields, reason):
+    response = _create(client, agent_id, **fields)
 
-    app = FastAPI()
+    assert response.status_code == 422
+    assert response.json()["error"] == "workspace.agent_profile.invalid"
+    assert response.json()["reason"] == reason
+    assert client.get("/api/v1/agents").json() == []
 
-    install_error_handlers(app)
-    app.include_router(router, prefix="/api/v1")
-    app.dependency_overrides[deps.get_root_agent_service] = lambda: service
-    overrides, _ = make_server_access_overrides(users=["u1"])
-    app.dependency_overrides.update(overrides)
-    client = TestClient(app)
 
-    response = client.get("/api/v1/agents", headers={"x-user-id": "u1"})
+def test_patch_changes_only_given_fields(client):
+    _create(client, title="写代码的", persona="严谨", temperature=0.2)
+
+    response = client.patch(
+        "/api/v1/agents/coder_doll", json={"enabled": False, "temperature": None}
+    )
 
     assert response.status_code == 200
-    assert response.json() == []
-    kwargs = service.list_agent_profiles.await_args.kwargs
-    assert kwargs["target_workspace"].owner_user_id == "u1"
-    assert kwargs["target_workspace"].workspace_id == "main_workspace"
-    assert kwargs["limit"] == 100
-    assert isinstance(kwargs["actor"], WorkingActor)
-    assert (kwargs["actor"].actor.user_id, kwargs["actor"].actor.agent_id) == ("u1", "system")
-    # 声明只作为认证输入：路由处理函数不取得 identity_scope 或 claims
-    assert "identity_scope" not in kwargs
-    assert "claims" not in kwargs
+    body = response.json()
+    assert (body["title"], body["persona"], body["enabled"], body["temperature"]) == (
+        "写代码的",
+        "严谨",
+        False,
+        None,
+    )
+
+
+def test_agent_id_cannot_be_changed(client):
+    _create(client, title="写代码的")
+
+    response = client.patch("/api/v1/agents/coder_doll", json={"agent_id": "renamed"})
+
+    assert response.status_code == 422
+    assert [agent["agent_id"] for agent in client.get("/api/v1/agents").json()] == ["coder_doll"]
+
+
+def test_patch_and_delete_of_missing_agent_return_404(client):
+    assert client.patch("/api/v1/agents/nobody", json={"title": "x"}).status_code == 404
+    assert client.delete("/api/v1/agents/nobody").status_code == 404
+
+
+def test_deleted_agent_is_no_longer_listed(client):
+    _create(client, title="写代码的")
+
+    assert client.delete("/api/v1/agents/coder_doll").status_code == 204
+    assert client.get("/api/v1/agents").json() == []

@@ -14,7 +14,7 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.models import ActorIdentity, ResolvedAgentProfile, TurnEvent
+from hivememory.core.models import ActorIdentity, TurnEvent
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -54,8 +54,8 @@ def _profile_route():
     """PATCHOULI_GET_AGENT_PROFILE 替身：返回 builtin omni_doll Profile。"""
     from hivememory.core.models import OMNI_DOLL_PROFILE
 
-    async def route(agent_id, *, identity_scope, **_kwargs):
-        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+    async def route(agent_id, **_kwargs):
+        return OMNI_DOLL_PROFILE
 
     return route
 

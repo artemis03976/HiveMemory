@@ -31,6 +31,7 @@ from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.ports import MidTermStoragePort
 from hivememory.memory_library.stores import (
@@ -429,6 +430,7 @@ def memory_library(tmp_path) -> MemoryLibrary:
         )
     )
     return MemoryLibrary(
+        agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
         short_term=short_term,
         mid_term=mid_term,
         long_term=long_term,

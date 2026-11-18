@@ -84,9 +84,8 @@ class TestPeriodicGarbageCollector:
 
         assert candidates == [_key(lower), _key(higher)]
 
-    @pytest.mark.parametrize("profile_type", [MemoryType.AGENT_PROFILE, MemoryType.USER_PROFILE])
-    def test_scan_candidates_never_selects_profile_memories(self, profile_type):
-        profile = _make_memory("Profile", 5.0, memory_type=profile_type)
+    def test_scan_candidates_never_selects_user_profile_memories(self):
+        profile = _make_memory("Profile", 5.0, memory_type=MemoryType.USER_PROFILE)
 
         candidates = self.gc.scan_candidates([profile, self.low_vitality_memory])
 

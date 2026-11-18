@@ -12,12 +12,14 @@ from .access import (
 from .base import DomainError, WorkspaceDomainError
 from .model import ModelContextWindowExceededError, ModelNotFoundError, ModelProviderError
 from .resources import (
+    AgentProfileExistsError,
     AssetExpiredError,
     AssetFailedError,
     AssetNotFoundError,
     AssetNotReadyError,
     AssetOperationConflictError,
     AssetRemovedError,
+    InvalidAgentProfileError,
     InvalidMemoryFieldError,
     MemoryAliasConflictError,
     MemoryMergeAbortedError,
@@ -48,6 +50,8 @@ __all__ = [
     "StaleAssetResultError",
     "AssetOperationConflictError",
     "ResourceNotFoundError",
+    "InvalidAgentProfileError",
+    "AgentProfileExistsError",
     "ResourceNotVisibleError",
     "ResourceUnavailableError",
     "MemoryAliasConflictError",

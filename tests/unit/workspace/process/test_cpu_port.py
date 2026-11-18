@@ -95,10 +95,10 @@ async def _gateway_route(**_kwargs):
     return _decision_outcome()
 
 
-async def _profile_route(agent_id, *, identity_scope, **_kwargs):
-    from hivememory.core.models import OMNI_DOLL_PROFILE, ResolvedAgentProfile
+async def _profile_route(agent_id, **_kwargs):
+    from hivememory.core.models import OMNI_DOLL_PROFILE
 
-    return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+    return OMNI_DOLL_PROFILE
 
 
 def _install_turn_routes(

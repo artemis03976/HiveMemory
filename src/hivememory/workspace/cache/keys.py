@@ -1,6 +1,6 @@
 """派生缓存的显式资源 key 类型。
 
-两个 cache 的资源 key 只由 Workspace 归属坐标与资源引用组成，不包含
+原子缓存的资源 key 只由 Workspace 归属坐标与资源引用组成，不包含
 Actor 的 user/agent/team/session 投影：同一 Workspace 的多个 Actor 复用
 同一资源条目，每次交付时按资源 policy 分别授权。``WorkspaceIdentity`` 自身
 保留 owner 坐标，UUID 与 alias 只在 Workspace 分区内寻址，不提供跨分区
@@ -31,12 +31,4 @@ class AtomAliasKey:
     alias: str
 
 
-@dataclass(frozen=True, slots=True)
-class ProfileKey:
-    """Profile 解析缓存键：Workspace 分区内的 agent alias（即 agent_id）。"""
-
-    workspace: WorkspaceIdentity
-    agent_alias: str
-
-
-__all__ = ["AtomAliasKey", "AtomIdKey", "ProfileKey"]
+__all__ = ["AtomAliasKey", "AtomIdKey"]

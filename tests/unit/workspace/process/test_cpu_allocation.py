@@ -13,6 +13,7 @@ Alice 路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公�
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -40,7 +41,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
-    ResolvedAgentProfile,
+    StoredAgentProfile,
     WorkspaceAssetRef,
     WorkspaceIdentity,
 )
@@ -161,20 +162,20 @@ def _profile_route(
     started: asyncio.Event | None = None,
     gate: asyncio.Event | None = None,
 ):
-    """PATCHOULI_GET_AGENT_PROFILE 替身：记录（agent_id, scope, 是否检查可见性）并返回固定结果。
+    """PATCHOULI_GET_AGENT_PROFILE 替身：记录请求的 agent_id 并返回固定结果。
 
     ``started`` 在替身开始执行时置位；``gate`` 置位后替身才返回，用于在 Profile
     解析期间注入 stop 请求。
     """
 
-    async def route(agent_id, *, identity_scope, enforce_actor_visibility=True, **_kwargs):
+    async def route(agent_id):
         if calls is not None:
-            calls.append((agent_id, identity_scope, enforce_actor_visibility))
+            calls.append(agent_id)
         if started is not None:
             started.set()
         if gate is not None:
             await gate.wait()
-        return ResolvedAgentProfile(profile=profile or OMNI_DOLL_PROFILE)
+        return profile or OMNI_DOLL_PROFILE
 
     return route
 
@@ -275,6 +276,47 @@ async def test_main_thread_operations_follow_access_record_precedence():
 
 
 @pytest.mark.asyncio
+async def test_agent_list_holds_only_enabled_agents_admitted_in_the_workspace() -> None:
+    """可用 agent 列表每轮由系统以 root scope 读取，只留已启用且在本 Workspace 有准入的 agent。"""
+    records = [
+        make_actor_access_record(owner_user_id=_USER, agent_id=_AGENT),
+        make_actor_access_record(owner_user_id=_USER, agent_id="coder"),
+        make_actor_access_record(owner_user_id=_USER, agent_id="sleeper"),
+        make_actor_access_record(
+            owner_user_id=_USER, agent_id="revoked", enabled=False, allowed_operations=()
+        ),
+        _system_record(),
+    ]
+
+    async def list_route():
+        saved_at = datetime(2026, 11, 18, tzinfo=UTC)
+        return [
+            StoredAgentProfile(profile=profile, saved_at=saved_at)
+            for profile in (
+                AgentProfile(agent_id="coder", title="写代码的", summary="Python 开发"),
+                AgentProfile(agent_id="sleeper", title="停用的", enabled=False),
+                AgentProfile(agent_id="revoked", title="准入已撤销的"),
+                AgentProfile(agent_id="stranger", title="没有访问登记的"),
+            )
+        ]
+
+    bus, _stub = _turn_bus()
+    bus.register(PatchouliRoutes.AGENT_PROFILE_LIST, list_route)
+    cpu = ScriptedCPU(result=make_cpu_result())
+    service, composition = await _service(
+        bus, cpu=cpu, composition=make_access_composition(records)
+    )
+
+    events = await _run_once(composition, service, "问题", process_id="process-agent-list")
+
+    assert done_data(events)["status"] == "completed"
+    instructions = cpu.calls[0].manifest.instructions
+    assert '<agent_profile alias="coder">写代码的: Python 开发</agent_profile>' in instructions
+    for absent in ("sleeper", "revoked", "stranger"):
+        assert f'alias="{absent}"' not in instructions
+
+
+@pytest.mark.asyncio
 async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manifest() -> None:
     """主线程描述中的 Profile 来自 PATCHOULI_GET_AGENT_PROFILE；清单的话题取 PREPARE 已确认的
     派发话题，离线提示来自经 root API 读取的存储健康。"""
@@ -290,17 +332,14 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     events = await _run_once(composition, service, "问题", process_id="process-manifest")
 
     assert done_data(events)["status"] == "completed"
-    # Profile 由系统以 root scope 经公开路由按执行者的 agent_id、以管理语义解析。
-    assert profile_calls == [("omni_doll", _root_scope(), False)]
+    # Profile 由系统经公开路由按执行者的 agent_id 解析。
+    assert profile_calls == ["omni_doll"]
 
     manifest = cpu.calls[0].manifest
     descriptor = cpu.calls[0].thread.descriptor
     assert manifest.process_id == "process-manifest"
     assert descriptor.thread_id == "main"
-    # 读取视图交付独立副本，线程描述不持有读取缓存中的可变对象。
     assert descriptor.agent_profile == profile
-    descriptor.agent_profile.persona = "只改变本轮"
-    assert profile.persona == "allocated-persona"
     assert manifest.user_message == "问题"
     assert manifest.topic_id == "topic-1"
     assert manifest.language == "zh"
@@ -400,7 +439,7 @@ async def test_no_actor_operations_still_allocates_execution_profile() -> None:
 
     assert done_data(events)["status"] == "completed"
     assert cpu.calls[0].thread.descriptor.agent_profile.persona == "阶段读取配置"
-    assert profile_calls == [("omni_doll", _root_scope(), False)]
+    assert profile_calls == ["omni_doll"]
 
 
 class _AdmissionRevokedAfterProfile:

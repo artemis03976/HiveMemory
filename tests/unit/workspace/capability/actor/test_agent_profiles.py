@@ -5,7 +5,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import OperationDeniedError
-from hivememory.core.models import AgentProfile, ResolvedAgentProfile
+from hivememory.core.models import AgentProfile
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.contracts import DeriveCallThreadRequest
@@ -37,16 +37,12 @@ async def test_call_target_without_operation_denied_before_backing():
 
 
 @pytest.mark.asyncio
-async def test_call_target_resolution_returns_only_the_visible_profile():
-    """持有 ``agent.call`` 时交回按调用方身份与可见性读取的图纸；派生不属于这项 actor 操作。"""
+async def test_call_target_resolution_returns_only_the_profile():
+    """持有 ``agent.call`` 时交回被调用方的图纸；准入与派生不属于这项 actor 操作。"""
     bus = GlobalSystemBus()
-    scopes = []
-    visibility_checks = []
 
-    async def profile_route(agent_alias, *, identity_scope, enforce_actor_visibility=True):
-        scopes.append(identity_scope)
-        visibility_checks.append(enforce_actor_visibility)
-        return ResolvedAgentProfile(profile=AgentProfile(agent_id=agent_alias, persona="被调用方"))
+    async def profile_route(agent_alias):
+        return AgentProfile(agent_id=agent_alias, persona="被调用方")
 
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile_route)
     composition = make_access_composition(
@@ -61,6 +57,3 @@ async def test_call_target_resolution_returns_only_the_visible_profile():
     profile = await service.resolve_call_target(DeriveCallThreadRequest("worker"), actor=actor)
 
     assert (profile.agent_id, profile.persona) == ("worker", "被调用方")
-    # 图纸按调用方的身份读取，且仍检查调用方的可见性，不是管理读取。
-    assert [scope.actor_identity.agent_id for scope in scopes] == ["test_agent"]
-    assert visibility_checks == [True]

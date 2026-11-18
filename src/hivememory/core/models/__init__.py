@@ -7,6 +7,7 @@ HiveMemory 核心数据模型
 from .agent import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
+    StoredAgentProfile,
 )
 from .artifact import (
     ArtifactRef,
@@ -62,9 +63,6 @@ from .pending import (
     UpdateFocus,
     WriteFocus,
     is_legal_transition,
-)
-from .projections import (
-    ResolvedAgentProfile,
 )
 from .provenance import (
     MemoryProvenance,
@@ -140,7 +138,6 @@ __all__ = [
     "RelationLayer",
     "MemoryAtom",
     "WorkspaceMemoryKey",
-    "ResolvedAgentProfile",
     "ActorIdentity",
     "StreamMessageType",
     "StreamMessage",
@@ -162,6 +159,7 @@ __all__ = [
     "freeze_mapping",
     "freeze_value",
     "AgentProfile",
+    "StoredAgentProfile",
     "OMNI_DOLL_PROFILE",
     "ModelDefinition",
     "ModelSelection",

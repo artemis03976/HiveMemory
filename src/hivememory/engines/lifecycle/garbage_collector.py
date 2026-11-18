@@ -19,10 +19,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Profile 记忆不按生命力归档：AGENT_PROFILE 定义可运行的 Agent，归档后该 Agent 会从
-# 列表与解析中消失；USER_PROFILE 记录用户的长期偏好，长时间未被检索不代表已经过时。
-# 时间衰减与命中信号衡量不了这两类记忆的价值，它们的生命力仍照常计算与展示。
-_ARCHIVE_EXEMPT_TYPES = frozenset({MemoryType.AGENT_PROFILE, MemoryType.USER_PROFILE})
+# USER_PROFILE 不按生命力归档：它记录用户的长期偏好，长时间未被检索不代表已经过时。
+# 时间衰减与命中信号衡量不了这类记忆的价值，它的生命力仍照常计算与展示。
+_ARCHIVE_EXEMPT_TYPES = frozenset({MemoryType.USER_PROFILE})
 
 
 class PeriodicGarbageCollector(BaseGarbageCollector):

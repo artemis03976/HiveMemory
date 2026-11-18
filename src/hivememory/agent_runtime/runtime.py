@@ -43,7 +43,7 @@ class AgentRuntime:
         loop_executor: AgentLoopExecutor,
         model_registry: ModelResolver | None = None,
     ) -> None:
-        # 模型注册表：在每个 frame 开始时根据 agent_profile.model_name 解析实际模型。
+        # 模型注册表：在每个 frame 开始时根据 agent_profile.model 解析实际模型。
         # 若未提供，会话的 model_selection 必须给出可执行的 model_id，否则帧解析失败。
         self._model_registry = model_registry
         self._config = runtime_config

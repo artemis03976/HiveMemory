@@ -61,7 +61,6 @@ class TestBuildCandidate:
             ("REFLECTION", "avoid_global_state", "ref_avoid_global_state"),
             ("USER_PROFILE", "prefers_typescript", "user_prefers_typescript"),
             ("RESOURCE", "python_datetime_docs", "res_python_datetime_docs"),
-            ("AGENT_PROFILE", "coder_doll", "agent_coder_doll"),
         ],
     )
     def test_prefix_follows_memory_type(self, memory_type, suffix, expected):

@@ -252,7 +252,6 @@ class SystemAssembler:
         workspace_read_view = WorkspaceReadView(
             backing=BusCanonicalReadBackend(global_bus),
             atom_capacity=cache_config.atom_capacity,
-            profile_capacity=cache_config.profile_capacity,
             intent_record_file=Path(intents_config.record_file),
             intent_retention=timedelta(days=intents_config.retention_days),
         )
@@ -502,7 +501,7 @@ class SystemAssembler:
         # 注册入口只持有生命周期依赖。
         allocator = CPUAllocator(
             operation_authorizer=access_control.operation_authorizer,
-            # Profile 阶段读取直接使用读取视图，不经过 actor 能力的操作检查。
+            # Profile 与可用 agent 列表直接使用读取视图，不经过 actor 能力的操作检查。
             profile_reader=runtime.workspace_read_view.profiles,
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给 CPU 分配：
             # 附件租借在 CPU 分配边界 acquire，随进程关闭由分配器释放。

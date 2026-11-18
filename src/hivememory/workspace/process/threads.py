@@ -26,13 +26,14 @@ actor 与生命周期。主线程在 PREPARE 开始时派生，预检索由它�
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
 from hivememory.components.cancellation import join_shielded
 from hivememory.core.access import SubActorAdmission, WorkingActor
-from hivememory.core.errors import ScopeRequiredError, ThreadEndedError
+from hivememory.core.errors import AdmissionDeniedError, ScopeRequiredError, ThreadEndedError
 from hivememory.core.models import ExecutionLabels
 from hivememory.core.models.agent import AgentProfile
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
@@ -193,6 +194,26 @@ class ProcessThreads:
             labels=labels,
             profile=profile,
         )
+
+    def admitted_profiles(
+        self, thread: ThreadHandle, profiles: Iterable[AgentProfile]
+    ) -> tuple[AgentProfile, ...]:
+        """按派生子线程时的同一准入，筛出这个线程可以派生为子线程的 Profile。
+
+        可用 agent 列表据此组装，列表中的 agent 因此一定能通过 CALL 时的准入；
+        准入的判定只在认证一侧，被拒绝只说明它不进列表。只读取线程登记的工作
+        actor，不判定存活：筛选不代表线程执行操作，PREPARE 期间收到的停止仍由
+        进入 Actor 之前的统一检查生效。
+        """
+        _, caller = self._locate(thread)
+        admitted: list[AgentProfile] = []
+        for profile in profiles:
+            try:
+                self._admission.admit_sub_actor(caller.actor, profile.agent_id or "")
+            except AdmissionDeniedError:
+                continue
+            admitted.append(profile)
+        return tuple(admitted)
 
     def resolve(self, thread: ThreadHandle) -> ResolvedThread:
         """唯一的存活判定：线程未结束且进程仍在运行时，返回一次解析结果。

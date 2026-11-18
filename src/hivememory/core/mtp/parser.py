@@ -179,8 +179,6 @@ _FILTER_TYPE_MAP: dict[str, MemoryType] = {
     "user_profile": MemoryType.USER_PROFILE,
     "resource": MemoryType.RESOURCE,
     "res": MemoryType.RESOURCE,
-    "agent_profile": MemoryType.AGENT_PROFILE,
-    "agent": MemoryType.AGENT_PROFILE,
 }
 
 

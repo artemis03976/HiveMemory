@@ -1,5 +1,6 @@
-"""任务进程的中立提示词编译：定稿人格、环境通知与本轮材料。"""
+"""任务进程的中立提示词编译：定稿人格、环境通知、可用 agent 列表与本轮材料。"""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from hivememory.core.models import AgentProfile
@@ -23,6 +24,15 @@ def render_persona(persona: str, *, language: str) -> str:
     return f"{header}\n\n{persona}"
 
 
+def render_agent_menu(items: Sequence[str], *, language: str) -> str:
+    """把已编译的菜单项放进带标题与委托提示的一节；没有可用 agent 时整节省略。"""
+    if not items:
+        return ""
+    header = get_system_prompt_text("agent_menu_header", language)
+    guidance = get_system_prompt_text("agent_menu_guidance", language)
+    return "\n\n".join((header, "\n".join(items), guidance))
+
+
 def render_storage_offline_notice(*, language: str) -> str:
     """描述记忆存储离线，不假定执行者采用任何工具协议。"""
     return get_system_prompt_text("storage_offline_notice", language)
@@ -31,21 +41,24 @@ def render_storage_offline_notice(*, language: str) -> str:
 def compile_prompt_input(
     *,
     agent_profile: AgentProfile,
+    agent_menu_items: Sequence[str],
     storage_available: bool,
     memory_context: str,
     attachment_context: str,
 ) -> CompiledPromptInput:
     """取一次语言设置并定稿两段文本，不读取 CPU 配置或裁剪执行者的上下文。
 
-    环境通知先于人格，记忆先于附件；空段省略。材料已由各自编译器处理，
-    此处只连接，不解析、转义或清除空白，以保持材料边界与正文。
+    环境通知先于人格，人格之后是常驻的可用 agent 列表；记忆先于附件；空段省略。
+    材料已由各自编译器处理，此处只连接，不解析、转义或清除空白，以保持材料
+    边界与正文。
     """
     language = get_language().value
     notice = "" if storage_available else render_storage_offline_notice(language=language)
     persona = render_persona(agent_profile.persona, language=language)
+    agent_menu = render_agent_menu(agent_menu_items, language=language)
     return CompiledPromptInput(
         language=language,
-        instructions="\n\n".join(section for section in (notice, persona) if section),
+        instructions="\n\n".join(section for section in (notice, persona, agent_menu) if section),
         turn_context="\n\n".join(
             section for section in (memory_context, attachment_context) if section
         ),

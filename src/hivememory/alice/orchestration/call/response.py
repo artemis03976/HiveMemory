@@ -128,10 +128,7 @@ def preparation_error_response(
             MTPErrorSeverity.AGENT_FAULT,
         )
     elif isinstance(error, ProfileResolutionError):
-        reason = error.details["reason"]
-        if reason == "type_mismatch":
-            code, key = ("mtp.memory.type_mismatch", "mtp.call.profile_type_mismatch")
-        elif reason == "profile_disabled":
+        if error.details["reason"] == "profile_disabled":
             # 停用的子 Agent 对调用方而言就是当前不可用，提示改用其他子 Agent。
             code, key = ("mtp.permission.denied", "mtp.call.agent_unavailable")
         else:
@@ -180,7 +177,7 @@ def response_for_frame_result(
                 return error_response(agent_alias, mtp_error_info(result.error, verb="CALL"))
             if isinstance(result.error, ModelNotFoundError):
                 model_name = (model_selection and model_selection.model_id) or getattr(
-                    profile, "model_name", "unknown"
+                    profile, "model", "unknown"
                 )
                 return error_response(
                     agent_alias,

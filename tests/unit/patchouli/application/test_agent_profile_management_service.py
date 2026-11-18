@@ -1,147 +1,104 @@
 """AgentProfileManagementService 单元测试。
 
-被测对象：Patchouli Profile 管理与读取 backing 的应用服务；local bus 为 mock（边界外协作者）。
-Profile 读取经全局总线到真实 handler 的链路见
-``tests/integration/alice/orchestration/test_call_profile_requests.py``。本文件只守护本层的
-判断：scope 与资源归属校验、创建时强制 Profile 类型、列表按 Profile 类型过滤。
+被测对象：Patchouli 的 Profile 管理应用服务，读写真实的 AgentProfileStore（临时目录）。
+守护本层的判断：新建不覆盖同名 Profile、编辑只改给出的字段且 agent_id 不变、提交的
+字段与读取文件走同一套校验、预设只写尚不存在的 Profile。
 """
 
 from unittest.mock import AsyncMock
-from uuid import uuid4
 
 import pytest
 
-from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models import (
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    PayloadLayer,
-    system_actor_for_workspace,
+from hivememory.core.errors import (
+    AgentProfileExistsError,
+    InvalidAgentProfileError,
+    ResourceNotFoundError,
 )
+from hivememory.core.models import AgentProfile
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.patchouli.application import AgentProfileManagementService
 from hivememory.patchouli.application.preset_agent_profiles import PRESET_AGENT_PROFILES
-from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.memory_management import AgentProfileCreation, MemoryListPage
-from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
-
-
-def _make_memory_atom(title: str = "Worker", user_id: str = "u1") -> MemoryAtom:
-    return MemoryAtom(
-        id=uuid4(),
-        meta=make_memory_metadata(source_agent_id="a1", user_id=user_id),
-        index=IndexLayer(
-            title=title,
-            summary="A test memory summary",
-            tags=["agent"],
-            memory_type=MemoryType.FACT,
-        ),
-        payload=PayloadLayer(content="agent profile content"),
-    )
 
 
 @pytest.fixture
-def bus():
-    bus = AsyncMock()
-    bus.request = AsyncMock()
-    return bus
+def store(tmp_path):
+    return AgentProfileStore(tmp_path)
+
+
+@pytest.fixture
+def service(store):
+    return AgentProfileManagementService(store=store, bus=AsyncMock())
 
 
 @pytest.mark.asyncio
-async def test_create_agent_profile_fixes_profile_type_and_passes_materials_with_actor(bus):
-    """Profile 入口固定类型，材料与本次发起者原样交给创建原语，返回其持久化结果。"""
-    service = AgentProfileManagementService(bus=bus)
-    identity_scope = make_identity_scope(user_id="u1")
-    created = _make_memory_atom()
-    bus.request = AsyncMock(return_value=created)
-
-    result = await service.create_agent_profile(
-        identity_scope,
-        AgentProfileCreation(
-            title="Worker",
-            alias="worker",
-            tags=("ops",),
-            agent_config={"model": "m"},
-        ),
+async def test_created_profile_is_saved_with_persona_as_body(service, store):
+    created = await service.create_agent_profile(
+        "worker", {"title": "工人", "persona": "认真干活", "temperature": 0.4}
     )
 
-    assert result is created
-    bus.request.assert_awaited_once_with(
-        PatchouliLocalRoutes.MEMORY_CREATE,
-        identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        memory_type=MemoryType.AGENT_PROFILE,
-        title="Worker",
-        summary="",
-        content="",
-        tags=["ops"],
-        alias="worker",
-        agent_config={"model": "m"},
+    assert created.profile == AgentProfile(
+        agent_id="worker", title="工人", persona="认真干活", temperature=0.4
+    )
+    assert store.get("worker").profile == created.profile
+
+
+@pytest.mark.asyncio
+async def test_create_does_not_overwrite_existing_profile(service, store):
+    """同名文件已存在时拒绝新建，即使那个文件不合格也不覆盖。"""
+    await service.create_agent_profile("worker", {"title": "原来的"})
+
+    with pytest.raises(AgentProfileExistsError):
+        await service.create_agent_profile("worker", {"title": "新的"})
+
+    assert store.get("worker").profile.title == "原来的"
+
+
+@pytest.mark.asyncio
+async def test_update_changes_only_given_fields(service, store):
+    await service.create_agent_profile(
+        "worker", {"title": "工人", "persona": "认真干活", "temperature": 0.4}
     )
 
+    updated = await service.update_agent_profile("worker", {"summary": "搬砖", "temperature": None})
 
-@pytest.mark.asyncio
-async def test_create_agent_profile_requires_identity_scope(bus):
-    """identity_scope 缺失按 ScopeRequiredError 拒绝，且不触达后端。"""
-    service = AgentProfileManagementService(bus=bus)
-
-    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
-        await service.create_agent_profile(None, AgentProfileCreation(title="W", alias="w"))
-
-    bus.request.assert_not_awaited()
+    assert updated.profile == AgentProfile(
+        agent_id="worker", title="工人", summary="搬砖", persona="认真干活", temperature=None
+    )
+    assert store.get("worker").profile == updated.profile
 
 
 @pytest.mark.asyncio
-async def test_list_agent_profiles_filters_by_profile_type_with_owner_semantics(bus):
-    """管理列表只请求 Profile 类型的记忆（默认上限 100），按 owner-management 语义不做可见性过滤。"""
-    service = AgentProfileManagementService(bus=bus)
-    identity_scope = make_identity_scope(user_id="u1")
+async def test_update_of_missing_profile_is_not_found(service):
+    with pytest.raises(ResourceNotFoundError):
+        await service.update_agent_profile("nobody", {"title": "x"})
 
-    await service.list_agent_profiles(identity_scope=identity_scope)
 
-    route = bus.request.await_args.args[0]
-    kwargs = bus.request.await_args.kwargs
-    assert route == PatchouliLocalRoutes.MEMORY_LIST
-    assert kwargs["belong_to"] == identity_scope.workspace_identity
-    assert (kwargs["filters"], kwargs["limit"]) == ({"index.memory_type": "AGENT_PROFILE"}, 100)
-    assert kwargs["enforce_actor_visibility"] is False
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [({"top_p": 2.0}, "invalid_value"), ({"agent_id": "renamed"}, "unknown_field")],
+)
+@pytest.mark.asyncio
+async def test_invalid_update_is_rejected_without_writing(service, store, changes, reason):
+    """提交的字段与读取文件走同一套校验；agent_id 不是可编辑的字段，改名被拒绝。"""
+    await service.create_agent_profile("worker", {"title": "工人"})
+
+    with pytest.raises(InvalidAgentProfileError) as exc_info:
+        await service.update_agent_profile("worker", changes)
+
+    assert exc_info.value.details["reason"] == reason
+    assert store.get("worker").profile == AgentProfile(agent_id="worker", title="工人")
 
 
 @pytest.mark.asyncio
-async def test_profile_read_without_scope_does_not_enter_resolver(bus):
-    """公开读取入口拒绝缺失 scope，且不继续执行内部 Profile 解析。"""
-    service = AgentProfileManagementService(bus=bus)
+async def test_presets_are_written_only_where_no_profile_exists(service, store):
+    """已有同名文件的预设跳过，不覆盖用户改过的 Profile。"""
+    kept = PRESET_AGENT_PROFILES[0].model_copy(update={"persona": "用户改过的人设"})
+    store.save(kept)
 
-    with pytest.raises(ScopeRequiredError):
-        await service.get_agent_profile("custom_agent", identity_scope=None)
+    created = await service.seed_preset_agent_profiles()
 
-    bus.request.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_seed_presets_writes_missing_presets_as_workspace_system_and_skips_existing(bus):
-    """初次部署的预设只补上缺少的 alias，以该 Workspace 的 system 写入、类型固定为 Profile。"""
-    service = AgentProfileManagementService(bus=bus)
-    workspace = make_identity_scope(user_id="u1").workspace_identity
-    existing = _make_memory_atom()
-    existing.index.alias = PRESET_AGENT_PROFILES[0].alias
-    calls = []
-
-    async def request(route, *args, **kwargs):
-        calls.append((route, args, kwargs))
-        if route == PatchouliLocalRoutes.MEMORY_LIST:
-            return MemoryListPage(memories=(existing,), next_cursor=None, total=1)
-        return _make_memory_atom()
-
-    bus.request = AsyncMock(side_effect=request)
-
-    created = await service.seed_preset_agent_profiles(workspace)
-
-    assert created == [preset.alias for preset in PRESET_AGENT_PROFILES[1:]]
-    creates = [call for call in calls if call[0] == PatchouliLocalRoutes.MEMORY_CREATE]
-    assert [kwargs["alias"] for _, _, kwargs in creates] == created
-    for _, args, kwargs in creates:
-        assert args == (workspace,)
-        assert kwargs["from_actor"] == system_actor_for_workspace(workspace)
-        assert kwargs["memory_type"] == MemoryType.AGENT_PROFILE
+    assert created == [preset.agent_id for preset in PRESET_AGENT_PROFILES[1:]]
+    assert store.get(kept.agent_id).profile.persona == "用户改过的人设"
+    assert [stored.profile for stored in store.list()] == sorted(
+        [kept, *PRESET_AGENT_PROFILES[1:]], key=lambda profile: profile.agent_id
+    )

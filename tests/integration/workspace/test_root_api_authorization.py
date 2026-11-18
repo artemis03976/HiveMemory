@@ -12,11 +12,13 @@ from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     ActorIdentity,
+    AgentProfile,
     IdentityScope,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    StoredAgentProfile,
     WorkspaceAssetState,
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
@@ -89,8 +91,15 @@ _ROUTED_CASES = [
         "profiles",
         "create_agent_profile",
         PatchouliRoutes.AGENT_PROFILE_CREATE,
-        keywords=(("title", "Worker"), ("alias", "worker"), ("tags", [])),
+        ("worker", {"title": "Worker"}),
     ),
+    _Case(
+        "profiles",
+        "update_agent_profile",
+        PatchouliRoutes.AGENT_PROFILE_UPDATE,
+        ("worker", {"title": "Worker"}),
+    ),
+    _Case("profiles", "delete_agent_profile", PatchouliRoutes.AGENT_PROFILE_DELETE, ("worker",)),
     _Case("profiles", "list_agent_profiles", PatchouliRoutes.AGENT_PROFILE_LIST),
     _Case("topic", "list_active_topics", PatchouliRoutes.TOPIC_LIST_ACTIVE),
     _Case(
@@ -129,8 +138,16 @@ _ROUTED_CASES = [
         keywords=(("interaction_id", "import_1"), ("topic_source", make_gateway_decision())),
     ),
 ]
-# 存储健康不涉及任何 Workspace 的资源，路由不接收 scope。
-_UNSCOPED_ROUTES = frozenset({PatchouliRoutes.STORAGE_AVAILABLE})
+# 存储健康与 Agent Profile 不属于任何 Workspace，路由不接收 scope。
+_UNSCOPED_ROUTES = frozenset(
+    {
+        PatchouliRoutes.STORAGE_AVAILABLE,
+        PatchouliRoutes.AGENT_PROFILE_CREATE,
+        PatchouliRoutes.AGENT_PROFILE_UPDATE,
+        PatchouliRoutes.AGENT_PROFILE_DELETE,
+        PatchouliRoutes.AGENT_PROFILE_LIST,
+    }
+)
 # 上传不经 Patchouli 路由，副作用落在进程内资产 Store。
 _UPLOAD_CASE = _Case(
     "assets",
@@ -168,8 +185,15 @@ class _OwnerBoundary:
             if route == PatchouliRoutes.PREPARE_TOPIC:
                 return "topic-1"
             if route in {
-                PatchouliRoutes.MEMORY_CREATE,
                 PatchouliRoutes.AGENT_PROFILE_CREATE,
+                PatchouliRoutes.AGENT_PROFILE_UPDATE,
+            }:
+                return StoredAgentProfile(
+                    profile=AgentProfile(agent_id="worker", title="Worker"),
+                    saved_at=datetime(2026, 10, 10, tzinfo=UTC),
+                )
+            if route in {
+                PatchouliRoutes.MEMORY_CREATE,
                 PatchouliRoutes.MEMORY_GET,
                 PatchouliRoutes.MEMORY_UPDATE,
             }:

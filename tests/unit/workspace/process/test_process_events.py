@@ -22,7 +22,6 @@ from hivememory.core.errors import AssetNotReadyError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
-    ResolvedAgentProfile,
     WorkspaceIdentity,
 )
 from hivememory.core.protocol.gateway import (
@@ -92,8 +91,8 @@ def _decision_outcome(target_topic_id: str) -> GatewayDecisionOutcome:
     )
 
 
-async def _profile(agent_id, *, identity_scope, **_kwargs):
-    return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+async def _profile(agent_id, **_kwargs):
+    return OMNI_DOLL_PROFILE
 
 
 def _turn_bus(target_topic_id: str = _TOPIC_ID, *, profile=_profile) -> GlobalSystemBus:

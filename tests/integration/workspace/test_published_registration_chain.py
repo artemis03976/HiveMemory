@@ -62,7 +62,6 @@ from hivememory.core.models import (
     MemoryLifecycleState,
     MemoryType,
     PayloadLayer,
-    ResolvedAgentProfile,
     TopicSnapshot,
 )
 from hivememory.core.models.workspace import (
@@ -243,8 +242,8 @@ async def published_stack():
         seen.gateway_calls += 1
         return GatewayDecisionOutcome(decision=make_gateway_decision())
 
-    async def get_agent_profile(agent_id, *, identity_scope, **_kwargs):
-        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+    async def get_agent_profile(agent_id, **_kwargs):
+        return OMNI_DOLL_PROFILE
 
     patchouli = PatchouliTurnStub().install(bus)
     bus.register(PatchouliRoutes.MEMORY_CREATE, memory_create)

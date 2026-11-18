@@ -168,7 +168,7 @@ async def test_callee_prompt_follows_caller_frame_language_persona_and_policy(
     # 语言设置与调用方帧不同：子帧仍是调用方帧的语言。
     set_language(Language.EN if language == "zh" else Language.ZH)
     frame = await _prepare_prompt_frame(
-        AgentProfile(persona="  子 Agent 人设\n"),
+        AgentProfile(persona="子 Agent 人设"),
         KoakumaConfig(mtp_prompt=MTPPromptConfig(include_demo=False, include_error_handling=False)),
         shared_context="\n[共享上下文]\n原文  ",
         caller_language=language,
@@ -178,7 +178,7 @@ async def test_callee_prompt_follows_caller_frame_language_persona_and_policy(
     system_prompt = frame.working_history[0]["content"]
     assert teaching_intro in system_prompt
     assert system_prompt.endswith(
-        f"\n\n{persona_header}\n\n  子 Agent 人设\n\n\n\n[共享上下文]\n原文  "
+        f"\n\n{persona_header}\n\n子 Agent 人设\n\n\n[共享上下文]\n原文  "
     )
     assert frame.execution_policy.permitted_verbs == frozenset({"WRITE", "RUN"})
     # 子帧执行期的 MTP 回填沿用提示词使用的同一语言。

@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 
     from hivememory.core.models import (
         ActorIdentity,
+        AgentProfile,
         MemoryAccessPolicy,
         MemoryAtom,
         MemoryType,
-        ResolvedAgentProfile,
         TopicData,
         TopicSnapshot,
         WorkspaceIdentity,
@@ -59,7 +59,6 @@ class PatchouliLocalRoutes:
         content: str = "",
         tags: list[str] | None = None,
         alias: str | None = None,
-        agent_config: dict[str, Any] | None = None,
         access_policy: MemoryAccessPolicy | None = None,
     ) -> MemoryAtom:
         """以外部提交的材料创建记忆原子并持久化，原子的身份与时间在此确定，策略缺省为 PUBLIC。"""
@@ -101,7 +100,6 @@ class PatchouliLocalRoutes:
         content: str | None = None,
         alias: str | None = None,
         tags: list[str] | None = None,
-        agent_config: dict | None = None,
         access_policy: MemoryAccessPolicy | None = None,
     ) -> MemoryAtom | None:
         """对外部手动的记忆编辑进行持久化处理；``access_policy`` 为 ``None`` 时不修改策略。"""
@@ -239,14 +237,8 @@ class PatchouliLocalRoutes:
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory.get_agent_profile")
-    async def GET_AGENT_PROFILE(
-        agent_alias: str | None,
-        *,
-        belong_to: WorkspaceIdentity,
-        from_actor: ActorIdentity,
-        enforce_actor_visibility: bool = True,
-    ) -> ResolvedAgentProfile:
-        """Profile 解析的唯一实现：builtin/alias 查找/可见性校验/类型校验/解析"""
+    async def GET_AGENT_PROFILE(agent_alias: str | None) -> AgentProfile:
+        """Profile 解析的唯一实现：内置 Profile、按 agent_id 读取文件与三种失败原因。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("topic.prepare")

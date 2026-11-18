@@ -329,9 +329,7 @@ def make_write_intent_registry(**overrides):
     return WriteIntentRegistry(**settings)
 
 
-def make_workspace_read_view(
-    global_bus=None, *, atom_capacity: int = 16, profile_capacity: int = 16
-):
+def make_workspace_read_view(global_bus=None, *, atom_capacity: int = 16):
     """构造经全局总线访问 Patchouli backing 的 WorkspaceReadView（测试装配）。"""
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.workspace.capability.backing import BusCanonicalReadBackend
@@ -340,7 +338,6 @@ def make_workspace_read_view(
     return WorkspaceReadView(
         backing=BusCanonicalReadBackend(global_bus or GlobalSystemBus()),
         atom_capacity=atom_capacity,
-        profile_capacity=profile_capacity,
         intent_record_file=INTENT_RECORD_FILE,
         intent_retention=INTENT_RETENTION,
     )

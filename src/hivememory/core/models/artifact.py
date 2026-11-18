@@ -33,6 +33,10 @@ class ArtifactType(str, Enum):
 
 # 完整 MemoryAtom canonical JSON 快照必须携带的顶层键。
 _MEMORY_SNAPSHOT_REQUIRED_KEYS = ("schema_version", "id", "meta", "index", "payload", "relations")
+# 已从 MemoryAtom 删除、但删除之前写下的快照都带着的字段：版本快照是只追加的历史，
+# 这些快照仍要按 schema 解码，所以它们不算未知字段。Agent Profile 移出记忆库之后，
+# ``payload.agent_config`` 不再有值，旧快照里多为 ``null``。
+_REMOVED_SNAPSHOT_FIELDS = frozenset({"payload.agent_config"})
 
 
 def validate_memory_atom_snapshot(snapshot: Mapping[str, Any]) -> "MemoryAtom":
@@ -69,11 +73,14 @@ def _find_unknown_key(raw: Any, canonical: Any, *, path: str) -> str | None:
     """返回 ``raw`` 中 canonical 序列化结果不存在的第一个字段路径。
 
     只比较键集合，不比较值；嵌套模型的 ``extra="ignore"`` 因此不能静默吞掉
-    旧布局字段（如 ``payload.artifacts.agent_config``）。
+    旧布局字段（如 ``payload.artifacts.agent_config``）。``_REMOVED_SNAPSHOT_FIELDS``
+    中的字段除外。
     """
     if isinstance(raw, Mapping) and isinstance(canonical, Mapping):
         for key, value in raw.items():
             child = f"{path}.{key}" if path else str(key)
+            if child in _REMOVED_SNAPSHOT_FIELDS:
+                continue
             if key not in canonical:
                 return child
             found = _find_unknown_key(value, canonical[key], path=child)

@@ -7,40 +7,36 @@ from hivememory.i18n.types import Language
 
 _RETRIEVAL_TEXT_ZH = {
     "retrieval_header": """<memory_context>
-[System Guidance]: 帕秋莉（记忆库的管理者）为你取回了以下相关的历史记忆与可用子代理。
+[System Guidance]: 帕秋莉（记忆库的管理者）为你取回了以下相关的历史记忆。
 你可以将记忆信息视为你脑海里自然而然浮现的“潜意识”，作为背景知识直接融合到你的思考中，无需刻意生硬地声明“根据记忆显示”。
 """,
     "retrieval_footer": """
 \n[System Guidance]:
 - 若上述记忆摘要符合当前用户意图，但摘要信息不足，请先读取这条记忆的完整内容（严禁自行猜测或编造）。
 - 带有 [未验证] 或 [警告：陈旧] 状态的记忆可能包含错误或过时信息，请结合常识注意甄别。
-- 若任务需要专项能力（如数据分析、代码生成等），且上方列出了对应子代理，请优先委托给该子代理执行，不要自行承担。
 </memory_context>
 """,
 }
 
 _RETRIEVAL_TEXT_EN = {
     "retrieval_header": """<memory_context>
-[System Guidance]: Patchouli, the memory library manager, retrieved the following relevant historical memories and available sub-agents for you.
+[System Guidance]: Patchouli, the memory library manager, retrieved the following relevant historical memories for you.
 Treat these memories as background knowledge naturally surfacing in your mind. Integrate them directly into your reasoning without awkwardly stating "according to memory".
 """,
     "retrieval_footer": """
 \n[System Guidance]:
 - If a memory summary matches the current user intent but lacks enough detail, read the full memory first. Do not guess or fabricate missing details.
 - Memories marked [Unverified] or [Warning: Stale] may contain incorrect or outdated information. Use common sense when judging them.
-- If the task requires specialized capability, such as data analysis or code generation, and a matching sub-agent is listed above, prefer delegating the task to that sub-agent instead of handling it yourself.
 </memory_context>
 """,
 }
 
 _SECTION_TITLES_ZH = {
     "memories": "相关记忆",
-    "agent_profiles": "可用子代理",
 }
 
 _SECTION_TITLES_EN = {
     "memories": "Relevant Memories",
-    "agent_profiles": "Available Sub-Agents",
 }
 
 _SHARED_CONTEXT_TEXT_ZH = {
@@ -143,20 +139,12 @@ _INDEX_CONTEXT_TEXT_EN = {
 }
 
 _AGENT_PROFILE_CONTEXT_TEXT_ZH = {
-    "memory_agent_profile_item_template": """
-<agent_profile alias="{alias}">
-- **角色**: {title}
-- **能力特长**: {summary}
-</agent_profile>""",
+    "memory_agent_profile_item_template": '<agent_profile alias="{alias}">{description}</agent_profile>',
     "memory_agent_profile_untitled": "(未命名子代理)",
 }
 
 _AGENT_PROFILE_CONTEXT_TEXT_EN = {
-    "memory_agent_profile_item_template": """
-<agent_profile alias="{alias}">
-- **Role**: {title}
-- **Capabilities**: {summary}
-</agent_profile>""",
+    "memory_agent_profile_item_template": '<agent_profile alias="{alias}">{description}</agent_profile>',
     "memory_agent_profile_untitled": "(Untitled sub-agent)",
 }
 

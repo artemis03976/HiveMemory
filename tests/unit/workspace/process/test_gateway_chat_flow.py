@@ -235,10 +235,10 @@ def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent]) -> None:
 
 def _profile_route():
     """PATCHOULI_GET_AGENT_PROFILE 替身：返回 builtin omni_doll Profile。"""
-    from hivememory.core.models import OMNI_DOLL_PROFILE, ResolvedAgentProfile
+    from hivememory.core.models import OMNI_DOLL_PROFILE
 
-    async def route(agent_id, *, identity_scope, **_kwargs):
-        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+    async def route(agent_id, **_kwargs):
+        return OMNI_DOLL_PROFILE
 
     return route
 
@@ -297,6 +297,8 @@ async def test_command_short_circuits_patchouli_and_cpu() -> None:
     bus = GlobalSystemBus()
     gateway = AsyncMock(return_value=_command_outcome())
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    agent_list = AsyncMock(return_value=[])
+    bus.register(PatchouliRoutes.AGENT_PROFILE_LIST, agent_list)
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, cpu)
@@ -310,7 +312,12 @@ async def test_command_short_circuits_patchouli_and_cpu() -> None:
     assert command_result["client_action"] is None
     assert done_data(events)["final_text"] == "系统指令 /clear 暂不可用。"
     assert cpu.calls == []
-    assert bus.list_routes() == [GatewayPublicRoutes.PROCESS, PatchouliRoutes.MEMORY_INTENT_SUBMIT]
+    agent_list.assert_not_awaited()
+    assert bus.list_routes() == [
+        GatewayPublicRoutes.PROCESS,
+        PatchouliRoutes.AGENT_PROFILE_LIST,
+        PatchouliRoutes.MEMORY_INTENT_SUBMIT,
+    ]
 
 
 @pytest.mark.asyncio

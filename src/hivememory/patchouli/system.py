@@ -129,6 +129,7 @@ class PatchouliSystem(SubsystemProtocol):
             bus=self.runtime.local_bus,
         )
         self._agent_profile_management_service = AgentProfileManagementService(
+            store=self.runtime.memory_library.agent_profiles,
             bus=self.runtime.local_bus,
         )
         # 公开交互提交/意图提交用例：封装内部 queue 与生成提交链。任务进程与

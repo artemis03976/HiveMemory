@@ -4,6 +4,7 @@ from hivememory.memory_library.adapters import (
     InMemoryShortTermStorage,
     QdrantStorageAdapter,
 )
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.models import (
     ArtifactIntegrityResult,
@@ -35,6 +36,7 @@ __all__ = [
     "MidTermMemoryStore",
     "LongTermMemoryStore",
     "ArtifactStore",
+    "AgentProfileStore",
     "MemoryLibrary",
     "InMemoryShortTermStorage",
     "QdrantStorageAdapter",

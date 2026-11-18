@@ -22,13 +22,13 @@ from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomStatus,
-    ResolvedAgentProfile,
     WriteFocus,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
@@ -319,14 +319,14 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         adapters=("http",),
         default_workspace=workspace,
     )
-    profile = MemoryAtom(
-        meta=make_memory_metadata(user_id="u1", source_agent_id="worker"),
-        index=IndexLayer(alias="worker", title="独立子线程", memory_type=MemoryType.AGENT_PROFILE),
-        payload=PayloadLayer(
-            content="按自己的权限完成任务", agent_config={"model_name": "fake-test-model"}
+    stack.agent_profiles.save(
+        AgentProfile(
+            agent_id="worker",
+            title="独立子线程",
+            persona="按自己的权限完成任务",
+            model="fake-test-model",
         ),
     )
-    await stack.mid_term.upsert(profile)
     for actor in (caller, callee):
         await stack.mid_term.upsert(
             MemoryAtom(
@@ -446,8 +446,8 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
     async def gateway(**_kwargs):
         return GatewayDecisionOutcome(decision=make_gateway_decision())
 
-    async def profile(_alias, *, identity_scope, **_kwargs):
-        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+    async def profile(_alias, **_kwargs):
+        return OMNI_DOLL_PROFILE
 
     async def topics(**_kwargs):
         return []

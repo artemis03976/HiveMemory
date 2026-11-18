@@ -12,6 +12,7 @@ from hivememory.config.memory_compiler import (
 )
 from hivememory.core.errors import MemoryUpdateBaseChangedError
 from hivememory.core.models import (
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -70,7 +71,15 @@ def sample_atom():
 
 
 @pytest.fixture
-def agent_profile_atom():
+def agent_profile():
+    return AgentProfile(
+        agent_id="code_analyst", title="代码分析师", summary="擅长代码审查和重构建议"
+    )
+
+
+@pytest.fixture
+def residual_profile_atom():
+    """迁移之前库里残留的 Profile 原子：AGENT_PROFILE 只作历史取值。"""
     return MemoryAtom(
         index=IndexLayer(
             title="代码分析师",
@@ -229,49 +238,40 @@ class TestMemoryAtomCompilation:
 
         assert embedding_inputs_changed(sample_atom, after) is expected
 
-    def test_agent_profile_menu(self, compiler, agent_profile_atom):
-        artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
-        assert artifact.target == MemoryCompileTarget.AGENT_PROFILE_MENU
-        assert "代码分析师" in artifact.text
-        assert "**角色**:" in artifact.text
-        assert "**能力特长**:" in artifact.text
-        assert "<agent_profile" in artifact.text
+    def test_agent_profile_menu_item_is_agent_id_with_title_and_summary(
+        self, compiler, agent_profile
+    ):
+        """菜单项只有 agent_id 与拼成“title: summary”的一句描述，不带人设。"""
+        agent_profile.persona = "不应出现在菜单中的人设"
 
-    def test_agent_profile_menu_english(self, agent_profile_atom):
-        set_language("en")
-        compiler = MemoryCompiler()
-        artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)
+        artifact = compiler.compile(agent_profile, MemoryCompileTarget.AGENT_PROFILE_MENU)
 
-        assert "**Role**:" in artifact.text
-        assert "**Capabilities**:" in artifact.text
-        assert "**角色**:" not in artifact.text
+        assert artifact.text == (
+            '<agent_profile alias="code_analyst">代码分析师: 擅长代码审查和重构建议</agent_profile>'
+        )
 
-    def test_agent_profile_menu_options_language_overrides_default(self, agent_profile_atom):
+    @pytest.mark.parametrize(
+        ("title", "summary", "description"),
+        [("代码分析师", "", "代码分析师"), ("", "擅长代码审查", "擅长代码审查")],
+    )
+    def test_agent_profile_menu_item_without_summary_or_title_drops_separator(
+        self, compiler, title, summary, description
+    ):
+        profile = AgentProfile(agent_id="code_analyst", title=title, summary=summary)
+
+        artifact = compiler.compile(profile, MemoryCompileTarget.AGENT_PROFILE_MENU)
+
+        assert artifact.text == f'<agent_profile alias="code_analyst">{description}</agent_profile>'
+
+    def test_agent_profile_untitled_i18n(self):
+        profile = AgentProfile(agent_id="code_analyst")
+
         set_language("zh")
-        compiler = MemoryCompiler()
-        artifact = compiler.compile(
-            agent_profile_atom,
+        zh_artifact = MemoryCompiler().compile(profile, MemoryCompileTarget.AGENT_PROFILE_MENU)
+        en_artifact = MemoryCompiler().compile(
+            profile,
             MemoryCompileTarget.AGENT_PROFILE_MENU,
             MemoryCompileOptions(language="en"),
-        )
-
-        assert "**Role**:" in artifact.text
-        assert "**角色**:" not in artifact.text
-
-    def test_agent_profile_untitled_i18n(self, agent_profile_atom):
-        # IndexLayer 要求 title 非空，空标题只可能来自绕过校验的数据；这里显式
-        # 构造该状态（model_copy(update=) 不校验），验证编译器的防御性兜底文案。
-        agent_profile_atom.index = agent_profile_atom.index.model_copy(update={"title": ""})
-
-        set_language("zh")
-        zh_artifact = MemoryCompiler().compile(
-            agent_profile_atom,
-            MemoryCompileTarget.AGENT_PROFILE_MENU,
-        )
-        set_language("en")
-        en_artifact = MemoryCompiler().compile(
-            agent_profile_atom,
-            MemoryCompileTarget.AGENT_PROFILE_MENU,
         )
 
         assert "(未命名子代理)" in zh_artifact.text
@@ -350,9 +350,9 @@ class TestMemoryAtomCompilation:
         assert "(无标签)" in zh_artifact.text
         assert "(No tags)" in en_artifact.text
 
-    def test_list_input(self, compiler, sample_atom, agent_profile_atom):
+    def test_list_input(self, compiler, sample_atom, residual_profile_atom):
         artifacts = compiler.compile(
-            [sample_atom, agent_profile_atom],
+            [sample_atom, residual_profile_atom],
             MemoryCompileTarget.DENSE_EMBEDDING,
         )
         assert isinstance(artifacts, list)
@@ -666,19 +666,20 @@ class TestInvalidInputs:
 class TestEnvelopeCompilation:
     """测试 envelope 编译。"""
 
-    def test_retrieval_context_compile_atoms(self, compiler, sample_atom, agent_profile_atom):
+    def test_retrieval_context_has_no_agent_section(
+        self, compiler, sample_atom, residual_profile_atom
+    ):
+        """检索结果中残留的 Profile 原子与其他记忆同列，不再单列可用子代理一节。"""
         envelope = compiler.compile(
-            [sample_atom, agent_profile_atom],
+            [sample_atom, residual_profile_atom],
             MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
         )
 
         assert envelope.target == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT
-        assert "<memory_context>" in envelope.text
-        assert "相关记忆" in envelope.text
-        assert "可用子代理" in envelope.text
+        assert [section.kind for section in envelope.sections] == ["memories"]
         assert "Python parse_date" in envelope.text
         assert "代码分析师" in envelope.text
-        assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
+        assert "子代理" not in envelope.text
 
     def test_retrieval_context_without_header_footer_keeps_only_sections(
         self, compiler, sample_atom
@@ -694,25 +695,10 @@ class TestEnvelopeCompilation:
         assert "<memory_context>" not in envelope.text
         assert "[System Guidance]" not in envelope.text
 
-    def test_retrieval_context_compile_agent_profile_only(self, compiler, agent_profile_atom):
-        envelope = compiler.compile(
-            agent_profile_atom,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-        )
-
-        assert "可用子代理" in envelope.text
-        assert "代码分析师" in envelope.text
-        assert "相关记忆" not in envelope.text
-
-    def test_compile_envelope_from_ir_empty_section_hint(self, compiler, agent_profile_atom):
+    def test_compile_envelope_from_ir_empty_section_hint(self, compiler):
         bundle = MemoryBundleIR(
             purpose=MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            sections=[
-                MemorySectionIR(kind="memories", empty_text="No memories"),
-                MemorySectionIR(
-                    kind="agent_profiles", units=[build_memory_atom_ir(agent_profile_atom)]
-                ),
-            ],
+            sections=[MemorySectionIR(kind="memories", empty_text="No memories")],
         )
         envelope = compile_envelope_from_ir(
             bundle,
@@ -721,20 +707,18 @@ class TestEnvelopeCompilation:
 
         assert "相关记忆" in envelope.text
         assert "No memories" in envelope.text
-        assert "可用子代理" in envelope.text
 
-    def test_retrieval_context_compile_uses_english_language(self, sample_atom, agent_profile_atom):
+    def test_retrieval_context_compile_uses_english_language(self, sample_atom):
         set_language("en")
         compiler = MemoryCompiler()
 
         envelope = compiler.compile(
-            [sample_atom, agent_profile_atom],
+            [sample_atom],
             MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
         )
 
         assert "Patchouli, the memory library manager" in envelope.text
         assert "### Relevant Memories" in envelope.text
-        assert "### Available Sub-Agents" in envelope.text
         assert "Use common sense when judging them" in envelope.text
 
     def test_retrieval_context_compile_options_language_overrides_default(self, sample_atom):
@@ -935,12 +919,6 @@ def _guidance_cases():
             MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
             {},
             "请先读取这条记忆的完整内容",
-        ),
-        "retrieval_call": (
-            atom,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            {},
-            "请优先委托给该子代理执行",
         ),
         "shared_context": (
             atom,

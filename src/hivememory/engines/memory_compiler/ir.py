@@ -13,7 +13,7 @@ from hivememory.engines.memory_compiler.models import (
 
 
 class MemoryIdentityIR(BaseModel):
-    source_kind: Literal["atom", "pending", "resolve_result"]
+    source_kind: Literal["atom", "pending", "resolve_result", "agent_profile"]
     alias: str | None = None
     redirected_from: str | None = None
     memory_id: str | None = None

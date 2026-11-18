@@ -10,7 +10,6 @@ from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
-    ResolvedAgentProfile,
     TopicSnapshot,
 )
 from hivememory.core.protocol.gateway import (
@@ -54,7 +53,7 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
         )
 
     async def profile(agent_id, **kwargs):
-        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+        return OMNI_DOLL_PROFILE
 
     PatchouliTurnStub().install(bus)
     bus.register(GatewayPublicRoutes.PROCESS, gateway)

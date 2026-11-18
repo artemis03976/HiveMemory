@@ -897,12 +897,9 @@ class TestGenerationEngineDedup:
         assert existing.meta.updated_at == updated_at_before
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "restriction", [None, "policy", "retained_profile", "new_profile", "topic_write"]
-    )
+    @pytest.mark.parametrize("restriction", [None, "policy", "topic_write"])
     async def test_dedup_merge_creates_before_nominating(self, restriction):
-        """查重先创建独立记忆；只有策略相同、双方都不是 Profile，且命中的不是本话题
-        主动写入结算到的记忆时才提名。"""
+        """查重先创建独立记忆；只有策略相同，且命中的不是本话题主动写入结算到的记忆时才提名。"""
         existing = _make_memory(alias="fact_existing")
         existing.payload.artifacts.refs.append(
             ArtifactRef(
@@ -916,10 +913,6 @@ class TestGenerationEngineDedup:
             existing.meta.access_policy = MemoryAccessPolicy(
                 visibility="PRIVATE", target_agent_id="a1"
             )
-        elif restriction == "retained_profile":
-            existing.index.memory_type = MemoryType.AGENT_PROFILE
-        elif restriction == "new_profile":
-            draft.memory_type = "AGENT_PROFILE"
         topic_writes = (
             frozenset({str(existing.id)}) if restriction == "topic_write" else frozenset()
         )
@@ -1130,17 +1123,3 @@ class TestMemoryMerge:
         outcome.atom.payload.content = "caller mutation"
         assert outcome.memory_before_snapshot == before
         assert retained == before
-
-    @pytest.mark.asyncio
-    async def test_merge_rejects_model_generated_profile(self):
-        extractor = AsyncMock()
-        extractor.merge.return_value = MergeResult(
-            title="profile",
-            summary="",
-            tags=[],
-            memory_type="AGENT_PROFILE",
-            content="config",
-            changelog="change type",
-        )
-        engine = MemoryGenerationEngine(mid_term=Mock(), extractor=extractor, deduplicator=Mock())
-        assert await engine.merge(_make_memory(), _make_memory()) is None

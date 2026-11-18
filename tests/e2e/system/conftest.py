@@ -43,6 +43,7 @@ from hivememory.gateway.service import GatewayService
 from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import (
     ArtifactStore,
@@ -160,6 +161,7 @@ class PatchouliChatStack:
     bus: GlobalSystemBus
     short_term: ShortTermMemoryStore
     mid_term: MidTermMemoryStore
+    agent_profiles: AgentProfileStore
     controller: MemoryGenerationTaskController
     lifecycle: LifecycleFamiliar
     vector_store: _VectorStore
@@ -180,7 +182,9 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     artifacts = ArtifactStore(
         FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts"))
     )
+    agent_profiles = AgentProfileStore(tmp_path / "agent_profiles")
     library = MemoryLibrary(
+        agent_profiles=agent_profiles,
         short_term=short_term,
         mid_term=mid_term,
         long_term=LongTermMemoryStore(FileBasedStorageAdapter(archive_dir=str(tmp_path))),
@@ -265,7 +269,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
             chat=chat_service,
             memory=MemoryManagementService(bus=local_bus),
             memory_tasks=MemoryTaskManagementService(bus=local_bus),
-            agent_profiles=AgentProfileManagementService(bus=local_bus),
+            agent_profiles=AgentProfileManagementService(store=agent_profiles, bus=local_bus),
             interactions=InteractionSubmissionService(interaction_queue=queue),
             memory_intents=MemoryIntentSubmissionService(bus=local_bus),
             topics=TopicManagementService(bus=local_bus),
@@ -283,6 +287,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
             global_bus,
             short_term,
             mid_term,
+            agent_profiles,
             controller,
             lifecycle,
             vector_store,

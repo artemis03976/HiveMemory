@@ -29,6 +29,7 @@ from hivememory.memory_library import (
 from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.patchouli.application.memory_management_service import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_management import MemoryEdit
@@ -71,6 +72,7 @@ async def edit_route(tmp_path):
         FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts"))
     )
     library = MemoryLibrary(
+        agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
         short_term=ShortTermMemoryStore(),
         mid_term=mid_term,
         long_term=LongTermMemoryStore(

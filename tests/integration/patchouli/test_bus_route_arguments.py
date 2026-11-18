@@ -43,7 +43,7 @@ def _mount_public_routes() -> GlobalSystemBus:
         chat=MagicMock(),
         memory=MemoryManagementService(bus=local_bus),
         memory_tasks=MemoryTaskManagementService(bus=local_bus),
-        agent_profiles=AgentProfileManagementService(bus=local_bus),
+        agent_profiles=AgentProfileManagementService(store=MagicMock(), bus=local_bus),
         interactions=InteractionSubmissionService(
             interaction_queue=InteractionSubmissionQueue(_never_applied)
         ),

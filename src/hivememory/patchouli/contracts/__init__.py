@@ -9,7 +9,6 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_intent import MemoryIntent, MemoryIntentSubmissionResult
 from hivememory.patchouli.contracts.memory_management import (
-    AgentProfileCreation,
     MemoryCreation,
     MemoryEdit,
     MemoryListPage,
@@ -28,7 +27,6 @@ from hivememory.patchouli.contracts.topic_management import (
 )
 
 __all__ = [
-    "AgentProfileCreation",
     "MemoryCreation",
     "MemoryEdit",
     "MemoryListPage",

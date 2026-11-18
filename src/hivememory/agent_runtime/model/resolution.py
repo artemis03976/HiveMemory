@@ -49,8 +49,8 @@ def resolve_frame_model(
     ``model_selection`` 是会话请求这一层的选择，未给出的项沿用 Agent Profile，
     Profile 也未给出的生成参数由注册表回落到模型定义：
 
-    - model_id：会话传入的注册表 ID 覆盖 profile.model_name（供侧边栏实时切换模型调试）
-    - api_key / api_base：来自解析出的模型（Profile 仅通过 model_name 选择模型）
+    - model_id：会话传入的注册表 ID 覆盖 profile.model（供侧边栏实时切换模型调试）
+    - api_key / api_base：来自解析出的模型（Profile 仅通过 model 选择模型）
     - temperature / top_p：会话覆盖优先，其次 Profile，最后模型定义默认
     - max_tokens：会话覆盖优先，其次模型定义默认
 
@@ -73,7 +73,7 @@ def resolve_frame_model(
         )
         return params, _input_token_limit(config, None, max_tokens), ""
 
-    # 会话传入的注册表 ID 与 Profile 的 model_name 语义一致（都是注册表 ID / 'default'）。
+    # 会话传入的注册表 ID 与 Profile 的 model 语义一致（都是注册表 ID / 'default'）。
     temperature = session.temperature
     if temperature is None:
         temperature = profile.temperature
@@ -81,7 +81,7 @@ def resolve_frame_model(
     if top_p is None:
         top_p = profile.top_p
     selection = ModelSelection(
-        model_id=session.model_id or profile.model_name,
+        model_id=session.model_id or profile.model,
         temperature=temperature,
         top_p=top_p,
         max_tokens=session.max_tokens,
@@ -92,7 +92,7 @@ def resolve_frame_model(
     logger.debug(
         "模型解析: selection=%r (profile=%r) → litellm_model=%r, display=%r, temperature=%s, top_p=%s",
         selection.model_id,
-        profile.model_name,
+        profile.model,
         params.model,
         model_definition.display_name,
         params.temperature,

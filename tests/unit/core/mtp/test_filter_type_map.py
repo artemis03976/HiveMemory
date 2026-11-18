@@ -24,20 +24,6 @@ class TestMTPFilterTypeMap:
         assert filters.memory_type is None
         assert [w.message_key for w in warnings] == ["mtp.filter.unknown_type"]
 
-    def test_agent_profile_filter(self):
-        """type:agent_profile 过滤器"""
-        filters, warnings = MTPFilterParser().parse("type:agent_profile")
-        assert filters is not None
-        assert filters.memory_type == MemoryType.AGENT_PROFILE
-        assert warnings == []
-
-    def test_agent_alias_filter(self):
-        """type:agent 过滤器 (别名)"""
-        filters, warnings = MTPFilterParser().parse("type:agent")
-        assert filters is not None
-        assert filters.memory_type == MemoryType.AGENT_PROFILE
-        assert warnings == []
-
     def test_agent_filter_keeps_provenance_separate_from_actor_scope(self):
         """捕获 agent 业务过滤被误写成授权 ActorIdentity、绕开统一 scope 的回归。"""
         filters, warnings = MTPFilterParser().parse("agent:researcher")

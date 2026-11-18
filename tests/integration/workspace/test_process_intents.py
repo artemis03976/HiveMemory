@@ -25,7 +25,6 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
-    ResolvedAgentProfile,
 )
 from hivememory.core.models.pending import PendingAtomStatus, WriteFocus
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayDecisionOutcome
@@ -146,8 +145,8 @@ def make_chain():
 
         async def profile(agent_alias, **_kwargs):
             if agent_alias == "worker":
-                return ResolvedAgentProfile(profile=AgentProfile(agent_id="worker"))
-            return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+                return AgentProfile(agent_id="worker")
+            return OMNI_DOLL_PROFILE
 
         async def no_aliases(*_args, **_kwargs):
             return []
@@ -158,7 +157,6 @@ def make_chain():
         runtime = WorkspaceReadView(
             backing=BusCanonicalReadBackend(bus),
             atom_capacity=8,
-            profile_capacity=8,
             intent_record_file=INTENT_RECORD_FILE,
             intent_retention=INTENT_RETENTION,
         )

@@ -13,6 +13,7 @@ from hivememory.core.errors import (
     AccessRegistrationConflictError,
     AccessRegistrationNotFoundError,
     AdmissionDeniedError,
+    AgentProfileExistsError,
     AssetExpiredError,
     AssetFailedError,
     AssetNotFoundError,
@@ -20,6 +21,7 @@ from hivememory.core.errors import (
     AssetOperationConflictError,
     AssetRemovedError,
     DomainError,
+    InvalidAgentProfileError,
     InvalidMemoryFieldError,
     MemoryAliasConflictError,
     ModelNotFoundError,
@@ -133,6 +135,8 @@ _DOMAIN_ERRORS: dict[type[Exception], tuple[int, str]] = {
     ResourceNotVisibleError: (404, "workspace.resource.not_found"),
     ResourceUnavailableError: (503, "workspace.resource.unavailable"),
     InvalidMemoryFieldError: (422, "memory.field.invalid"),
+    InvalidAgentProfileError: (422, "workspace.agent_profile.invalid"),
+    AgentProfileExistsError: (409, "workspace.agent_profile.exists"),
     MemoryAliasConflictError: (409, "workspace.memory.alias_conflict"),
     PendingUpdateNotAllowedError: (409, "workspace.memory.intent.pending_update_not_allowed"),
     IntentDispatchRejectedError: (503, "workspace.memory.intent.dispatch_rejected"),
@@ -190,6 +194,9 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
     ResourceUnavailableError: frozenset({"lifecycle_unavailable"}),
     MemoryAliasConflictError: frozenset(
         {"alias_occupied", "alias_candidates_exhausted", "ambiguous_alias"}
+    ),
+    InvalidAgentProfileError: frozenset(
+        {"invalid_agent_id", "unknown_field", "invalid_value", "unreadable"}
     ),
     AssetOperationConflictError: frozenset({"store_closed"}),
     ImportBusUnavailableError: frozenset(

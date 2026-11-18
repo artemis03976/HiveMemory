@@ -79,7 +79,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
     config.alice.runtime.safety_margin = 100
     llm = ScriptedLLMService("完成")
     _, service = build_run_service(config=config, model_registry=registry, llm_service=llm)
-    profile = AgentProfile(model_name="unavailable-profile-model", persona="", temperature=0.2)
+    profile = AgentProfile(model="unavailable-profile-model", persona="", temperature=0.2)
     manifest = make_input_manifest(user_message="x" * 2000)
 
     rejected = await service.run_agent(
@@ -140,13 +140,13 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(tm
     )
 
     async def derive(_request):
-        return make_callee(AgentProfile(agent_id="helper", model_name="child", persona="x" * 1000))
+        return make_callee(AgentProfile(agent_id="helper", model="child", persona="x" * 1000))
 
     result = await service.run_agent(
         make_input_manifest(),
         run_output=NullRunOutput(),
         submit_operation=_main(
-            AgentProfile(model_name="parent", persona=""),
+            AgentProfile(model="parent", persona=""),
             allowed_operations=frozenset({WorkspaceOperation.AGENT_CALL}),
             derive=derive,
         ),

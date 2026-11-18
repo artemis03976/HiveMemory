@@ -25,7 +25,6 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
     AgentProfile,
-    ResolvedAgentProfile,
 )
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -42,7 +41,7 @@ async def test_callee_frame_uses_callee_verbs_without_call():
     profile = AgentProfile(agent_id="callee", persona="被调用人设")
 
     async def profile_route(_alias, **_kwargs):
-        return ResolvedAgentProfile(profile=profile)
+        return profile
 
     harness.bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile_route)
     scope = make_runtime_scope(agent_id="parent", run_id="process-inherit")
