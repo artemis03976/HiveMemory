@@ -262,7 +262,7 @@ owner 于 2026-11-15 确认，类型体系是下一步要重新审视的。项�
 - 只存在于记忆中的代码：第 7.5 节把它并入经历或知识，这两类不在首份计划中，暂时落在 FACT。
 - 生命周期（以代码为准）：类型现在决定两处，固有价值权重（`configs/config.yaml`：CODE_SNIPPET 1.0、FACT 0.9、URL_RESOURCE 0.8、REFLECTION 0.7、USER_PROFILE 0.6、WORK_IN_PROGRESS 0.5）与归档豁免（AGENT_PROFILE 与 USER_PROFILE，[垃圾回收器](../../src/hivememory/engines/lifecycle/garbage_collector.py)）。WIP 的权重随类型去掉；AGENT_PROFILE 移出中期记忆库后不再参与归档，豁免只剩 USER_PROFILE；合并后资源记忆的权重取 0.8：真相在源头、会过时，不该是最抗衰减的一类，CODE_SNIPPET 的 1.0 原本对应"代码本身是资产"，这部分随只存在于记忆中的代码落在 FACT（0.9）。
 
-**计划**：第一份计划 [去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](../archive/plans/v0.8.0-memory-type-convergence.md) 已实施并归档（2026-11-17），日常与开发实例都已迁移；AGENT_PROFILE 移到 AgentProfileStore 是同一方向的下一份计划，尚未建立。
+**计划**：第一份计划 [去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](../archive/plans/v0.8.0-memory-type-convergence.md) 已实施并归档（2026-11-17），日常与开发实例都已迁移；第二份计划 [AgentProfileStore](../archive/plans/v0.8.0-agent-profile-store.md) 已实施并归档（2026-11-18），日常与开发实例都已迁移。
 
 **建立计划前的两项**（owner，2026-11-17，已决定）：
 
