@@ -18,9 +18,8 @@ last_reviewed: 2026-11-18
 
 版本目标：生成核心的升级（Claude 整理，待 owner 确认），摘要见 [ROADMAP](../ROADMAP.md) 第 4.2 节；设计讨论见总纲[记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)。
 
-- [生成的记忆指向交互轮次：事件记下模型响应，记忆引用到段](./v0.8.0-memory-turn-provenance.md)：Planned；
 - 主被动记忆的复核（馆长的第一步）：尚未建立计划，见[写入链路 Idea](../ideas/memory-flow-write-path.md)第 3.1 节；
-- 记忆类型的收敛：已完成，见 [Archived Plans](../archive/plans/README.md#v080)。
+- 记忆类型的收敛与生成的记忆指向交互轮次：已完成，见 [Archived Plans](../archive/plans/README.md#v080)。
 
 ## 已发布的版本
 
