@@ -126,6 +126,7 @@ last_reviewed: 2026-11-18
 | 2026-11-16 | 新的类型体系先在已有的对话数据上回放，检验 LLM 能否稳定把握它的边界，再写进计划 | 本文第 4.2 节、[类型体系](./memory-type-system.md)第 9 节、本文第 7 节 |
 | 2026-11-16 | 首份计划落在类型体系；先在已有的对话数据上完成回放检验（补一小组 chatbot 式样本），项目持久的回放需求之后由一套回放工具承担 | [类型体系](./memory-type-system.md)第 1、9.1 节 |
 | 2026-11-16 | 公开评测集（LoCoMo、LongMemEval 等）与建模 agent 工作流的数据集属于 v0.8 的内容，需要尽早提上日程，单独成一份 Idea | [评测集](./memory-evaluation-benchmarks.md)第 1 节 |
+| 2026-11-18 | 记忆来源的粒度按模型响应记录：原始记录中的事件记下来自本轮第几次模型响应，一次响应与供引用的段都由事件派生、不保存；切段与引用以原始交互记录为准，生成材料只是视图 | [写入链路](./memory-flow-write-path.md)第 5 节 |
 | 2026-11-18 | 馆长的第一步之前，先让生成出来的记忆指向具体的交互轮次：被动结算下的复核与复核要用的判定格式都依赖它 | [写入链路](./memory-flow-write-path.md)第 5 节 |
 | 2026-11-18 | 馆长的第一步（固定流程的复核）先做：它本来就是新的主被动复核需要实现的，被动结算要结合主动写入动过的记忆来生成，不等于 agent 化；agent 化排在它之后 | [写入链路](./memory-flow-write-path.md)第 3.1 节 |
 | 2026-11-18 | Agent Profile 移出中期库后不再作为记忆原子看待，也不再遵循记忆原子的结构；手动编辑的历史不保留；直接修改本地文件与经 Agent 页修改等同，需要热重载 | [类型体系](./memory-type-system.md)第 6.3 节 |
@@ -155,7 +156,7 @@ last_reviewed: 2026-11-18
 - **信息在系统里，但不在做判断的地方**：控制面知道本话题的主动写入落到了哪些记忆（第 2.1 节），但这份信息只用于查重；真正做判断的那次 LLM 调用既看不到这些写入，也看不到库。
 - **修订是整篇重写**：Mode C 的输出是整篇新正文加一句变更说明（`RevisionResult`），合并也是整体重写。
 - **修订不改索引层**：Mode C 只覆盖正文，标题、摘要、标签与类型保持不变，检索与查重用的向量也随之不变；一条记忆被修订后，检索结果显示的仍是修订前的标题与摘要（[生成引擎](../../src/hivememory/engines/generation/engine.py)）。管理页的手动编辑可以改标题、摘要、标签与正文，不能改类型（[记忆生成服务](../../src/hivememory/patchouli/services/memory_generation.py)）。能改类型的只有合并：类型由模型重选。
-- **证据引用只到整个 Artifact**：记忆中的 `ArtifactRef` 指向整个 Artifact（话题快照），没有轮次或事件的位置。原始记录有坐标：`TurnRecord` 有 `turn_id`，每个 `TurnEvent` 有 `sequence`，工具调用另有 `action_id`，交互快照逐轮保留它们。坐标丢在中间：生成材料的 `GenerationTurn` 没有 `turn_id`，渲染为序数 `[Turn 1]`、`[Turn 2]`，事件没有编号；模型输出的草稿（`ExtractedMemoryDraft`）没有来源字段。被动结算的引用指向整个话题（含已折叠的轮次），主动写入的指向最近几轮；合并带上被吸收那条的引用，手动创建没有引用。生产代码只写入这些引用、在合并时带上，没有读取方（[记忆生成服务](../../src/hivememory/patchouli/services/memory_generation.py)）。
+- **证据引用只到整个 Artifact**：记忆中的 `ArtifactRef` 指向整个 Artifact（话题快照），没有轮次或事件的位置。原始记录有坐标：`TurnRecord` 有 `turn_id`，每个 `TurnEvent` 有 `sequence`，工具调用另有 `action_id`，交互快照逐轮保留它们。坐标丢在中间：生成材料的 `GenerationTurn` 没有 `turn_id`，渲染为序数 `[Turn 1]`、`[Turn 2]`，事件没有编号；模型输出的草稿（`ExtractedMemoryDraft`）没有来源字段。一次模型响应的边界也没有记录：Claude Code 连接器读到每次 API 响应的 `message.id`，只用于去重。被动结算的引用指向整个话题（含已折叠的轮次），主动写入的指向最近几轮；合并带上被吸收那条的引用，手动创建没有引用。生产代码只写入这些引用、在合并时带上，没有读取方（[记忆生成服务](../../src/hivememory/patchouli/services/memory_generation.py)）。
 
 ### 2.2 中期库：平铺、查重与生成形式
 
@@ -291,7 +292,7 @@ last_reviewed: 2026-11-18
 | 第一当事人"没写"算不算判断；主动写入何时生效 | 后一问已决定：写下即生效，修订前内容有效（[写入链路](./memory-flow-write-path.md)第 5 节）；前一问未决定 |
 | 什么值得写成记忆 | 两条原则（"会不会改变决定"、"环境能重新告诉你的不记"，[写入链路](./memory-flow-write-path.md)第 2.4 节、[外部参考](../research/memory-core-external-references.md)第 4 节），未决定 |
 | 修订的形态（结构化判定、局部修改） | 候选设计（[写入链路](./memory-flow-write-path.md)第 2.1 节） |
-| 证据定位到轮次或事件 | 已决定：生成事件带上轮次与事件的信息（[写入链路](./memory-flow-write-path.md)第 5 节）；先于馆长的第一步实施（owner，2026-11-18），建立计划前要决定粒度与由谁读取两项（同文第 5 节）；外部来源的定位见[写入链路](./memory-flow-write-path.md)第 3.2 节 |
+| 证据定位到轮次或事件 | 已决定：生成事件带上轮次与事件的信息（[写入链路](./memory-flow-write-path.md)第 5 节）；先于馆长的第一步实施，粒度按模型响应记录（owner，2026-11-18），建立计划前还要决定由谁读取（同文第 5 节）；外部来源的定位见[写入链路](./memory-flow-write-path.md)第 3.2 节 |
 | 结算时机与"一段经历是否结束"的关系 | 只提过，没有讨论 |
 | 保存形态 | [库的形状](./memory-library-shape-and-index.md)第 4.2 节，开放 |
 | 短期记忆在新流转中的定义 | 有候选定义（[写入链路](./memory-flow-write-path.md)第 2.2 节），未决定 |
