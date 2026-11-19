@@ -156,7 +156,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 - `meta.provenance`（`MemoryProvenance`）与 `meta.lifecycle`（`MemoryLifecycleState`：access_count、last_accessed_at、event_vitality_boost、vitality_score、confidence_score、verification_status、decay_anchor_at）取代旧平铺字段；`session_id` 与 `payload.history_summary` 已从 schema 删除；可版本化的 Agent Profile 内容位于 `payload.agent_config`。
 - 四个时间字段职责互不替代：`created_at` 仅创建时设置；`updated_at` 仅由实际内容修订推进；`lifecycle.last_accessed_at` 记录最近访问/引用；`lifecycle.decay_anchor_at` 是遗忘衰减唯一基准（创建时等于 created_at，CITATION 与内容修订推进）。全部持久化时间为 UTC-aware，naive 值在模型校验与 codec 边界 fail closed；领域模型开启 `validate_assignment`，就地赋值同样执行约束。
 - 写入口只有两类：完整内容提交（`MemoryGenerationFamiliar` 构造完整原子，`upsert(recompute_vectors=...)` 提交，版本记录是成功前置条件）与受限局部更新（`MidTermStoragePort.patch_payload()`，仅允许 `meta.lifecycle.*` 白名单字段与 `meta.access_policy` 整体替换，向量与版本不动）。访问、反馈、评分、策略修改不得走整原子回写。
-- 版本历史由 schema `"2"` 的 `MemoryVersionArtifact` 承载，`snapshot_before/after` 直接嵌入捕获时完整原子的 canonical JSON；旧裁剪快照模型已删除。
+- 版本历史由 schema `"2"` 的 `MemoryVersionArtifact` 承载，`snapshot_before/after` 直接嵌入捕获时完整原子的 canonical JSON；旧裁剪快照模型已删除。生成的内容版本另带 `cited_segments`：模型引用的交互段，每段是轮次标识加首尾都包含的事件序号区间（`CitedSegment`），只留在版本记录中，不进入原子与 `ArtifactRef`（[Artifacts 与来源追踪](../patchouli/artifacts.md)）。
 
 事实细节与失败语义见 [MemoryLibrary](../patchouli/memory-library.md)、[Memory 生命周期](../patchouli/lifecycle.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)与[记忆生成](../patchouli/generation.md)。
 
@@ -165,7 +165,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 会话摘要包含 `session_id`、`belong_to`、标题、创建/更新时间、轮数和当前认领的 `active_process_id`；完整读取增加 `turns` 和可空的 `compaction_checkpoint`。`ConversationTurn` 位于 `core.protocol.models`，包含 `interaction_id`、`agent_id`（标签）、`payload`、`topic_id`（交互实际所在的话题，交互没有应用成功时为空）、`created_at`。服务仅在同步操作中更新内部记录，对外交付嵌套深复制的快照，防止 frozen 外壳中的可变 payload 泄漏。
 
-`InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。InteractionSubmission codec 6 拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本以及该轮实际所在话题的 `topic_id`（只供话题路由失败时续接上一轮）；二者都不含工作 actor。资源生命周期见 [会话资源](../workspace/sessions.md)。
+`InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。交互提交队列只驻留于进程内，InteractionSubmission codec 只注册当前布局（v8），拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本以及该轮实际所在话题的 `topic_id`（只供话题路由失败时续接上一轮）；二者都不含工作 actor。资源生命周期见 [会话资源](../workspace/sessions.md)。
 
 `SessionCompactionCheckpoint` 同置 `core.protocol.models`，冻结产生方、版本、两个覆盖游标、摘要、引用 tuple 与时间；字段规范见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)。它是会话旁挂的执行视图，不进入 `InteractionPayload` 或 submission codec；旧会话没有检查点时按原文重放。
 
@@ -176,10 +176,10 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 | kind | content | 可以携带的字段 |
 |:---|:---|:---|
 | `user_message` | 用户消息 | — |
-| `assistant_message` | 助手正文的一段 | — |
-| `thought` | 思考正文 | — |
+| `assistant_message` | 助手正文的一段 | `response_index` |
+| `thought` | 思考正文 | `response_index` |
 | `subagent_message` | 被委托的子 Agent 结束时交回执行者的消息原文 | — |
-| `tool_call` | 调用原文：MTP 为指令片段，结构化调用为空串 | `action_id`（必填）、`verb` 或 `tool_name`、`targets`、`tool_args`；结局 `status`、`result`、`produced_aliases` |
+| `tool_call` | 调用原文：MTP 为指令片段，结构化调用为空串 | `response_index`；`action_id`（必填）、`verb` 或 `tool_name`、`targets`、`tool_args`；结局 `status`、`result`、`produced_aliases` |
 
 一次工具调用与它的结局是同一个 `tool_call` 事件，读取方不需要配对。`subagent_message` 由外部 harness 的导入写出（当前是 dsh 插件，取子 Agent 的结算通知，[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）：子 Agent 的过程不进入交互记录，它交回的最终输出作为这一轮的一步保留。它不是用户消息，也不计入回复正文。字段语义：
 
@@ -190,10 +190,11 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 - **`status` 与 `result`**：调用的结局与执行者收到的返回原文，同时出现或同时为空。`status` 取 `success`、`ack`、`error`、`cancelled`：MTP 取回填的响应状态（`warning` 从不作为状态出现，CALL 挂起不写入状态），外部工具为 `success` 或 `error`。
 - **没有结局**表示结局没有记录：执行者拿到结果之前被取消或失败，或来源没有记下结果——Claude Code 的会话记录有时只记下同一条消息并行发出的多个调用中最后一个的结果，模型其实收到了全部结果。因此没有结局不等于调用没有完成，读取方不作这样的断言。
 - **`produced_aliases`**：本次调用产出的 alias。WRITE、UPDATE 的 ACK 为 pending alias，CALL 为子帧回填的产物；只在有结局时出现。
+- **`response_index`**：事件来自本轮第几次模型响应，从 1 起，只在模型产生的事件（助手正文、思考与调用）上；用户消息与子 Agent 交回的消息不带。一次响应是模型的一次生成，可能带正文与思考，以及它发出的若干调用。它让记忆能指回一轮中的具体位置：一轮常有几十上百次调用，只引用到轮次时同一轮产出的多条记忆全都指向同一处；思考撑不起这个边界，Claude Code 的大多数响应只有思考签名、没有思考正文，而响应边界总是存在。写出方的取值见 [Agent Runtime](../alice/agent-runtime.md)与 [Import Bus](../system/import-bus.md#93-轮次的切分与映射)；来源没有记下响应边界时（Codex，以及加入这个字段之前的记录）整轮都不带。
 
 单个事件的字段规则在构造时校验：字段只出现在允许它的种类上，调用必带 `action_id`，`verb` 与 `tool_name` 不同时出现，`targets` 只随 `verb` 出现，结局字段成对出现。结局晚于调用到达时（Alice 的 CALL 挂起后回填），由 `TurnEvent.with_outcome` 返回带结局的新事件替换原事件，序号不变；它只对没有结局的调用进行，已有结局时显式失败，避免把两次返回记到同一个调用上。事件集因此不是严格只追加的：没有结局的调用至多在执行者自己的累积列表中被替换一次，封口之后事件集不再改变。
 
-一轮事件集的不变量由 `validate_turn_events` 校验：首个事件是序号 0 的用户消息，且一轮只有这一条用户消息；序号轮内唯一、严格递增；调用的 `action_id` 轮内唯一。`InteractionPayload` 构造时执行这项校验，Import Bus 在请求校验阶段提前执行同一校验；违反时显式失败，不修补。
+一轮事件集的不变量由 `validate_turn_events` 校验：首个事件是序号 0 的用户消息，且一轮只有这一条用户消息；序号轮内唯一、严格递增；调用的 `action_id` 轮内唯一；响应序号全有或全无（只要有一个事件带它，全部助手正文、思考与调用都带），并随序号单调不减。`InteractionPayload` 构造时执行这项校验，Import Bus 在请求校验阶段提前执行同一校验；违反时显式失败，不修补。封口在执行方只交出回复正文时补写的助手正文取本轮最后一个响应序号，本轮没有响应序号时不带。
 
 `InteractionPayload`（`core/protocol/models.py`）只以 `turn_events` 表达交互内容，其余字段是本轮结局 `outcome`、执行者实际使用的模型 `model_used` 与实际进入上下文的附件 `used_attachments`，它们不是对事件的解析。用户消息与回复正文是从事件读取的只读属性，不保存、不序列化：`user_message` 取序号 0 的用户消息，`reply_text` 把全部助手正文按序号以空行拼接（没有助手正文时为空串）；执行者交给交付方的最终回复由执行者自己组装，不受它影响。Gateway 的改写查询不进入载荷；载荷拒绝额外字段。
 
