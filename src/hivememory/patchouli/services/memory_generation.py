@@ -38,6 +38,7 @@ from hivememory.core.models import (
 from hivememory.core.models.artifact import (
     ArtifactRef,
     ArtifactType,
+    CitedSegment,
     DocumentSourceType,
     MemoryEventLog,
     MemoryEventType,
@@ -749,6 +750,7 @@ class MemoryGenerationFamiliar:
             update_source=update_source,
             now=now,
             source_artifact_refs=source_artifact_refs,
+            cited_segments=outcome.cited_segments,
         )
 
         # 新建没有上一版向量可保留；修订与合并写回只在向量输入文本变化时重算。
@@ -775,6 +777,7 @@ class MemoryGenerationFamiliar:
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "UPDATE",
         now: datetime | None = None,
         source_artifact_refs: list[ArtifactRef] | None = None,
+        cited_segments: list[CitedSegment] | None = None,
     ) -> None:
         """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。
 
@@ -782,6 +785,7 @@ class MemoryGenerationFamiliar:
         同一时点。全部内容提交（外部创建/编辑与生成
         CREATE/UPDATE）都经过这里，alias 唯一性在写 Artifact 之前检查：
         alias 冲突时不留下孤立版本记录（upsert 仍作为不变量兜底重验）。
+        ``cited_segments`` 只写进这一版的版本记录，外部编辑与合并没有。
         """
         await self._mid_term.ensure_alias_available(atom)
         commit_now = require_utc(now) if now is not None else require_utc(self._now())
@@ -794,6 +798,7 @@ class MemoryGenerationFamiliar:
                 atom=atom,
                 gen_context=gen_context,
                 source_artifact_refs=src_refs,
+                cited_segments=cited_segments or [],
                 creation_source=creation_source,
                 now=commit_now,
             )
@@ -812,6 +817,7 @@ class MemoryGenerationFamiliar:
                 memory_before_snapshot=memory_before_snapshot,
                 changelog=changelog,
                 source_artifact_refs=src_refs,
+                cited_segments=cited_segments or [],
                 update_source=update_source,
                 now=commit_now,
             )
@@ -833,6 +839,7 @@ class MemoryGenerationFamiliar:
         atom: MemoryAtom,
         gen_context: GenerationContext,
         source_artifact_refs: list[ArtifactRef],
+        cited_segments: list[CitedSegment],
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         now: datetime,
     ) -> MemoryCreationBundle:
@@ -842,6 +849,7 @@ class MemoryGenerationFamiliar:
             context=gen_context,
             source_intent=creation_source,
             source_artifact_refs=source_artifact_refs,
+            cited_segments=cited_segments,
             now=now,
         )
         if bundle.initial_version_ref is None:
@@ -862,6 +870,7 @@ class MemoryGenerationFamiliar:
         memory_before_snapshot: MemoryAtom | None,
         changelog: str | None,
         source_artifact_refs: list[ArtifactRef],
+        cited_segments: list[CitedSegment],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
         now: datetime,
     ) -> ArtifactRef:
@@ -877,6 +886,7 @@ class MemoryGenerationFamiliar:
             update_source=update_source,
             changelog=changelog,
             source_artifact_refs=source_artifact_refs,
+            cited_segments=cited_segments,
             now=now,
         )
         if version_ref is None:

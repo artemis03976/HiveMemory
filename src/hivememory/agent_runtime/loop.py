@@ -164,10 +164,16 @@ class AgentLoopExecutor:
             # 完整结果已经包含流出的文字，随后记录时不能再次追加缓冲。
             p.streaming_text.clear()
 
+            # 同一次生成写出的正文与调用都来自第 iteration 次模型响应。
             if not result.was_mtp_interrupted:
                 p.text_segments.append(result.text)
                 p.turn_events.append(
-                    TurnEvent(kind="assistant_message", sequence=p.sequence, content=result.text)
+                    TurnEvent(
+                        kind="assistant_message",
+                        sequence=p.sequence,
+                        content=result.text,
+                        response_index=p.iteration,
+                    )
                 )
                 p.sequence += 1
                 return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
@@ -177,7 +183,10 @@ class AgentLoopExecutor:
             if result.prefix_text:
                 p.turn_events.append(
                     TurnEvent(
-                        kind="assistant_message", sequence=p.sequence, content=result.prefix_text
+                        kind="assistant_message",
+                        sequence=p.sequence,
+                        content=result.prefix_text,
+                        response_index=p.iteration,
                     )
                 )
                 p.sequence += 1
@@ -212,6 +221,7 @@ class AgentLoopExecutor:
                 kind="tool_call",
                 sequence=p.sequence,
                 content=result.mtp_fragment,
+                response_index=p.iteration,
                 action_id=action_id,
                 verb=command.verb.value if command else None,
                 targets=tuple(command.target.aliases) if command else (),
@@ -306,7 +316,12 @@ class AgentLoopExecutor:
         if text:
             progress.text_segments.append(text)
             progress.turn_events.append(
-                TurnEvent(kind="assistant_message", sequence=progress.sequence, content=text)
+                TurnEvent(
+                    kind="assistant_message",
+                    sequence=progress.sequence,
+                    content=text,
+                    response_index=progress.iteration,
+                )
             )
             progress.sequence += 1
 

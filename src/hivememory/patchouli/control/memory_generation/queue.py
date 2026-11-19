@@ -118,14 +118,15 @@ def _require_exact_keys(
 
 
 class _MemoryGenerationWorkAdapter:
-    """Memory Generation 私有工作信封 1.2 的队列适配器。
+    """Memory Generation 私有工作信封 1.3 的队列适配器。
 
     适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
-    重建独立的领域任务对象。
+    重建独立的领域任务对象。1.3 起生成材料的轮次带轮次标识与段，交互记录的
+    事件带响应序号。
     """
 
     kind = "patchouli.memory_generation"
-    schema_version = "1.2"
+    schema_version = "1.3"
 
     @staticmethod
     def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
@@ -327,12 +328,35 @@ class MemoryGenerationHandle(TaskHandle[MemoryGenerationResults]):
         self._commit_started = True
 
 
-class _SavedWorkV11Adapter(_MemoryGenerationWorkAdapter):
+class _SavedWorkV12Adapter(_MemoryGenerationWorkAdapter):
+    """只用于读回升级前以 1.2 保存的工作：那时生成材料的轮次没有轮次标识与段，交互记录的
+    事件没有响应序号。
+
+    补成空的轮次标识、空的段与空的响应序号：材料不印段标签，模型无从引用，工作照常执行，
+    生成的版本记录不带引用。其余字段与 1.3 相同，补齐后按 1.3 的规则严格解码；结构不对的
+    载荷在这里或严格解码时被拒绝，由读回方写进 rejected 文件。
+    """
+
+    schema_version = "1.2"
+
+    def decode(self, payload: object) -> _MemoryGenerationWork:
+        upgraded = cast(dict[str, Any], copy.deepcopy(payload))
+        spec = upgraded["spec"]
+        for turn in spec["request"]["context"]["turns"]:
+            turn["turn_id"] = ""
+            turn["segments"] = []
+        if spec["interaction_input"] is not None:
+            for block in spec["interaction_input"]["blocks"]:
+                for event in block["turn"]["turn_events"]:
+                    event["response_index"] = None
+        return super().decode(upgraded)
+
+
+class _SavedWorkV11Adapter(_SavedWorkV12Adapter):
     """只用于读回升级前以 1.1 保存的工作：那时修订的 ``update_focus`` 还没有 ``base_version``。
 
     补上任务构建时读到的基础记忆（``existing_memory``）的版本：修订以这一版为底计算，此后基础
-    再被修改时照常拒绝写回。其余字段与 1.2 相同，补齐后按 1.2 的规则严格解码；结构不对的载荷
-    在这里或严格解码时被拒绝，由读回方写进 rejected 文件。
+    再被修改时照常拒绝写回。其余字段与 1.2 相同，补齐后按 1.2 的读回规则继续补齐。
     """
 
     schema_version = "1.1"
@@ -448,7 +472,8 @@ class MemoryGenerationQueue:
         self._adapter = _MemoryGenerationWorkAdapter()
         self._codecs = WorkPayloadCodecRegistry()
         self._codecs.register(self._adapter)
-        # 升级前保存的工作仍按 1.1 读回；新工作只以当前版本编码。
+        # 升级前保存的工作仍按 1.1 与 1.2 读回；新工作只以当前版本编码。
+        self._codecs.register(_SavedWorkV12Adapter())
         self._codecs.register(_SavedWorkV11Adapter())
         self._handles: dict[str, MemoryGenerationHandle] = {}
         self._handler = MemoryGenerationHandler(

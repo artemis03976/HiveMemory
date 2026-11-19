@@ -14,6 +14,7 @@ from hivememory.config.patchouli import ArtifactComponentConfig
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models.artifact import (
     ArtifactRef,
+    CitedSegment,
     MemoryCreationArtifact,
     MemoryInputRef,
     MemoryVersionArtifact,
@@ -48,11 +49,13 @@ class MemoryArtifactBuilder:
         source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         source_artifact_refs: list[ArtifactRef],
         source_memory_refs: list[MemoryInputRef] | None = None,
+        cited_segments: list[CitedSegment] | None = None,
         now: datetime | None = None,
     ) -> MemoryCreationBundle:
         """原子写入 MemoryVersionArtifact(v1) 与 MemoryCreationArtifact。v1 先写。
 
         ``now`` 为 Familiar 提交边界时点；缺省取当前 UTC（仅测试/独立调用）。
+        ``cited_segments`` 只写进 v1 版本记录。
         """
         commit_now = require_utc(now) if now is not None else utc_now()
         memory_id = str(memory.id)
@@ -70,6 +73,7 @@ class MemoryArtifactBuilder:
             changed_at=commit_now,
             source_artifacts=source_artifact_refs,
             source_memory_refs=source_memory_refs or [],
+            cited_segments=cited_segments or [],
         )
         v1_ref = await self._store.put(v1)
 
@@ -97,6 +101,7 @@ class MemoryArtifactBuilder:
         changelog: str | None = None,
         source_artifact_refs: list[ArtifactRef] | None = None,
         source_memory_refs: list[MemoryInputRef] | None = None,
+        cited_segments: list[CitedSegment] | None = None,
         now: datetime | None = None,
     ) -> ArtifactRef | None:
         """写入 MemoryVersionArtifact(v2+)，返回 version ref。
@@ -118,6 +123,7 @@ class MemoryArtifactBuilder:
             changed_at=commit_now,
             source_artifacts=source_artifact_refs or [],
             source_memory_refs=source_memory_refs or [],
+            cited_segments=cited_segments or [],
         )
         return await self._store.put(version)
 
@@ -131,6 +137,7 @@ class NoOpMemoryArtifactBuilder:
         source_intent: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         source_artifact_refs: list[ArtifactRef],
         source_memory_refs: list[MemoryInputRef] | None = None,
+        cited_segments: list[CitedSegment] | None = None,
         now: datetime | None = None,
     ) -> MemoryCreationBundle:
         return MemoryCreationBundle()
@@ -144,6 +151,7 @@ class NoOpMemoryArtifactBuilder:
         changelog: str | None = None,
         source_artifact_refs: list[ArtifactRef] | None = None,
         source_memory_refs: list[MemoryInputRef] | None = None,
+        cited_segments: list[CitedSegment] | None = None,
         now: datetime | None = None,
     ) -> ArtifactRef | None:
         return None

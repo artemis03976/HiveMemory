@@ -38,10 +38,15 @@ from hivememory.core.models import (
     TopicFold,
     WorkspaceIdentity,
 )
-from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryEventType
+from hivememory.core.models.artifact import (
+    ArtifactRef,
+    ArtifactType,
+    CitedSegment,
+    MemoryEventType,
+)
 from hivememory.core.models.pending import UpdateFocus, WriteFocus
 from hivememory.engines.artifacts.interaction import InteractionArtifactBuilder
-from hivememory.engines.artifacts.memory import MemoryCreationBundle
+from hivememory.engines.artifacts.memory import MemoryArtifactBuilder, MemoryCreationBundle
 from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationContext,
@@ -485,6 +490,45 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         # CREATE 提交必然重算向量
         mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=True)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("action", [GenerationAction.CREATE, GenerationAction.UPDATE])
+    async def test_run_generation_writes_cited_segments_into_the_version_record(self, action):
+        """新建与修订把这一版引用的段写进版本记录；引用不进入记忆原子。"""
+        atom = _make_memory_atom()
+        cited = [CitedSegment(turn_id="turn-1", first_sequence=2, last_sequence=5)]
+        gen_engine = Mock()
+        gen_engine.process = AsyncMock(
+            return_value=[
+                GenerationOutcome(
+                    atom=atom,
+                    action=action,
+                    memory_before_snapshot=(
+                        atom.model_copy(deep=True) if action == GenerationAction.UPDATE else None
+                    ),
+                    cited_segments=cited,
+                )
+            ]
+        )
+        mid_term = Mock()
+        mid_term.get_by_key = AsyncMock(return_value=atom.model_copy(deep=True))
+        store = _RecordingArtifactStore()
+        artifact_engine = Mock()
+        artifact_engine.memory = MemoryArtifactBuilder(store)
+        familiar = self._make_familiar(
+            gen_engine=gen_engine, mid_term=mid_term, artifact_engine=artifact_engine
+        )
+        spec = _make_spec(include_interaction_input=False)
+        if action == GenerationAction.UPDATE:
+            spec = _with_update_focus(spec, atom)
+
+        await familiar._run_generation(
+            spec, interaction_ref=None, on_commit_started=_ignore_commit_start
+        )
+
+        [version] = [a for a in store.artifacts if a.artifact_type == ArtifactType.MEMORY_VERSION]
+        assert version.cited_segments == cited
+        assert "cited_segments" not in mid_term.upsert.await_args.args[0].model_dump_json()
 
     @pytest.mark.asyncio
     async def test_run_generation_upserts_updated_atoms(self):
@@ -1144,6 +1188,8 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert call["memory"] is atom
         assert call["source_intent"] == "MANUAL"
         assert call["source_artifact_refs"] == []
+        # 手动创建没有模型，也就没有引用的交互段。
+        assert call["cited_segments"] == []
         assert call["now"] == FIXED_NOW
         assert memory_bundle.initial_version_ref in atom.payload.artifacts.refs
         assert memory_bundle.creation_ref in atom.payload.artifacts.refs
@@ -1224,6 +1270,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert call["snapshot_before"]["payload"]["content"] == "content"
         assert call["update_source"] == "MANUAL_EDIT"
         assert call["source_artifact_refs"] == []
+        assert call["cited_segments"] == []
         assert "Manual edit:" in call["changelog"]
         assert version_ref in atom.payload.artifacts.refs
         event = atom.payload.artifacts.events[-1]
@@ -1377,11 +1424,13 @@ async def test_merge_commits_version_and_sources_before_deleting_absorbed_memory
         stored.meta.lifecycle.access_count,
     ) == ("retained and absorbed content", 2, FIXED_NOW, FIXED_NOW, 1.0, 7)
     version_request = artifacts.memory.build_for_update.await_args.kwargs
+    # 合并没有交互材料，版本记录不带引用的段，来源经被吸收记忆的引用追溯。
     assert (
         version_request["update_source"],
         version_request["changelog"],
         version_request["source_artifact_refs"],
-    ) == ("MERGE", "融合两个阶段", absorbed.payload.artifacts.refs)
+        version_request["cited_segments"],
+    ) == ("MERGE", "融合两个阶段", absorbed.payload.artifacts.refs, [])
     assert {ref.artifact_id for ref in stored.payload.artifacts.refs} == {
         "version_2",
         "absorbed_interaction",

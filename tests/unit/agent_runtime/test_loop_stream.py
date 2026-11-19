@@ -222,5 +222,5 @@ async def test_failed_stream_keeps_delivered_text_as_incomplete_event() -> None:
     assert result.status == FrameExecutionStatus.FAILED
     assert frame.progress.text_segments == ["未完成"]
     assert frame.progress.turn_events == [
-        TurnEvent(kind="assistant_message", sequence=0, content="未完成")
+        TurnEvent(kind="assistant_message", sequence=0, content="未完成", response_index=1)
     ]

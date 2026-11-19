@@ -159,6 +159,25 @@ class TestLLMMemoryExtractorResults:
         ]
 
     @pytest.mark.asyncio
+    async def test_malformed_citations_are_dropped_without_voiding_the_output(self):
+        """段引用只保留形如 2.3 的字符串；格式不对的引用只丢弃引用，不让草稿或整份输出作废。"""
+        output = json.dumps(
+            {
+                "memories": [
+                    {**_DRAFT, "source_segments": ["1.2", " 2.3 ", "Segment 2.4", 3.1, "2"]},
+                    {**_DRAFT, "title": "Second", "source_segments": "1.1"},
+                ]
+            }
+        )
+
+        drafts = await _extractor(ScriptedLLMService(output)).extract("User: Hi")
+
+        assert [(d.title, d.source_segments) for d in drafts] == [
+            ("Extracted", ["1.2", "2.3"]),
+            ("Second", []),
+        ]
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "output",
         ["", "not json", _DRAFT_JSON],

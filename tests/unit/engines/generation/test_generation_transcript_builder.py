@@ -2,10 +2,10 @@
 GenerationTranscriptBuilder / GenerationContext 单测
 
 覆盖以下场景:
-1. build_context() 从逻辑块构建轮次：用户消息、结局、来源身份与按顺序的材料条目；
-   各类步骤的渲染规则由感知层材料模块的测试覆盖
-2. build_transcript() 格式：话题状态、轮首结局标注、用户消息之后按顺序的材料，
-   没有单独的动作段，也没有末尾的回复行
+1. build_context() 从逻辑块构建轮次：轮次标识、用户消息、结局、来源身份、按顺序的材料
+   条目与各段；各类步骤的渲染规则由感知层材料模块的测试覆盖，切段规则由切段模块的测试覆盖
+2. build_transcript() 格式：话题状态、轮首结局标注、每段之前的段标签、用户消息之后按顺序
+   的材料；没有段的轮次（升级前保存的生成任务）不印段标签
 3. GenerationRequest.has_context
 4. MemoryGenerationEngine.process() 识别 request.context；Mode B 与上下文兼容
 """
@@ -18,6 +18,7 @@ from hivememory.core.models import ActorIdentity, TurnEvent, WriteFocus
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
+    GenerationSegment,
     GenerationTurn,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
@@ -35,13 +36,24 @@ def _request(**values) -> GenerationRequest:
     return GenerationRequest(**values)
 
 
-def _turn(user_message: str = "q", *entries: str, outcome: str = "completed") -> GenerationTurn:
+def _turn(
+    user_message: str = "q",
+    *entries: str,
+    outcome: str = "completed",
+    segments: list[GenerationSegment] | None = None,
+) -> GenerationTurn:
     return GenerationTurn(
+        turn_id="turn-1",
         user_message=user_message,
         material_entries=list(entries),
         outcome=outcome,
+        segments=segments or [],
         identity=_identity(),
     )
+
+
+def _segment(first: int, last: int, entry_count: int) -> GenerationSegment:
+    return GenerationSegment(first_sequence=first, last_sequence=last, entry_count=entry_count)
 
 
 builder = GenerationTranscriptBuilder()
@@ -60,7 +72,8 @@ class TestBuildContext:
         assert ctx.state_summary == "话题摘要"
 
     def test_block_becomes_turn_with_ordered_material_entries(self):
-        """用户消息单独成字段，其后的材料按出现顺序排列，助手正文穿插其中。"""
+        """用户消息单独成字段，其后的材料按出现顺序排列，助手正文穿插其中；
+        没有响应序号的轮次整轮一段。"""
         block = make_logical_block(
             identity=_identity("claude_code"),
             outcome="cancelled",
@@ -84,6 +97,7 @@ class TestBuildContext:
         [turn] = builder.build_context([block]).turns
 
         assert turn == GenerationTurn(
+            turn_id=block.turn.turn_id,
             outcome="cancelled",
             user_message="之前怎么部署的",
             material_entries=[
@@ -91,8 +105,43 @@ class TestBuildContext:
                 "- READ: fact_deploy",
                 "[Assistant]: 按记忆中的步骤部署。",
             ],
+            segments=[_segment(0, 4, 3)],
             identity=_identity("claude_code"),
         )
+
+    def test_segments_count_the_entries_each_one_renders(self):
+        """各段记下事件区间与渲染出的条目数，条目拼起来就是整轮材料；不渲染的写入不计条目。"""
+        block = make_logical_block(
+            turn_events=[
+                TurnEvent(kind="user_message", sequence=0, content="记下部署方式"),
+                TurnEvent(
+                    kind="tool_call",
+                    sequence=1,
+                    content="",
+                    response_index=1,
+                    action_id="toolu-1",
+                    verb="WRITE",
+                    tool_args={"content": "手动部署"},
+                ),
+                TurnEvent(
+                    kind="assistant_message", sequence=2, content="已记下。", response_index=2
+                ),
+                TurnEvent(
+                    kind="tool_call",
+                    sequence=3,
+                    content="",
+                    response_index=3,
+                    action_id="toolu-2",
+                    tool_name="Bash",
+                    tool_args={"command": "ls"},
+                ),
+            ]
+        )
+
+        [turn] = builder.build_context([block]).turns
+
+        assert turn.segments == [_segment(0, 1, 0), _segment(2, 3, 2)]
+        assert turn.material_entries == ["[Assistant]: 已记下。", '- TOOL: Bash {"command": "ls"}']
 
     def test_multiple_blocks_produce_multiple_turns(self):
         blocks = [make_logical_block(f"问题{i}", f"答案{i}") for i in range(3)]
@@ -107,34 +156,46 @@ class TestBuildTranscript:
     def test_empty_context_produces_empty_string(self):
         assert builder.build_transcript(GenerationContext()) == ""
 
-    def test_turn_renders_user_message_then_material_in_order(self):
-        """用户消息之后按顺序列出材料；没有单独的动作段，也没有末尾的回复行。"""
+    def test_turn_renders_segment_labels_before_each_segment(self):
+        """每段之前印出“轮次位置.段号”的标签，第一段从用户消息开始，材料按顺序排列；
+        没有单独的动作段，也没有末尾的回复行。"""
         ctx = GenerationContext(
             turns=[
+                _turn("你好", "[Assistant]: 你好。", segments=[_segment(0, 1, 1)]),
                 _turn(
                     "修一下测试",
                     '- SEARCH: "测试约定"',
                     "[Assistant]: 先跑一遍。",
                     '- TOOL: Bash {"command": "pytest"}\n  RESULT (error): 1 failed',
                     "[Assistant]: 已修复。",
-                )
+                    segments=[_segment(0, 1, 1), _segment(2, 4, 2), _segment(5, 5, 1)],
+                ),
             ]
         )
 
         assert builder.build_transcript(ctx) == "\n".join(
             [
                 "[Turn 1]",
+                "[Segment 1.1]",
+                "[User]: 你好",
+                "[Assistant]: 你好。",
+                "",
+                "[Turn 2]",
+                "[Segment 2.1]",
                 "[User]: 修一下测试",
                 '- SEARCH: "测试约定"',
+                "[Segment 2.2]",
                 "[Assistant]: 先跑一遍。",
                 '- TOOL: Bash {"command": "pytest"}',
                 "  RESULT (error): 1 failed",
+                "[Segment 2.3]",
                 "[Assistant]: 已修复。",
             ]
         )
 
-    def test_full_format_with_state_and_incomplete_turn(self):
-        """话题状态在最前；结局不是 completed 的轮次在轮首标注。"""
+    def test_turns_without_segments_render_without_labels(self):
+        """话题状态在最前；结局不是 completed 的轮次在轮首标注；升级前保存的生成任务
+        没有段，材料不印段标签。"""
         ctx = GenerationContext(
             state_summary="重构进行中",
             turns=[

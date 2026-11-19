@@ -139,7 +139,7 @@ async def test_settle_skips_restricted_dedup_but_write_keeps_actor_visibility(
     )
     request = GenerationRequest(
         context=GenerationContext(
-            turns=[GenerationTurn(user_message="question", identity=from_actor)]
+            turns=[GenerationTurn(turn_id="turn-1", user_message="question", identity=from_actor)]
         ),
         write_focus=WriteFocus(content="new content") if active_write else None,
     )

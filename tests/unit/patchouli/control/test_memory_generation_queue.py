@@ -35,6 +35,7 @@ from hivememory.core.models import (
     PayloadLayer,
     TopicAssetBinding,
     TopicFold,
+    TurnEvent,
     UpdateFocus,
     WorkspaceAssetRef,
 )
@@ -55,6 +56,7 @@ from hivememory.patchouli.control.memory_generation.queue import (
     _MemoryGenerationWorkAdapter,
     memory_generation_failure_reason,
 )
+from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 from tests.helpers.sessions import make_logical_block
 
@@ -252,6 +254,40 @@ def test_revision_saved_as_1_1_reads_back_with_the_base_version_it_was_built_on(
     restored = queue.decode_for_restart({**item, "schema_version": "1.1"})
 
     assert restored == spec
+
+
+def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -> None:
+    """1.3 保存的结算原样读回；升级前以 1.2 保存的结算没有轮次标识、段与响应序号，读回时补成
+    空值后照常执行，材料不印段标签，也就无从引用。"""
+    queue = MemoryGenerationQueue(AsyncMock())
+    block = make_logical_block(
+        turn_events=[
+            TurnEvent(kind="user_message", sequence=0, content="问题"),
+            TurnEvent(kind="assistant_message", sequence=1, content="回答", response_index=1),
+        ]
+    )
+    context = GenerationTranscriptBuilder().build_context([block])
+    spec = replace(
+        _spec(topic_id="topic-old", request=GenerationRequest(context=context)),
+        source=MemoryGenerationSource.SETTLE,
+        interaction_input=InteractionArtifactInput(topic_id="topic-old", blocks=(block,)),
+    )
+    item = queue.encode_for_restart("settle:topic-old", spec)
+    assert queue.decode_for_restart(item) == spec
+
+    for turn in item["payload"]["spec"]["request"]["context"]["turns"]:
+        del turn["turn_id"], turn["segments"]
+    for saved_block in item["payload"]["spec"]["interaction_input"]["blocks"]:
+        for event in saved_block["turn"]["turn_events"]:
+            del event["response_index"]
+    restored = queue.decode_for_restart({**item, "schema_version": "1.2"})
+
+    [turn] = restored.request.context.turns
+    assert (turn.turn_id, turn.segments) == ("", [])
+    assert turn.material_entries == context.turns[0].material_entries
+    assert restored.request.context.cited_segments(["1.1"]) == []
+    [restored_block] = restored.interaction_input.blocks
+    assert [event.response_index for event in restored_block.turn_events] == [None, None]
 
 
 def test_codec_roundtrips_settlement_records_without_loss() -> None:

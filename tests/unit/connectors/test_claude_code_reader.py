@@ -3,7 +3,8 @@
 保护的契约：一轮从 ``turnOrigin`` 为 human 的消息，或在 agent 空闲时唤醒它的
 后台通知、子 Agent 交回与宿主消息开始，唤醒没有用户消息（派生会话的交接说明
 除外），子 Agent 交回的报告写为子 Agent 消息事件；助手文本、思考、工具
-调用与工具结果映射为导入事件；本插件自身的 MCP 记忆工具归一化为 SEARCH、READ、
+调用与工具结果映射为导入事件，助手事件带按消息标识编号的响应序号；本插件自身的
+MCP 记忆工具归一化为 SEARCH、READ、
 WRITE、UPDATE 能力调用，不带调用名与 hook 补上的轮次信息；插件清单、hooks 的
 matcher 与连接器常量一致，principal、缺省 Agent、凭据变量与 hook 的解释器变量和插件服务
 安装时登记、写入的一致；
@@ -38,7 +39,11 @@ reader = ClaudeCodeReader()
 
 
 def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
-    """思考与外部工具调用按出现顺序成为事件，结果补全到调用上，状态为 error 或 success。"""
+    """思考与外部工具调用按出现顺序成为事件，结果补全到调用上，状态为 error 或 success。
+
+    一条 API 消息是一次响应：分成多个条目写入的同一消息共用响应序号，序号按消息首次
+    写出事件的顺序从 1 起。
+    """
     log = TranscriptWriter(tmp_path / "s.jsonl")
     log.prompt("p1", "测试挂了")
     log.assistant(thinking("先跑测试"), text("我先运行测试。"), message_id="m1")
@@ -56,12 +61,18 @@ def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
         "测试挂了",
     )
     assert turn.events == [
-        {"kind": "thought", "sequence": 1, "content": "先跑测试"},
-        {"kind": "assistant_message", "sequence": 2, "content": "我先运行测试。"},
+        {"kind": "thought", "sequence": 1, "content": "先跑测试", "response_index": 1},
+        {
+            "kind": "assistant_message",
+            "sequence": 2,
+            "content": "我先运行测试。",
+            "response_index": 1,
+        },
         {
             "kind": "tool_call",
             "sequence": 3,
             "content": "",
+            "response_index": 1,
             "action_id": "toolu-1",
             "tool_name": "Bash",
             "tool_args": {"command": "pytest -q"},
@@ -72,14 +83,15 @@ def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
             "kind": "tool_call",
             "sequence": 4,
             "content": "",
+            "response_index": 2,
             "action_id": "toolu-2",
             "tool_name": "Edit",
             "tool_args": {"file_path": "a.py"},
             "status": "success",
             "result": "ok",
         },
-        {"kind": "assistant_message", "sequence": 5, "content": "已修复"},
-        {"kind": "assistant_message", "sequence": 6, "content": "测试通过"},
+        {"kind": "assistant_message", "sequence": 5, "content": "已修复", "response_index": 3},
+        {"kind": "assistant_message", "sequence": 6, "content": "测试通过", "response_index": 3},
     ]
     # 作为后续轮次的最近上文：按顺序拼接全部助手正文，工具调用之间的叙述也保留。
     assert turn.assistant_final_text == "我先运行测试。\n\n已修复\n\n测试通过"
@@ -158,7 +170,7 @@ def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
         {
             key: value
             for key, value in event.items()
-            if key not in ("sequence", "content", "status", "result")
+            if key not in ("sequence", "content", "response_index", "status", "result")
         }
         for event in turn.events
         if event["kind"] == "tool_call"
@@ -266,7 +278,8 @@ def test_next_prompt_closes_the_previous_turn_at_its_line(tmp_path):
 
 
 def test_non_conversation_entries_are_skipped(tmp_path):
-    """子代理、元条目、压缩摘要、系统条目、不认识的条目与无正文的思考都不进入轮次。"""
+    """子代理、元条目、压缩摘要、系统条目、不认识的条目与无正文的思考都不进入轮次；
+    没有写出事件的助手条目也不占响应序号。"""
     log = TranscriptWriter(tmp_path / "s.jsonl")
     log.prompt("p1", "问题")
     log.prompt("side-prompt", "子代理任务", isSidechain=True)
@@ -280,7 +293,9 @@ def test_non_conversation_entries_are_skipped(tmp_path):
 
     [turn] = reader.read(str(log.path), 0)
 
-    assert turn.events == [{"kind": "assistant_message", "sequence": 1, "content": "回答"}]
+    assert turn.events == [
+        {"kind": "assistant_message", "sequence": 1, "content": "回答", "response_index": 1}
+    ]
 
 
 def test_interrupt_marker_ends_turn_without_opening_another(tmp_path):
@@ -328,13 +343,18 @@ def test_wakes_open_turns_but_injected_content_does_not(tmp_path):
     ]
     assert first.closed_by_next_turn is True
     assert [notice.user_message, handback.user_message, event.user_message] == ["", "", ""]
-    assert notice.events == [{"kind": "assistant_message", "sequence": 1, "content": "测试通过了"}]
+    assert notice.events == [
+        {"kind": "assistant_message", "sequence": 1, "content": "测试通过了", "response_index": 1}
+    ]
+    # 子 Agent 交回的消息不是模型响应，不带响应序号。
     assert handback.events[0] == {
         "kind": "subagent_message",
         "sequence": 1,
         "content": "调研报告正文",
     }
-    assert event.events == [{"kind": "assistant_message", "sequence": 1, "content": "去修 CI"}]
+    assert event.events == [
+        {"kind": "assistant_message", "sequence": 1, "content": "去修 CI", "response_index": 1}
+    ]
 
 
 def test_spawned_session_brief_is_the_first_user_message(tmp_path):
@@ -438,12 +458,29 @@ def test_rewritten_blocks_are_deduplicated_by_message_and_block_position(tmp_pat
 
     [turn] = reader.read(str(log.path), 0)
 
-    assert [event["kind"] for event in turn.events] == [
-        "assistant_message",
-        "assistant_message",
-        "tool_call",
+    assert [(event["kind"], event["response_index"]) for event in turn.events] == [
+        ("assistant_message", 1),
+        ("assistant_message", 1),
+        ("tool_call", 1),
     ]
     assert turn.events[-1]["result"] == "内容"
+
+
+def test_entries_without_message_id_are_responses_of_their_own(tmp_path):
+    """缺少消息标识的助手条目以条目自身的标识区分，各算一次响应。"""
+    log = TranscriptWriter(tmp_path / "s.jsonl")
+    log.prompt("p1", "问题")
+    for uuid, answer in (("a1", "先看看"), ("a2", "看完了")):
+        log.raw(
+            type="assistant",
+            uuid=uuid,
+            sessionId="session-test",
+            message={"role": "assistant", "content": [text(answer)], "stop_reason": "end_turn"},
+        )
+
+    [turn] = reader.read(str(log.path), 0)
+
+    assert [event["response_index"] for event in turn.events] == [1, 2]
 
 
 def test_incomplete_last_line_is_not_read(tmp_path):

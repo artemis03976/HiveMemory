@@ -8,7 +8,8 @@
       写入时为这一轮确定话题。完整记录在它之上加入事件与结局，同名字段的校验
       规则因此相同，两者推导出同一个交互标识。
     - 事件与 ``TurnEvent`` 同形，请求校验阶段执行同样的字段规则与一轮的
-      不变量，违反时整轮拒绝。``verb`` 标记对 HiveMemory 能力的调用：外部
+      不变量（包括响应序号的全有或全无与单调不减），违反时整轮拒绝。
+      ``verb`` 标记对 HiveMemory 能力的调用：外部
       harness 经 HiveMemory 的 MCP 工具检索、读取、写入与更新，导入因此接受
       ``SEARCH``、``READ``、``WRITE`` 与 ``UPDATE``，读取与更新必须给出作用
       对象；其他外部工具只带 ``tool_name``。导入不认识 MCP 工具的参数结构，
@@ -59,6 +60,15 @@ class ImportedTurnEvent(BaseModel):
     content: str = Field(
         description="事件正文：助手正文、思考或子 Agent 交回的消息原文；工具调用为空字符串"
     )
+    response_index: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "事件来自这一轮第几次模型响应，从 1 起，只设置在助手正文、思考与工具调用上；"
+            "一轮之内要么这三种事件都带、要么都不带，随 sequence 单调不减。"
+            "harness 没有记下响应边界时不设置"
+        ),
+    )
     action_id: str | None = Field(default=None, description="工具调用标识，工具调用必带，轮内唯一")
     tool_name: str | None = Field(
         default=None, description="外部工具的名字；调用 HiveMemory 能力时不设置"
@@ -101,6 +111,7 @@ class ImportedTurnEvent(BaseModel):
             kind=self.kind,
             sequence=self.sequence,
             content=self.content,
+            response_index=self.response_index,
             action_id=self.action_id,
             tool_name=self.tool_name,
             verb=self.verb,

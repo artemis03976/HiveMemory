@@ -326,7 +326,8 @@ async def test_same_interaction_id_different_scope_is_one_conflicting_work() -> 
 
 
 def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None:
-    """编码或解码丢失发起者、归属、结局、事件、附件顺序或新话题标题与摘要时必须失败。"""
+    """编码或解码丢失发起者、归属、结局、事件（含响应序号）、附件顺序或新话题标题与摘要时
+    必须失败。"""
     attachments = [
         WorkspaceAssetRef(asset_id="asset-a", token="ref-a"),
         WorkspaceAssetRef(asset_id="asset-b", token="ref-b"),
@@ -343,6 +344,7 @@ def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None
                     kind="tool_call",
                     sequence=1,
                     content="",
+                    response_index=1,
                     action_id="read",
                     verb="READ",
                     targets=("fact_a", "fact_b"),

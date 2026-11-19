@@ -55,3 +55,23 @@ def test_generation_prompts_explain_process_entries_and_forbid_credentials(mode,
     assert "TOOL / RESULT" in prompt
     assert "chars omitted" in prompt
     assert credential_rule in prompt
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+@pytest.mark.parametrize("mode", ["passive", "write", "update"])
+def test_generation_prompts_explain_segment_labels_and_citations(mode, language):
+    """材料在每段之前印出段标签，三类提示词都说明标签的写法与引用字段。"""
+    prompt = get_generation_prompt_text(mode, "system_prompt", language)
+
+    assert "[Segment 2.3]" in prompt
+    assert "source_segments" in prompt
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_update_prompt_handwritten_format_includes_citations(language):
+    """修订的输出格式在提示词中手写，系统提示词的 JSON 示例与用户提示词的输出要求都带引用。"""
+    system = get_generation_prompt_text("update", "system_prompt", language)
+    user = get_generation_prompt_text("update", "user_prompt", language)
+
+    assert '"source_segments": ["2.3"]' in system
+    assert '"source_segments": [...]' in user

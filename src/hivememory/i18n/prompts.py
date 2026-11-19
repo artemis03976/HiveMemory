@@ -464,6 +464,12 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
 
+## 段标签与引用 (source_segments)
+对话片段的每轮分成若干段，每段之前有一行段标签，例如 [Segment 2.3] 是第 2 轮的第 3 段；第一段从用户消息开始。在每条记忆的 source_segments 中列出支撑它的段，照抄标签中的编号，例如 ["2.3", "2.5"]：
+- 只引用直接支撑这条记忆内容的段（作出决定、给出事实、得出结论或暴露问题的地方），不要把读过的每一段都列上
+- 来自话题状态摘要 [Topic State] 的内容没有段，不引用
+- 片段中没有段标签时输出空列表
+
 ## 拆分粒度
 一段对话可能包含多件彼此独立、之后会被分别查找的事：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一个值得以后复用的外部资源。每件事写成一条记忆，标题与摘要要让人能单独检索到它。
 - 同一件事的背景、过程与结论放在同一条里，不拆开
@@ -541,6 +547,11 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 ## 标题
 Agent 拟定了标题时沿用它，不改写措辞；只有它与草稿内容不符，或缺少让人检索到它的关键名词（项目、组件、工具名）时才修改，修改时保留原标题的判断与表述。
 
+## 段标签与引用 (source_segments)
+背景对话的每轮分成若干段，每段之前有一行段标签，例如 [Segment 2.3] 是第 2 轮的第 3 段；第一段从用户消息开始。在 source_segments 中列出背景对话里支撑这条记忆的段，照抄标签中的编号，例如 ["2.3"]：
+- 只引用直接支撑草稿内容的段，不要把读过的每一段都列上
+- 草稿内容在背景对话中找不到依据，或背景对话没有段标签时，输出空列表
+
 ## 输出格式
 严格按照JSON Schema输出:
 {format_instructions}
@@ -611,13 +622,17 @@ Agent 拟定了标题时沿用它，不改写措辞；只有它与草稿内容�
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
 
+## 段标签与引用 (source_segments)
+参考上下文的每轮分成若干段，每段之前有一行段标签，例如 [Segment 2.3] 是第 2 轮的第 3 段；第一段从用户消息开始。在 source_segments 中列出参考上下文里支撑这次修改的段，照抄标签中的编号；只引用直接支撑修改内容的段，找不到或参考上下文没有段标签时输出空列表。
+
 ## 输出格式
 严格输出 JSON:
 ```json
-{{
+{
     "new_content": "合并后的完整内容 (Markdown 格式)",
-    "changelog": "一句话总结此次变更"
-}}
+    "changelog": "一句话总结此次变更",
+    "source_segments": ["2.3"]
+}
 ```
 
 ## 注意事项
@@ -651,7 +666,7 @@ Agent 拟定了标题时沿用它，不改写措辞；只有它与草稿内容�
 2. **执行修改**: 生成新的完整内容
 3. **生成变更日志**: 用一句话总结此次变更
 
-请输出 JSON: {{ "new_content": "...", "changelog": "..." }}
+请输出 JSON: {{ "new_content": "...", "changelog": "...", "source_segments": [...] }}
 """,
         "new_content_empty": "(无新素材，仅根据指令修改)",
         "transcript_empty": "(无背景对话)",
@@ -716,6 +731,12 @@ Each turn of a conversation snippet starts with [User], followed in order by the
 
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
+
+## Segment Labels and Citations (source_segments)
+Each turn of the conversation snippet is split into segments, and each segment is preceded by a label line: [Segment 2.3] is the third segment of turn 2; the first segment starts with the user message. In each memory's source_segments, list the segments that support it, copying the numbers from the labels, such as ["2.3", "2.5"]:
+- Cite only the segments that directly support the memory's content (where a decision was made, a fact was given, a conclusion was reached, or a problem surfaced); do not list every segment you read.
+- Content from the topic state summary [Topic State] has no segment; do not cite it.
+- If the snippet has no segment labels, output an empty list.
 
 ## Granularity
 A conversation may contain several independent things that will later be looked up separately: a decision and its reasons, a fact or configuration, a solved problem and its fix, a preference or lesson, an external resource worth reusing later. Write each one as its own memory, with a title and summary that let it be retrieved on its own.
@@ -794,6 +815,11 @@ Never write credentials such as API keys, tokens, passwords, certificates, or se
 ## Title
 When the Agent proposed a title, keep it and do not reword it. Change it only when it does not match the draft content or lacks the key nouns (project, component, or tool names) that let someone find it; when you change it, keep the original title's judgment and wording.
 
+## Segment Labels and Citations (source_segments)
+Each turn of the background conversation is split into segments, and each segment is preceded by a label line: [Segment 2.3] is the third segment of turn 2; the first segment starts with the user message. In source_segments, list the segments of the background conversation that support this memory, copying the numbers from the labels, such as ["2.3"]:
+- Cite only the segments that directly support the draft content; do not list every segment you read.
+- If nothing in the background conversation supports the draft, or it has no segment labels, output an empty list.
+
 ## Output Format
 Strictly follow this JSON Schema:
 {format_instructions}
@@ -864,13 +890,17 @@ Automatically infer the mode from the instruction:
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
 
+## Segment Labels and Citations (source_segments)
+Each turn of the reference context is split into segments, and each segment is preceded by a label line: [Segment 2.3] is the third segment of turn 2; the first segment starts with the user message. In source_segments, list the segments of the reference context that support this update, copying the numbers from the labels. Cite only the segments that directly support the change; if none do, or the reference context has no segment labels, output an empty list.
+
 ## Output Format
 Strictly output JSON:
 ```json
-{{
+{
     "new_content": "Complete merged content (Markdown format)",
-    "changelog": "One-sentence summary of this change"
-}}
+    "changelog": "One-sentence summary of this change",
+    "source_segments": ["2.3"]
+}
 ```
 
 ## Notes
@@ -904,7 +934,7 @@ Perform the following:
 2. **Apply Update**: Generate the new complete content.
 3. **Generate Changelog**: Summarize this change in one sentence.
 
-Output JSON: {{ "new_content": "...", "changelog": "..." }}
+Output JSON: {{ "new_content": "...", "changelog": "...", "source_segments": [...] }}
 """,
         "new_content_empty": "(No new material; modify only according to the instruction)",
         "transcript_empty": "(No background conversation)",

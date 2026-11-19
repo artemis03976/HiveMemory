@@ -29,6 +29,9 @@
  * - `tool/call` → 工具调用（调用标识、工具名与模型给出的参数）；`tool/result`
  *   按 `toolCallId` 补全到同一轮的调用上，作为它的结局（`isError` 为真时状态为
  *   `error`，否则为 `success`），找不到调用的结果跳过。
+ * - 助手消息与工具调用都带 `step`：这一轮的第几步，从 1 起。每一步是一次模型
+ *   请求，恰好形成一条助手消息，这一步的调用都由它发出，`step` 因此就是响应
+ *   序号，原样写为 `response_index`。
  * - 本插件的四个记忆工具按公共的回声规则（`core/memory-tools.js`）归一化为
  *   HiveMemory 能力调用，其他工具写工具名与完整参数。插件注册的工具名就是
  *   HiveMemory MCP 工具的名字，dsh 工具注册表中同名的工具只能有一个，工具名
@@ -90,7 +93,7 @@ export function sessionTurns(snapshot) {
     } else if (event.type === 'user/message') {
       current.addUserMessage(data)
     } else if (event.type === 'assistant/message') {
-      current.addAssistantMessage(data.message)
+      current.addAssistantMessage(data.message, data.step)
     } else if (event.type === 'tool/call') {
       current.addToolCall(data)
     } else if (event.type === 'tool/result') {
@@ -153,20 +156,24 @@ class TurnBuilder {
     else if (source === SUBAGENT_SETTLED_SOURCE) this.addEvent('subagent_message', text)
   }
 
-  addAssistantMessage(message) {
+  addAssistantMessage(message, step) {
     const model = message.source?.model
     if (typeof model === 'string' && model) this.modelUsed = model
+    const response = { response_index: step }
     for (const block of message.content ?? []) {
       if (block.type === 'text' && block.text?.trim()) {
-        this.addEvent('assistant_message', block.text)
+        this.addEvent('assistant_message', block.text, response)
       } else if (block.type === 'reasoning' && block.text?.trim()) {
-        this.addEvent('thought', block.text)
+        this.addEvent('thought', block.text, response)
       }
     }
   }
 
   addToolCall(call) {
-    this.addEvent('tool_call', '', toolCallFields(call.callId, call.name, call.arguments))
+    this.addEvent('tool_call', '', {
+      response_index: call.step,
+      ...toolCallFields(call.callId, call.name, call.arguments),
+    })
   }
 
   addToolResult(message) {

@@ -25,18 +25,24 @@ def _turn(**overrides) -> ImportedTurn:
         "outcome": "completed",
         "user_message": "修一下测试",
         "events": [
-            {"kind": "thought", "sequence": 1, "content": "先运行测试"},
+            {"kind": "thought", "sequence": 1, "content": "先运行测试", "response_index": 1},
             {
                 "kind": "tool_call",
                 "sequence": 2,
                 "content": "",
+                "response_index": 1,
                 "action_id": "toolu-1",
                 "tool_name": "Bash",
                 "tool_args": {"command": "pytest -q"},
                 "status": "error",
                 "result": "1 failed",
             },
-            {"kind": "assistant_message", "sequence": 3, "content": "已修复"},
+            {
+                "kind": "assistant_message",
+                "sequence": 3,
+                "content": "已修复",
+                "response_index": 2,
+            },
         ],
     }
     fields.update(overrides)
@@ -44,23 +50,24 @@ def _turn(**overrides) -> ImportedTurn:
 
 
 def test_turn_events_put_user_message_first_and_keep_imported_fields() -> None:
-    """用户消息写成序号 0 的事件，其后的事件与导入的字段同形。"""
+    """用户消息写成序号 0 的事件，其后的事件与导入的字段同形，响应序号原样转写。"""
     events = _turn().to_turn_events()
 
     assert events == [
         TurnEvent(kind="user_message", sequence=0, content="修一下测试"),
-        TurnEvent(kind="thought", sequence=1, content="先运行测试"),
+        TurnEvent(kind="thought", sequence=1, content="先运行测试", response_index=1),
         TurnEvent(
             kind="tool_call",
             sequence=2,
             content="",
+            response_index=1,
             action_id="toolu-1",
             tool_name="Bash",
             tool_args={"command": "pytest -q"},
             status="error",
             result="1 failed",
         ),
-        TurnEvent(kind="assistant_message", sequence=3, content="已修复"),
+        TurnEvent(kind="assistant_message", sequence=3, content="已修复", response_index=2),
     ]
 
 
@@ -105,6 +112,15 @@ def test_memory_verbs_and_targets_are_carried_into_turn_events(verb, targets) ->
         ({"events": _memory_call("SEARCH", tool_kind="SEARCH")}, "tool_kind"),
         ({"assistant_final_text": "已修复"}, "assistant_final_text"),
         ({"events": _memory_call("SEARCH", status=None)}, "status and result together"),
+        (
+            {
+                "events": [
+                    {"kind": "thought", "sequence": 1, "content": "想", "response_index": 1},
+                    {"kind": "assistant_message", "sequence": 2, "content": "答"},
+                ]
+            },
+            "every model event of a turn or on none",
+        ),
     ],
     ids=[
         "verb-without-mcp-tool",
@@ -113,10 +129,12 @@ def test_memory_verbs_and_targets_are_carried_into_turn_events(verb, targets) ->
         "removed-event-field",
         "removed-body-field",
         "result-without-status",
+        "response-index-on-some-events",
     ],
 )
 def test_events_outside_the_import_contract_are_rejected(overrides, match) -> None:
-    """导入只接受 MCP 工具对应的动词，读取与更新必须给出作用对象；已删除的字段与违反事件规则的轮次拒绝。"""
+    """导入只接受 MCP 工具对应的动词，读取与更新必须给出作用对象；已删除的字段与违反事件规则
+    （包括一轮的响应序号）的轮次拒绝。"""
     with pytest.raises(ValidationError, match=match):
         _turn(**overrides)
 

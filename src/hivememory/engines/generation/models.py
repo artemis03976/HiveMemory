@@ -2,7 +2,7 @@
 HiveMemory Generation 模块数据模型
 
 仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``RevisionResult`` / ``MergeResult`` /
-``GenerationRequest`` / ``GenerationContext`` / ``GenerationTurn`` /
+``GenerationRequest`` / ``GenerationContext`` / ``GenerationTurn`` / ``GenerationSegment`` /
 ``GenerationOutcome``）。
 
 跨 alice/engines/compiler 共享的领域模型（``PendingAtom`` /
@@ -11,14 +11,17 @@ HiveMemory Generation 模块数据模型
 ``hivememory.core.models``，避免各子系统为共享模型互相导入。
 """
 
+import re
+from collections.abc import Sequence
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_serializer, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
+    CitedSegment,
     UpdateFocus,
     WriteFocus,
 )
@@ -49,6 +52,29 @@ class GenerationAction(str, Enum):
 # ============ 提取结果模型 ============
 
 
+# 段标签：轮次在材料中的位置与段在这一轮中的序号，例如 "2.3"。
+_SEGMENT_LABEL = re.compile(r"\d+\.\d+")
+
+
+def segment_label(turn_position: int, segment_number: int) -> str:
+    """材料中第 ``turn_position`` 轮第 ``segment_number`` 段的标签，二者都从 1 起。"""
+    return f"{turn_position}.{segment_number}"
+
+
+def _keep_segment_labels(value: Any) -> list[str]:
+    """模型给出的段引用只保留形如 ``2.3`` 的字符串，其余丢弃。
+
+    引用格式不对只丢弃这一处引用，不让整条草稿或整份被动输出因此作废。
+    """
+    if not isinstance(value, list):
+        return []
+    return [
+        item.strip()
+        for item in value
+        if isinstance(item, str) and _SEGMENT_LABEL.fullmatch(item.strip())
+    ]
+
+
 class ExtractedMemoryDraft(BaseModel):
     """
     提取的记忆草稿 - LLM 输出格式
@@ -77,6 +103,15 @@ class ExtractedMemoryDraft(BaseModel):
         default="",
         description="别名后缀 (action/subject, snake_case, 不含类型前缀). 例如: 'quicksort_impl', 'project_env'",
     )
+    source_segments: list[str] = Field(
+        default_factory=list,
+        description='支撑这条记忆的段标签，照抄材料中 [Segment x.y] 的 x.y，例如 ["2.3"]；没有可引用的段时为空列表',
+    )
+
+    @field_validator("source_segments", mode="before")
+    @classmethod
+    def _keep_source_segments(cls, value: Any) -> list[str]:
+        return _keep_segment_labels(value)
 
     @model_validator(mode="after")
     def _fit_index_limits(self) -> "ExtractedMemoryDraft":
@@ -124,10 +159,17 @@ class RevisionResult(BaseModel):
     Attributes:
         new_content: 修订后的新内容
         changelog: 变更日志 (一句话总结此次修改)
+        source_segments: 支撑这次修订的段标签；格式不对的丢弃
     """
 
     new_content: str
     changelog: str
+    source_segments: list[str] = Field(default_factory=list)
+
+    @field_validator("source_segments", mode="before")
+    @classmethod
+    def _keep_source_segments(cls, value: Any) -> list[str]:
+        return _keep_segment_labels(value)
 
 
 class MergeResult(BaseModel):
@@ -170,6 +212,17 @@ class MergeFocus(BaseModel):
 # ============ 记忆生成视图数据模型 ============
 
 
+class GenerationSegment(BaseModel):
+    """材料中一轮的一段：事件序号区间（首尾都包含在内）与它渲染出的材料条目数。
+
+    各段的条目按顺序拼起来就是这一轮的全部材料条目；第一段还包含用户消息。
+    """
+
+    first_sequence: int
+    last_sequence: int
+    entry_count: int
+
+
 class GenerationTurn(BaseModel):
     """
     记忆生成视图中的单轮对话记录
@@ -178,17 +231,22 @@ class GenerationTurn(BaseModel):
     只有外部工具的结果按上限截断，供 GenerationEngine 提取记忆使用。
 
     Attributes:
+        turn_id: 这一轮的标识，模型引用段时换算为它加事件序号区间
         outcome: 轮次结局，用于标注不完整材料
         user_message: 用户消息
         material_entries: 用户消息之后的材料条目，按出现顺序：助手正文、思考、
             能力调用的一行摘要与外部工具步骤（如 [Assistant]: ... / - THOUGHT: ... /
             - SEARCH: "..." / - TOOL: ...），条目可以多行
+        segments: 这一轮的段，材料在每段之前印出段标签。升级前保存的生成任务没有
+            段，也没有轮次标识（空串），材料不印段标签，模型也就无从引用
         identity: 产出此轮的身份标识
     """
 
+    turn_id: str
     outcome: InteractionOutcome = "completed"
     user_message: str
     material_entries: list[str] = Field(default_factory=list)
+    segments: list[GenerationSegment] = Field(default_factory=list)
     identity: ActorIdentity
 
 
@@ -206,6 +264,27 @@ class GenerationContext(BaseModel):
 
     state_summary: str = ""
     turns: list[GenerationTurn] = Field(default_factory=list)
+
+    def cited_segments(self, labels: Sequence[str]) -> list[CitedSegment]:
+        """把模型引用的段标签换算为轮次标识加事件序号区间，按引用顺序去重。
+
+        材料中不存在的标签不对应任何段，丢弃。
+        """
+        known = {
+            segment_label(position, number): CitedSegment(
+                turn_id=turn.turn_id,
+                first_sequence=segment.first_sequence,
+                last_sequence=segment.last_sequence,
+            )
+            for position, turn in enumerate(self.turns, 1)
+            for number, segment in enumerate(turn.segments, 1)
+        }
+        cited: list[CitedSegment] = []
+        for label in labels:
+            segment = known.get(label)
+            if segment is not None and segment not in cited:
+                cited.append(segment)
+        return cited
 
 
 def provenance_from_actor(
@@ -309,6 +388,10 @@ class GenerationOutcome(BaseModel):
     memory_before_snapshot: Any | None = None
     changelog: str | None = None
     message: str | None = None
+    cited_segments: list[CitedSegment] = Field(
+        default_factory=list,
+        description="这一版内容引用的交互段，随版本记录保存；只有新建与修订带",
+    )
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -323,9 +406,11 @@ __all__ = [
     "MergeResult",
     "MergeFocus",
     "GenerationRequest",
+    "GenerationSegment",
     "GenerationTurn",
     "GenerationContext",
     "GenerationOutcome",
     "provenance_from_actor",
+    "segment_label",
     "system_settlement_provenance",
 ]

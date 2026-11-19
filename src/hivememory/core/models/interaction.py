@@ -32,14 +32,18 @@ CapabilityVerb = Literal["SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"]
 # 工具调用的结局。
 ToolResultStatus = Literal["success", "ack", "error", "cancelled"]
 
+# 由模型产生的事件：助手正文、思考与工具调用，只有它们记下来自第几次模型响应。
+_RESPONSE_EVENT_KINDS = frozenset({"assistant_message", "thought", "tool_call"})
+
 # 每种事件可以携带的可选字段；未列出的字段必须保持缺省（None 或空元组）。
 _EVENT_OPTIONAL_FIELDS: dict[str, frozenset[str]] = {
     "user_message": frozenset(),
-    "assistant_message": frozenset(),
-    "thought": frozenset(),
+    "assistant_message": frozenset({"response_index"}),
+    "thought": frozenset({"response_index"}),
     "subagent_message": frozenset(),
     "tool_call": frozenset(
         {
+            "response_index",
             "action_id",
             "tool_name",
             "verb",
@@ -126,6 +130,10 @@ class TurnEvent(BaseModel):
       因此不等于调用没有完成。
     - ``produced_aliases`` 是本次调用产出的 alias：WRITE、UPDATE 的 ACK 为
       pending alias，CALL 为子帧回填的产物，其他为空。
+    - ``response_index`` 是事件来自本轮第几次模型响应，从 1 起，只在助手正文、
+      思考与工具调用上。一次响应是模型的一次生成：可能带正文与思考，以及它
+      发出的若干调用。来源没有记下响应边界时（Codex，以及升级前的记录）整轮
+      都不带。
 
     单个事件的字段规则在构造时校验；一轮事件集的不变量由
     ``validate_turn_events`` 校验。
@@ -140,6 +148,9 @@ class TurnEvent(BaseModel):
     ]
     sequence: int
     content: str
+
+    # ---- 只在助手正文、思考与 tool_call 上 ----
+    response_index: int | None = Field(default=None, ge=1)
 
     # ---- 只在 tool_call 上 ----
     # 一次调用的标识，轮内唯一。
@@ -229,12 +240,15 @@ def validate_turn_events(events: Sequence[TurnEvent]) -> None:
     """校验一轮事件集的不变量，违反时抛出 ``ValueError``，不修补。
 
     - 首个事件是这一轮唯一的用户消息，序号为 0；序号轮内唯一、严格递增；
-    - 每个调用的 ``action_id`` 轮内唯一。
+    - 每个调用的 ``action_id`` 轮内唯一；
+    - 响应序号全有或全无：只要有一个事件带它，全部助手正文、思考与调用都带；
+      它随序号单调不减，因为一次响应的事件总在下一次响应之前写出。
     """
     if not events or events[0].kind != "user_message" or events[0].sequence != 0:
         raise ValueError("turn events must start with the user message at sequence 0")
     previous = 0
     calls: set[str | None] = set()
+    response_indexes: list[int | None] = []
     for event in events[1:]:
         if event.sequence <= previous:
             raise ValueError("turn event sequences must be strictly increasing")
@@ -245,6 +259,13 @@ def validate_turn_events(events: Sequence[TurnEvent]) -> None:
             if event.action_id in calls:
                 raise ValueError(f"duplicate tool_call action_id: {event.action_id}")
             calls.add(event.action_id)
+        if event.kind in _RESPONSE_EVENT_KINDS:
+            response_indexes.append(event.response_index)
+    present = [index for index in response_indexes if index is not None]
+    if present and len(present) != len(response_indexes):
+        raise ValueError("response_index must be on every model event of a turn or on none")
+    if present != sorted(present):
+        raise ValueError("response_index must not decrease with sequence")
 
 
 def turn_user_message(events: Sequence[TurnEvent]) -> str:

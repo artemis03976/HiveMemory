@@ -67,6 +67,7 @@ async def _settle(user_message: str, assistant_message: str):
     context = GenerationContext(
         turns=[
             GenerationTurn(
+                turn_id="turn-1",
                 user_message=user_message,
                 material_entries=[f"[Assistant]: {assistant_message}"],
                 identity=_IDENTITY,

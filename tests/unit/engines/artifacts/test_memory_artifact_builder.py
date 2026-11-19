@@ -15,7 +15,9 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import (
     ArtifactType,
+    CitedSegment,
     InteractionArtifact,
+    MemoryVersionArtifact,
     snapshot_memory_atom,
 )
 from hivememory.engines.artifacts.memory import MemoryArtifactBuilder, MemoryCreationBundle
@@ -140,6 +142,27 @@ async def test_build_for_update_keeps_memory_provenance_and_scope(store, identit
     assert data["snapshot_before"]["payload"]["content"] == "Initial content"
     assert data["snapshot_after"]["payload"]["content"] == "Updated content"
     assert "owner_agent_id" not in data
+
+
+@pytest.mark.asyncio
+async def test_version_record_keeps_cited_segments_and_older_records_read_without_them(
+    store, identity_scope
+):
+    """版本记录保存这一版引用的段；没有这个字段的旧记录照常读取，读作空列表。"""
+    cited = [CitedSegment(turn_id="turn-1", first_sequence=0, last_sequence=4)]
+
+    bundle = await MemoryArtifactBuilder(store).build_for_create(
+        memory=_make_atom(identity_scope),
+        context=GenerationContext(),
+        source_intent="SYSTEM",
+        source_artifact_refs=[],
+        cited_segments=cited,
+    )
+
+    stored = await store.get(identity_scope.workspace_identity, bundle.initial_version_ref)
+    assert MemoryVersionArtifact.model_validate(stored).cited_segments == cited
+    older = {key: value for key, value in stored.items() if key != "cited_segments"}
+    assert MemoryVersionArtifact.model_validate(older).cited_segments == []
 
 
 @pytest.mark.asyncio

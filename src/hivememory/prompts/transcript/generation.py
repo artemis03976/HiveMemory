@@ -11,15 +11,24 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
 
 每轮的材料由感知层唯一的渲染函数从事件集得到（``engines.perception.material``）：
 助手正文与动作按出现顺序穿插，能力调用只有一行摘要、不渲染取回的记忆，只有
-外部工具的结果按上限截断。这里只负责组装话题状态与各轮次。
+外部工具的结果按上限截断。每轮按感知层的切段规则分段
+（``engines.perception.segments``），材料在每段之前印出段标签，供模型引用；
+段标签只出现在送给模型的生成材料中，token 估算、接力摘要与历史转写都不带。
+这里只负责组装话题状态与各轮次。
 """
 
 from collections.abc import Sequence
 
 from hivememory.config.patchouli import GenerationTranscriptConfig
 from hivememory.core.models import LogicalBlock
-from hivememory.engines.generation.models import GenerationContext, GenerationTurn
+from hivememory.engines.generation.models import (
+    GenerationContext,
+    GenerationSegment,
+    GenerationTurn,
+    segment_label,
+)
 from hivememory.engines.perception.material import format_turn_material, render_turn_material
+from hivememory.engines.perception.segments import segment_turn
 
 
 class GenerationTranscriptBuilder:
@@ -63,12 +72,15 @@ class GenerationTranscriptBuilder:
             {state_summary}
 
             [Turn 1]
+            [Segment 1.1]
             [User]: ...
             - THOUGHT: ...
             - SEARCH: "..."
+            [Segment 1.2]
             [Assistant]: ...
             - TOOL: Bash {"command": "pytest -q"}
               RESULT (error): ...
+            [Segment 1.3]
             [Assistant]: ...
 
         Args:
@@ -87,21 +99,60 @@ class GenerationTranscriptBuilder:
     # ============ 内部方法 ============
 
     def _block_to_turn(self, block: LogicalBlock) -> GenerationTurn:
-        """将单个 LogicalBlock 转换为 GenerationTurn。"""
+        """将单个 LogicalBlock 转换为 GenerationTurn。
+
+        渲染是逐个事件进行的，逐段渲染再拼接与整轮渲染得到同样的条目。
+        """
+        events = block.turn_events
+        entries: list[str] = []
+        segments: list[GenerationSegment] = []
+        for segment in segment_turn(events):
+            rendered = render_turn_material(
+                [
+                    event
+                    for event in events
+                    if segment.first_sequence <= event.sequence <= segment.last_sequence
+                ],
+                self._config,
+            )
+            entries.extend(rendered)
+            segments.append(
+                GenerationSegment(
+                    first_sequence=segment.first_sequence,
+                    last_sequence=segment.last_sequence,
+                    entry_count=len(rendered),
+                )
+            )
         return GenerationTurn(
+            turn_id=block.turn.turn_id,
             outcome=block.turn.outcome,
             user_message=block.user_message,
-            material_entries=render_turn_material(block.turn_events, self._config),
+            material_entries=entries,
+            segments=segments,
             identity=block.identity,
         )
 
     @staticmethod
     def _format_turn(idx: int, turn: GenerationTurn) -> str:
-        """渲染单轮材料；结局不是 completed 时在轮首标注。"""
+        """渲染单轮材料；结局不是 completed 时在轮首标注，每段之前印出段标签。
+
+        第一段从用户消息开始。没有段的轮次（升级前保存的生成任务）不印标签。
+        """
         lines = [f"[Turn {idx}]"]
         if turn.outcome != "completed":
             lines.append(f"[Outcome: {turn.outcome}] This turn did not complete normally.")
-        lines.append(format_turn_material(turn.user_message, turn.material_entries))
+        if not turn.segments:
+            lines.append(format_turn_material(turn.user_message, turn.material_entries))
+            return "\n".join(lines)
+        start = 0
+        for number, segment in enumerate(turn.segments, 1):
+            entries = turn.material_entries[start : start + segment.entry_count]
+            start += segment.entry_count
+            lines.append(f"[Segment {segment_label(idx, number)}]")
+            if number == 1:
+                lines.append(format_turn_material(turn.user_message, entries))
+            else:
+                lines.extend(entries)
         return "\n".join(lines)
 
 

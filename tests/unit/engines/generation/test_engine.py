@@ -8,6 +8,7 @@ MemoryGenerationEngine 单元测试
 - Mode C: 正常 UPDATE / existing_memory=None / LLM 修订失败 fallback
 - 查重分支: IDENTICAL / SIMILAR / DISTINCT；命中本话题主动写入结算到的记忆时 Mode A 丢弃、
   Mode B 不提名合并
+- 段引用: 标签换算为轮次标识加事件区间，不存在的标签丢弃；退回草稿、追加修订与触碰不带
 - 纯计算边界: 引擎不改 version/updated_at/decay anchor/confidence，CREATE 用传入 now 打戳；
   多轮修订的 before 快照互不污染
 """
@@ -21,6 +22,7 @@ import pytest
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import (
     ActorIdentity,
+    CitedSegment,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -40,6 +42,7 @@ from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationAction,
     GenerationContext,
+    GenerationSegment,
     GenerationTurn,
     MergeResult,
     RevisionResult,
@@ -77,6 +80,7 @@ def _make_context_from_messages(messages: list[StreamMessage]) -> GenerationCont
         assistant_msg = messages[i + 1] if i + 1 < len(messages) else None
         turns.append(
             GenerationTurn(
+                turn_id=f"turn_{i}",
                 user_message=user_msg.content if user_msg else "",
                 material_entries=[f"[Assistant]: {assistant_msg.content}"] if assistant_msg else [],
                 identity=(
@@ -94,6 +98,7 @@ def _make_context_with_agents(agent_ids: list[str]) -> GenerationContext:
     return GenerationContext(
         turns=[
             GenerationTurn(
+                turn_id=f"turn_{i}",
                 user_message=f"q_{i}",
                 material_entries=[f"[Assistant]: a_{i}"],
                 identity=ActorIdentity(user_id="u1", agent_id=agent_id),
@@ -775,6 +780,7 @@ class TestGenerationEngineModeC:
             existing,
             revision_result,
             provenance=system_settlement_provenance(GenerationContext()),
+            cited_segments=[],
         )
 
         assert len(result) == 1
@@ -803,11 +809,13 @@ class TestGenerationEngineModeC:
             existing,
             RevisionResult(new_content="v2 content", changelog="first"),
             provenance=provenance,
+            cited_segments=[],
         )
         second = self.engine._apply_update(
             existing,
             RevisionResult(new_content="v3 content", changelog="second"),
             provenance=provenance,
+            cited_segments=[],
         )
 
         assert existing.payload.content == "v3 content"
@@ -836,6 +844,7 @@ class TestGenerationEngineModeC:
             existing,
             revision_result,
             provenance=provenance,
+            cited_segments=[],
         )
 
         assert len(result) == 1
@@ -886,6 +895,7 @@ class TestGenerationEngineDedup:
             system_settlement_provenance(GenerationContext()),
             from_actor=make_memory_identity_scope().actor_identity,
             now=FIXED_NOW,
+            cited_segments=[],
         )
 
         self.mock_storage.upsert.assert_not_called()
@@ -963,6 +973,7 @@ class TestGenerationEngineDedup:
             system_settlement_provenance(GenerationContext()),
             from_actor=make_memory_identity_scope().actor_identity,
             now=FIXED_NOW,
+            cited_segments=[],
         )
 
         self.mock_storage.upsert.assert_not_called()
@@ -989,10 +1000,138 @@ class TestGenerationEngineDedup:
             system_settlement_provenance(GenerationContext()),
             from_actor=make_memory_identity_scope().actor_identity,
             now=FIXED_NOW,
+            cited_segments=[],
         )
 
         assert result[0].action == GenerationAction.CREATE
         assert result[0].atom.index.summary == "摘" * MEMORY_SUMMARY_MAX_LENGTH
+
+
+def _segmented_context() -> GenerationContext:
+    """两轮带段的材料：第 1 轮一段，第 2 轮两段，标签依次为 1.1、2.1、2.2。"""
+    return GenerationContext(
+        turns=[
+            GenerationTurn(
+                turn_id="turn-a",
+                user_message="q1",
+                material_entries=["[Assistant]: a1"],
+                segments=[GenerationSegment(first_sequence=0, last_sequence=1, entry_count=1)],
+                identity=_make_identity(),
+            ),
+            GenerationTurn(
+                turn_id="turn-b",
+                user_message="q2",
+                material_entries=["[Assistant]: b1", "[Assistant]: b2"],
+                segments=[
+                    GenerationSegment(first_sequence=0, last_sequence=2, entry_count=1),
+                    GenerationSegment(first_sequence=3, last_sequence=7, entry_count=1),
+                ],
+                identity=_make_identity(),
+            ),
+        ]
+    )
+
+
+class TestCitedSegments:
+    """模型引用的段换算为轮次标识加事件区间，只随新建与修订交给提交。"""
+
+    def setup_method(self):
+        self.mock_storage = Mock()
+        self.mock_storage.search = AsyncMock(return_value=[])
+        self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
+        self.mock_extractor = AsyncMock()
+        self.mock_deduplicator = Mock()
+        self.engine = MemoryGenerationEngine(
+            mid_term=self.mock_storage,
+            extractor=self.mock_extractor,
+            deduplicator=self.mock_deduplicator,
+        )
+        self.identity = make_memory_identity_scope()
+
+    async def _process(self, request: GenerationRequest):
+        return await self.engine.process(
+            request,
+            belong_to=self.identity.workspace_identity,
+            from_actor=self.identity.actor_identity,
+            now=FIXED_NOW,
+        )
+
+    @pytest.mark.asyncio
+    async def test_passive_drafts_cite_segments_and_unknown_labels_are_dropped(self):
+        """被动草稿的标签按引用顺序去重后换算为区间，材料中不存在的标签丢弃；触碰不带引用。"""
+        self.mock_extractor.extract.return_value = [
+            _make_draft(title="决定").model_copy(
+                update={"source_segments": ["2.2", "9.1", "1.1", "2.2"]}
+            ),
+            _make_draft(title="重复").model_copy(update={"source_segments": ["2.1"]}),
+        ]
+        self.mock_deduplicator.check_duplicate.side_effect = [
+            (DuplicateDecision.DISTINCT, None),
+            (DuplicateDecision.IDENTICAL, _make_memory()),
+        ]
+
+        created, touched = await self._process(GenerationRequest(context=_segmented_context()))
+
+        assert created.cited_segments == [
+            CitedSegment(turn_id="turn-b", first_sequence=3, last_sequence=7),
+            CitedSegment(turn_id="turn-a", first_sequence=0, last_sequence=1),
+        ]
+        assert (touched.action, touched.cited_segments) == (GenerationAction.TOUCH, [])
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("model_draft", "expected"),
+        [
+            (
+                _make_draft().model_copy(update={"source_segments": ["2.1"]}),
+                [CitedSegment(turn_id="turn-b", first_sequence=0, last_sequence=2)],
+            ),
+            (ModelProviderError("provider down"), []),
+        ],
+        ids=["model-draft", "fallback-draft"],
+    )
+    async def test_write_cites_only_with_a_model_draft(self, model_draft, expected):
+        """主动写入的模型草稿带引用；提供商失败时退回的草稿没有模型引用的段。"""
+        self.mock_extractor.extract_write.side_effect = [model_draft]
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
+
+        [outcome] = await self._process(
+            GenerationRequest(context=_segmented_context(), write_focus=WriteFocus(content="内容"))
+        )
+
+        assert (outcome.action, outcome.cited_segments) == (GenerationAction.CREATE, expected)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("revision", "expected"),
+        [
+            (
+                RevisionResult(new_content="新内容", changelog="改", source_segments=["1.1"]),
+                [CitedSegment(turn_id="turn-a", first_sequence=0, last_sequence=1)],
+            ),
+            (None, []),
+        ],
+        ids=["model-revision", "appended-fallback"],
+    )
+    async def test_revision_cites_only_with_a_model_revision(self, revision, expected):
+        """修订带模型引用的段；模型没有产出时追加的修订不带引用。"""
+        existing = _make_memory()
+        self.mock_extractor.revise.return_value = revision
+        request = GenerationRequest(
+            context=_segmented_context(),
+            update_focus=UpdateFocus(
+                base_version=1,
+                instruction="更新",
+                content="追加内容",
+                base_uuid=str(existing.id),
+                base_alias="fact_test",
+            ),
+            existing_memory=existing,
+        )
+
+        [outcome] = await self._process(request)
+
+        assert (outcome.action, outcome.cited_segments) == (GenerationAction.UPDATE, expected)
 
 
 class TestGenerationEngineHelpers:
