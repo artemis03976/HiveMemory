@@ -57,6 +57,23 @@ def test_seal_interaction_turns_reply_only_output_into_an_assistant_event() -> N
     ]
 
 
+def test_seal_interaction_gives_the_appended_reply_the_last_response_index() -> None:
+    """补写的正文是最后一次响应交出的，取本轮最后一个响应序号，一轮仍满足全有或全无。"""
+    events = [
+        TurnEvent(kind="user_message", sequence=0, content="问题"),
+        TurnEvent(kind="thought", sequence=1, content="想一想", response_index=1),
+        TurnEvent(kind="tool_call", sequence=2, content="", action_id="a1", response_index=2),
+    ]
+
+    payload = seal_interaction(
+        turn_events=events, model_used="", used_attachments=[], final_text="完成"
+    )
+
+    assert payload.turn_events[-1] == TurnEvent(
+        kind="assistant_message", sequence=3, content="完成", response_index=2
+    )
+
+
 def test_interaction_payload_rejects_events_that_break_the_turn_invariants() -> None:
     """任何载荷的事件都以序号 0 的用户消息开头：缺少它时封口显式失败，不补写。"""
     with pytest.raises(ValidationError, match="start with the user message"):

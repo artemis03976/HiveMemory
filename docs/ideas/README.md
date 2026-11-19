@@ -37,7 +37,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 | [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 会话压缩与话题折叠的视图与摘要质量 |
 | [身份与访问体系](./identity-and-access-model.md) | 身份、认证与授权的单独主线 |
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | 长 turn 内的原子事件流、分段、封口与恢复 |
-| [试验场：在冻结的真实数据上低成本验证想法](./experiment-field.md) | 由 agent 在冻结的真实数据上快速做出想法的原型，判断是否值得工程化 |
+| [孵化场、试验场与垃圾回收场：低成本地定型、验证与搁置想法](./experiment-field.md) | 孵化场定型模糊的想法，试验场在冻结的真实数据上验证机制，垃圾回收场冷藏说不清的想法与失败的方案 |
 | [轻量化：模型依赖、运行内存与包体](./lightweight-footprint.md) | 减少模型依赖、常驻内存与安装包体积 |
 
 ## 长期方向与概念（`long-term`）

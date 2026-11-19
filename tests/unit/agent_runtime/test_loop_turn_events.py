@@ -180,7 +180,7 @@ async def test_natural_stop_produces_one_assistant_message_event():
     assert engine_result.status == FrameExecutionStatus.COMPLETED
     assert "".join(frame.progress.text_segments) == "Hello world"
     assert frame.progress.turn_events == [
-        TurnEvent(kind="assistant_message", sequence=0, content="Hello world")
+        TurnEvent(kind="assistant_message", sequence=0, content="Hello world", response_index=1)
     ]
 
 
@@ -286,7 +286,10 @@ async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
 
 @pytest.mark.asyncio
 async def test_single_mtp_produces_four_events():
-    """单次 MTP: 指令前正文 + 只含指令片段且带结局的调用 + 最终回复，working history 不变。"""
+    """单次 MTP: 指令前正文 + 只含指令片段且带结局的调用 + 最终回复，working history 不变。
+
+    同一次生成写出的正文与调用带同一个响应序号，下一次生成加一。
+    """
     frame = _make_frame()
     gen_results = [
         _mtp_result("查找中", "<< READ | alias_x >>"),
@@ -300,18 +303,19 @@ async def test_single_mtp_produces_four_events():
     assert "".join(frame.progress.text_segments) == "查找中找到了"
     fragment = f"<< READ | alias_x >> {MTP_RIGHT_DELIMITER}"
     assert frame.progress.turn_events == [
-        TurnEvent(kind="assistant_message", sequence=0, content="查找中"),
+        TurnEvent(kind="assistant_message", sequence=0, content="查找中", response_index=1),
         TurnEvent(
             kind="tool_call",
             sequence=1,
             content=fragment,
+            response_index=1,
             action_id="action_1_1",
             verb="READ",
             targets=("alias_x",),
             status="success",
             result='<mtp_response status="success">READ result</mtp_response>',
         ),
-        TurnEvent(kind="assistant_message", sequence=2, content="找到了"),
+        TurnEvent(kind="assistant_message", sequence=2, content="找到了", response_index=2),
     ]
     # 运行时的助手消息仍是指令前正文加指令片段的全文。
     assert frame.working_history[-2] == {"role": "assistant", "content": f"查找中{fragment}"}
@@ -338,6 +342,7 @@ async def test_unparseable_mtp_records_call_without_verb_and_error_outcome():
         kind="tool_call",
         sequence=0,
         content=f"<< READ alias_x >> {MTP_RIGHT_DELIMITER}",
+        response_index=1,
         action_id="action_1_0",
         status="error",
         result='<mtp_response status="error">parse error</mtp_response>',

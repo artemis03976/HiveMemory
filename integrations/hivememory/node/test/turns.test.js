@@ -17,6 +17,7 @@ function runTurn(session, turn, { inputs = [`input ${turn}`], outcome = 'complet
   return from
 }
 
+// 每条助手消息是一次模型响应：它的事件共用这一轮中它的序号，从 1 起。
 test('a turn maps text, thinking, tool calls with their results and the model', () => {
   const session = new PiSession()
   runTurn(session, 't1', {
@@ -37,11 +38,11 @@ test('a turn maps text, thinking, tool calls with their results and the model', 
   const [turn] = sessionTurns(session.entries, session.sessionId)
 
   assert.deepEqual(turn.events, [
-    { kind: 'thought', sequence: 1, content: 'plan it' },
-    { kind: 'assistant_message', sequence: 2, content: 'calling' },
-    { kind: 'tool_call', sequence: 3, content: '', action_id: 'c1', tool_name: 'bash', tool_args: { command: 'ls' }, status: 'success', result: 'files' },
-    { kind: 'tool_call', sequence: 4, content: '', action_id: 'c2', tool_name: 'read', tool_args: { path: 'a' }, status: 'error', result: 'missing' },
-    { kind: 'assistant_message', sequence: 5, content: 'reply t1' },
+    { kind: 'thought', sequence: 1, content: 'plan it', response_index: 1 },
+    { kind: 'assistant_message', sequence: 2, content: 'calling', response_index: 1 },
+    { kind: 'tool_call', sequence: 3, content: '', response_index: 1, action_id: 'c1', tool_name: 'bash', tool_args: { command: 'ls' }, status: 'success', result: 'files' },
+    { kind: 'tool_call', sequence: 4, content: '', response_index: 1, action_id: 'c2', tool_name: 'read', tool_args: { path: 'a' }, status: 'error', result: 'missing' },
+    { kind: 'assistant_message', sequence: 5, content: 'reply t1', response_index: 2 },
   ])
   assert.equal(turn.modelUsed, 'probe-model')
 })

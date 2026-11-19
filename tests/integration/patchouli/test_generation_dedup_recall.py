@@ -125,6 +125,7 @@ async def test_identical_draft_touches_existing_memory_through_real_recall(mid_t
     context = GenerationContext(
         turns=[
             GenerationTurn(
+                turn_id="turn-1",
                 user_message="PyTorch 怎么安装？",
                 identity=ActorIdentity(user_id=_USER_ID, agent_id="a1"),
             )

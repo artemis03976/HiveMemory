@@ -39,11 +39,22 @@ class TestTurnEventFields:
             ("assistant_message", {"status": "success", "result": "ok"}, "cannot carry"),
             ("assistant_message", {"action_id": "a1"}, "cannot carry: action_id"),
             ("subagent_message", {"status": "success", "result": "ok"}, "cannot carry"),
+            ("subagent_message", {"response_index": 1}, "cannot carry: response_index"),
+            ("user_message", {"response_index": 1}, "cannot carry: response_index"),
+            ("thought", {"response_index": 0}, "greater than or equal to 1"),
         ],
-        ids=["outcome-on-text", "action-id-on-text", "outcome-on-subagent-message"],
+        ids=[
+            "outcome-on-text",
+            "action-id-on-text",
+            "outcome-on-subagent-message",
+            "response-index-on-subagent-message",
+            "response-index-on-user-message",
+            "response-index-from-one",
+        ],
     )
     def test_call_fields_only_appear_on_tool_calls(self, kind, fields, match):
-        """调用标识与结局只在工具调用上；正文与子 Agent 交回的消息只有原文。"""
+        """调用标识与结局只在工具调用上；响应序号只在模型产生的事件上，从 1 起；
+        子 Agent 交回的消息只有原文。"""
         with pytest.raises(ValidationError, match=match):
             TurnEvent(kind=kind, sequence=1, content="", **fields)
 
@@ -107,10 +118,33 @@ class TestWithOutcome:
             done.with_outcome("error", "again")
 
 
+def _text(sequence: int, response_index: int | None = None) -> TurnEvent:
+    return TurnEvent(
+        kind="assistant_message", sequence=sequence, content="正文", response_index=response_index
+    )
+
+
+def _subagent(sequence: int) -> TurnEvent:
+    return TurnEvent(kind="subagent_message", sequence=sequence, content="子 Agent 的报告")
+
+
 class TestValidateTurnEvents:
     def test_accepts_turn_with_call_without_outcome(self):
         """没有结局的调用表示结局没有记录，是合法的一轮。"""
         validate_turn_events([_user(), _call(1, status="success", result="ok"), _call(2, "a2")])
+
+    def test_accepts_response_indexes_on_every_model_event_without_decreasing(self):
+        """同一次响应的事件共用序号，序号可以跳过；子 Agent 消息不带也不打断全有。"""
+        validate_turn_events(
+            [
+                _user(),
+                _text(1, 1),
+                _call(2, response_index=1),
+                _subagent(3),
+                _call(4, "a2", response_index=3),
+                _text(5, 3),
+            ]
+        )
 
     @pytest.mark.parametrize(
         ("events", "match"),
@@ -121,6 +155,8 @@ class TestValidateTurnEvents:
             ([_user(), _user(1)], "exactly one user message"),
             ([_user(), _call(1), _call(1, "a2")], "strictly increasing"),
             ([_user(), _call(1), _call(2)], "duplicate tool_call action_id"),
+            ([_user(), _text(1, 1), _call(2)], "every model event of a turn or on none"),
+            ([_user(), _text(1, 2), _call(2, response_index=1)], "must not decrease"),
         ],
         ids=[
             "empty",
@@ -129,6 +165,8 @@ class TestValidateTurnEvents:
             "second-user-message",
             "repeated-sequence",
             "duplicate-call",
+            "response-index-on-some-events",
+            "response-index-decreasing",
         ],
     )
     def test_rejects_turns_that_break_an_invariant(self, events, match):

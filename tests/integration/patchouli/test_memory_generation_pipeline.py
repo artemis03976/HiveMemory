@@ -8,13 +8,18 @@ import pytest
 
 from hivememory.config.patchouli import ArtifactConfig, DeduplicatorConfig
 from hivememory.core.models import (
+    ArtifactType,
+    CitedSegment,
     IndexLayer,
+    InteractionArtifact,
     MemoryAtom,
     MemoryType,
+    MemoryVersionArtifact,
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
     TopicFold,
+    TurnEvent,
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
@@ -568,6 +573,79 @@ def _draft(title: str, content: str) -> ExtractedMemoryDraft:
         has_value=True,
         alias_suffix="drafted",
     )
+
+
+@pytest.mark.asyncio
+async def test_passive_settlement_records_the_cited_segment_of_the_captured_turn(
+    memory_library, tmp_path
+):
+    """被动结算的材料按响应切段并印出标签；模型引用的段换算为轮次标识加事件区间，写进
+    新记忆的版本记录，被引用的轮次就在同一份版本记录指向的交互快照中。"""
+    store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+    block = make_logical_block(
+        turn_events=[
+            TurnEvent(kind="user_message", sequence=0, content="以后怎么部署"),
+            TurnEvent(kind="thought", sequence=1, content="先看脚本", response_index=1),
+            TurnEvent(
+                kind="tool_call",
+                sequence=2,
+                content="",
+                response_index=1,
+                action_id="toolu-1",
+                tool_name="Bash",
+                tool_args={"command": "cat deploy.sh"},
+            ),
+            TurnEvent(
+                kind="assistant_message", sequence=3, content="改为手动部署。", response_index=2
+            ),
+        ]
+    )
+    extractor = AsyncMock()
+    extractor.extract.return_value = [
+        _draft("部署改为手动", "部署改为手动").model_copy(update={"source_segments": ["1.2"]})
+    ]
+    engine = MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=extractor,
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+    )
+    _wire_generation_familiar(
+        bus, memory_library, engine, ArtifactEngine.from_store(store, ArtifactConfig(enabled=True))
+    )
+    scope = _identity_scope()
+
+    task = await coordinator.submit_settlement(
+        TopicMaterializeTask(
+            topic_id="topic_1",
+            topic_title="topic title",
+            interactions=(block,),
+            belong_to=scope.workspace_identity,
+        )
+    )
+    await controller.wait_task(task.task_id)
+
+    assert "[Segment 1.2]\n[Assistant]: 改为手动部署。" in extractor.extract.call_args.args[0]
+    [hit] = await memory_library.mid_term.search(
+        scope.workspace_identity,
+        query="部署",
+        top_k=1,
+        mode="dense",
+        from_actor=scope.actor_identity,
+    )
+    refs = {ref.artifact_type: ref for ref in hit["memory"].payload.artifacts.refs}
+    version = MemoryVersionArtifact.model_validate(
+        await store.get(scope.workspace_identity, refs[ArtifactType.MEMORY_VERSION])
+    )
+    snapshot = InteractionArtifact.model_validate(
+        await store.get(scope.workspace_identity, refs[ArtifactType.INTERACTION])
+    )
+    assert version.cited_segments == [
+        CitedSegment(turn_id=block.turn.turn_id, first_sequence=3, last_sequence=3)
+    ]
+    assert [turn.turn_id for turn in snapshot.turns] == [block.turn.turn_id]
 
 
 @pytest.mark.asyncio

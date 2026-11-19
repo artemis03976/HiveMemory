@@ -20,6 +20,7 @@ from hivememory.core.errors import ModelProviderError, WorkspaceMismatchError
 from hivememory.core.models import (
     HISTORICAL_MEMORY_TYPES,
     ActorIdentity,
+    CitedSegment,
     IndexLayer,
     MemoryAccessPolicy,
     MemoryAtom,
@@ -44,6 +45,7 @@ from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
     GenerationAction,
+    GenerationContext,
     GenerationOutcome,
     GenerationRequest,
     RevisionResult,
@@ -171,6 +173,8 @@ class MemoryGenerationEngine:
 
         查重命中本话题主动写入结算到的记忆时丢弃草稿：被动提取会从同一份材料
         里重新推导出 agent 已经写入的内容，并入后会以较新的被动草稿为骨架改写它。
+
+        每条草稿引用的段换算为事件区间，随新建的记忆交给提交。
         """
         logger.debug("[Mode A] 开始处理...")
 
@@ -195,6 +199,7 @@ class MemoryGenerationEngine:
                 provenance,
                 from_actor=from_actor,
                 now=now,
+                cited_segments=_cite(request.context, draft.source_segments),
                 taken_aliases=taken_aliases,
                 dropped_on_hit=request.topic_write_memory_ids,
             )
@@ -221,6 +226,7 @@ class MemoryGenerationEngine:
         Agent 明确要求保存，以 WriteFocus 为核心，对话历史为背景。
         包含 fallback 机制：提供商失败或输出无法解析时直接从 WriteFocus 构建
         草稿，明确的保存意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级。
+        退回的草稿没有模型引用的段。
 
         相似命中本话题其他主动写入结算到的记忆时照常新建、不提名合并：同一话题里
         agent 分开写的记忆是有意分开的。
@@ -251,6 +257,7 @@ class MemoryGenerationEngine:
             provenance_from_actor(from_actor, request.context),
             from_actor=from_actor,
             now=now,
+            cited_segments=_cite(request.context, draft.source_segments),
             kept_apart_from=request.topic_write_memory_ids,
         )
 
@@ -288,6 +295,7 @@ class MemoryGenerationEngine:
         Agent 请求修改已有记忆，以 UpdateFocus 为核心。
         LLM 执行修订，生成新内容和变更日志。
         包含 fallback 机制：提供商失败或输出无法解析时直接拼接；程序错误不降级。
+        追加的修订没有模型引用的段。
         """
         # 从内存索引中获取原始记忆
         existing = request.existing_memory
@@ -341,6 +349,7 @@ class MemoryGenerationEngine:
             existing,
             revision_result,
             provenance=provenance_from_actor(from_actor, request.context),
+            cited_segments=_cite(request.context, revision_result.source_segments),
         )
 
     def _build_update_fallback(
@@ -403,6 +412,7 @@ class MemoryGenerationEngine:
         result: RevisionResult,
         *,
         provenance: MemoryProvenance,
+        cited_segments: list[CitedSegment],
     ) -> list[GenerationOutcome]:
         """
         执行内容修订（纯计算）。持久化、版本分配与内容时间由 Familiar 在
@@ -411,6 +421,7 @@ class MemoryGenerationEngine:
         1. 捕获变更前完整原子（深拷贝，供版本记录与 embedding 输入对比）
         2. 覆盖 payload.content
         3. 并入本次生成的贡献者集合
+        4. 带上修订引用的段，没有新版本（TOUCH）时不带
 
         ``meta.version``/``updated_at``/``decay_anchor_at``/``confidence_score``
         的赋值全部发生在 Familiar 的提交边界（使用同一个 ``now``）。
@@ -454,6 +465,7 @@ class MemoryGenerationEngine:
                 action=GenerationAction.UPDATE,
                 memory_before_snapshot=before_snapshot,
                 changelog=result.changelog,
+                cited_segments=cited_segments,
             )
         ]
 
@@ -465,6 +477,7 @@ class MemoryGenerationEngine:
         *,
         from_actor: ActorIdentity,
         now: datetime,
+        cited_segments: list[CitedSegment],
         taken_aliases: Collection[str] = (),
         dropped_on_hit: Collection[str] = (),
         kept_apart_from: Collection[str] = (),
@@ -476,6 +489,7 @@ class MemoryGenerationEngine:
             draft: 提取的草稿
             belong_to: 已验证的 Workspace ownership 来源
             provenance: 本次生成的来源裁定（操作来源主体与内容贡献者）
+            cited_segments: 草稿引用的段，只随新建交给提交；触碰没有新版本，不带
             taken_aliases: 同一批中已分配、尚未落库的别名，新建时视为已占用
             dropped_on_hit: 记忆 ID；查重为 IDENTICAL 或 SIMILAR 且命中其中一条时
                 丢弃草稿，不新建、不触碰、不提名合并
@@ -557,6 +571,7 @@ class MemoryGenerationEngine:
                 atom=memory,
                 action=GenerationAction.CREATE,
                 merge_target_id=merge_target_id,
+                cited_segments=cited_segments,
             )
         ]
 
@@ -634,6 +649,16 @@ class MemoryGenerationEngine:
                 content=draft.content,
             ),
         )
+
+
+def _cite(context: GenerationContext, labels: list[str]) -> list[CitedSegment]:
+    """把模型引用的段标签换算为事件区间；材料中不存在的标签丢弃并记一条日志。"""
+    cited = context.cited_segments(labels)
+    # 一个标签只对应一段，去重后的标签数与换算出的段数之差就是不存在的标签数。
+    dropped = len(set(labels)) - len(cited)
+    if dropped:
+        logger.info("模型引用了材料中不存在的段，已丢弃: count=%d", dropped)
+    return cited
 
 
 def _producible_memory_type(value: str) -> MemoryType | None:

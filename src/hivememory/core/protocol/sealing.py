@@ -29,7 +29,9 @@ def seal_interaction(
     ``turn_events`` 与 ``model_used`` 来自执行结果或导入的记录，
     ``used_attachments`` 是附件编译冻结的实际使用引用。``final_text`` 是执行方
     交出的回复正文：执行方允许只返回正文、不写助手正文事件，这时在末尾补成
-    一条事件，感知层仍只读取事件。
+    一条事件，感知层仍只读取事件。补写的正文是最后一次模型响应交出的，带本轮
+    最后一个响应序号；本轮没有记下响应序号时不带，一轮的响应序号因此仍全有
+    或全无。
     """
     events = list(turn_events)
     if final_text and not any(event.kind == "assistant_message" for event in events):
@@ -38,6 +40,10 @@ def seal_interaction(
                 kind="assistant_message",
                 sequence=max((event.sequence for event in events), default=-1) + 1,
                 content=final_text,
+                response_index=max(
+                    (event.response_index for event in events if event.response_index),
+                    default=None,
+                ),
             )
         )
     return InteractionPayload(

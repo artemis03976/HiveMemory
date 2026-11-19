@@ -8,6 +8,7 @@ function body(log, index = 0) {
   return importBody(log.id, sessionTurns(log.snapshot()), index, 'dsh')
 }
 
+// 每一步恰好形成一条助手消息，步号就是响应序号：同一步的思考与调用共用它，下一步加一。
 test('a turn maps reasoning, text, tool calls with their results and the model', () => {
   const log = new SessionLog()
     .startTurn(1)
@@ -26,18 +27,19 @@ test('a turn maps reasoning, text, tool calls with their results and the model',
   assert.equal(imported.user_message, 'list files')
   assert.equal(imported.model_used, 'deepseek-flash')
   assert.deepEqual(imported.events, [
-    { kind: 'thought', sequence: 1, content: 'look first' },
+    { kind: 'thought', sequence: 1, content: 'look first', response_index: 1 },
     {
       kind: 'tool_call',
       sequence: 2,
       content: '',
+      response_index: 1,
       action_id: 'c1',
       tool_name: 'bash',
       tool_args: { command: 'ls' },
       status: 'success',
       result: 'a.txt',
     },
-    { kind: 'assistant_message', sequence: 3, content: 'one file' },
+    { kind: 'assistant_message', sequence: 3, content: 'one file', response_index: 2 },
   ])
 })
 
@@ -68,7 +70,7 @@ test('the four memory tools become capability calls without the turn parameter',
     .toolCall('u', 'memory_update', { alias: 'mem_a', instruction: 'fix', turn: { forged: true } })
     .endTurn(1)
 
-  const calls = body(log).events.map(({ kind, sequence, content, ...call }) => call)
+  const calls = body(log).events.map(({ kind, sequence, content, response_index, ...call }) => call)
 
   assert.deepEqual(calls, [
     { action_id: 's', verb: 'SEARCH', tool_args: { query: 'dsh' } },

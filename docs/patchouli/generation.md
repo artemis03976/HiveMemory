@@ -64,9 +64,11 @@ Generation 不再消费拼接的 `context_messages`。`GenerationTranscriptBuild
 GenerationContext
   ├─ state_summary
   └─ GenerationTurn[]
+       ├─ turn_id
        ├─ outcome（completed/cancelled/failed）
        ├─ user_message
        ├─ material_entries（用户消息之后的材料条目，只有工具结果按上限截断）
+       ├─ segments（GenerationSegment[]：事件序号区间与渲染出的条目数，第 2.2 节）
        └─ identity
 ```
 
@@ -99,6 +101,31 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 渲染与截断规则的回归入口为 [材料测试](../../tests/unit/engines/perception/test_material.py)，转写格式见 [生成视图构建器测试](../../tests/unit/engines/generation/test_generation_transcript_builder.py)。
 
 `GenerationTranscriptBuilder` 将 `TurnRecord.outcome` 传给 `GenerationTurn`；cancelled/failed 在转写的轮首附 `[Outcome: ...]` 和未正常完成的说明，避免把半截回复视为完整结论。
+
+### 2.2 段标签与记忆引用
+
+生成的记忆要能指回具体的交互：被动结算下的复核要指出依据在哪几段，要看到写入与更新发生在哪里。这只能由模型在生成时给出，事后无法重建。构建器按感知层的切段规则把每轮切段（[感知与短期话题](./perception.md#2-结构化摄入)），`GenerationTurn` 带上 `turn_id` 与各段；逐段渲染再拼接与整轮渲染得到同样的条目，各段记下事件序号区间与渲染出的条目数。转写在每段之前印出段标签 `[Segment 位置.段号]`，位置是这一轮在材料中的序数（与 `[Turn N]` 相同），第一段从用户消息开始：
+
+```text
+[Turn 2]
+[Segment 2.1]
+[User]: …
+- TOOL: …
+[Segment 2.2]
+[Assistant]: …
+```
+
+段标签只出现在送给模型的生成材料中：渲染函数本身不带标签，token 估算、接力摘要与 Alice 的历史转写不受影响。升级前保存的生成任务（第 6 节）没有段，转写不印标签。
+
+模型输出中的 `source_segments` 是支撑这一条内容的段标签：被动提取与主动写入的格式说明由 `ExtractedMemoryDraft` 的 JSON Schema 自动带上这个字段，修订的 JSON 格式在中英文提示词中手写补上（`RevisionResult.source_segments`）；三类提示词都说明段标签的写法，并要求只引用直接支撑这条内容的段，话题状态摘要中的内容没有段、不引用。引用的容错按“只丢弃这一处引用”处理：
+
+- 格式不对（不是形如 `2.3` 的字符串，或整个字段不是列表）的引用在解析时丢弃，不让草稿或整份被动输出作废；
+- 材料中不存在的标签丢弃，并记一条 INFO 日志（`count`）；
+- 退回的草稿（Mode B 提供商失败或输出无法解析）与追加的修订（Mode C）没有模型引用的段。
+
+引擎把合格的标签按引用顺序去重，换算为 `CitedSegment`（轮次标识加首尾都包含的事件序号区间），经 `GenerationOutcome.cited_segments` 交给提交；新建（含查重为相似时的新建）与修订带引用，查重命中而只触碰已有记忆（TOUCH）时不带。Familiar 把它写进这一版的 MemoryVersionArtifact（第 5 节），合并与手动编辑的版本记录为空。被引用的轮次就在同一份版本记录 `source_artifacts` 指向的交互快照中；被动结算捕获话题的全部交互，主动写入与修订捕获作为背景的最近几轮。引用不进入记忆原子、`ArtifactRef` 与 Qdrant 载荷，管理接口与 MCP 的读取都不返回它；生成侧现在也没有读取方，它供之后对已有记忆的复核读取。
+
+在 1,216 轮真实 Claude Code 记录拼成的材料上回放被动提取（deepseek-chat，30 份材料各 3 次），引用全部格式合格、标签全部存在，同一份材料各次运行引用的段集合两两 Jaccard 均值 0.90；抽查中多数引用指向事实或决定所在的段，少数偏向这一轮开头的段。引用没有标准答案，准确性只能靠合格率、一致性与抽查判断。回放工具是 `scripts/memory_replay.py` 的 `turns-claude-code`、`segments`、`extract-turns` 与 `citations` 子命令。
 
 ## 3. 三种生成模式
 
@@ -262,7 +289,7 @@ Agent Profile 不是记忆，不经过 Familiar：它是 AgentProfileStore 中�
 PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
 ```
 
-私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.2"`，`spec` 独立编码归属与发起者。另注册 `"1.1"` 的读取器，只用于读回升级前保存的工作：1.1 的修订没有 `base_version`，读回时取任务构建时读到的基础记忆（`existing_memory`）的版本，修订以这一版为底计算，此后被修改过的基础照常拒绝写回；补齐后按 1.2 的规则严格解码。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`，队列本身不持久化；版本化载荷用于进程内冻结和一致性校验，也是关闭时保存工作的格式（第 6.2 节）。保存的载荷在下次启动时由另一个进程解码并重新编码比对，因此载荷必须与进程无关：`GenerationRequest.topic_write_memory_ids` 按排序输出。改动信封格式时，同一改动必须让新版本读得回上一版本保存的工作，否则这些工作在升级后进入 rejected 文件。
+私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.3"`，`spec` 独立编码归属与发起者；1.3 起生成材料的轮次带 `turn_id` 与段，交互记录的事件带响应序号。另注册两个读取器，只用于读回升级前保存的工作：`"1.2"` 的材料没有轮次标识与段、事件没有响应序号，读回时补成空串、空列表与空值，工作照常执行，材料不印段标签，生成的版本记录也就不带引用；`"1.1"` 的修订另外没有 `base_version`，读回时取任务构建时读到的基础记忆（`existing_memory`）的版本，修订以这一版为底计算，此后被修改过的基础照常拒绝写回，然后按 1.2 的读回规则继续补齐。补齐后都按当前版本的规则严格解码。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`，队列本身不持久化；版本化载荷用于进程内冻结和一致性校验，也是关闭时保存工作的格式（第 6.2 节）。保存的载荷在下次启动时由另一个进程解码并重新编码比对，因此载荷必须与进程无关：`GenerationRequest.topic_write_memory_ids` 按排序输出。改动信封格式时，同一改动必须让新版本读得回上一版本保存的工作，否则这些工作在升级后进入 rejected 文件。
 
 `WorkRecord` 是执行状态的唯一真相源，Queue 的 `TaskHandle` 提供 snapshot/wait/cancel；
 TaskController 只在查询时映射非终态快照，并在 work 终止后执行一次 settlement 与终态事件。

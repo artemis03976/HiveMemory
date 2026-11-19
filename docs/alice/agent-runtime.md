@@ -170,6 +170,7 @@ MTP 生成器只识别 MTP 左定界符，并在 stop sequence 截断了右定�
 
 - 指令前正文只记在它自己的 `assistant_message` 中，调用事件的 `content` 只存指令片段；运行时 working history 中的助手消息仍是两者的全文，重放时再合并。
 - 一次指令就是一个 `tool_call`，以 `action_{iteration}_{sequence}` 为 `action_id`。`verb`、`targets`、`tool_args` 取自解析出的指令；指令无法解析时三者为空、只有原文，结局为 error。
+- 助手正文与调用的 `response_index` 取 `iteration`：`iteration` 在每次生成前加一，同一次生成写出的指令前正文、调用与最终正文带同一个序号，下一次生成加一；取消或失败时封入的半截正文带当时这次生成的序号。CALL 回填后重入同一帧时接着已有的 `iteration` 编号。
 - Koakuma 返回后，调用连同结局一起写出：`status` 是响应状态，`result` 是带本地化标题的回填文本，`produced_aliases` 是 ACK 登记的 pending alias。执行中被取消时这次调用不记录。
 - CALL 挂起时只写出没有结局的调用；回填时 `apply_call_response` 按 `action_id` 找到它，以 `TurnEvent.with_outcome` 补全子帧结局、格式化的 CALL 响应与子帧产出的 alias，序号不变、事件不增加。补全只能发生一次，再次回填显式失败，防止把两次返回记到同一个调用上。挂起后被取消的 CALL 因此留下没有结局的调用。
 - 生成器只在文本含左定界符时报告 MTP 中断，执行器对这样的文本总会给出结果（解析失败也是 error 结果）；执行器没有结果说明两者的约定被破坏，循环以异常显式失败，不伪造失败结局。

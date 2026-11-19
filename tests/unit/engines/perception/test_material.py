@@ -63,19 +63,29 @@ DEFAULTS = GenerationTranscriptConfig()
 
 
 def test_assistant_text_is_interleaved_between_actions_in_order():
-    """助手正文与动作按出现顺序穿插，不再把全部动作排在回复之前。"""
+    """助手正文与动作按出现顺序穿插，不再把全部动作排在回复之前。
+
+    带响应序号的轮次同样不印段标签：token 估算与接力摘要使用这里的渲染，段标签只出现在
+    送给生成模型的材料中。
+    """
     events = _turn(
-        _thought("先查记忆"),
+        {**_thought("先查记忆"), "response_index": 1},
         _call(
             "s",
             None,
             verb="SEARCH",
             tool_args={"query": "Import Bus 4xx 游标"},
             result="已有记忆正文",
+            response_index=1,
         ),
-        _text("找到一条相关记忆，再核对一下代码。"),
-        _call("bash", tool_args={"command": "rg -n advance"}, result="238: self._advance(path)"),
-        _text("连接器遇到 4xx 会推进游标。"),
+        {**_text("找到一条相关记忆，再核对一下代码。"), "response_index": 2},
+        _call(
+            "bash",
+            tool_args={"command": "rg -n advance"},
+            result="238: self._advance(path)",
+            response_index=2,
+        ),
+        {**_text("连接器遇到 4xx 会推进游标。"), "response_index": 3},
         user="Import Bus 遇到 4xx 时游标怎么处理？",
     )
 

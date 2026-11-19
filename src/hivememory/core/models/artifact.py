@@ -305,6 +305,21 @@ class DocumentArtifact(BaseArtifact):
 # ============ MemoryCreationArtifact / MemoryVersionArtifact ============
 
 
+class CitedSegment(BaseModel):
+    """一版记忆引用的一段交互：轮次标识加这一轮中首尾都包含在内的事件序号区间。
+
+    轮次标识跨交互快照唯一，被引用的轮次就在同一份版本记录 ``source_artifacts``
+    指向的交互快照中，引用因此不依赖取自哪份快照。区间在生成时由模型引用的段
+    换算得到，此后切段规则调整也不改变已保存的引用。
+    """
+
+    turn_id: str
+    first_sequence: int
+    last_sequence: int
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+
 class MemoryInputRef(BaseModel):
     """记忆输入引用 - 记录生成时引用了哪些已有记忆"""
 
@@ -353,6 +368,11 @@ class MemoryVersionArtifact(BaseArtifact):
 
     来源 provenance 复用 core 的 ``MemoryProvenance``；版本更新保留已有来源
     事实，不引入 Agent owner 语义。
+
+    ``cited_segments`` 是生成这一版的模型引用的交互段：被动新建、主动写入新建
+    与修订时写入，模型没有引用、引用不合格或退回草稿与追加修订时为空；合并与
+    手动编辑没有交互材料，同样为空。它只留在版本记录中，不进入记忆原子与
+    ``ArtifactRef``。缺少该字段的旧记录读作空列表。
     """
 
     artifact_type: Literal[ArtifactType.MEMORY_VERSION] = ArtifactType.MEMORY_VERSION
@@ -370,6 +390,7 @@ class MemoryVersionArtifact(BaseArtifact):
     changelog: str | None = None
     source_artifacts: list[ArtifactRef] = Field(default_factory=list)
     source_memory_refs: list[MemoryInputRef] = Field(default_factory=list)
+    cited_segments: list[CitedSegment] = Field(default_factory=list)
     changed_at: datetime = Field(default_factory=utc_now)
 
     @field_validator("changed_at")

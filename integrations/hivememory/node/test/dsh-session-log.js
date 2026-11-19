@@ -1,4 +1,9 @@
-/** 测试辅助：按 dsh 会话事件的形状构造 `sessionQuery.readSession` 的读取结果。 */
+/**
+ * 测试辅助：按 dsh 会话事件的形状构造 `sessionQuery.readSession` 的读取结果。
+ *
+ * 步号与真实会话记录一致：每轮从 1 起，每一步恰好形成一条助手消息，同一轮的下一条
+ * 助手消息开启下一步；工具调用与结果带发出它的那一步的步号。
+ */
 
 export class SessionLog {
   /** `parentSession` 给出时是 dsh 为子 Agent 创建的会话，会话头带来源 `subagent`。 */
@@ -7,6 +12,8 @@ export class SessionLog {
     this.inheritedEventCount = inheritedEventCount
     this.header = parentSession === undefined ? { id } : { id, parentSession, origin: 'subagent' }
     this.events = []
+    this.step = 1
+    this.stepHasMessage = false
   }
 
   add(type, data) {
@@ -15,6 +22,8 @@ export class SessionLog {
   }
 
   startTurn(turn) {
+    this.step = 1
+    this.stepHasMessage = false
     return this.add('turn/start', { turn })
   }
 
@@ -27,9 +36,11 @@ export class SessionLog {
   }
 
   assistant(content, model = 'deepseek-flash') {
+    if (this.stepHasMessage) this.step += 1
+    this.stepHasMessage = true
     return this.add('assistant/message', {
       turn: 0,
-      step: 0,
+      step: this.step,
       message: { role: 'assistant', content, source: { kind: 'model', provider: 'deepseek', model } },
       stream: [],
     })
@@ -37,13 +48,13 @@ export class SessionLog {
 
   toolCall(callId, name, args) {
     const raw = typeof args === 'string' ? args : JSON.stringify(args)
-    return this.add('tool/call', { turn: 0, step: 0, callId, name, arguments: raw })
+    return this.add('tool/call', { turn: 0, step: this.step, callId, name, arguments: raw })
   }
 
   toolResult(callId, text, isError = false) {
     return this.add('tool/result', {
       turn: 0,
-      step: 0,
+      step: this.step,
       message: {
         role: 'tool',
         toolCallId: callId,

@@ -28,6 +28,9 @@
   条目，读到即视为该轮已被中断。
 - 助手条目的内容块：``text`` → 助手消息，``thinking`` → 思考（没有正文的跳过），
   ``tool_use`` → 工具调用（标识、工具名与输入，本插件自身的工具见下方）；
+  它们都带响应序号：一条 API 消息是一次模型响应，按消息标识在本轮首次写出
+  事件的顺序从 1 编号，同一条消息分成的多个条目共用一个序号，没有写出事件的
+  消息不占序号；
   用户条目中的 ``tool_result`` 按 ``tool_use_id`` 补全到同一轮的调用上，作为
   它的结局（``is_error`` 为真时状态为 ``error``，否则为 ``success``），找不到
   调用的结果跳过。同一条消息并行发出多个调用时，Claude Code 有时只记下最后
@@ -107,6 +110,12 @@ class _TurnBuilder:
     interrupted: bool = False
     last_stop_reason: str | None = None
     seen_blocks: set[str] = field(default_factory=set)
+    # 本轮写出过事件的 API 消息标识到响应序号。
+    responses: dict[str, int] = field(default_factory=dict)
+
+    def response_index(self, message_id: str) -> int:
+        """消息标识对应的响应序号：第一次写出事件时取下一个序号，此后沿用。"""
+        return self.responses.setdefault(message_id, len(self.responses) + 1)
 
     def add_event(self, kind: str, content: str, **fields: Any) -> None:
         event = {"kind": kind, "sequence": len(self.events) + 1, "content": content}
@@ -332,6 +341,7 @@ def _add_assistant_block(
         turn.add_event(
             "tool_call",
             "",
+            response_index=turn.response_index(message_id),
             action_id=action_id,
             **tool_call_fields(tool_name, _PLUGIN_TOOLS.get(tool_name), tool_args),
         )
@@ -349,7 +359,7 @@ def _add_assistant_block(
     if not text.strip() or key in turn.seen_blocks:
         return
     turn.seen_blocks.add(key)
-    turn.add_event(kind, text)
+    turn.add_event(kind, text, response_index=turn.response_index(message_id))
 
 
 def _add_tool_result(turn: _TurnBuilder, block: dict[str, Any]) -> None:

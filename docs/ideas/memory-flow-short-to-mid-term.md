@@ -293,7 +293,7 @@ last_reviewed: 2026-11-18
 | 第一当事人"没写"算不算判断；主动写入何时生效 | 前一问开放，后一问已决定，[写入链路](./memory-flow-write-path.md)第 5 节 |
 | 什么值得写成记忆 | 开放，[写入链路](./memory-flow-write-path.md)第 2.4 节 |
 | 修订的形态（结构化判定、局部修改） | 候选设计，[写入链路](./memory-flow-write-path.md)第 2.1 节 |
-| 证据定位到轮次或事件 | [计划](../plans/v0.8.0-memory-turn-provenance.md)已建立，[写入链路](./memory-flow-write-path.md)第 5 节 |
+| 证据定位到轮次或事件 | 已实施（2026-11-18）：记忆的版本记录引用到段，见[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)；[写入链路](./memory-flow-write-path.md)第 5 节 |
 | 结算时机与"一段经历是否结束"的关系 | 只提过，没有讨论 |
 | 保存形态 | 开放，[库的形状](./memory-library-shape-and-index.md)第 4.2 节 |
 | 短期记忆在新流转中的定义 | 开放，[写入链路](./memory-flow-write-path.md)第 2.2 节 |
@@ -362,4 +362,4 @@ owner 每天实际使用 HiveMemory，这本身就是现成的长程试验场；
 - owner 判断仍开放的两项：主动写入生成时的材料（[写入链路](./memory-flow-write-path.md)第 5 节）与保存形态（[库的形状](./memory-library-shape-and-index.md)第 4.2 节）；[库的形状](./memory-library-shape-and-index.md)第 4.1 节与[写入链路](./memory-flow-write-path.md)第 5 节的被动一侧已于 2026-11-15 决定。统一交互记忆 Idea 第 5 节中仍开放的是"没写"算不算判断；写入链路上其余未定论的事项见第 4.1 节。
 - 确定 v0.8 用什么评判新的流转更好：样本统计不作为依据（第 1.2 节），候选的评判方式见第 4.2 节（单轮不交记忆税，长程看演化质量与人工介入），尚未决定；公开评测集的选择与接入见[评测集](./memory-evaluation-benchmarks.md)第 6、7 节。
 - 类型体系：首份计划的范围已于 2026-11-16 决定，2026-11-17 定为 v0.8.0 的第一个方向，同日实施并归档（[类型体系](./memory-type-system.md)第 7 节开头）；内容类别的重新划分搁置（同文第 9.2、10 节）。
-- 下一份计划的切片（owner，2026-11-18）：先让生成出来的记忆指向具体的交互轮次（[写入链路](./memory-flow-write-path.md)第 5 节，[计划](../plans/v0.8.0-memory-turn-provenance.md)已建立），再做馆长的第一步，以固定流程对照已有记忆复核、输出结构化判定（同文第 2.1、3.1 节）；类型的更迭的两份计划已完成（[类型体系](./memory-type-system.md)第 7 节开头）。
+- 下一份计划的切片（owner，2026-11-18）：先让生成出来的记忆指向具体的交互轮次（[写入链路](./memory-flow-write-path.md)第 5 节，2026-11-18 已实施），再做馆长的第一步，以固定流程对照已有记忆复核、输出结构化判定（同文第 2.1、3.1 节）；类型的更迭的两份计划已完成（[类型体系](./memory-type-system.md)第 7 节开头）。

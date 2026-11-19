@@ -45,7 +45,7 @@ related_plans:
   - docs/archive/plans/codex-plugin-integration.md
   - docs/archive/plans/pi-plugin-integration.md
   - docs/archive/plans/claude-code-wake-turns.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-18
 ---
 
 # Import Bus
@@ -94,7 +94,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | `agent_id` | 连接器所代表的具体 Agent，只作为认证声明，不进入导入记录 |
 | `outcome` | `completed`、`cancelled` 或 `failed`，与 `InteractionOutcome` 相同 |
 | `user_message` | 该轮的用户消息 |
-| `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）：`kind`（`assistant_message`、`thought`、`subagent_message`、`tool_call`）、`sequence`（从 1 起严格递增）、`content`；`subagent_message` 是被委托的子 Agent 结束时交回的消息，只带 `content`；工具调用另带轮内唯一的 `action_id`、`tool_name` 或 `verb`、`targets`、`tool_args`，有结局时带成对的 `status` 与 `result` |
+| `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）：`kind`（`assistant_message`、`thought`、`subagent_message`、`tool_call`）、`sequence`（从 1 起严格递增）、`content`；`subagent_message` 是被委托的子 Agent 结束时交回的消息，只带 `content`；助手正文、思考与工具调用可以带 `response_index`（来自这一轮第几次模型响应，从 1 起，要么三种事件都带、要么都不带，随 `sequence` 单调不减）；工具调用另带轮内唯一的 `action_id`、`tool_name` 或 `verb`、`targets`、`tool_args`，有结局时带成对的 `status` 与 `result` |
 | `model_used` | 实际使用的模型名，可为空 |
 | `recent_turns` | 该轮之前的若干轮（`user_message`、`assistant_text`、可选 `external_turn_id`），只供 Gateway 路由，不进入交互记录 |
 
@@ -102,7 +102,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 - 一次工具调用与它的结局是同一个 `tool_call` 事件：`status` 为 `success`，出错为 `error`，`result` 是结果正文；会话记录没有记下结果的调用不带结局（第 8.3 节）。
 - `verb` 标记对 HiveMemory 能力层的记忆操作，与 Alice 的 MTP 动词同一词表，与 `tool_name` 互斥。外部 harness 经 HiveMemory 的 MCP 工具检索、读取、写入与更新，导入因此接受 `SEARCH`、`READ`、`WRITE` 与 `UPDATE`，其他取值以 422 拒绝；`READ` 与 `UPDATE` 必须带非空的 `targets`（所读的 alias、被修改的 alias），否则生成视图无法说明读了或改了哪些记忆。外部 harness 经 MCP 取回的记忆、显式写入与更新的内容会作为工具调用留在会话记录里并随本轮导入；生成视图对 `SEARCH`、`READ` 只保留一行摘要（`SEARCH: "查询"`、`READ: a, b`）、不渲染结果，`WRITE`、`UPDATE` 不渲染，与 Alice 的 MTP 写出同形的事件、渲染相同，因此不会把已有记忆或已显式写入的内容再提取一遍（回声）；其他外部工具只带 `tool_name`，生成视图把它们按工具名、参数摘要与截断后的结果渲染（[生成](../patchouli/generation.md)）。哪些调用归一化为能力调用由连接器按 [MCP 记忆访问](../contracts/mcp.md#6-连接器调用名轮次信息与回声标记)的工具名对应负责，交互记录与 Artifact 仍保存包括结果在内的原始事件。
 - 事件不接受 `produced_aliases`：外部 harness 不产出正式 alias，写入与更新返回的 pending alias 只留在工具结果中。
-- 单个事件的字段规则与一轮的不变量在请求校验阶段执行，与封口时相同：序号重复或回退、调用标识重复、字段出现在不允许的种类上或结局字段不成对时，整轮以 422 拒绝，不等到封口才失败。未升级的连接器仍上传旧的事件形态，它的轮次因此以 422 拒绝并被跳过（第 8.5 节），升级服务端时需要同时重新安装插件。反过来，带 `WRITE`、`UPDATE` 事件的轮次被不认识这两个动词的旧服务端以 422 拒绝，插件与服务端需要一起升级。
+- 单个事件的字段规则与一轮的不变量在请求校验阶段执行，与封口时相同：序号重复或回退、调用标识重复、字段出现在不允许的种类上、结局字段不成对，或响应序号只出现在部分事件上、随序号回退时，整轮以 422 拒绝，不等到封口才失败。未升级的连接器仍上传旧的事件形态，它的轮次因此以 422 拒绝并被跳过（第 8.5 节），升级服务端时需要同时重新安装插件。反过来，新连接器的轮次被不认识新字段的旧服务端以 422 拒绝（例如带 `WRITE`、`UPDATE` 事件，或带 `response_index`），连接器把 422 当作这一轮被拒绝并前移游标，这些轮次因此永久丢失：服务端必须先于连接器升级。安装版满足这个顺序：覆盖安装之前先请程序正常退出，链接安装的插件（pi、dsh）随程序目录换成新文件时旧服务端已经停止；复制安装的插件（Claude Code、Codex）由新服务端启动之后重新安装（`PluginService.update_copied_plugins`）。反方向没有问题：仍在运行、还没有重新加载插件的 harness 用旧连接器提交不带响应序号的轮次，新服务端照常接受（整轮一段）。
 - 请求体上限 `import_bus.max_request_bytes` 在框架读取并解析请求体之前判定（自定义路由类 `BodyLimitedRoute`）：声明的 `Content-Length` 超限时不读取请求体，没有声明长度时边读边计数，超限即停止。两种情况都返回 413（`request.body_too_large`），过大且不是合法 JSON 的请求因此也是 413 而不是 422。
 
 成功响应为 200，带推导出的 `interaction_id` 与 `status`：
@@ -318,6 +318,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - 一轮从一条开启模型运行的用户条目开始，到下一条这样的条目之前为止，`turnOrigin` 标明是谁开启的：`human` 是由人发出、内容不是工具结果的消息；`task_notification`（后台命令完成、Monitor 事件）、`peer`（后台子 Agent 交回报告或其他会话发来的消息，条目标为 `isMeta`）与 `sdk`（宿主注入的消息：派生会话的第一条交接说明，以及之后的宿主事件，如 side session 的汇报、CI 监视事件）是在 agent 空闲时唤醒它的消息，唤醒之后的工作同样是一轮。上一轮在 agent 停下时已经提交，唤醒开启的续作若不自成一轮，就会落在游标之前、永远不会提交。agent 正在工作时插入的同类消息不带 `turnOrigin`（只有 `origin`），并入进行中的一轮。轮次标识取开启它的条目的 `uuid`，外部会话标识取它的 `sessionId`（缺失时取会话记录的文件名）。`[Request interrupted by user...]` 标记立即结束一轮（结局 `cancelled`）。
 - 用户消息：由人发出的消息取正文；派生会话的第一条交接说明（`sdk` 条目，没有 `parentUuid`）作为用户消息，它就是这个会话要做的事。两者都先去掉宿主附加的块：Claude 桌面端等宿主会把关联会话的状态、画布的视图状态、最近的项目文件夹等以标签块附加在用户消息里，它们不是用户说的话，而话题路由读取用户消息全文，记忆生成也以它为材料。去掉哪些块由连接器的一张共用表决定（`connector/core/user_message.py`：`system-reminder`、`artifact-view-context`、`recent-project-folders`），Codex 的用户消息使用同一张表（第 10.3 节）。只去掉从行首开始的完整块；代码块与用户粘贴的内容（`<pasted_content>`，保留标签以区分粘贴与本人的话）中的同名标签原样保留，行内提到的标签与表外的标签也不动，那是用户自己的内容。表外的标签不猜测：`scripts/transcript_stats.py` 列出导入的用户消息中出现过的行首标签，宿主新附加的块以 `kept` 出现，确认是宿主附加的再加入表中。其他唤醒的用户消息为空，服务端为这样的一轮续接上一轮的话题（[Gateway 分析](../gateway/analysis.md#3-topic-router只做选择)第 3 节）。子 Agent 交回的报告或其他会话发来的消息（`origin.kind` 为 `peer`，不论是否开启新轮）在出现位置写为 `subagent_message`，正文取 `origin` 中的报告原文（`handbackReportText`，其次 `body`）；它不并入用户消息，因为话题路由读取用户消息全文，而报告可能很长。后台通知与宿主事件只是状态提示，不读取。
 - 助手内容块 `text` → `assistant_message`，`thinking` → `thought`（没有正文的跳过：较新的模型默认只在本地记录签名），`tool_use` → `tool_call`（`action_id` 为调用标识，`tool_args` 为输入；本插件自身 MCP 工具的四种调用名归一化为 `SEARCH`、`READ`、`WRITE`、`UPDATE` 能力调用，不上传调用名，读取的 `aliases` 与更新的 `alias` 移出参数作为 `targets`，写入与更新的 `turn` 去掉；调用名由插件名与 server 名两个常量按 Claude Code 的规则拼出，其他工具写 `tool_name`）。`aliases` 不是非空的字符串列表、`alias` 不是非空字符串时（模型传错了参数，MCP server 已以工具错误拒绝），读取与更新按普通工具写出，否则服务端会因缺少作用对象拒绝整轮。用户条目中的 `tool_result` 按 `tool_use_id` 补全到同一轮的调用上，作为它的结局（`is_error` 为真时 `status` 为 `error`，否则为 `success`；`result` 为结果正文），找不到调用的结果跳过。同一条消息并行发出多个调用时，Claude Code 有时只记下最后一个的结果，其余调用因此没有结局，模型其实收到了它们的结果。同一条 API 消息按内容块分条增量写入，重复的块按消息标识与块位置去重，工具调用与结果按调用标识去重。
+- 响应序号：一条 API 消息是一次模型响应，助手正文、思考与调用的 `response_index` 按消息标识（`message.id`，缺失时取条目的 `uuid`）在本轮第一次写出事件的顺序从 1 编号，同一条消息分成的多个条目共用一个序号，没有写出事件的消息（例如只有思考签名）不占序号。在 owner 本机 1,218 轮会话记录上，同一消息的块从不出现在后一条消息之后，序号因此总是单调不减。
 - 回复正文不随轮次上传，服务端从助手消息事件得到；`model_used` 取最后一条助手条目的模型（`<synthetic>` 除外）。
 - `recent_turns` 取该轮之前最近三轮已确认轮次的用户消息、按顺序以空行拼接的全部助手正文与 `external_turn_id`；正文各截断到 2000 字符，避免一轮过大的内容拖着后续轮次一起超过请求体上限。`PreToolUse` 补上的轮次信息以同一函数构造这些字段。
 - 子代理的条目记在单独的会话记录中，主会话记录里的子代理条目（`isSidechain`）也跳过：子代理中的写入事件不随主会话的一轮导入，主会话只导入委托子代理的那次工具调用。
@@ -396,6 +397,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - 一轮从 `turn/start` 到同一轮号的 `turn/end`，没有 `turn/end` 的一轮仍在进行，不提交。外部会话标识取会话标识，外部轮次标识取轮号：轮号在会话内唯一且递增，恢复与 fork 都接着已有的最大轮号编号。fork 出的会话只读继承前缀之后的事件；继承前缀中未结束的一轮由 fork 补上的收尾结束，它的 `turn/start` 在前缀中，因此不形成轮次。
 - **用户消息**：来源为 `user` 的消息（一轮的提示与运行中追加的消息）按顺序以空行拼接，图片与文件写占位；harness 注入的上下文（技能正文、目录说明、压缩摘要、后台任务通知等）不读取。一轮可能没有这类消息，例如由子 Agent 的结算通知唤醒，用户消息因此为空。
 - **事件**：助手消息的 `text` 块写为 `assistant_message`，`reasoning` 块写为 `thought`（没有正文的跳过），`tool-call` 块不读取，调用以独立的 `tool/call` 事件为准，写为 `tool_call`；`tool/result` 按调用标识补全到同一轮的调用上（`isError` 为真时 `status` 为 `error`，否则为 `success`），找不到调用的结果跳过。没有形成助手消息的尝试不读取。`model_used` 取最后一条助手消息的模型。
+- **响应序号**：`assistant/message`、`tool/call` 与 `tool/result` 都带 `step`，原样写为 `response_index`。核对 owner 本机 51 份会话记录（67 轮、3,152 步）：`step` 每轮从 1 起、连续递增，每一步恰好形成一条助手消息，这一步的调用与结果都带它的步号，因此就是响应序号。DeepSeek 的响应几乎都带思考正文（87%），按感知层的切段规则几乎每次响应自成一段。
 - **回声标记**：本插件四个记忆工具的调用归一化为 `SEARCH`、`READ`、`WRITE`、`UPDATE`，规则与 Claude Code 连接器相同（第 8.3 节）。插件注册的工具名就是 MCP 工具的名字，dsh 的工具注册表中同名工具只能有一个，工具名因此就是识别依据。
 - **结局**：`completed` 为 `completed`；被取消（`aborted`）、崩溃后收尾（`interrupted`）与 fork 收尾为 `cancelled`；出错、被拦截（`blocked`）、输出达到上限（`max-tokens`）与插件扩展的未知原因为 `failed`。
 - **最近轮次**：该轮之前最近三个已结束轮次的用户消息、全部助手正文与外部轮次标识，正文按字符截断到 2000。写入时补上的轮次信息以同一函数从同一份会话记录构造，回流时服务端推导出同一个交互标识。
@@ -458,6 +460,7 @@ hook 只做本地工作，网络提交交给后台同步进程，规则与第 8.
 - 一轮从 `event_msg` 的 `task_started` 开始（`turn_id` 为外部轮次标识），到同一 `turn_id` 的 `task_complete` 或 `turn_aborted` 为止。之后出现下一轮而没有结束记录的一轮按被打断处理。
 - 内容只读 `event_msg` 中的 `item_completed` 条目；同一内容另有 `response_item` 形式的模型输入输出，其中工具参数是 hook 改写前的，不读取。`turn_context` 的 `model` 是 `model_used`。
 - `UserMessage` 的文本是用户消息，一轮中有多条时按顺序以空行拼接，图片写占位；每条先按 Claude Code 连接器的同一张表去掉宿主附加的块（第 8.3 节），去掉后为空的不计入。模型输入中注入的环境上下文不在其中；提问工具的回答 `<send_user_message_question_reply>` 不在表中，原样保留。`AgentMessage` → `assistant_message`；`Reasoning` → `thought`（有原文取原文，否则取摘要，都没有时跳过）；`McpToolCall`、`CommandExecution`、`DynamicToolCall`、`FileChange`、`WebSearch` → `tool_call`（结局取条目状态，MCP 结果带 `isError` 时为 `error`）；等待子 Agent 的 `CollabAgentToolCall` 中已完成的子 Agent 消息 → `subagent_message`，其他子 Agent 调用 → `tool_call`。其他类型的条目不读取。
+- 不写响应序号：`item_completed` 条目只带自身的标识，没有每次模型请求的边界，并行调用按完成顺序写出，Codex 的轮次因此整轮一段。
 - 回声标记：`McpToolCall` 的 `server` 为 `hivememory` 时，四个记忆工具按 Claude Code 连接器的同一规则写为能力调用（第 8.3 节）。识别只看 server 名与工具名：用户在自己的配置中覆盖这个 server（第 10.5 节）时，Codex 记下的调用不带插件 ID。
 - `recent_turns` 的取法与截断与第 8.3 节相同。
 
@@ -520,6 +523,7 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 
 - 用户消息：结束标记中的原始输入，以空行拼接；由其他扩展的消息开始的运行没有原始输入，用户消息为空。会话记录中的用户消息是技能与模板展开后的正文，不读取。
 - 事件：助手消息的 `text` 块写为 `assistant_message`，有正文的 `thinking` 块写为 `thought`，`toolCall` 块写为 `tool_call`，结局按 `toolCallId` 取对应的工具结果消息（`isError` 为真时为 `error`），图片写占位；系统消息、其他扩展注入的消息、压缩与分支摘要、上下文编辑、模型切换等条目不读取。`model_used` 取最后一条助手消息的模型。
+- 响应序号：每条助手消息是一次模型响应，它的正文、思考与调用都带这一轮中它的序号（第几条助手消息，从 1 起）。
 - 回声标记：本扩展四个记忆工具的调用按第 8.3 节的同一规则写为能力调用；工具由扩展注册，工具名就是识别依据。
 - 最近轮次：当前分支上、这一轮开始之前最近三条本会话结束标记对应的轮次，截断与第 8.3 节相同。写入时补上的轮次信息以同一函数从同样的条目构造。
 

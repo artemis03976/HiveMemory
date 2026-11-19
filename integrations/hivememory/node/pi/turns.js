@@ -17,7 +17,8 @@
  * 正文不是用户的新内容。条目的映射：
  *
  * - 助手消息的 `text` 块写为助手消息，有正文的 `thinking` 块写为思考，
- *   `toolCall` 块写为工具调用；`model_used` 取最后一条助手消息的模型；
+ *   `toolCall` 块写为工具调用；`model_used` 取最后一条助手消息的模型。每条助手
+ *   消息是一次模型响应，它的事件带响应序号：这一轮的第几条助手消息，从 1 起；
  * - 工具结果消息按 `toolCallId` 补全到同一轮的调用上，作为它的结局（`isError`
  *   为真时状态为 `error`，否则为 `success`），找不到调用的结果跳过；
  * - 用户消息、系统消息、其他扩展注入的消息、压缩与分支摘要、上下文编辑与
@@ -139,17 +140,20 @@ class TurnBuilder {
   constructor() {
     this.events = []
     this.modelUsed = null
+    this.responses = 0
   }
 
   addAssistantMessage(message) {
     if (typeof message.model === 'string' && message.model) this.modelUsed = message.model
+    this.responses += 1
+    const response = { response_index: this.responses }
     for (const block of message.content ?? []) {
       if (block.type === 'text' && block.text?.trim()) {
-        this.addEvent('assistant_message', block.text)
+        this.addEvent('assistant_message', block.text, response)
       } else if (block.type === 'thinking' && block.thinking?.trim()) {
-        this.addEvent('thought', block.thinking)
+        this.addEvent('thought', block.thinking, response)
       } else if (block.type === 'toolCall') {
-        this.addEvent('tool_call', '', toolCallFields(block.id, block.name, block.arguments))
+        this.addEvent('tool_call', '', { ...response, ...toolCallFields(block.id, block.name, block.arguments) })
       }
     }
   }

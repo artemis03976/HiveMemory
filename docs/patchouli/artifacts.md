@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-18
 ---
 
 # Artifacts 与来源追踪
@@ -54,7 +54,7 @@ InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary
 - 本轮结局 `outcome`；
 - `turn_events` 的 dict 快照。
 
-事件集是本轮唯一的内容事实，快照不另存问答正文或由事件派生的动作与轨迹：用户消息与回复正文从事件读取，生成材料也由事件按当时的截断配置复现。事件以 dict 保存，运行时模型改变时不影响已写入记录的读取。
+事件集是本轮唯一的内容事实，快照不另存问答正文或由事件派生的动作与轨迹：用户消息与回复正文从事件读取，生成材料与供引用的段也由事件按当时的规则复现。事件以 dict 保存，运行时模型改变时不影响已写入记录的读取：加入响应序号之前写下的快照没有 `response_index` 键，读作整轮一段。
 
 每条折叠记录（`InteractionFoldSnapshot`）对应话题的一次折叠：这一次被折叠的块标识、折叠后的状态摘要与折叠时间（Unix 秒）。被折叠的块标识指向同一份 Artifact 中的 turn，读者因此能看出每段摘要概括了哪些原文。它与运行时的 `TopicFold` 分开建模，理由与事件以 dict 保存相同。`folds` 只追加、不改名，缺少该字段的旧文件读作空列表，`schema_version` 不变。
 
@@ -77,7 +77,7 @@ MemoryCreationArtifact（schema `"2"`）是一条记忆的 genesis record，记�
 - `memory_id`；
 - `source_intent`：`ARCHIVE / WRITE / IMPORT / MANUAL / SYSTEM`；
 - 结构化 `provenance`（`core.models.MemoryProvenance`：`source_agent_id`、`source_team_id` 与 `contributing_agent_ids`，与 MemoryAtom 语义一致，见下文“来源与归属语义”）；
-- 当时的结构化 `GenerationContext`（`generation_view`），即生成实际看到的上下文：每轮的用户消息与按顺序的材料条目，包括截断后的思考、工具参数与工具结果，同一次生成新建的每条记忆各存一份；
+- 当时的结构化 `GenerationContext`（`generation_view`），即生成实际看到的上下文：每轮的轮次标识、用户消息、按顺序的材料条目与各段，包括截断后的思考、工具参数与工具结果，同一次生成新建的每条记忆各存一份；
 - source artifacts 与 source memories；
 - 指向初始 `MemoryVersionArtifact(v1)` 的引用。
 
@@ -85,7 +85,9 @@ MemoryCreationArtifact（schema `"2"`）是一条记忆的 genesis record，记�
 
 ### 2.4 MemoryVersionArtifact
 
-`MemoryVersionArtifact`（schema `"2"`，独立于 Memory 的 `"2.1"` 版本轴）保存 `memory_id`、`version_number`、`update_source`、结构化 `provenance`、`snapshot_before`、`snapshot_after`、changelog、source artifacts/memories 与 `changed_at`。两个快照字段直接嵌入捕获时点完整 `MemoryAtom` 的 canonical JSON（含 `meta.provenance`、`meta.lifecycle`、`payload.agent_config`、`payload.artifacts` 与 relations），经结构约束校验（缺键、未知内嵌 schema 拒绝），因此单个版本足以完整重建当时的原子，不依赖从 v1 顺序重放。
+`MemoryVersionArtifact`（schema `"2"`，独立于 Memory 的 `"2.1"` 版本轴）保存 `memory_id`、`version_number`、`update_source`、结构化 `provenance`、`snapshot_before`、`snapshot_after`、changelog、source artifacts/memories、`cited_segments` 与 `changed_at`。两个快照字段直接嵌入捕获时点完整 `MemoryAtom` 的 canonical JSON（含 `meta.provenance`、`meta.lifecycle`、`payload.agent_config`、`payload.artifacts` 与 relations），经结构约束校验（缺键、未知内嵌 schema 拒绝），因此单个版本足以完整重建当时的原子，不依赖从 v1 顺序重放。
+
+`cited_segments` 是生成这一版的模型引用的交互段，每项是 `CitedSegment`：轮次标识加这一轮中首尾都包含的事件序号区间。被动新建、主动写入新建与修订的版本写入它（[记忆生成](./generation.md#22-段标签与记忆引用)）；模型没有引用、引用不合格、退回草稿与追加修订时为空，合并与手动编辑没有交互材料，同样为空。被引用的轮次就在同一版本记录 `source_artifacts` 指向的交互快照中，`turn_id` 跨快照唯一，引用不依赖取自哪份快照；区间在生成时换算得到，切段规则以后调整不改变已保存的引用。它只留在版本记录中，不进入记忆原子、`ArtifactRef` 与 Qdrant 载荷。缺少该字段的旧记录读作空列表；记录 `extra="ignore"`，回退到旧代码时多出的键被忽略。
 
 捕获时点在 Familiar 提交边界：完成内容与 lifecycle 合并、分配版本与内容时间之后，追加本次版本记录自身的 refs/events 之前——快照因此不含自身引用。创建时先写 v1（`snapshot_before` 为 `null`），再写 creation artifact。来源类型 `update_source` 区分版本的成因：Mode C 修订为 `UPDATE`，两条记忆合并为 `MERGE`，手工编辑为 `MANUAL_EDIT`；`SYSTEM_REWRITE` 在类型中保留，当前没有生产入口。
 
