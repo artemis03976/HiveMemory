@@ -18,48 +18,44 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 
 ## 当前版本的设计讨论（`current`）
 
-| Idea | 服务的版本 | 当前已经具备的基础 | 仍需 owner 判断的核心问题 |
-|:---|:---|:---|:---|
-| [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md)（总纲） | v0.8 | owner 于 2026-11-13 进入 v0.8：重新设计短期到中期的流转，不为现有症状打补丁；三层含义不变、两条写入路径都保留；全部决定的一览、代码现状与评判方式在总纲，2026-11-16 按主题拆出下面几份子文档，外部事实移入[外部参考](../research/memory-core-external-references.md) | 评判新的流转用什么方式（候选：单轮不交记忆税，长程看演化质量与人工介入；公开评测集见下面的评测集 Idea） |
-| [记忆核心：写入链路](./memory-flow-write-path.md) | v0.8 | 两条写入路径的汇合被动一侧已决定（在中期记忆上汇合，被动结算作为话题的终态收尾者复核）；短期记忆的外部者视角、时间线退回顺序与身份、Patchouli 作为馆长等候选 | 先让生成出来的记忆指向具体的交互轮次（owner，2026-11-18），粒度已决定按模型响应记录，建立计划前还要决定由谁读取；之后是馆长的第一步（固定流程的复核）；主动写入生成时能拿到什么材料 |
-| [记忆核心：库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | v0.8 | 中期库的形状已于 2026-11-15 决定（存储平铺，分层由派生、可以重建的时空图索引承担） | 记忆的保存形态（保留记忆原子并补上文本做不到的部分、md 载体加另存的系统状态，或 md 为真相、允许直接编辑） |
-| [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 类型的用途与各项划分已于 2026-11-15～16 决定；两轮回放之后，首份计划收窄为 WIP 与可运行的移出、CODE_SNIPPET 与 URL_RESOURCE 合并为资源记忆、v0.8 关闭 RUN 的用户工具路径，已于 2026-11-17 实施并归档；AGENT_PROFILE 移出为 AgentProfileStore 的第二份计划已于 2026-11-18 实施并归档；[回放脚本](../../scripts/memory_replay.py) | 内容类别的重新划分已搁置（回放显示与旧类别没有可测的区别）；这个方向的两份计划都已完成 |
-| [记忆核心：评测集](./memory-evaluation-benchmarks.md) | v0.8 | owner 于 2026-11-16 决定把公开评测集与 agent 工作流数据集提上日程；候选评测集（LongMemEval、LoCoMo、HaluMem、MemoryArena、DreamBench-SWE 等）只依据摘要整理；Import Bus 的一轮不带原始时间 | 首个评测切片选哪一个；原始时间怎么带进评测 |
-
-v0.7.3（主动写入与被动提取的收敛，过渡措施）已于 2026-11-04 收尾（[收尾审计](../archive/plans/v0.7.3-release-closeout-audit.md)），为它供料的收敛 Idea 已归档；之后的方向见候选 Idea [统一的交互记忆](./unified-interaction-memory.md)，它也是上面 v0.8 讨论可能的出发点。
+| Idea | 服务的版本 | 简述 |
+|:---|:---|:---|
+| [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md)（总纲） | v0.8 | v0.8 重新设计记忆从短期到中期的流转：决定一览、代码现状与评判方式 |
+| [记忆核心：写入链路](./memory-flow-write-path.md) | v0.8 | 两条写入路径的汇合、短期记忆的定义、Patchouli 作为馆长，以及生成的记忆指向交互轮次 |
+| [记忆核心：库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | v0.8 | 中期库的形状、派生的时空图索引与记忆的保存形态 |
+| [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 记忆类型的用途、划分与回放检验 |
+| [记忆核心：评测集](./memory-evaluation-benchmarks.md) | v0.8 | 用公开评测集与 agent 工作流数据检验记忆核心 |
 
 已实现、被替代或不再跟踪的 Idea 登记在 [Archived Ideas](../archive/ideas/README.md)。
 
 ## 候选方向（`candidate`）
 
-| Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
-|:---|:---|:---|
-| [统一的交互记忆：轨迹、断言与整理](./unified-interaction-memory.md) | 轨迹层（话题路由、轮次事件、全交互轨迹保存）与唯一写入者原则已落地；2026-11-03 登记 owner 的出发点与消费水位设想，对照断言清单标注做过离线回放（41 条复述标对 38 条） | 第一当事人"没写"算不算判断（被动提取会补回 agent 有意精简的审计细节）；第一当事人的断言何时成为正式记忆；断言的归属与证据位置怎样落到数据模型 |
-| [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | Topic 按顺序保存全部交互记录与折叠记录；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次 | 从 Topic 往后的部分已随 v0.7.2 实施，2026-11-01 随收尾由 `current` 改为候选；交到 Topic 之前的环节（Session 原文与交接）与第 7 节的保存承诺仍开放，会话持久化另行计划 |
-| [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 自动压缩已完成；Topic page folding 现有实现 | Topic folding 优化、真实模型摘要质量与成本评估；两边独立维护视图 |
-| [身份与访问体系](./identity-and-access-model.md) | 2026-11-05 起作为单独的主线方向维护（owner）：身份模型、两阶段认证与两阶段授权、统一身份授权入口（工作 actor、两个授权方法、执行者与参与者分开）、资源归属与发起者的拆分、外部 principal 的凭据证明、HTTP 管理面的管理凭据（防误用）与管理页修改记忆可见性已落地，当前事实见 [身份与授权](../workspace/identity-and-authorization.md)与[认证与访问登记](../workspace/authentication.md) | 登记的生效时点（E-1）、HTTP 管理入口的防刻意（随桌面客户端）、操作授权的遗留问题（P-1b、P-4a、P-7 中取消以外的部分）、资源授权扩展（P-8）、受限穿透访问（T-5b）；P-5 只涉及 controller 模式；例外、相关 Todo 与已知限制汇总在其第 8 节 |
-| [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、封口交互、运行时与被动事件接入 | 原子事件流、长 turn 分段、封口、跨入口与恢复；CPU 检查点与 Patchouli 摄入水位分别推进，通用压缩与证据保存见各自 Idea |
-| [试验场：在冻结的真实数据上低成本验证想法](./experiment-field.md) | owner 于 2026-11-18 提出：一部分想法与现有项目接不上轨，需要一个不经生产架构就能检验它们的地方；已有基础包括[回放脚本](../../scripts/memory_replay.py)（只读导出生成材料并重放）、日常（安装版）与开发（checkout）两套实例的数据根与端口，以及 MCP 调用随回声标记回流、工具调用原文随 InteractionArtifact 保存 | 是否作为 v0.8 评测的承载，改为 `current`；"检索 → 读取"的隐式正例能否从交互记录还原，偏差有多大；按需建立、避开日常端口的试验实例，检索行为是否与日常实例一致 |
-| [轻量化：模型依赖、运行内存与包体](./lightweight-footprint.md) | 2026-11-12 实测基线：后端带两个模型约 2.4 GB 内存，模型下载 1.67 GB，安装后 1.6 万个文件、覆盖安装一到两分钟，475 条记忆的 Qdrant 占 865 MB；owner 决定先做不需要研究的减量（第 4.1 节） | 检索评测集与资源指标；重排模型 int8 或关闭、替换 litellm、更轻的嵌入方案与嵌入式存储的质量损失是否可以接受 |
+| Idea | 简述 |
+|:---|:---|
+| [统一的交互记忆：轨迹、断言与整理](./unified-interaction-memory.md) | 以同一套架构把对话与长程 agent 的交互沉淀为记忆 |
+| [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | 从会话到话题再到 Artifact 的原始资料保存 |
+| [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 会话压缩与话题折叠的视图与摘要质量 |
+| [身份与访问体系](./identity-and-access-model.md) | 身份、认证与授权的单独主线 |
+| [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | 长 turn 内的原子事件流、分段、封口与恢复 |
+| [试验场：在冻结的真实数据上低成本验证想法](./experiment-field.md) | 由 agent 在冻结的真实数据上快速做出想法的原型，判断是否值得工程化 |
+| [轻量化：模型依赖、运行内存与包体](./lightweight-footprint.md) | 减少模型依赖、常驻内存与安装包体积 |
 
 ## 长期方向与概念（`long-term`）
 
-| Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
-|:---|:---|:---|
-| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记、统一认证网关（外部 principal 以接入凭据证明）、Import Bus 与 Claude Code 插件：plugin 模式的对话回流、MCP 检索、读取、写入与更新，写入时就地确定话题 | plugin 模式的 Claude Code 接入（v0.7.1）与写入、更新（v0.7.2）已实施，2026-11-01 随 v0.7.2 收尾由 `current` 改为候选；仍开放的是 controller 模式（候选方向，不绑定版本）等其余问题，E-1 于 2026-11-05 移入身份与访问体系 Idea；第二个 harness 以 dsh 原生插件接入（2026-11-01，[归档计划](../archive/plans/dsh-plugin-integration.md)） |
-| [执行环境](./execution-environment.md) | Alice 是唯一的执行环境；CPU 端口与中立输入清单已落地，当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；2026-10-19 由《执行单元、执行线程与执行环境》改名，执行线程部分以[执行线程 Idea](../archive/ideas/execution-thread-definition.md)为准，跨 Workspace 目标（T-5b）移入身份 Idea | controller 模式退回候选方向后随之改为候选（2026-10-20）：agent 与执行环境分别选择（前提 9、10）；组合的有效性（T-7）、选择的承载与系统层级控制（T-8）、CPU 输出与会话历史的词汇归属（T-10）、harness 自身工具的权限应答与工作目录（T-11） |
-| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | 会话与 Alice 迁移已于 2026-10-15 完成，当前事实见[归档计划](../archive/plans/v0.7.0-conversation-session.md)和[会话资源](../workspace/sessions.md) | 外部输入、流式交接、路由结果、会话持久化与 Gateway 会话提示；Alice compact 已迁入独立 Idea；交互提交收束与话题按需创建（第 10 节，owner 决定 1–11，2026-11-06 已实施，见[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)） |
-| [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | 注册入口、进程表、四阶段骨架、CPU 分配与 CPU 端口已落地，当前事实见 [任务进程](../workspace/task-process.md) | 交互被接纳后即关闭进程与 Profile 解析时点、进程记录与工作集的剩余槽位、四阶段骨架的失效条件、被动请求；Q-3b、Q-5a、Q-7、Q-8；plugin 与 controller 模式并存时交互记录的去重（Q-5b 与 plugin 模式的 `interaction_id` 推导已随 Import Bus 实施） |
-| [第五代架构：Workspace 网络](./fifth-generation-architecture.md) | 第五代的核心理念 Idea，有效期到需要下一代架构为止；Workspace 网络的拓扑、能力层、任务进程、访问模型、库外设施与包分层已落地，当前事实见 [Workspace](../workspace/README.md) | 十条核心理念（唯一能力提供者、一切任务都是进程、执行者可以替换、库内与库外、两阶段认证与授权、身份数据形态、调用与事件、显式写入即时提交、上下文与记忆材料分离、包分层）及其检验问题；演进方向分属各子 Idea；架构级开放问题 P-3、P-9、P-10a、core 整理与负缓存（身份与访问相关的 P-1、P-4a、P-5、P-7、P-8 于 2026-11-05 移入身份与访问体系 Idea） |
-| [AE2 与 HiveMemory 的架构同构性](./ae2-hivememory-architecture-analogy.md) | Patchouli 存储平面、Alice Frame/编排、MTP 能力契约与当前可见性过滤 | Workspace/软件子网、Harness-to-Harness、Workflow Memory、Job Graph、Mount/Bridge、AIOS 资源抽象与隔离执行是否值得进入真实验证 |
-| [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md) | `MemoryCompiler` target 体系、MTP `RUN` 两层分发、MemoryAtom/Artifact 分离 | owner 于 2026-11-14 提出对象与目标需要从头考虑：知识与工具不能划等号（见 [v0.8 写入链路 Idea](./memory-flow-write-path.md)第 3.3 节）；此前的问题：如何让 MTP RUN 编译为结构化执行意图，证明相对外部 harness + Patchouli 的结构性优势，以及 CODE_SNIPPET 的迁移边界、ToolInvocationIR 与共享 MemoryCompiler IR 的关系、执行证据回流与终端实践的晋升机制 |
-| [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md) | 当前 vitality 公式、强化事件、gardening 与显式 archive/revive | 哪些新状态能由真实使用数据校准，而不是继续叠加启发式参数；落库之后的演化质量（分裂与合并、冲突检测、对照轨迹纠错，方向 6，2026-11-15） |
-| [Agent 轨迹与多 Agent TDA](./TDA_Agent_Research_Ideas.md) | TurnEvent、RuntimeEvent 与单层 CALL | 拓扑特征能否比普通计数/规则更稳定地解释成功、成本和失败类型 |
-| [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md) | MemoryAtom 关系预留、检索信号与来源/版本 Artifact | 多视图记忆图能否形成可重复、可行动且优于平面检索的信号 |
+| Idea | 简述 |
+|:---|:---|
+| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 外部 harness 与 agent 的接入登记和运行时访问 |
+| [执行环境](./execution-environment.md) | 执行任务的 CPU 与执行环境 |
+| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | 外部会话的输入、交接与话题投影 |
+| [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | 任务进程表、注册入口与四阶段骨架的演进 |
+| [第五代架构：Workspace 网络](./fifth-generation-architecture.md) | 第五代架构的核心理念及其检验问题 |
+| [AE2 与 HiveMemory 的架构同构性](./ae2-hivememory-architecture-analogy.md) | 以 AE2 的子网、Pattern 与合成 CPU 类比 HiveMemory 的架构方向 |
+| [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md) | 记忆作为工具、技能与插件被消费的边界 |
+| [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md) | 生命力评分由真实使用数据校准，以及落库后的演化质量 |
+| [Agent 轨迹与多 Agent TDA](./TDA_Agent_Research_Ideas.md) | 用拓扑数据分析解释 agent 轨迹的成功、成本与失败 |
+| [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md) | 多视图记忆图能否形成优于平面检索的信号 |
 
-外部 Actor 接入、执行环境、外部会话与 Topic 投影、任务进程表四份于 2026-11-16 由候选改为长期方向：其中仍开放的主要是 controller 模式的规划，owner 已于 2026-10-31 搁置 controller 模式。
-
-本索引于 2026-09-27 按 `horizon` 重新分区。这里的材料均不代表路线图承诺，也不能作为当前能力引用；`current` 类中记录的 owner 决定只约束后续 Plan 的编写，不等于已经实现。已实现或不再跟踪的 Idea 移入 [Archived Ideas](../archive/ideas/README.md)，例如已随 v0.6.2 实现的 Chat Attachments 初步设计备忘。既有 Ideas 的历史分类依据见[文档迁移最终收口审计](../archive/plans/documentation-migration-finalization-audit.md)。
+这里的材料均不代表路线图承诺，也不能作为当前能力引用；`current` 类中记录的 owner 决定只约束后续 Plan 的编写，不等于已经实现。
 
 ## 升级规则
 
