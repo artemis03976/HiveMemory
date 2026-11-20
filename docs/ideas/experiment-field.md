@@ -71,7 +71,7 @@ last_reviewed: 2026-11-20
   - 注释自包含的架构测试扫描 `src`、`tests`、`scripts`、`integrations`（[`test_self_contained_comments.py`](../../tests/unit/architecture/test_self_contained_comments.py)）；
   - `ruff check .` 与 `black --check .` 覆盖整个仓库；
   - 覆盖率只统计 `hivememory` 包。
-- **与 v0.8 评判方式的关系**：[总纲](./memory-flow-short-to-mid-term.md)第 4.2 节把评判分为"单轮的底线"与"长程的演化质量与人工介入"。owner 的日常使用是现成的长程试验场，只用于验收已建成的机制；"样本统计不作为设计依据"是 owner 决定（2026-11-14，总纲第 1.3 节）。
+- **与 v0.8 评判方式的关系**：[总纲](./memory-flow-short-to-mid-term.md)第 4.2 节把评判分为"单轮的底线"与"长程的演化质量与人工介入"。owner 的日常使用是现成的长程试验场，只用于验收已建成的机制；"样本统计不作为设计依据"是 v0.8 的原则（总纲第 1.2 节）。
 
 ## 3. 问题：为什么这些想法接不上轨
 
