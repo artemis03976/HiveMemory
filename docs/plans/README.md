@@ -18,8 +18,9 @@ last_reviewed: 2026-11-19
 
 版本目标：生成核心的升级（Claude 整理，待 owner 确认），摘要见 [ROADMAP](../ROADMAP.md) 第 4.2 节；设计讨论见总纲[记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)。
 
-- [馆长 agent：结算时先探索本话题的写入与库中相关记忆，再写记忆](./v0.8.0-librarian-agent.md)：Planned；
-- 记忆类型的收敛与生成的记忆指向交互轮次：已完成，见 [Archived Plans](../archive/plans/README.md#v080)。
+当前没有活动计划。
+
+- 记忆类型的收敛、生成的记忆指向交互轮次与馆长 agent：已完成，见 [Archived Plans](../archive/plans/README.md#v080)。
 
 ## 已发布的版本
 

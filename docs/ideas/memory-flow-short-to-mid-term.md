@@ -304,7 +304,7 @@ last_reviewed: 2026-11-19
 | 短期记忆在新流转中的定义 | 开放，[写入链路](./memory-flow-write-path.md)第 2.2 节 |
 | 用什么评判新的流转更好 | 开放，第 4.2 节与[评测集](./memory-evaluation-benchmarks.md) |
 | 记忆的类型体系 | 第一个方向已完成，内容类别的重新划分搁置，[类型体系](./memory-type-system.md)第 7 节开头、第 9.2、10 节 |
-| Patchouli 馆长 agent | 第一步（复核替代话题内的查重）在分支上实现，回放后不合并；结算时先探索本话题的写入与库中相关记忆、再写记忆，由馆长 agent 完成，工具与循环由 Patchouli 自己定义，与一次性生成并存为用户选项（owner，2026-11-19），[计划](../plans/v0.8.0-librarian-agent.md)已建立；其余开放，[写入链路](./memory-flow-write-path.md)第 3.1、3.2 节 |
+| Patchouli 馆长 agent | 第一步（复核替代话题内的查重）在分支上实现，回放后不合并；结算时先探索本话题的写入与库中相关记忆、再写记忆，由馆长 agent 完成，工具与循环由 Patchouli 自己定义，与一次性生成并存为用户选项（owner，2026-11-19），已实施（2026-11-19），见[记忆生成](../patchouli/generation.md#31-mode-a被动观察--archive)第 3.1 节；其余开放，[写入链路](./memory-flow-write-path.md)第 3.1、3.2 节 |
 | 读的一侧（日常路径上怎样送达、怎样从读者反推好的写入、使用中的反馈） | 只零星提过，[库的形状](./memory-library-shape-and-index.md)第 2.1 节、[外部参考](../research/memory-core-external-references.md)第 4 节 |
 | 现有记忆的去向（新流转上线时旧库要不要复核、重新归类、挂进索引） | 没有讨论 |
 

@@ -20,7 +20,7 @@ related_contracts:
   - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-19
 ---
 
 # 感知与短期话题
@@ -140,7 +140,7 @@ settle / compact / evict 是三个概念独立的具名用例，由 `PerceptionF
 
 历史上曾由 `TriggerManager`/`TRIGGER_PLANS` 决策矩阵与记录字段状态机（`BufferState`）承担这些流程，现已删除：占用权建模为 WorkingSet 的 lease，而不是记录状态，补偿校验随之消失。
 
-`TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照：携带话题的全部交互记录与折叠记录，工作视图用与 `TopicData` 相同的 core 派生函数得到；此外只携带 `belong_to` 与已确认的 `asset_bindings`，不携带触发结算的 actor 或 `IdentityScope`。生成材料是工作视图（`state_summary` 与未折叠的 blocks），来源 InteractionArtifact 覆盖全部交互记录并带折叠记录（[记忆生成](./generation.md)、[Artifacts](./artifacts.md)）。Coordinator 为 manual、idle、LRU、shutdown 统一构造所属 Workspace 的 `system` 发起者，实际参与 Agent 从 turn identity 聚合为贡献者；结算查重只能读取本 Workspace 的 PUBLIC 记忆。进入队列后，后续处理使用冻结的交接事实，不能从当前进程状态重新推导 Workspace、读取权限或资产关系。
+`TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照：携带话题的全部交互记录与折叠记录，工作视图用与 `TopicData` 相同的 core 派生函数得到；此外只携带 `belong_to` 与已确认的 `asset_bindings`，不携带触发结算的 actor 或 `IdentityScope`。生成材料是工作视图（`state_summary` 与未折叠的 blocks），来源 InteractionArtifact 覆盖全部交互记录并带折叠记录（[记忆生成](./generation.md)、[Artifacts](./artifacts.md)）。Coordinator 为 manual、idle、LRU、shutdown 统一构造所属 Workspace 的 `system` 发起者，实际参与 Agent 从 turn identity 聚合为贡献者；结算的查重（一次性生成）与馆长的读取都只能读到本 Workspace 的 PUBLIC 记忆。结算交给 Generation 之后，按 `patchouli.generation.settle_mode` 选择的方式生成（一次性生成或馆长，见[记忆生成](./generation.md#31-mode-a被动观察--archive)第 3.1 节）；感知侧的结算时序、冻结的交接事实与 admission 不随方式变化。进入队列后，后续处理使用冻结的交接事实，不能从当前进程状态重新推导 Workspace、读取权限或资产关系。
 
 手动用例互不混杂：`manual_settle_topic` 只结算并在结算材料被可靠接纳后删除话题；token 溢出 compact 只压缩工作集，不结算、不驱逐（当前没有公开的手动 compact 入口，`MANUAL_COMPACT` 仅作为 provenance 保留）；`evict_topic` 只驱逐、不生成记忆。manual settle 的提交顺序固定为冻结 settlement payload → generation admission 成功 → 删除；admission 失败抛出受控错误且 Topic 的交互记录与折叠记录保持完整可重试。无任务（真正空 Topic）时 settle 仍按契约结束生命周期并返回成功，以 `generation_submitted` 表达是否建立后台任务。
 

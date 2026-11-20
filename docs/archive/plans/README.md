@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-19
 ---
 
 # Archived Plans
@@ -14,6 +14,7 @@ last_reviewed: 2026-11-18
 
 ## v0.8.0
 
+- 馆长 agent：话题结算可选馆长，先看本话题的写入与库中相关记忆再写：2026-11-19，PR 待开（实现提交 `31015431`）；删除前最后版本在 `96e7a701`；[记忆生成](../../patchouli/generation.md#31-mode-a被动观察--archive)、[System 配置](../../system/configuration.md)
 - 生成的记忆指向交互轮次：事件记下模型响应，记忆引用到段：2026-11-18，PR #228；删除前最后版本在 `84d95b22`；[记忆生成](../../patchouli/generation.md#22-段标签与记忆引用)、[感知与短期话题](../../patchouli/perception.md#2-结构化摄入)
 - [AgentProfileStore：Agent Profile 移出中期记忆库，以文件保存并热重载](./v0.8.0-agent-profile-store.md)：2026-11-18，PR #226；[MemoryLibrary 与存储层](../../patchouli/memory-library.md#15-agent-profile人偶图纸)、[任务进程](../../workspace/task-process.md#6-cpu-分配)
 - [记忆类型的收敛：去掉 WORK_IN_PROGRESS、合并资源记忆与已有记忆的迁移](./v0.8.0-memory-type-convergence.md)：2026-11-17，PR #225；[Patchouli 生成](../../patchouli/generation.md#3-三种生成模式)、[MTP 契约](../../contracts/mtp.md#33-run)

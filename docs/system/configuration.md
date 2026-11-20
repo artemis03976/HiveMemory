@@ -20,7 +20,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-19
 ---
 
 # System 配置与注册表
@@ -52,6 +52,8 @@ last_reviewed: 2026-11-18
 访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 Import Bus 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace](../workspace/README.md)。
 
 主动写入的背景轮数由 `patchouli.generation.active_recent_blocks` 控制，默认 5、最小 0；即话题过去 N 个 block 与 `state_summary`，不含当前轮。该项与 `patchouli.perception.fold_retain_recent_blocks` 的折叠保留轮数独立，见[Patchouli 生成](../patchouli/generation.md)。
+
+话题结算的生成方式由 `patchouli.generation.settle_mode` 选择，只接受 `one_shot`（一次性生成，默认）与 `librarian`（馆长）；旧配置文件没有这一项时取默认值，升级后的结算行为不变。`patchouli.generation.librarian`（`LibrarianConfig`）是馆长的预算，只在选馆长时使用：`max_steps`（默认 12，至少 1）是一次结算中模型最多输出的动作数，`search_top_k`（默认 5，至少 1）是每次检索最多返回的记忆条数。`extractor.enabled` 是两种方式共同的开关，关闭时结算不产生记忆；`deduplicator` 只服务主动写入与一次性生成。两项都不在立即生效的字段中，保存后重启生效，改回 `one_shot` 并重启即回到一次性生成，已建成的记忆不受影响。设置页常用页“记忆”一节以下拉“话题结算时的生成方式”显示 `settle_mode`。两种方式的语义见 [Patchouli 生成](../patchouli/generation.md#31-mode-a被动观察--archive)第 3.1 节。
 
 `patchouli.generation.transcript`（`GenerationTranscriptConfig`）只有一项 `max_result_chars`（默认 `800`，至少 1）：一轮交互材料中单条外部工具结果的字符上限。思考、工具参数与一轮的全部条目原样渲染，不受任何总量上限约束。记忆生成视图、LLM 接力摘要与逻辑块的 token 统计使用同一个上限，折叠阈值因此反映生成实际看到的材料。默认值写在 `configs/config.yaml` 中，渲染与截断规则见 [Patchouli 生成](../patchouli/generation.md)。
 
