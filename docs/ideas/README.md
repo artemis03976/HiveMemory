@@ -21,7 +21,6 @@ last_reviewed: 2026-11-20
 | [记忆核心：库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | v0.8 | 中期库的形状、派生的时空图索引与记忆的保存形态 |
 | [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 记忆类型的用途、划分与回放检验 |
 | [记忆核心：评测集](./memory-evaluation-benchmarks.md) | v0.8 | 用公开评测集与 agent 工作流数据检验记忆核心 |
-| [孵化场、试验场与垃圾回收场：低成本地定型、验证与搁置想法](./experiment-field.md) | v0.8 | 孵化场定型模糊的想法，试验场在冻结的真实数据上验证机制并承载 v0.8 评测，垃圾回收场冷藏说不清的想法与失败的方案 |
 
 已实现、被替代或不再跟踪的 Idea 登记在 [Archived Ideas](../archive/ideas/README.md)。
 
@@ -39,6 +38,7 @@ last_reviewed: 2026-11-20
 
 | Idea | 简述 |
 |:---|:---|
+| [孵化场、试验场与垃圾回收场：低成本地定型、验证与搁置想法](./experiment-field.md) | 项目的开发规范：孵化场定型模糊的想法，试验场在冻结的真实数据上验证机制并承载 v0.8 评测，垃圾回收场冷藏说不清的想法与失败的方案 |
 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 外部 harness 与 agent 的接入登记和运行时访问 |
 | [执行环境](./execution-environment.md) | 执行任务的 CPU 与执行环境 |
 | [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | 外部会话的输入、交接与话题投影 |

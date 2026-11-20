@@ -172,7 +172,7 @@ last_reviewed: 2026-11-20
 2. 被动生成：被动结算具体产出什么，主要取决于提示词怎样写。馆长 agent 是被动生成体系中的一环。
 3. 主动写入。
 
-第 1 步中的类型收敛、AgentProfileStore、轮次指向与馆长已经实现，版本与计划见 [ROADMAP](../ROADMAP.md) 第 4.2 节。
+第 1 步中的类型收敛、AgentProfileStore、轮次指向与馆长已经实现，版本与计划见 [ROADMAP](../ROADMAP.md) 第 3 节。
 
 **辅线**：时空图索引在馆长之后逐步加入，先把话题保留为经历节点，再由馆长建立主题节点，最后加入常驻索引（[库的形状](./memory-library-shape-and-index.md)第 2.2 节），作用是让馆长找相关记忆找得更准。
 

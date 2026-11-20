@@ -1,8 +1,7 @@
 ---
 title: 孵化场、试验场与垃圾回收场：低成本地定型、验证与搁置想法
 status: idea
-horizon: current
-serves_version: v0.8
+horizon: long-term
 owner: project
 scope: idea-incubator-experiment-field-and-garbage-collection-yard-on-frozen-real-data
 code_paths:
@@ -29,6 +28,8 @@ last_reviewed: 2026-11-20
 ## 0. 文档性质
 
 本文是三个场的设计，回答怎样让"和现在的项目接不上轨"的想法也能被低成本地定型、检验或搁置：孵化场定型还说不清的想法，试验场在冻结的真实数据上证明机制有效或无效，垃圾回收场冷藏说不清的想法与失败的方案（第 4 节开头）。文件名沿用最初的 `experiment-field.md`。
+
+三个场是项目的开发规范，不绑定版本。体系成型之后由事实文档记录三场体系，本文随之归档。
 
 - 孵化场与垃圾回收场已经在用，设计见第 4 节开头与第 4.8、4.9 节；试验场尚未建立，它是 v0.8 评测的承载（第 6 节），第 4.1～4.7 节的细节是候选设计。
 - 第 1 节是 owner 的出发点；第 2、3 节是现状与问题。
