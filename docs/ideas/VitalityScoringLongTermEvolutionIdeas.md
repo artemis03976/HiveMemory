@@ -8,14 +8,14 @@ related_current:
   - docs/patchouli/lifecycle.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/retrieval.md
-last_reviewed: 2026-11-16
+last_reviewed: 2026-11-20
 ---
 
 # 生命力分数计算：长期演进方向
 
-本文创建于 2026-07-26，源于“生命力分数 100→67”缺陷修复后的进一步思考。它保存候选方向，不承诺实施顺序；当前公式、强化事件、gardening 与 archive/revive 语义以[记忆生命周期](../patchouli/lifecycle.md)为准，存储状态以 [MemoryLibrary](../patchouli/memory-library.md)为准。
+本文源于“生命力分数 100→67”缺陷修复后的进一步思考。它保存候选方向，不承诺实施顺序；当前公式、强化事件、gardening 与 archive/revive 语义以[记忆生命周期](../patchouli/lifecycle.md)为准，存储状态以 [MemoryLibrary](../patchouli/memory-library.md)为准。
 
-## 0. 复核结论与设计矛盾
+## 0. 现状与设计矛盾
 
 当前三段式公式、四种强化事件、定期 gardening 和显式 archive/revive 已经落地，因此本文对它们的描述仍可作为问题背景。其余五个方向均未实现：`MetaData` 没有 per-memory `decay_rate`、review/salience 字段，Lifecycle 没有 Promoter 或 INTERFERENCE 事件，也没有持久化复习历史。
 
@@ -31,7 +31,7 @@ last_reviewed: 2026-11-16
 
 ## 背景
 
-本次 bug 的直接修复采用了**三段式语义**公式：
+当前公式是**三段式语义**（[记忆生命周期](../patchouli/lifecycle.md)）：
 
 ```
 V(t) = V_0 · D(t) + A(access) + B(events)
@@ -62,7 +62,7 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ### 核心想法
 
-将衰减率 `λ` 从全局配置改为**每条记忆的私有字段**。每次成功的 HIT/CITATION 让该记忆的 `λ *= 0.85`（举例），即**"被反复回忆成功的记忆衰减得更慢"**。
+将衰减率 `λ` 从全局配置改为**每条记忆的私有字段**。每次 CITATION 让该记忆的 `λ *= 0.85`（举例），即**"被反复回忆成功的记忆衰减得更慢"**。HIT 只表示检索把记忆交付给了 agent，不表示被用上，现在不改变生命力，所以自阻尼不由 HIT 触发。
 
 这是艾宾浩斯曲线最核心的生物学直觉：**记住一次，下次遗忘得更慢**。当前全局 λ 让"被反复验证的核心记忆"和"昙花一现的记忆"走同一条衰减曲线，丢失了分化信号。
 
@@ -70,19 +70,19 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 - `MetaData` 新增 `decay_rate: float` 字段（初始化为 `config.decay_lambda * (2 - I)`）
 - `VitalityCalculator._calculate_decay` 读取 `memory.meta.decay_rate`，不再依赖全局 `λ_eff` 计算
-- `DynamicReinforcementEngine.reinforce` 在 HIT/CITATION/FEEDBACK_POSITIVE 后递减 `decay_rate`：
+- `DynamicReinforcementEngine.reinforce` 在 CITATION/FEEDBACK_POSITIVE 后递减 `decay_rate`：
   `decay_rate *= 0.85`，下限 `0.1 * config.decay_lambda`
 - FEEDBACK_NEGATIVE 反向：`decay_rate *= 1.2`，上限 `2 * config.decay_lambda`
 
 ### 期望效果
 
-- 单次 HIT 立刻有体感：下次重算时分数明显高于"未被命中的同年龄记忆"
+- 单次 CITATION 立刻有体感：下次重算时分数明显高于"未被引用的同年龄记忆"
 - 自然累积出"长尾核心记忆"与"昙花一现记忆"的分化
 - 无需冷路径同步——`decay_rate` 存在记忆本身，重算即生效
 
 ### 验证手段
 
-加一个调试脚本：可视化一条记忆在「30 天内被 HIT 5 次」与「30 天内未被命中」的活力曲线对比，直观看到自阻尼带来的累积差异。
+加一个调试脚本：可视化一条记忆在「30 天内被引用 5 次」与「30 天内未被引用」的活力曲线对比，直观看到自阻尼带来的累积差异。
 
 ---
 
@@ -128,7 +128,7 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 ### 落点
 
 - `MetaData` 新增 `next_review_at: datetime`、`stability: float`、`retrievability: float`（FSRS 三参数可选）
-- 新增 `engines/lifecycle/review_scheduler.py`：根据 HIT/CITATION 事件更新 `next_review_at`
+- 新增 `engines/lifecycle/review_scheduler.py`：根据 CITATION 事件更新 `next_review_at`
 - 原先没有消费者的 `RetrievalModeConfig.time_weight` 已从公共配置面删除；若未来接入 `next_review_at`，必须先定义它与相关性、recency 和 vitality 的组合语义，再随真实实现引入新的配置，而不是复用历史占位字段
 
 ### 期望效果
@@ -138,7 +138,7 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ### 风险/前置
 
-- FSRS 真正发挥价值需要采集**复习历史**（每次 HIT 的时间戳），需扩 `MemoryEventLog` 持久化
+- FSRS 真正发挥价值需要采集**复习历史**（每次 CITATION 的时间戳），需扩 `MemoryEventLog` 持久化
 - 算法引入要写一遍 schema migration 与单测，工程量比方向 1、2 大
 
 ---
@@ -204,11 +204,11 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ---
 
-## 方向 6: 落库之后的演化质量 (2026-11-15)
+## 方向 6: 落库之后的演化质量
 
-### 范围（owner）
+### 范围
 
-记忆的生命周期维护与记忆的整理和写入原则上分属两件事：未来的"记忆的分裂与合并""记忆冲突检测"等，都属于落库之后怎样保证记忆的演化质量。只是在强调查重与复核的当下，两者有重叠。两者的边界（由什么触发、看哪些记忆、回答什么问题）见 [v0.8 写入链路 Idea](./memory-flow-write-path.md)第 4 节：写入一侧回答"这段新经历是否改变了库"，维护一侧回答"库本身是否仍然一致、好用"。
+记忆的生命周期维护与记忆的整理和写入原则上分属两件事：未来的"记忆的分裂与合并""记忆冲突检测"等，都属于落库之后怎样保证记忆的演化质量。只是写入时的查重与合并让两者有重叠。两者的边界（由什么触发、看哪些记忆、回答什么问题）见 [v0.8 写入链路 Idea](./memory-flow-write-path.md)第 4 节：写入一侧回答"这段新经历是否改变了库"，维护一侧回答"库本身是否仍然一致、好用"。
 
 ### 现状
 
@@ -220,7 +220,7 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ### 参考：Anthropic 的离线整理（dreaming）
 
-依据是 Anthropic 工程团队的文章 [The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory)（2026-11-06，2026-11-15 阅读）。文中把会话之后的离线整理称为 dreaming，思路来自 Letta 与 UC Berkeley 的 sleep-time compute；写入一侧的要点记在 v0.8 Idea 第 8.4 节。维护一侧的要点：
+依据是 Anthropic 工程团队的文章 [The components of agent memory](https://www.anthropic.com/research/components-of-agent-memory)（2026-11-06，2026-11-15 阅读）。文中把会话之后的离线整理称为 dreaming，思路来自 Letta 与 UC Berkeley 的 sleep-time compute；文章的外部事实见[外部参考](../research/memory-core-external-references.md)第 4 节。维护一侧的要点：
 
 - **对照原始轨迹纠错**：会话中写下的笔记可能一开始就错，也可能随环境变化过时；离线时以原始轨迹为基准检查笔记并改写。在 Pokémon 实验中，一条写错方位的笔记让 agent 反复掉回原路、最终没能通过；纠正后 agent 回到正确的路线并到达下一座城市。
 - **建立并维护组织方式（wiki）**：每个主题一页、互相链接，由多轮离线整理逐步增删改。约 35 万个文件的公司语料上，128 轮之后只靠 wiki 回答的得分由 13% 升到 48%；wiki 加搜索由 54% 升到 61%（只用搜索为 53%），每题约省 2 万 token。需要跨多份文档综合的问题，wiki 为 87%，只搜索为 73%；单份文档就能回答的问题没有提升；有一次 wiki 长得比原文还大，等于没有抽象。
@@ -230,19 +230,19 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ### 参考：Perplexity 的后台维护（Dream）
 
-依据是 Perplexity 工程团队的文章 [Brain: Agentic memory as a knowledge wiki](https://www.perplexity.ai/hub/blog/brain-agentic-memory-as-a-knowledge-wiki)（2026-08-19，2026-11-15 阅读）；写入一侧与存储形态的要点记在 v0.8 Idea 第 8.5 节。维护一侧的要点：
+依据是 Perplexity 工程团队的文章 [Brain: Agentic memory as a knowledge wiki](https://www.perplexity.ai/hub/blog/brain-agentic-memory-as-a-knowledge-wiki)（2026-08-19，2026-11-15 阅读）；文章的外部事实见[外部参考](../research/memory-core-external-references.md)第 5 节。维护一侧的要点：
 
 - 后台 agent 每次从上一版 wiki 出发增量更新，而不是从零重建；新信息加到相关页面，过时的内容按时移除（例如用户换了工作，wiki 应反映新的职位，并优先保留与新职责相关的信息）。
 - 定向阶段读取删除记录与长期指令，用户删掉的内容不会被再次加回。
 - 改动先写进暂存的输出树，通过确定性校验（格式、必备字段、引用格式）与语义核验（有证据支撑、与图的其余部分一致）后，由受控的同步步骤统一应用，改动可在 git 历史中查看。
-- 它把写入（由新会话触发）与维护（移除过时内容）放在同一个后台 agent 中；按 owner 的划分，两者的边界见 v0.8 Idea 第 7 节。
+- 它把写入（由新会话触发）与维护（移除过时内容）放在同一个后台 agent 中；HiveMemory 把两者分开，边界见 [v0.8 写入链路 Idea](./memory-flow-write-path.md)第 4 节。
 
-### 与本文其他方向的关系（分析，不是 owner 决定）
+### 与本文其他方向的关系（候选）
 
 - 方向 2 要求先定义 consolidation 的产物：文中的 wiki 页面是一种具体答案，即由整理产出、指回来源的派生页面，可以重建，不改写原有记忆。
-- 方向 3 的复习调度与"按访问频率调整整理节奏"相通：HiveMemory 已有访问次数、生命力与最近访问时间，可以用来决定先复核哪些记忆。
+- 方向 3 的复习调度与"按访问频率调整整理节奏"相通：HiveMemory 已有访问次数、生命力与最近访问时间，可以用来决定先整理哪些记忆。
 - 方向 5 的干扰建模与冲突检测相关，但冲突检测先要有记忆之间的关系。
-- 维护作出的分裂、合并与纠错都经 MemoryGenerationFamiliar 提交，写入者仍只有一个；对照轨迹纠错与冲突检测依赖写入时留下的接口：证据能定位到轮次或事件、修订是局部修改、验证状态有写入方（v0.8 Idea 第 7 节）。
+- 维护作出的分裂、合并与纠错都经 MemoryGenerationFamiliar 提交，写入者仍只有一个；对照轨迹纠错与冲突检测依赖写入时留下的接口：证据能定位到轮次或事件、修订是局部修改、验证状态有写入方（[写入链路 Idea](./memory-flow-write-path.md)第 4 节）。
 
 ---
 
@@ -258,17 +258,17 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ## 现状记 (修复前公式与艾宾浩斯意图的偏差)
 
-本次修复前的旧公式 `V = (C × I) × D(t) × 100 + A` 存在以下与"模拟人类记忆衰退/强化"意图的系统性偏差，是 100→67 bug 的根因，也提示了上述演进方向：
+旧公式 `V = (C × I) × D(t) × 100 + A` 存在以下与"模拟人类记忆衰退/强化"意图的系统性偏差，是 100→67 缺陷的根因，也提示了上述演进方向；当前公式对每一项的处理附在后面：
 
-1. **confidence 既是"初值系数"又是"质量分"，语义混淆** — 低置信度记忆不是"衰减得更慢/更快"，而是从一开始就低，违背艾宾浩斯 V_0 应为高值的直觉。本次修复已通过把 V_0 固定解耦解决。
+1. **confidence 既是"初值系数"又是"质量分"，语义混淆** — 低置信度记忆不是"衰减得更慢/更快"，而是从一开始就低，违背艾宾浩斯 V_0 应为高值的直觉。当前公式把 V_0 固定，与 confidence 解耦。
 
-2. **D(t) 只跟 `updated_at` 走，且所有事件重置 updated_at** — 衰减钟一直被归零，时间衰减实际只在"从未被访问"的记忆上起作用。本次修复已通过「HIT 不重置 updated_at，仅 CITATION 重置」解决。
+2. **D(t) 只跟 `updated_at` 走，且所有事件重置 updated_at** — 衰减钟一直被归零，时间衰减实际只在"从未被访问"的记忆上起作用。当前衰减以 `decay_anchor_at` 为唯一基准，只有 CITATION 与内容提交推进它，HIT 不推进。
 
-3. **access_boost 封顶太低 (10 次封顶)** — 强化效果被压平，"反复强化累积"失去梯度。本次修复已通过改对数曲线解决。
+3. **access_boost 封顶太低 (10 次封顶)** — 强化效果被压平，"反复强化累积"失去梯度。当前公式改为对数曲线。
 
-4. **clamp 在 100 截断** — 公式原始输出 `[0, 120]`，靠 clamp 到 100。提示 base+boost 的设计没有预留 hit_boost/feedback_boost 的叠加空间。本次修复保留 clamp，但建议未来公式扩展时重新审视上限。
+4. **clamp 在 100 截断** — 公式原始输出 `[0, 120]`，靠 clamp 到 100。提示 base+boost 的设计没有预留 hit_boost/feedback_boost 的叠加空间。当前公式保留 clamp，公式扩展时需要重新审视上限。
 
-5. **confidence 缺乏上行通道** — `reinforce()` 只在负反馈时改 confidence（×0.5），正向事件都不提升 confidence。"被反复验证有效应提升记忆强度"的语义在当前公式实现不了。**该偏差本次修复未处理**，留待方向 1 / 4 落地时一并解决。
+5. **confidence 缺乏上行通道** — `reinforce()` 只在负反馈时改 confidence（×0.5），正向事件都不提升 confidence。"被反复验证有效应提升记忆强度"的语义在当前公式实现不了。**当前公式没有处理这一项**，留给方向 1、4。
 
 ---
 
@@ -279,8 +279,8 @@ V(t) = V_0(salience) · D(t; λ_eff) + A(access) + B(events)
 
 V_0(salience)   = base_vitality * salience_multiplier          # 方向 4
 λ_eff           = memory.decay_rate                            # 方向 1 (per-memory 自阻尼)
-A               = access_boost_coef * log(1 + access_count)    # 本次已落地
-B               = memory.event_vitality_boost                 # 本次已落地
+A               = access_boost_coef * log(1 + access_count)    # 已落地
+B               = memory.event_vitality_boost                 # 已落地
 next_review_at  = FSRS_next_review(stability, retrievability)  # 方向 3
 语义巩固          = candidate consolidator + provenance          # 方向 2，具体状态待定义
 干扰             = EventType.INTERFERENCE on dedup_create       # 方向 5

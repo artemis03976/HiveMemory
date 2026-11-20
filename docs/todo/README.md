@@ -2,13 +2,13 @@
 title: Todo
 status: current
 owner: project
-scope: small-defects-and-technical-debt
-last_reviewed: 2026-11-11
+scope: small-defects-and-technical-debt-rules-and-index
+last_reviewed: 2026-11-20
 ---
 
 # Todo
 
-本目录用于范围较小、排期灵活的缺陷和技术债。跨系统功能或需要完整迁移、验收方案的工作应进入 `plans/`。
+本目录用于范围较小、排期灵活的缺陷和技术债，写法见文末的“规则”。
 
 当前事项：
 
@@ -32,4 +32,6 @@ last_reviewed: 2026-11-11
 
 已完成的事项，以及升级为计划、并入计划或删除的事项，登记在 [Archived Todo](../archive/todo/README.md)。
 
-Todo 只保存问题、证据、影响和完成条件。若事项扩展为跨系统功能或身份架构，应升级为 Plan；若已有项目 Issue，则链接 Issue，避免维护两份详细状态。
+## 规则
+
+Todo 只适用于范围较小、排期灵活的缺陷或技术债；大型功能、跨系统重构、身份架构，或需要完整迁移与验收方案的工作形成 Plan（[Plans](../plans/README.md)）。Todo 只保存问题、证据、影响和完成条件，至少包含影响范围、现象或证据、完成条件和追踪链接；项目 Issue 中已有对应事项时链接 Issue，不维护两份详细状态。完成的 Todo 在收尾时删除（[文档治理规范](../DOCUMENTATION.md)第 10 节）。

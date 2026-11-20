@@ -271,7 +271,7 @@ Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前
 - **Mode B**：SIMILAR 命中记录中的记忆时照常新建、不提名合并；IDENTICAL 照常只触碰，同一轮写了两次相同的内容时触碰仍然正确。
 - **不变的部分**：跨话题的查重、合并提名与合并语义不变；Mode C 不查重，不受影响；结算事件、任务快照与任务 API 不变。
 
-这一规则按话题判定，不知道一条被动草稿复述的是哪一次写入；两种生成方式在同一套架构中的整理方向见[统一的交互记忆 Idea](../ideas/unified-interaction-memory.md)。引擎的丢弃与不提名、控制器的记录与传递分别由引擎与控制器的单元测试覆盖，"先写入、后结算时复述写入的草稿不产生合并、库中只有写入的那条"由[生成流水线集成测试](../../tests/integration/patchouli/test_memory_generation_pipeline.py)验证。
+这一规则按话题判定，不知道一条被动草稿复述的是哪一次写入；两条写入路径在哪里汇合见 [v0.8 写入链路 Idea](../ideas/memory-flow-write-path.md)第 5 节。引擎的丢弃与不提名、控制器的记录与传递分别由引擎与控制器的单元测试覆盖，"先写入、后结算时复述写入的草稿不产生合并、库中只有写入的那条"由[生成流水线集成测试](../../tests/integration/patchouli/test_memory_generation_pipeline.py)验证。
 
 ## 5. Artifact 与持久化顺序
 

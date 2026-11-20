@@ -10,7 +10,7 @@ related_docs:
   - docs/contracts/mtp.md
   - docs/patchouli/memory-compiler.md
   - docs/patchouli/artifacts.md
-  - docs/ideas/memory-as-tool-skill-plugin-boundary.md
+  - docs/archive/ideas/memory-as-tool-skill-plugin-boundary.md
 ---
 
 # ADR-0003：Memory-as-a-Tool 与 MTP RUN 的边界语义
@@ -118,5 +118,5 @@ Accepted。本决策只冻结 MaaT 的语义边界：Memory 是统一资产，Sk
 - [Memory Tool Protocol](../../contracts/mtp.md)
 - [MemoryCompiler](../../patchouli/memory-compiler.md)
 - [Artifacts 与来源追踪](../../patchouli/artifacts.md)
-- [MaaT 与 Skill/Plugin 边界的资产消费模型（Idea）](../../ideas/memory-as-tool-skill-plugin-boundary.md)
+- [MaaT 与 Skill/Plugin 边界的资产消费模型（已归档的 Idea）](../../archive/ideas/memory-as-tool-skill-plugin-boundary.md)
 - [ADR-0002：全局唯一身份与按需并发保护](./0002-unique-identities-and-minimal-concurrency.md)

@@ -29,7 +29,7 @@ last_reviewed: 2026-11-01
 
 本文是 v0.7.2（生成质量）的设计讨论，为两份计划供料：一个话题提取多条记忆，以及查重与更新机制。两份计划各自在阻塞问题决定、能够立即执行时建立，彼此不预设先后。当前行为以 [Patchouli 生成](../../patchouli/generation.md)为准；查重失灵的证据与完成条件见[生成查重的决策信号 Todo](../../todo/generation-dedup-decision-signal.md)。
 
-同一版本的另外两个方向分别在其他 Idea 中讨论：生成材料修正与 Topic 之后的原始证据保存见 [Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存) 第 0 节；plugin 模式开放 WRITE 与 UPDATE 见[外部 Actor Idea](../../ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
+同一版本的另外两个方向分别在其他 Idea 中讨论：生成材料修正与 Topic 之后的原始证据保存见 [Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#0-topic-之后的原始证据保存与生成材料) 第 0 节；plugin 模式开放 WRITE 与 UPDATE 见[外部 Actor Idea](../../ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
 
 ## 1. owner 决定
 
@@ -90,7 +90,7 @@ Todo 登记时查重只做过 CREATE。2026-10-29 晚至 10-30，同一项目的
 | C | 按材料的稳定范围（例如连续的轮次段）分片，逐片提取 | 与原始证据的分片读取一致，可以承接超出模型窗口的材料；同一议题跨片时会拆成多条，依赖查重合并 |
 | D | 其他 | —— |
 
-**owner（2026-10-30）**：选项 C 不予采纳。话题本来就是用来聚合同一语义的片段，再按范围分片生成相当于人为打散这一结构；理由与 [Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30) 第 0.1 节的 R-1 相同。G-1 仍在其余选项之间待决。
+**owner（2026-10-30）**：选项 C 不予采纳。话题本来就是用来聚合同一语义的片段，再按范围分片生成相当于人为打散这一结构；理由与 [Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#01-已定的设计) 第 0.1 节的 R-1 相同。G-1 仍在其余选项之间待决。
 
 两种选项共同的影响（分析，2026-10-31）：
 

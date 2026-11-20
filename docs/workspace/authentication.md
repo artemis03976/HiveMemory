@@ -42,7 +42,7 @@ last_reviewed: 2026-11-12
 
 两个阶段由唯一对外的认证入口 `ActorAuthenticationGateway.authenticate(adapter, principal, credential, actor, workspace)` 依次完成，通过后返回工作 actor（第 3 节）。调用认证的是入口与系统组件：server 与 MCP 入口、任务进程的注册入口与 Import Bus 服务；它们只面对认证网关，不直接持有 `WorkspaceAuthenticator`。第 1 阶段属于 System，是因为“哪个调用来源可以接入”是部署的配置，与任何 Workspace 无关；第 2 阶段属于 workspace，是因为“谁能进入哪个 Workspace”是 Workspace 的配置。workspace 以端口声明对第 1 阶段的需要，由组合根注入实现，因此不导入 System。
 
-入口分为两类。**进程内入口**以自己登记的 principal 接入，不携带凭据：server 的前端路由以 server 的 principal 与 `http` adapter，Profile 注入脚本以自己的 principal 与 `local` adapter，系统组件以系统自身的 principal 与 `local` adapter（第 5 节）。**外部入口**接收外部 harness 的请求，principal 取自请求中的声明（`X-Principal-ID`），只是声明，入口同时把 `Authorization: Bearer` 中的接入凭据交给网关，由第 1 阶段核对后才成立；入口只携带证据，不自行判定身份。请求头中的用户身份不做证明，这是本地单用户部署的信任假设（第 8 节）。与 Workspace 相关的 HTTP 入口都经网关认证：
+入口分为两类。**进程内入口**以自己登记的 principal 接入，不携带凭据：server 的前端路由以 server 的 principal 与 `http` adapter，系统组件以系统自身的 principal 与 `local` adapter（第 5 节）。**外部入口**接收外部 harness 的请求，principal 取自请求中的声明（`X-Principal-ID`），只是声明，入口同时把 `Authorization: Bearer` 中的接入凭据交给网关，由第 1 阶段核对后才成立；入口只携带证据，不自行判定身份。请求头中的用户身份不做证明，这是本地单用户部署的信任假设（第 8 节）。与 Workspace 相关的 HTTP 入口都经网关认证：
 
 | 入口 | principal 与 adapter | 声明 | 认证结果 |
 |:---|:---|:---|:---|
@@ -136,7 +136,7 @@ last_reviewed: 2026-11-12
 
 ## 5. 系统自身的 principal
 
-系统级操作以保留的 `system` 执行（[身份与授权](./identity-and-authorization.md#4-操作授权)）。系统组件取得这个身份的方式与 Profile 注入脚本相同：以自己登记的 principal 经进程内 adapter 认证 (user, `system`)。
+系统级操作以保留的 `system` 执行（[身份与授权](./identity-and-authorization.md#4-操作授权)）。系统组件以自己登记的 principal 经进程内 adapter 认证 (user, `system`)，取得这个身份。
 
 - 随仓库发布的登记模板包含 `hivememory:system`（`local` adapter、允许声明 `system`、不带凭据）；它的标识与 adapter 标识一样定义为 `system/access/` 中的常量 `SYSTEM_PRINCIPAL_ID`，只由组合根引用，注入任务进程的注册入口与 Import Bus 服务（架构测试守护）。
 - 任务进程注册时认证一次，得到存进进程记录的系统 root 工作 actor；Import Bus 每次导入或确定话题时认证一次，认证的是参与者驻留 Workspace 的 `system`。

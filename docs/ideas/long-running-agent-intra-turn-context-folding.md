@@ -16,18 +16,18 @@ related_ideas:
   - docs/archive/ideas/pending-intent-migration.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-20
 ---
 
 # 长时间运行 Agent 的 Turn 内上下文折叠
 
-本文记录一项面向未来生产级长时间运行 Agent 的开放设计，不是当前能力说明，也不代表近期排期。当前短期话题、Agent runtime、Import Bus、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
+本文是面向生产级长时间运行 Agent 的候选设计，不描述当前行为，也不代表近期排期。当前短期话题、Agent runtime、Import Bus、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
 
 通用的执行工作记忆、Topic 记忆形成工作集、Alice compact 与 page folding 关系集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)；Session → Topic 完整资料 → Artifact 的原始数据保存链集中在[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。本文只讨论未结束 turn 的事件流接入、语义分段、独立覆盖进度、超大事件和封口恢复，不重复定义通用压缩算法或证据存储。
 
-> 定位调整（owner，2026-10-01）：ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是两项各自独立的工作。前台的上下文压缩归 CPU，用户以 `/compact` 触发（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding。本文据此分别讨论 CPU 的 turn 内执行视图与 Patchouli 的未结束交互资料视图，两边各自推进，不能串成前一级 compact 完成后再交给后一级 folding 的流水线。
+**前台与后台分开**：前台对话与后台的记忆 Topic 管理是两项独立的工作。前台的上下文压缩归 CPU，用户以 `/compact` 触发（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding。本文分别讨论 CPU 的 turn 内执行视图与 Patchouli 的未结束交互资料视图，两边各自推进，不能串成前一级 compact 完成后再交给后一级 folding 的流水线。
 
-> 方向（owner，2026-10-13）：对话以流式方式同步到 Patchouli 侧，仍保留一轮 Interaction 的概念，但 Topic 侧接收更原子的输入结构，以解决一轮对话或执行过长导致的上下文爆炸。Topic 的生成材料相应变为之前全部的 Interaction 记录，加上当前轮已流式接收的消息。写入意图派发时“只取过去若干轮历史与 `state_summary`、当前一轮不参与”的局限随之消失（现状见 [Patchouli 生成](../patchouli/generation.md)第 3.2 节，材料的问题现由 v0.8 [写入链路 Idea](./memory-flow-write-path.md)第 5 节跟踪）。影响（分析）：第 1 节“当前主路径以完整 turn 为基本摄入单位”是这一方向要改变的现状；第 3.1 节接收未结束 turn 的 OpenTurnWorkspace 是一种候选承载；第 10.1 节“partial turn 提前进入 settlement”的顾虑仍然成立，流式接收的消息作为生成材料不等于提前结算。接收流式输入需要 Patchouli 侧先有容器保存关联信息，并供生成取出已接收的内容；容器是话题本身，还是第 3.1 节那样单独接收未结束 Interaction 的容器，仍未决定，它属于短期记忆的单位与形态。2026-10-13 曾因此保留话题预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1，owner，2026-10-13）；2026-11-06 owner 重新打开话题按需创建：不预建话题，第一次写入时建立，否则推迟到接受交互时建立，同日实施（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)）。
+**增量接收只服务长 turn**：时间线保留为顺序与身份的骨架，流式降级为按需追平（v0.8 [写入链路 Idea](./memory-flow-write-path.md)第 2.3 节）。轮次结束遥遥无期的长 turn、又有使用者需要更早看到事实，是需要更早送到的情形之一，也是本文的对象：仍保留一轮 Interaction 的概念，Topic 侧接收更原子的输入结构，以免一轮对话或执行过长导致上下文爆炸；当前轮已接收的消息可以作为生成材料，但不等于提前结算（第 10.1 节）。接收这些输入需要 Patchouli 侧先有容器保存关联信息并供生成取出；容器是话题本身，还是第 3.1 节那样单独接收未结束 Interaction 的容器，还没有决定，它属于短期记忆的单位与形态。话题按需建立：第一次写入时建立，否则在接受交互时建立（[外部会话 Idea](./external-session-and-topic-projection.md)第 10 节）。主动写入生成时只有话题已完成的轮次、当前一轮不在其中，这个问题由[写入链路 Idea](./memory-flow-write-path.md)第 2.2 节跟踪。
 
 ## 0. 核心判断与升级门槛
 
@@ -47,7 +47,7 @@ accepted interaction events
 raw records / source references -> Session / Topic complete materials -> Artifact
 ```
 
-CPU 可能已处理但 Patchouli 尚未收到某条事件。CPU compact 的回调和覆盖范围不能充当 Patchouli 的摄入确认；Patchouli 已接收资料也不意味着相应 Memory 已生成。上图不要求先对话封口再同步材料，流式接收正是本专项要探索的方向。
+CPU 可能已处理但 Patchouli 尚未收到某条事件。CPU compact 的回调和覆盖范围不能充当 Patchouli 的摄入确认；Patchouli 已接收资料也不意味着相应 Memory 已生成。上图不要求先对话封口再同步材料，增量接收正是本专项要探索的方向。
 
 本方向只有在以下条件同时满足后才应升级为 Plan：
 
@@ -59,7 +59,7 @@ CPU 可能已处理但 Patchouli 尚未收到某条事件。CPU compact 的回�
 
 ## 1. 背景与当前约束
 
-当前主路径以完整 turn 为基本摄入单位：任务进程在 CPU 执行结束后封口 `InteractionPayload`，Perception 再把其中的 user query、assistant final text、turn events、actions 和 traces 封装为一个 `TurnRecord` 与一个 `LogicalBlock`。Topic Page Folding 发生在 blocks 已经进入 Topic 工作集之后，详见[感知与短期话题](../patchouli/perception.md)。
+当前主路径以完整 turn 为基本摄入单位：任务进程在 CPU 执行结束后封口 `InteractionPayload`，Import Bus 在外部 harness 的一轮结束后导入；Perception 把其中的事件集封装为一个 `TurnRecord` 与一个 `LogicalBlock`。Topic Page Folding 发生在 blocks 已经进入 Topic 工作集之后，详见[感知与短期话题](../patchouli/perception.md)。
 
 这套模型适用于“一个 turn 在一次模型上下文内自然结束”的常规对话，但面对长时间运行 Agent 会出现四类张力：
 
@@ -68,7 +68,7 @@ CPU 可能已处理但 Patchouli 尚未收到某条事件。CPU compact 的回�
 - 若把每个中间片段直接当作 LogicalBlock，Generation 与 settlement 会误把 partial turn 当作完整记忆生成单位；
 - 外部 harness 的 continuation summary 面向任务继续执行，不一定适合用户记忆、事实提取和来源审计。
 
-还存在一个不可绕过的能力边界：如果 Passive connector 只在 turn 完成后提交最终结果，HiveMemory 不可能反向管理该 Agent 运行期间已经发生的 context overflow。它最多只能在收到数据后保护自身的短期存储与 Generation 输入。
+还存在一个不可绕过的能力边界：如果外部连接器只在 turn 完成后提交最终结果，HiveMemory 不可能反向管理该 Agent 运行期间已经发生的 context overflow。它最多只能在收到数据后保护自身的短期存储与 Generation 输入。
 
 ## 2. 概念分层
 
@@ -427,14 +427,14 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 
 ## 13. 开放问题
 
-1. Patchouli 接收当前轮材料的容器直接放在 Topic 中，还是独立设置 OpenTurnWorkspace；这对话题的建立时点和最终封口有什么影响？（话题自 2026-11-06 起按需建立、不再预建，见开头的方向。）
+1. Patchouli 接收当前轮材料的容器直接放在 Topic 中，还是独立设置 OpenTurnWorkspace；这对话题的建立时点和最终封口有什么影响？（话题按需建立、不预建，见文首。）
 2. Segment boundary 应由 Agent runtime 声明、由 HiveMemory 归并，还是采用混合策略？
 3. 流式原子事件接纳、完整 Interaction 封口与写入意图读取材料之间，如何冻结一致的已接收快照？
 4. 完整原始资料链中的引用期限和删除规则，如何覆盖未结束 turn、延迟事件和后来生成的 Artifact？
 5. 尚未完整封口的事件流如何表达 partial facts，并与已有 cancelled/failed 封口记录区分？
 6. 外部事件标识或 sequence 不稳定时，如何检出重放与缺口；外部 checkpoint 可以提供哪些辅助诊断而不替代接收事实？
-7. CPU 各 frame 的执行检查点如何独立定位多 Agent/child frame 的材料来源？材料与 parent interaction 的关联已决定（owner，2026-11-02）：子 Agent 是父 Agent 临时委托的执行线程，与 Alice 的 CALL 子帧一样，它的过程不进入记忆生成，要保留的内容由它自己写入记忆；父会话的一轮保留它交回的最终输出（[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。
-8. managed-context API 是否属于 Import Bus（原 Passive Ingress）扩展，还是应成为独立的 conversation-context service？
+7. CPU 各 frame 的执行检查点如何独立定位多 Agent/child frame 的材料来源？材料与 parent interaction 的关联已定：子 Agent 是父 Agent 临时委托的执行线程，与 Alice 的 CALL 子帧一样，它的过程不进入记忆生成，要保留的内容由它自己写入记忆；父会话的一轮保留它交回的最终输出（[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。
+8. managed-context API 是否属于 Import Bus 的扩展，还是应成为独立的 conversation-context service？
 9. 具体消费者的 token budget 在模型切换时如何重新验证；超大且尚未闭合的 segment 采用什么有界表示？
 10. 哪些真实使用指标足以证明该复杂度优于“外部 Agent 自行 compact，HiveMemory 只做 post-hoc 记忆生成”？
 
@@ -442,16 +442,14 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 
 ## 14. 跨入口上下文的已知缺口与专项范围
 
-2026-10-01 并入：原占位计划“话题折叠、Actor 上下文与原始证据统一改造”（`docs/plans/topic-folding-context-and-raw-evidence.md`）退回 Idea，原 Todo“Page Folding 跨入口上下文与证据后续技术债”（`docs/todo/page-folding-cross-ingress-follow-ups.md`）拆分。两份文档中属于前台上下文的内容并入本节，属于后台 Topic 管理的内容并入原始证据 Idea；原文件随后删除，删除前最后版本见 commit `74b5056`。
+本节维护跨入口 managed-context、未结束 turn 和原子事件流的专项问题。一般性的 CPU compact、Topic page folding 边界与优化由[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)维护，Session → Topic 资料 → Artifact 的保存由[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)维护；前台 compact 并不都属于长 turn。
 
-2026-10-16 整理：一般性的 CPU compact、Topic page folding 边界与优化由[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)集中维护，Session → Topic 资料 → Artifact 的保存规划由[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)承接。本节保留跨入口 managed-context、未结束 turn 和原子事件流的专项问题，供已有引用继续定位；不再把所有前台 compact 归入长 turn 项目。
-
-### 14.1 已知缺口（代码核对，2026-07-30 记录）
+### 14.1 已知缺口
 
 - **没有托管上下文能力**：外部 harness 自己管理 prompt history；Import Bus 只向记忆网络输入，响应不返回任何记忆上下文（[Import Bus](../system/import-bus.md)）。系统没有 `external | hivememory` 这类显式的上下文所有权能力，也没有带版本或覆盖游标的压缩后上下文输出。因此 Discord 等轻量 bot 不能把 HiveMemory 内部的折叠当作外部 prompt 压缩服务使用（对应第 8.3 节）。
-- 按开头的定位调整，前台上下文的压缩归 CPU。若要支持由 HiveMemory 托管的 bot 上下文，需要形成独立 Plan，定义上下文所有权、版本/覆盖游标、返回模型，以及调用方替换历史的幂等契约（候选，未决定；与第 13 节问题 8 相关）。
+- 前台上下文的压缩归 CPU（见文首）。若要支持由 HiveMemory 托管的 bot 上下文，需要形成独立 Plan，定义上下文所有权、版本/覆盖游标、返回模型，以及调用方替换历史的幂等契约（候选；与第 13 节问题 8 相关）。
 
-### 14.2 待设计范围（原占位计划的前台部分）
+### 14.2 待设计范围
 
 | 工作域 | 需要覆盖的问题 |
 |:---|:---|
@@ -459,4 +457,4 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 | Alice 与外部 harness | 自主管理上下文、外部摘要/checkpoint 的来源、混合来源 Topic，以及显式委托上下文管理的适用范围 |
 | 执行与记忆的边界 | 独立的接收、摘要覆盖与生成进度（第 2.4、6、7 节）；CPU compact 不改写 Topic 状态，不构成流式摄入确认；通用边界见短期记忆 Idea |
 
-`InteractionPayload` 表示一次完成或明确封口的交互；本文的长 turn 分片与 checkpoint 是运行中的预算与覆盖机制，两者生命周期不同。证据与折叠覆盖关系应引用 `interaction_id`（controller 模式下取 `process_id` 的值）与 `TurnEvent` 范围建立，不另建一套来源 ID。
+`InteractionPayload` 表示一次完成或明确封口的交互；本文的长 turn 分片与 checkpoint 是运行中的预算与覆盖机制，两者生命周期不同。证据与折叠覆盖关系应引用 `interaction_id`（任务进程中取 `process_id` 的值）与 `TurnEvent` 范围建立，不另建一套来源 ID。

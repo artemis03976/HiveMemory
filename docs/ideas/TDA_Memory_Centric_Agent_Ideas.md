@@ -10,22 +10,22 @@ related_current:
   - docs/patchouli/memory-library.md
   - docs/patchouli/retrieval.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-20
 ---
 
 # TDA 在 Memory-Centric Agent 中的潜在应用想法
 
 本文讨论的是 Memory-Native 命题上的研究延伸，不是 Patchouli 当前能力说明。项目愿景以 [VISION](../VISION.md) 为上位依据；当前 MemoryAtom、检索、存储状态与 provenance 分别以[数据模型](../architecture/data-model.md)、[MemoryLibrary](../patchouli/memory-library.md)、[记忆检索](../patchouli/retrieval.md)和 [Artifacts](../patchouli/artifacts.md)为准。
 
-## 0. 复核结论与当前基础
+## 0. 当前基础与升级条件
 
-“记忆不是平坦向量片段，而是带类型、来源、关系和生命周期的可演化资产”与项目愿景一致。当前 MemoryAtom 已有七种正式 `MemoryType`、identity/visibility/lifecycle 元数据、`relates_to / supersedes / depends_on` 关系预留，以及 creation/version artifact 中的 source memory refs；Retrieval 也已经产生 dense、sparse、vitality 与时间等候选信号。这些都是研究记忆结构的潜在输入。
+“记忆不是平坦向量片段，而是带类型、来源、关系和生命周期的可演化资产”与项目愿景一致。当前 MemoryAtom 有四种在用的 `MemoryType`（`FACT`、`REFLECTION`、`USER_PROFILE`、`RESOURCE`，另有四种只作历史取值，见 [`core/models/memory.py`](../../src/hivememory/core/models/memory.py)）、identity/visibility/lifecycle 元数据、`relates_to / supersedes / depends_on` 关系预留，creation/version artifact 中的 source memory refs，以及版本记录中指向交互轮次的段引用（[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)）；Retrieval 也已经产生 dense、sparse、vitality 与时间等候选信号。这些都是研究记忆结构的潜在输入。
 
-然而，关系层当前只是随 atom 保存的轻量预留，并没有图索引、关系一致性、反向边或图遍历保证；项目也没有 MemoryGraphBuilder、拓扑特征计算、共同检索历史的耐久记录、冲突边分类器或 topology-aware retrieval。下文使用的 `ProjectMemory`、`WorkflowMemory` 等名称是研究词汇，不是新的正式 `MemoryType`；`project_id`、`retrieval_count` 和 `validated_by` 等示例字段也不都是当前 schema。不能因为数据模型留有关系字段，就宣称 Memory Topology 已经部分交付。
+然而，关系层当前只是随 atom 保存的轻量预留，并没有图索引、关系一致性、反向边或图遍历保证；项目也没有 MemoryGraphBuilder、拓扑特征计算、共同检索历史的耐久记录、冲突边分类器或 topology-aware retrieval。下文使用的 `ProjectMemory`、`WorkflowMemory` 等名称是研究词汇，不是新的正式 `MemoryType`；`project_id`、`retrieval_count` 和 `validated_by` 等示例字段也不都是当前 schema。不能因为数据模型留有关系字段，就宣称 Memory Topology 已经部分交付。v0.8 的[库的形状 Idea](./memory-library-shape-and-index.md)第 2.2、2.4 节设计了派生的时空图索引与存成关联表的关系（候选）；它们落地之后，原子级的记忆图可以从中派生用于分析，不必存在原子上。
 
 本方向升级为 Plan 前，至少需要：
 
-1. 用当前七种 MemoryType 和现有 identity/provenance 字段定义最小图投影，避免先扩张领域模型；
+1. 用当前在用的 MemoryType 和现有 identity/provenance 字段定义最小图投影，避免先扩张领域模型；
 2. 明确每类边来自确定性事实、统计共现还是模型推断，并为推断边保存置信度和来源；
 3. 建立 flat dense/sparse/hybrid retrieval 与普通 graph metrics 基线，证明 persistent topology 带来额外收益；
 4. 用真实 memory space 验证所谓 component、cycle、bridge 是否具有稳定且可行动的语义；

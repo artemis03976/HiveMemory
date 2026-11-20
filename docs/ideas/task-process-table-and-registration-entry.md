@@ -13,18 +13,16 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/execution-environment.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-20
 ---
 
 # 任务进程表与任务请求唯一注册入口
 
 ## 0. 文档性质
 
-本文收集任务进程模型尚未决定或尚未落地的方向，不描述当前行为，也不代表排期。理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.2 节“一切任务都是进程”；当前设计见 [任务进程](../workspace/task-process.md)、[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节与 [执行线程](../workspace/execution-threads.md)。问题沿用原编号（Q-x）。
+本文是任务进程模型尚未落地的方向与开放问题。理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.2 节“一切任务都是进程”；当前设计见 [任务进程](../workspace/task-process.md)、[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节与 [执行线程](../workspace/execution-threads.md)。正文是已定的设计，候选设计标“候选”；已经实现的部分以当前事实文档为准。问题沿用原编号（Q-x）。
 
-本文于 2026-10-13 精简，删除了已实施的决定、实施记录与迁移前的代码快照；删除前版本见 commit `a384688`。
-
-## 1. 请求方的分类（owner，2026-09-27）
+## 1. 请求方的分类
 
 请求方只有两类：
 
@@ -34,7 +32,7 @@ last_reviewed: 2026-11-08
 | 被动请求 | 由条件触发；用户设定之后不再主动发出请求 | 定时任务、队列任务 |
 
 - **区分标准是“即时”**：进程在用户指令到达的那一刻创建，即为主动请求，否则为被动请求。队列任务虽由用户提交，但进程要等条件满足时才创建，属于被动请求。
-- “被动（Passive）”一词留给被动请求体系；原 Passive Ingress 链路现为 Import Bus，它不是请求方（[Import Bus](../system/import-bus.md)）。
+- “被动（Passive）”一词留给被动请求体系；Import Bus 不是请求方（[Import Bus](../system/import-bus.md)）。
 - 请求方与执行者是两个维度：controller 模式下，请求方是在 HiveMemory 入口发出指令的用户，外部 harness 是执行单元。
 
 以下对象不是请求方：
@@ -50,22 +48,22 @@ last_reviewed: 2026-11-08
 
 ### 2.1 交互被接纳后即关闭进程（Q-1）
 
-owner（2026-09-28）决定：收尾阶段等到交互被提交队列接纳，进程即可关闭，不再等待 applied。附件租借因此在接纳时随进程关闭释放；Artifact promotion 在生成时按 `binding.asset_ref` 重新取得内容（[Chat 附件链路](../system/attachments.md)第 4 节），不依赖本轮的租借（分析）。
+**设计**（暂不实施）：收尾阶段等到交互被提交队列接纳，进程即可关闭，不再等待应用。附件租借因此在接纳时随进程关闭释放；Artifact promotion 在生成时按 `binding.asset_ref` 重新取得内容（[Chat 附件链路](../system/attachments.md)第 4 节），不依赖本轮的租借（分析）。
 
-owner（2026-10-13）决定这一项暂时不实施，与话题是否预建一起随外部会话与流式同步的设计决定（[外部会话 Idea](./external-session-and-topic-projection.md)；容器形态见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)开头的方向）。2026-11-06 owner 重新打开话题按需创建（[外部会话 Idea](./external-session-and-topic-projection.md#10-交互提交收束与话题按需创建)第 10 节），同日实施（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)）；本项不在其中，进程仍等交互应用完成，因为会话与 `done` 需要实际所在的话题。
+**现状**：进程等交互应用完成之后才关闭，因为写入会话与交付 `done` 都需要交互实际所在的话题（[任务进程](../workspace/task-process.md#8-封口部分输出与结算)第 8 节）；话题按需建立之后这一点仍然成立，本项因此没有实施。
 
-**取舍**：曾考虑两阶段关闭（运行中 → 结算中 → 关闭），它需要在进程表中保留不占用执行单元的进程，并定义保留窗口、容量与停机处理；写入意图由 workspace 登记、与进程解耦之后，这些都不再需要。
+**取舍**：两阶段关闭（运行中 → 结算中 → 关闭）不采用：它需要在进程表中保留不占用执行单元的进程，并定义保留窗口、容量与停机处理；写入意图由 workspace 登记、与进程解耦之后，这些都不再需要。
 
 ### 2.2 Profile 解析回到 CPU 分配
 
-Profile 属于 CPU 分配，但现在提前到 prepare 之前解析，因为 prepare 可能新建 Topic、按 LRU 结算已有话题，这些副作用不可逆。Topic 的新建与驱逐改到交互提交之后，Profile 才能回到 prepare 之后的 CPU 分配步骤；它与 2.1 一样取决于话题是否预建。2026-11-06 起不再预建（[外部会话 Idea](./external-session-and-topic-projection.md#10-交互提交收束与话题按需创建)第 10 节），这个前提已经成立；但主线程同时改为在 PREPARE 开始时以 Profile 派生，预检索与已有话题的确认都由它执行，Profile 因此仍需在 PREPARE 开头解析，移回 CPU 分配要先改变主线程的派生时点。移动时点尚未安排。
+Profile 属于 CPU 分配，但现在在 PREPARE 开始时解析：主线程以这份图纸派生，预检索与已有话题的确认都由主线程执行（[任务进程](../workspace/task-process.md#6-cpu-分配)第 6 节）。话题不再预建，原来“PREPARE 可能新建话题、按 LRU 结算已有话题”这一前提已经消失；Profile 要移回 CPU 分配，还要先改变主线程的派生时点。这一移动没有安排。
 
 ### 2.3 进程记录与工作集的剩余槽位
 
-owner（2026-09-28）为进程记录与工作集定下的内容中，以下部分尚未成为槽位：
+进程记录与工作集已定的内容中，以下部分还不是槽位：
 
 - 进程记录：请求方式（主动或被动）、CPU 分配（所用的执行环境，见[执行环境 Idea](./execution-environment.md) T-8）；
-- 工作集中的值：执行记录（GatewayDecision 已于 2026-11-06 成为工作集的 `ProcessWorkingSet.gateway_decision`，见[任务进程](../workspace/task-process.md#9-工作集与唯一的退出路径)第 9 节）。
+- 工作集：执行记录。GatewayDecision 已是工作集的槽位 `ProcessWorkingSet.gateway_decision`（[任务进程](../workspace/task-process.md#9-工作集与唯一的退出路径)第 9 节）。
 
 约束：槽位可以动态，值必须有类型，每个槽位都有声明的类型与所有者，不使用 `dict[str, Any]` 这类无类型载体；工作集中的资源在进程关闭时必须释放或补偿，无论从哪个阶段结束。
 
@@ -73,15 +71,15 @@ owner（2026-09-28）为进程记录与工作集定下的内容中，以下部�
 
 记忆与附件由进程编译，编译的预算与目标将来由执行单元在 CPU 分配时声明；只有 Alice 一个执行单元时沿用现有配置。
 
-### 2.5 四阶段骨架的失效条件（分析）
+### 2.5 四阶段骨架的失效条件（候选）
 
 controller 模式下所有任务进程共用 Gateway 分析 → 预检索 → Actor 执行 → 结算四个阶段，骨架内部由执行者在线决定（Q-4）。出现装不进四阶段的任务时需要重新讨论任务类型，例如 Deep Research 需要多轮检索与执行、长期保留研究状态，或被动请求保存的指令无法作为用户消息交给 Gateway 分析。显式执行计划（任务图）需要计划表示、规划器与计划失败语义，接近 [AE2 Idea](./ae2-hivememory-architecture-analogy.md) 中的 Job Graph，ROADMAP 中通用 workflow / DAG 为 Unscheduled。
 
 ### 2.6 被动请求（Q-6）
 
-owner（2026-10-01）决定这一阶段先不考虑被动请求，避免现在做好的接口被后续设计推翻；入口的形状以后可能需要调整。被动请求只存在于 controller 模式，触发器的认证见[身份与访问体系 Idea](./identity-and-access-model.md#p-5-被动请求的认证) P-5（2026-11-05 由第五代架构 Idea 移入）。
+**设计**：这一阶段先不考虑被动请求，避免现在做好的接口被后续设计推翻；入口的形状以后可能需要调整。被动请求只存在于 controller 模式，触发器的认证见[身份与访问体系 Idea](./identity-and-access-model.md#p-5-被动请求的认证) P-5。
 
-plugin 模式有性质相近的情形：Claude Code 的后台任务（后台命令、Monitor 等）完成、后台子 Agent 交回或宿主注入消息时唤醒 Agent 续作，续作不由用户即时发出。连接器曾把续作接在已经提交的上一轮之后，续作因此不会被导入；2026-11-08 已改为唤醒开启新的一轮、用户消息为空的一轮续接上一轮的话题，见[已归档的计划](../archive/plans/claude-code-wake-turns.md)与 [Import Bus](../system/import-bus.md#83-轮次的切分与映射)第 8.3 节。
+**现状**：plugin 模式有性质相近的情形：Claude Code 的后台任务（后台命令、Monitor 等）完成、后台子 Agent 交回或宿主注入消息时唤醒 Agent 续作，续作不由用户即时发出。连接器让唤醒开启新的一轮，用户消息为空的一轮续接上一轮的话题（[Import Bus](../system/import-bus.md#83-轮次的切分与映射)第 8.3 节）。
 
 ## 3. 开放问题
 
@@ -98,11 +96,11 @@ plugin 模式有性质相近的情形：Claude Code 的后台任务（后台命�
 
 ### Q-5a 命令在进程中何时、由谁运行
 
-命令所在的请求注册为进程，Gateway 只解析命令；命令系统后置，内置命令暂时不可用。命令的运行位置随命令系统一并决定，候选尚未列出。[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md) 依赖这一决定。
+命令所在的请求注册为进程，Gateway 只解析命令，命令系统后置，内置命令现在不执行（[全局命令](../gateway/commands.md)）。命令的运行位置随命令系统一并决定，候选没有列出。[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md) 依赖这一决定。
 
 ### Q-5b `PASSIVE_MEMORY` 模式的去留
 
-已实施（2026-10-21）：Gateway 的 `PASSIVE_MEMORY` 模式只服务于 Import Bus，保留话题路由与价值信号（沿用 `worth_saving`），不检索（2026-10-31 价值信号随 v0.7.2 生成材料修正移除，`PASSIVE_MEMORY` 只取话题路由、不再运行查询分析）；当前行为见 [Import Bus](../system/import-bus.md)，决定与理由见[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)。
+已决定并实现：Gateway 的 `PASSIVE_MEMORY` 模式只服务于 Import Bus，只取话题路由，不检索、不运行查询分析；当前行为见 [Import Bus](../system/import-bus.md)，当时的理由见[已归档的计划](../archive/plans/v0.7.1-import-bus-redesign.md)。
 
 ### Q-7 进程表是否收录后台任务
 
@@ -121,11 +119,11 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 - **Q-8a 回收方式**：请求方显式关闭 / TTL / 心跳 / 组合；
 - **Q-8b 取消语义**：网络对外部执行单元的取消能做到什么程度（例如吊销访问、通知外部方），各项分别是否纳入；
 - **Q-8c 粒度**：外部 harness 的一轮对应一个进程 / 一个外部会话对应一个进程 / 由接入适配层决定。
-  - 影响（分析，2026-10-20）：harness 自身的会话是否跨轮保留，属于外部执行单元内部的实现，网络不感知。会话原文由网络持有，是唯一的事实来源；执行单元内部的任何状态都只是缓存，丢失后可以从会话重建（[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的 2026-10-20 修订）。跨轮保留可以让 harness 自己维持上下文与压缩，代价是执行单元需要管理闲置的会话；每轮重建则需要 harness 能接收注入的历史，长对话的压缩由谁承担随之成为问题（[外部 harness 接口调研需求](../research/harness-interface-survey.md) B2、B4）。
+  - 影响（分析）：harness 自身的会话是否跨轮保留，属于外部执行单元内部的实现，网络不感知。会话原文由网络持有，是唯一的事实来源；执行单元内部的任何状态都只是缓存，丢失后可以从会话重建（[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节）。跨轮保留可以让 harness 自己维持上下文与压缩，代价是执行单元需要管理闲置的会话；每轮重建则需要 harness 能接收注入的历史，长对话的压缩由谁承担随之成为问题（[外部 harness 接口调研需求](../research/harness-interface-survey.md) B2、B4）。
 
 ### plugin 模式与进程模型的交界
 
-- plugin 模式不建进程，它提交的 `InteractionPayload` 中 `interaction_id` 如何取值：已实施（2026-10-21）。连接器为每一轮提供重发时不变的外部标识，服务端按认证得到的 principal、来源、外部会话与该轮外部标识推导带 `import_` 前缀的 `interaction_id`，与 `process_id` 分属不同命名空间，并在路由之前以该标识查重；当前行为见 [Import Bus](../system/import-bus.md)，决定与理由见[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)。
+- plugin 模式不建进程，它提交的 `InteractionPayload` 中 `interaction_id` 怎样取值，已决定并实现：连接器为每一轮提供重发时不变的外部标识，服务端按认证得到的 principal、来源、外部会话与该轮外部标识推导带 `import_` 前缀的 `interaction_id`，与 `process_id` 分属不同命名空间，并在路由之前以该标识查重（[Import Bus](../system/import-bus.md)）。
 - 同一 harness 同时以 plugin 模式上报对话、又以 controller 模式运行任务进程时，交互记录如何避免重复：仍开放。只在两种模式并存时出现，controller 模式现为候选方向（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），不阻塞当前计划。
 
 ## 4. 相关文档
@@ -133,9 +131,9 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 | 文档 | 关系 |
 |:---|:---|
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.2 的理念与检验问题；架构级开放问题 P-9d |
-| [身份与访问体系 Idea](./identity-and-access-model.md) | P-4a（进程能否持有白名单的子集）、P-5（被动请求的认证）、P-7（进程控制操作的授权主体），2026-11-05 由第五代架构 Idea 移入 |
+| [身份与访问体系 Idea](./identity-and-access-model.md) | P-4a（进程能否持有白名单的子集）、P-5（被动请求的认证）、P-7（进程控制操作的授权主体） |
 | [执行环境 Idea](./execution-environment.md) | 执行环境的选择（T-8）决定 CPU 分配记入进程记录的内容 |
-| [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话承载对话连续性；话题预建已于 2026-11-06 取消（其第 10 节），不再是 2.1、2.2 的前提：2.1 仍因会话与 `done` 需要实际所在的话题而未实施，2.2 要先改变主线程的派生时点 |
+| [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话承载对话连续性；话题不再预建（其第 10 节），不再是 2.1、2.2 的前提：2.1 仍因会话与 `done` 需要实际所在的话题而未实施，2.2 要先改变主线程的派生时点 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | controller 模式使用本文的进程模型（Q-3b、Q-8），plugin 模式不建进程 |
 | [Import Bus](../system/import-bus.md) | Q-5b 与 plugin 模式 `interaction_id` 推导的当前行为 |
-| [Chat Run 生命周期后续候选](../archive/ideas/chat-run-lifecycle-follow-ups.md)（已于 2026-11-16 归档，不再跟踪） | 进程生命周期的其他候选改进 |
+| [Chat Run 生命周期后续候选](../archive/ideas/chat-run-lifecycle-follow-ups.md)（已归档，不再跟踪） | 进程生命周期的其他候选改进 |

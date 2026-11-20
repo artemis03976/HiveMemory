@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/archive/ideas/pending-intent-migration.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-20
 ---
 
 # 第五代架构：Workspace 网络
@@ -34,21 +34,19 @@ last_reviewed: 2026-11-09
 | 本文 | 第五代的概念模型、理念、约束与演进方向 |
 | 事实文档（[Workspace](../workspace/README.md)、[系统边界](../architecture/boundaries.md)、[子系统公共契约](../contracts/subsystem-contracts.md)等） | 理念现在如何落地 |
 | [ADR](../architecture/decisions/README.md) | 已经作出的决定及其理由 |
-| 子 Idea（第 6 节） | 具体方向的设计讨论与 owner 决定 |
+| 子 Idea（第 6 节） | 具体方向的设计 |
 
 维护规则：
 
 - 每条理念写五项：理念、为什么、约束、检验问题、落地入口；
-- 不记录实施进度、决定流水或代码细节，理念的落地情况只经“落地入口”链接到事实文档；
-- 现状与理念不一致时视为需要处理的偏差：修正实现，或经 owner 决定修订理念；改变理念的决定直接修改对应条目并注明日期，具体方向的决定记录在子 Idea。
-
-本文由 2026-09-26 起的《Workspace 网络与任务进程架构》Idea 于 2026-10-13 重写而成；原文的决定记录与实施状态见 commit `6add90f` 中的 `docs/ideas/workspace-network-task-process-architecture.md`。
+- 只写理念现在是什么，不写它怎样形成：不记录实施进度、决定流水或代码细节，理念的落地情况只经“落地入口”链接到事实文档；
+- 现状与理念不一致时视为需要处理的偏差：修正实现，或经 owner 决定修订理念。修订直接改写对应条目，不带日期、不保留取代关系，历史由版本控制保留；具体方向的设计写在子 Idea 中，写法见 [Ideas 的规则](./README.md)。
 
 ## 1. 代际定位
 
 前几代架构的总纲保存在 [Legacy Architecture](../archive/legacy-architecture/README.md)（历史文档）：v2.0 是早期 Patchouli 三位一体与冷热路径重构，v3.0 是 Patchouli OS、MTP 与内核运行时草案，v4.0 确立了 System、Patchouli、Alice 三个平面。
 
-第四代的三个平面之间，协作仍按“Alice 是唯一执行者”组织。2026-09 的工作区核对暴露出这种组织的代价：
+第四代的三个平面之间，协作仍按“Alice 是唯一执行者”组织，这种组织的代价是：
 
 - 读取记忆有多条互不相通的路径：管理面直读记忆库，Chat 在 Patchouli prepare 内读取，Alice 的 MTP 与 CALL 各有自己的解析器与缓存，进程内同时存在两套原子缓存与 Profile 缓存；
 - 统一认证网关已经装配，生产路径却走不带访问上下文的兼容分支，逐次行为授权实际没有执行；
@@ -57,7 +55,7 @@ last_reviewed: 2026-11-09
 
 第五代的命题：把 HiveMemory 从“为 Alice 服务的记忆系统”变为“任何执行者都能接入的记忆网络”。Alice 是网络中的一种执行单元，外部 harness 经同一套入口接入；VISION 中兼容轨与原生轨共享同一事实核心（[VISION](../VISION.md)第 8.3 节），由此有了可以落地的结构。
 
-**演进方式**（owner，2026-09-27）：按流程纵切迁移，一次把一条完整链路迁到新架构，不按组件横切、靠委托与兼容入口维持中间态。横切容易脱离实际运行情况而做理想设计；纵切更容易得到实际成果。演进期间的兼容范围不设统一规则，由各计划按自身情况决定（owner，2026-10-13）。
+**演进方式**：按流程纵切迁移，一次把一条完整链路迁到新架构，不按组件横切、靠委托与兼容入口维持中间态。横切容易脱离实际运行情况而做理想设计；纵切更容易得到实际成果。演进期间的兼容范围不设统一规则，由各计划按自身情况决定。
 
 ## 2. 核心模型：网络隐喻
 
@@ -73,25 +71,25 @@ last_reviewed: 2026-11-09
 | 合成卡、请求器等自动下单方 | 被动请求 | 条件满足时创建任务进程，如定时任务、队列任务 |
 | 玩家在 ME 终端直接存取 | root 直接通道 | 管理操作经 root API 直接执行，不建进程 |
 | 安全终端 | 认证网关与操作授权 | 准入与逐次授权 |
-| Import Bus | Import Bus | 只向网络输入，不在核心拓扑上（[Import Bus](../system/import-bus.md)；原 Idea 已于 2026-10-30 [归档](../archive/ideas/import-bus.md)） |
+| Import Bus | Import Bus | 只向网络输入，不在核心拓扑上（[Import Bus](../system/import-bus.md)） |
 
 两个维度要分开：**请求方**回答谁让网络做事（主动请求、被动请求），**执行者**回答谁来做（执行单元）。同一个外部 harness 可以有两个侧面：**执行侧面**是被进程经 CPU 端口驱动的执行单元，**接入侧面**是经操作适配器调用能力层的调用方。管理员与 plugin 模式的 harness 只有接入侧面，Alice 两个侧面都有。
 
-执行一侧的用语（owner，2026-10-06，2026-10-20 修订）：
+执行一侧的用语：
 
 | 用语 | 含义 |
 |:---|:---|
 | CPU | 执行者的抽象：任务进程只经 CPU 端口与它交互，不依赖任何具体实现 |
 | CPU 端口 | 任务进程调用 CPU 的统一接口，由 workspace 定义 |
-| 执行单元 | CPU 的常驻实例，内含实际的 backend：常驻在网络中，与任务的生命周期无关；任务进程在 Actor 阶段把打包好的任务交给它，最后取回终态结果，中间的工作状态只存在于其内部。面向用户称**执行环境**，与 agent 分别选择。Alice（`AliceCPU`）是当前唯一的执行单元 |
+| 执行单元 | CPU 的常驻实例，内含实际的 backend：常驻在网络中，与任务的生命周期无关；任务进程在 Actor 阶段把打包好的任务交给它，最后取回终态结果，中间的工作状态只存在于其内部。面向用户称**执行环境**，与 agent 分别选择。Alice（`AliceCPU`）是当前唯一的执行单元；事实文档与代码中的“CPU 驱动（`AliceCPU`）”指的就是执行单元 |
 | 驱动 | 实现执行单元的代码，按协议或产品编写：把输入清单与控制翻译为 backend 的协议，把输出翻译回事件流与终态结果；同一份驱动可以配出多个执行单元，例如一个 ACP 驱动对应多个支持 ACP 的 harness |
 | 执行线程（actor） | 执行单元内的执行者：发起任务的 agent 是主线程，CALL 派生的子 agent 是子线程；一个线程对应一个 `ActorIdentity`，也是它所发起操作的发起者 |
 | 操作适配器 | 把外部协议的请求归一化为能力层的一次调用；执行单元内的适配器只产出操作请求，由执行单元以线程句柄提交；属于接入侧面，不在驱动之内 |
 | 请求入口 | 任务请求进入唯一注册入口的传输入口，例如 HTTP 的 `POST /chat` |
 
-2026-10-20 修订（owner）：执行单元原与 CPU 同义，现改指 CPU 的常驻实例，对应 AE2 中常驻在网络里的合成单元；原“执行单元内部的 backend（harness 实例）”并入执行单元；原“CPU 驱动”指 CPU 端口的实现，现在这个对象称执行单元，驱动只指实现它的代码。事实文档与代码中“CPU 驱动（`AliceCPU`）”的说法指的就是执行单元，命名随首份计划的实施修订。相应地，任务进程是网络一侧的一次任务：打包输入、分配、签发线程权限、取消与接收结果；“CPU 分配”在接入外部执行单元后同时包括选择执行单元。执行单元内部的任何状态（例如外部 harness 自己的会话）都只是缓存：会话原文由网络持有，是唯一的事实来源。AE2 中一个合成单元同时只处理一个任务；HiveMemory 的执行单元可以同时承担多个任务进程，各任务的工作状态在其内部隔离，容量是否设限另行考虑，容量不等于授权（[AE2 Idea](./ae2-hivememory-architecture-analogy.md) 6.4）。
+执行单元对应 AE2 中常驻在网络里的合成单元。任务进程是网络一侧的一次任务：打包输入、分配、签发线程权限、取消与接收结果；接入外部执行单元后，“CPU 分配”同时包括选择执行单元。执行单元内部的任何状态（例如外部 harness 自己的会话）都只是缓存：会话原文由网络持有，是唯一的事实来源。AE2 中一个合成单元同时只处理一个任务；HiveMemory 的执行单元可以同时承担多个任务进程，各任务的工作状态在其内部隔离，容量是否设限另行考虑，容量不等于授权（[AE2 Idea](./ae2-hivememory-architecture-analogy.md) 6.4）。
 
-“kernel”是早期架构遗留的命名，不再作为概念使用。
+“kernel”是早期架构遗留的命名，不作为概念使用。
 
 ```mermaid
 flowchart TB
@@ -187,7 +185,7 @@ flowchart TB
 **约束**：
 
 - 端口由 workspace 定义、执行者实现，workspace 不导入任何执行者；
-- 一个任务进程只对应一个执行单元：CALL 只能派生本执行单元能够运行的 actor（owner，2026-10-13，[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-6b）；
+- 一个任务进程只对应一个执行单元：CALL 只能派生本执行单元能够运行的 actor（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-6b）；
 - 执行者只拿到输入清单与绑定了线程句柄的提交函数，取不到任何工作 actor；
 - 观测标签只用于观测与提示词，不参与授权。
 
@@ -229,12 +227,12 @@ flowchart TB
 
 - 每次请求重新校验身份，不以注册时的认证结果代替；
 - 行为许可与资源许可必须同时满足，任何一方都不能替代另一方；
-- root 只有保留的 `system` 一个，root 授权只接受它，覆盖 root API、任务进程的系统阶段与取消（owner，2026-11-05）；授权不按 actor 类型分支；
-- 阶段调用由系统以 root 工作 actor 执行，不以 Agent 的许可为前提，也不受 Agent 的可见性约束；任务进程的预检索按执行者的可见性返回记忆，是执行者的 actor 操作（owner，2026-11-05，[统一身份授权入口](../archive/plans/unified-identity-authorization-entry.md)第 4.1 节）。
+- root 只有保留的 `system` 一个，root 授权只接受它，覆盖 root API、任务进程的系统阶段与取消；授权不按 actor 类型分支；
+- 阶段调用由系统以 root 工作 actor 执行，不以 Agent 的许可为前提，也不受 Agent 的可见性约束；任务进程的预检索按执行者的可见性返回记忆，是执行者的 actor 操作。
 
 **检验问题**：新功能的授权点在哪一阶段、由谁负责？是否把权限写进了资源或身份类型？跨 Workspace 的操作是否同时满足驻留一侧与目标一侧的授予？
 
-**落地入口**：[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节；[MTP 契约](../contracts/mtp.md)第 4 节；[身份与访问体系 Idea](./identity-and-access-model.md)。
+**落地入口**：[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节与第 4 节；[MTP 契约](../contracts/mtp.md)第 4 节；[身份与访问体系 Idea](./identity-and-access-model.md)。
 
 ### 3.6 身份数据按形态区分
 
@@ -282,7 +280,7 @@ flowchart TB
 
 **检验问题**：新的写入路径是否把“已确认”说成“已持久化”？是否让写入依赖进程完成？
 
-**落地入口**：[读取视图与写入意图](../workspace/read-view-and-write-intents.md)；[Patchouli 生成](../patchouli/generation.md)第 7 节；[写入意图后续方向 Idea](../archive/ideas/pending-intent-migration.md)。
+**落地入口**：[读取视图与写入意图](../workspace/read-view-and-write-intents.md)；[Patchouli 生成](../patchouli/generation.md)第 7 节。
 
 ### 3.9 上下文与记忆材料分离
 
@@ -298,7 +296,7 @@ flowchart TB
 
 **检验问题**：新功能读取的上下文来自会话还是 Topic？它是否让两者中的一方承担另一方的职责？
 
-**落地入口**：设计讨论见[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md)；流式同步的方向见[长时间运行 Agent 的 Turn 内上下文折叠 Idea](./long-running-agent-intra-turn-context-folding.md)。
+**落地入口**：[会话资源](../workspace/sessions.md)；设计见[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md)；流式同步的方向见[长时间运行 Agent 的 Turn 内上下文折叠 Idea](./long-running-agent-intra-turn-context-folding.md)。
 
 ### 3.10 包分层
 
@@ -310,7 +308,7 @@ flowchart TB
 
 - core 承载依赖中立的模型、契约原语、错误与端口协议，收录标准见第 5 节 C；
 - 组件只接收并导入自己的配置段，不持有根配置；
-- 分层规则没有例外：engines 原有的 10 处向上导入于 2026-11-09 随存储层与 Gateway 命令包下移清空（[归档 Todo](../archive/todo/engines-upward-imports.md)）。
+- 分层规则没有例外。
 
 **检验问题**：新模块属于哪一层？新增的导入是否需要改成端口？放进 core 的内容是否只是“因为要共用”？
 
@@ -318,28 +316,24 @@ flowchart TB
 
 ## 4. 演进方向
 
-各方向的设计讨论在对应子 Idea 中进行，版本安排以 [ROADMAP](../ROADMAP.md) 为准。
+各方向的设计在对应子 Idea 中，版本安排以 [ROADMAP](../ROADMAP.md) 为准。
 
 - **外部会话与 Topic 投影**（3.9）：会话模型、workspace 共享的 Topic 池、前端回归会话模型，见[外部会话 Idea](./external-session-and-topic-projection.md)。
 - **外部 Actor 接入**（3.1、3.3）：controller 模式下外部 harness 是进程中的执行单元；plugin 模式下 HiveMemory 挂载在外部 harness 中，只有接入侧面，对话经 Import Bus 回流。见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)与 [Import Bus](../system/import-bus.md)。
 - **执行基座与执行环境**（3.3）：用户在对话开始前分别选择 agent 与执行环境，见[执行环境 Idea](./execution-environment.md)。
 - **被动请求**（3.2）：定时与队列触发创建任务进程，见[任务进程 Idea](./task-process-table-and-registration-entry.md)与[身份与访问体系 Idea](./identity-and-access-model.md#p-5-被动请求的认证) P-5。
 - **流式同步与 turn 内上下文折叠**（3.8、3.9）：交互以更原子的结构流式同步到 Patchouli，生成材料包含当前轮已接收的消息，见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)。
-- **写入意图的后续**（3.7、3.8）：结算重试与句柄寿命已实施（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)），意图 policy 移入[身份与访问体系 Idea](./identity-and-access-model.md)，外部提交契约已关闭；原讨论见已归档的[写入意图 Idea](../archive/ideas/pending-intent-migration.md)。
-- **身份与访问体系**（3.5、3.6）：principal 的登记与调用方证明、进入 Workspace 的身份、操作调用的授权与资源可见性，作为单独的主线方向维护（owner，2026-11-05），见[身份与访问体系 Idea](./identity-and-access-model.md)。
+- **身份与访问体系**（3.5、3.6）：principal 的登记与调用方证明、进入 Workspace 的身份、操作调用的授权与资源可见性，作为单独的主线方向维护，见[身份与访问体系 Idea](./identity-and-access-model.md)。
 - **子网与跨 Workspace**（3.5）：受限穿透访问、Mount、Bridge 与能力子网，见 [AE2 Idea](./ae2-hivememory-architecture-analogy.md)与[身份与访问体系 Idea](./identity-and-access-model.md#7-受限穿透访问)第 7 节。
 - **持久化与恢复**（3.4、3.7）：会话、意图、任务与登记的耐久性等级，见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)。
-- **运行时登记与配置热更新**（3.5）：接入登记与操作白名单的运行时编辑，见[身份与访问体系 Idea](./identity-and-access-model.md#3-principal-登记的来源与生效时点e-1) E-1。
 
 ## 5. 架构级开放问题
 
-只收跨子系统、没有归属到某个子 Idea 的问题。每个问题只列出选项及其影响，选项顺序不代表倾向；编号沿用原文，便于追溯。
-
-身份与访问相关的 P-1（含 P-1b，P-1c 已决定）、P-4a、P-5、P-7、P-8 于 2026-11-05 移入[身份与访问体系 Idea](./identity-and-access-model.md)，沿用原编号；那份 Idea 是身份与访问这条主线的维护位置。
+只收跨子系统、没有归属到某个子 Idea 的问题。每个问题只列出选项及其影响，选项顺序不代表倾向；编号沿用原文。身份与访问相关的 P-1、P-4a、P-5、P-7、P-8 在[身份与访问体系 Idea](./identity-and-access-model.md)中维护。
 
 ### P-3 能力层是否覆盖执行本身
 
-RUN 与 CALL 已是 actor 操作，授权进入能力层；系统工具暂不设权限。剩下的是执行本身是否经能力层。
+RUN 与 CALL 已是 actor 操作，授权进入能力层；RUN 的用户工具路径已关闭，解析到的记忆一律以不可运行拒绝，`sys_*` 系统工具照常运行、暂不设权限（[MTP 契约](../contracts/mtp.md#33-run)第 3.3 节）。剩下的是执行本身是否经能力层。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
@@ -349,9 +343,8 @@ RUN 与 CALL 已是 actor 操作，授权进入能力层；系统工具暂不设
 
 ### P-9 不建进程的访问
 
-- **P-9c 不建进程的 actor 访问如何进入 actor API**：owner 决定（2026-10-29）与 root 的直接通道相同，每次操作对应一份请求级访问 context，2026-11-05 起由统一身份授权入口改为入口认证得到的工作 actor；决定、现状核对、候选设计与复核记录在[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#p-1c-与-p-9c-身份证明与不建进程的访问-context)；
-- **P-9d 进程的定义**：是否把“进程是由执行单元执行的一个任务”确立为定义，3.2 中“root 直接通道与不建进程的接入不是任务”依此成立。
-  - 分析（2026-10-20）：按第 2 节修订后的用语，Gateway、prepare 与 finalize 在网络一侧完成，只有 Actor 阶段交给执行单元；作为定义时宜表述为“进程的 Actor 阶段由一个执行单元执行”。
+- **P-9c 不建进程的 actor 访问如何进入 actor API**：与 root 的直接通道相同，每次操作由入口认证得到工作 actor，身份只在本次调用内有效。已实现，见[认证与访问登记](../workspace/authentication.md#4-工作-actor-的角色与持有位置)第 4 节与 [MCP 记忆访问](../contracts/mcp.md)；决定的依据见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#p-1c-与-p-9c-身份证明与不建进程的访问-context)。
+- **P-9d 进程的定义**（搁置）：是否把“进程是由执行单元执行的一个任务”确立为定义，3.2 中“root 直接通道与不建进程的接入不是任务”依此成立。按第 2 节的用语，Gateway、prepare 与 finalize 在网络一侧完成，只有 Actor 阶段交给执行单元；作为定义时宜表述为“进程的 Actor 阶段由一个执行单元执行”（候选）。
 
 ### P-10a 外部执行环境应用 Profile 的结果
 
@@ -362,13 +355,13 @@ RUN 与 CALL 已是 actor 操作，授权进入能力层；系统工具暂不设
 
 ### C core 的内容整理
 
-core 不应成为“因为要共用就往里塞”的地方（owner，2026-09-26）。它目前包含数据模型、契约原语、MTP 的模型与解析器、交互归约器、授权谓词、错误与端口协议等，`protocol/`、`contracts/`、`mtp/` 三组都承载跨边界定义，分工没有明确区分。
+core 不应成为“因为要共用就往里塞”的地方。它目前包含数据模型、契约原语、MTP 的模型与解析器、交互归约器、授权谓词、错误与端口协议等，`protocol/`、`contracts/`、`mtp/` 三组都承载跨边界定义，分工没有明确区分。
 
 - **C-1 收录标准**：只收依赖中立的数据模型、常量、错误与端口协议，行为性代码迁出 / 也允许无状态的纯函数与解析器（MTP 解析、归约器、授权谓词） / 其他；
 - **C-2 子包划分**：按内容性质（模型 / 契约与协议 / 端口 / 错误） / 按所属领域（memory、workspace、interaction、mtp 等） / 其他。两种划分都会改动大量导入路径；
 - **C-3 只被少数包使用的内容**（如 `access.py`、`ports/`）：留在 core / 移到提供方子系统的 `contracts` 子包 / 其他。
 
-[engines 对上层的既有导入](../archive/todo/engines-upward-imports.md)以下移整个存储层与 Gateway 命令包解决，没有把被导入的模型放进 core，C 不再受它约束。
+engines 不再向上导入（存储层与 Gateway 命令包已下移），C 不受它约束。
 
 ### 读取视图的负缓存
 
@@ -384,8 +377,6 @@ core 不应成为“因为要共用就往里塞”的地方（owner，2026-09-26
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 3.5、3.6：身份与访问主线，从 principal 的登记与调用方证明到资源可见性；P-1、P-4a、P-5、P-7、P-8 |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 3.9：会话模型与 Topic 池 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 3.1、3.3：接入侧面、操作适配器与两种接入模式 |
-| [写入意图后续方向 Idea](../archive/ideas/pending-intent-migration.md)（2026-11-16 已归档） | 3.7、3.8：结算对账、句柄寿命与外部契约 |
-| [Import Bus Idea](../archive/ideas/import-bus.md)（已归档，2026-10-30） | 只向网络输入的记忆来源；当前事实见 [Import Bus](../system/import-bus.md) |
 | [长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md) | 3.9：流式同步与 turn 内折叠 |
 | [AE2 Idea](./ae2-hivememory-architecture-analogy.md) | 第 2 节的网络隐喻与子网 |
 | [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md) | 3.4：记忆库一侧的归属判据与独立工作契约 |

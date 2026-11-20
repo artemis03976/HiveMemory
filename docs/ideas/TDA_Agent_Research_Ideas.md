@@ -8,16 +8,16 @@ related_current:
   - docs/alice/agent-runtime.md
   - docs/alice/orchestration.md
   - docs/components/observability.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-20
 ---
 
 # TDA 在 Agent 轨迹与多智能体编排中的潜在应用想法
 
 本文保存研究假设，不描述 Alice 或 System 已经交付的能力，也不构成 Roadmap 承诺。当前单帧执行、CALL 编排和运行观测分别以 [Agent Runtime](../alice/agent-runtime.md)、[多 Agent 编排](../alice/orchestration.md)和 [System 可观测性](../components/observability.md)为准。
 
-## 0. 复核结论与当前基础
+## 0. 当前基础与升级条件
 
-HiveMemory 已经拥有比自由文本 CoT 更可靠的一部分观测原语：`TurnEvent` 以 sequence 和 action id 保存消息、thought 与工具调用（调用与结局在同一个事件上）；`RuntimeEvent` 提供 trace、frame、run、task 和 topic 等关联字段；Alice 也能产生单层、串行 CALL 的子 Agent 事件。这些结构可以成为未来离线构图的数据来源。
+HiveMemory 已经拥有比自由文本 CoT 更可靠的一部分观测原语：`TurnEvent` 以 sequence 和 action id 保存消息、thought 与工具调用（调用与结局在同一个事件上），并记下来自本轮第几次模型响应（`response_index`，[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）；`RuntimeEvent` 提供 trace、frame、run、task 和 topic 等关联字段；Alice 也能产生单层、串行 CALL 的子 Agent 事件。这些结构可以成为未来离线构图的数据来源。
 
 但当前没有持久化 Agent trajectory graph、依赖边抽取、filtration、persistent homology、topology monitor 或拓扑驱动的运行时控制。RuntimeEventBus 还是进程内 best-effort 观测流，配置后事件另写入只追加的 JSONL 事件记录文件，可由 `scripts/runtime_event_timeline.py` 按关联标识排出时间线，但不回放到总线（[可观测性](../components/observability.md#51-事件记录文件)第 5.1 节）；TurnEvent 的原文随 InteractionArtifact（可选旁路）的 `turn_events` 快照保存（[Artifacts](../patchouli/artifacts.md#6-双视图与结构化事实)第 6 节），但仍没有完整的 parent dependency、成本、延迟与跨 run 回放语义；Alice 当前只支持单层星型 CALL，不具备并行团队、动态 DAG 或自治 review loop。因此下文的图模型、H0/H1 解释和控制策略都只是待证伪假设，不能反写为当前编排设计。
 

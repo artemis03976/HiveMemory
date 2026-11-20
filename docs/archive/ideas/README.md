@@ -10,6 +10,8 @@ last_reviewed: 2026-11-12
 
 本目录保存已经实现、被替代或不再跟踪的 Idea，只用于追溯；当前行为从对应事实文档进入，活动的 Idea 见 [Ideas](../../ideas/README.md)。每条登记一行：归档日期、实现所在的 PR（未合并时为提交）与替代它的当前文档；设计推导、owner 决定与未跟踪事项的去向见各 Idea 自身的归档说明。
 
+- [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md)：2026-11-20，对象与目标要从头考虑，不再作为 Idea 跟踪；[ADR-0003](../../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)、[类型体系](../../ideas/memory-type-system.md)
+- [统一的交互记忆：轨迹、断言与整理](./unified-interaction-memory.md)：2026-11-20，被 v0.8 的记忆核心 Idea 取代；[总纲](../../ideas/memory-flow-short-to-mid-term.md)、[写入链路](../../ideas/memory-flow-write-path.md)
 - [写入意图（PendingAtom）的后续方向](./pending-intent-migration.md)：2026-11-16，PR #221、#213；[读取视图与写入意图](../../workspace/read-view-and-write-intents.md)，生成材料移入 [v0.8 写入链路 Idea](../../ideas/memory-flow-write-path.md)
 - [Chat Run 取消与生命周期后续设计](./chat-run-lifecycle-follow-ups.md)：2026-11-16，取消的最小闭环已落地，其余候选不再跟踪；[任务进程](../../workspace/task-process.md)
 - [复合意图分解](./composite-intent-decomposition.md)：2026-11-16，未实施，不再跟踪；[Gateway 分析](../../gateway/analysis.md)

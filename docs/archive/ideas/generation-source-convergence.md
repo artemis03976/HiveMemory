@@ -19,7 +19,7 @@ related_docs:
   - docs/todo/cross-conversation-topic-placement.md
   - docs/todo/merge-version-conflict.md
   - docs/todo/passive-extraction-volume-and-retention.md
-  - docs/ideas/unified-interaction-memory.md
+  - docs/archive/ideas/unified-interaction-memory.md
   - docs/archive/ideas/pending-intent-migration.md
   - docs/archive/ideas/settlement-multi-memory-extraction-and-dedup.md
   - docs/research/deepseek-harness-plugin-survey.md
@@ -28,7 +28,7 @@ last_reviewed: 2026-11-04
 
 # 主动写入与被动提取的收敛
 
-> 已归档（2026-11-04，v0.7.3 收尾）。第 3.3 节决定的三项已随三份计划实施，当前事实见 [Patchouli 生成](../../patchouli/generation.md)第 3.2、4.2、6.1 节；"话题内主动写入优先"是过渡措施，之后的方向见[统一的交互记忆](../../ideas/unified-interaction-memory.md)。第 4.4 节移交[合并版本冲突 Todo](../../todo/merge-version-conflict.md)，其余事项的去向见文末"归档说明"。以下正文保留归档前的原文，链接已改为归档后的相对路径。
+> 已归档（2026-11-04，v0.7.3 收尾）。第 3.3 节决定的三项已随三份计划实施，当前事实见 [Patchouli 生成](../../patchouli/generation.md)第 3.2、4.2、6.1 节；"话题内主动写入优先"是过渡措施，之后的方向见[统一的交互记忆](./unified-interaction-memory.md)。第 4.4 节移交[合并版本冲突 Todo](../../todo/merge-version-conflict.md)，其余事项的去向见文末"归档说明"。以下正文保留归档前的原文，链接已改为归档后的相对路径。
 
 ## 0. 文档性质
 
@@ -44,7 +44,7 @@ owner 对记忆来源的定位与判断：
 - （2026-11-01）多条提取定案时确认：主动写入的内容被 Mode A 再提取一遍是早已接受的代价，由查重与合并完成去重与迭代更新（同上）。
 - （2026-11-02）复盘 dsh 的调研记忆后：被动提取对主动写入再做一轮合并是已知缺陷，确实会导致记忆生成的质量降级；合并失败后留下重复本是已知行为，但同样让记忆库变乱；这些改动都涉及记忆库的底层机制，适合写成 Idea 而不是 Todo。
 - （2026-11-03）又完成两个仓库的调研之后：v0.7.3 回到记忆主线，先做主动写入与被动提取收敛的最小优化；这是 owner 想到更好的记忆生成策略之前能做的（第 3.3 节）。
-- （2026-11-03 晚）owner 澄清：话题内主动写入优先只是过渡措施，不代表主动写入优先是更好的选择；两种形式理应在统一的记忆架构中兼容，方向见[统一的交互记忆](../../ideas/unified-interaction-memory.md)。
+- （2026-11-03 晚）owner 澄清：话题内主动写入优先只是过渡措施，不代表主动写入优先是更好的选择；两种形式理应在统一的记忆架构中兼容，方向见[统一的交互记忆](./unified-interaction-memory.md)。
 
 现行设计接受这份代价，依赖三条前提：
 
@@ -200,12 +200,12 @@ E 不依赖模型遵从提示词。按生产中实际的查重结果估算：上
 
 ### 3.3 决定（owner，2026-11-03）
 
-- v0.7.3 回到记忆主线，在想到更好的记忆生成策略之前，先做这一组主动写入与被动提取收敛的最小优化，作为过渡措施；它不代表主动写入优先是更好的选择（owner 澄清，2026-11-03 晚，见[统一的交互记忆](../../ideas/unified-interaction-memory.md)）；
+- v0.7.3 回到记忆主线，在想到更好的记忆生成策略之前，先做这一组主动写入与被动提取收敛的最小优化，作为过渡措施；它不代表主动写入优先是更好的选择（owner 澄清，2026-11-03 晚，见[统一的交互记忆](./unified-interaction-memory.md)）；
 - Mode A 的改动采用 E；owner 先选了 C，回放否定 C 之后改选 E；
 - Mode B 沿用 agent 写的标题；
 - 生成任务失败带原因码，经失败分类进入工作记录、事件与日志（owner 评估事件与日志的现状后，由"只在执行处记日志"改定）；运行时事件的持久记录、调度器降噪与日志写法规范作为版本之外的观测工作，随时可以开始，不在本文范围；
 - 这三项都归入 v0.7.3。
-- （2026-11-03 晚）对照断言清单标注的离线回放（[统一的交互记忆](../../ideas/unified-interaction-memory.md)第 4 节）能标出复述，但不覆盖 E 中 Mode B 的一半，被动提取补回的审计细节怎样处置也待判断；owner 决定 E 仍作为过渡措施实施。
+- （2026-11-03 晚）对照断言清单标注的离线回放（[统一的交互记忆](./unified-interaction-memory.md)第 4 节）能标出复述，但不覆盖 E 中 Mode B 的一半，被动提取补回的审计细节怎样处置也待判断；owner 决定 E 仍作为过渡措施实施。
 
 ## 4. 候选设计（分析，不是 owner 决定，可在计划评审时调整）
 
@@ -331,7 +331,7 @@ v0.7.3 的三份计划都已实施并归档，本文不再跟踪以下事项：
 | 事项 | 去向 |
 |:---|:---|
 | 第 4.4 节：合并遇到版本冲突时是否重做 | [合并版本冲突 Todo](../../todo/merge-version-conflict.md)：第 2.5 节的四次失败与 2026-11-04 的第五次一并移入 |
-| 两种生成方式在统一架构中的兼容 | [统一的交互记忆](../../ideas/unified-interaction-memory.md)（候选方向） |
+| 两种生成方式在统一架构中的兼容 | [统一的交互记忆](./unified-interaction-memory.md)（候选方向） |
 | 多条提取后被动提取的膨胀与低留存 | [被动提取膨胀 Todo](../../todo/passive-extraction-volume-and-retention.md) |
 | 第 5 节搁置项：Mode A 在调研话题上仍完整提取一遍 | 不单独跟踪；模型调用的成本随上一项的方向一并考虑 |
 | 第 5 节搁置项：跨会话落位 | [跨会话落位 Todo](../../todo/cross-conversation-topic-placement.md) |

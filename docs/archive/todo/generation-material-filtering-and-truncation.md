@@ -74,7 +74,7 @@ Claude Code 单个会话的上下文常达数十万 token，而每个话题送�
 
 ## 影响
 
-- 停止筛选后，被判为不值得保存的轮次也进入生成，提取 token 与折叠频率会上升；删除单轮、思考与参数上限后，生成视图还会继续变大，单个轮次也可能超过提取模型的窗口。owner 于 2026-10-30 决定不分片，单个超大轮次照常接收、照常触发折叠，更有效的方案留到流式交互接收实现时处理（[Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30) R-1）。
+- 停止筛选后，被判为不值得保存的轮次也进入生成，提取 token 与折叠频率会上升；删除单轮、思考与参数上限后，生成视图还会继续变大，单个轮次也可能超过提取模型的窗口。owner 于 2026-10-30 决定不分片，单个超大轮次照常接收、照常触发折叠，更有效的方案留到流式交互接收实现时处理（[Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#01-已定的设计) R-1）。
 - 上限不删除时，进入生成的实现轮次主要贡献助手正文，测试失败、报错与改动内容等工具结果大多看不到。
 - `worth_saving` 停用后不再参与任何决定，2026-10-30 起也已移出交互记录与话题 block；但 Gateway 仍为每一轮计算 `memory_write_signal`，由它得到的 `worth_saving` 仍随 `import.turn.accepted` 事件传递，只供观测。
 

@@ -1,7 +1,8 @@
 ---
 title: MaaT 与 Skill/Plugin 边界的资产消费模型
-status: idea
-horizon: long-term
+status: archived
+archived_at: 2026-11-20
+superseded_by: docs/architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md
 owner: alice-patchouli
 scope: memory-as-a-tool-asset-consumption-and-executable-compilation
 related_contracts:
@@ -16,15 +17,17 @@ last_reviewed: 2026-11-16
 
 # MaaT 与 Skill/Plugin 边界的资产消费模型
 
+> 已归档（2026-11-20）。“记忆作为工具”的对象与目标要从头考虑，退回孵化重新定型；第 3～5 节的草案建立在 CODE_SNIPPET 与 MTP RUN 之上，而 RUN 的用户工具路径已关闭、CODE_SNIPPET 已并入资源记忆。仍然有效的边界见 [ADR-0003](../../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)，可运行这条轴见[类型体系](../../ideas/memory-type-system.md)第 6.2 节，知识与工具的区分见[写入链路](../../ideas/memory-flow-write-path.md)第 3.3 节。以下正文保留归档前的原文，链接已改为归档后的相对路径。
+
 **文档状态**: Idea
 **目标阶段**: Unscheduled
 **适用范围**: `MemoryCompiler`、MTP `RUN`、可执行记忆资产（Patchouli 资产层 + Alice 执行层）
 
-**实现背景补充（2026-10-09）**：Alice 现在以凭据绑定的提交函数读取资源，frame 只携带观测标签；READ/RUN/CALL 共享引用自动记录 `workspace.reference_read`，不再按 `mtp.read`/`mtp.run` 区分。下文执行结果、版本证据与强沙箱仍为长期草案；准确的当前边界见 [MTP 契约](../contracts/mtp.md)。
+**实现背景补充（2026-10-09）**：Alice 现在以凭据绑定的提交函数读取资源，frame 只携带观测标签；READ/RUN/CALL 共享引用自动记录 `workspace.reference_read`，不再按 `mtp.read`/`mtp.run` 区分。下文执行结果、版本证据与强沙箱仍为长期草案；准确的当前边界见 [MTP 契约](../../contracts/mtp.md)。
 
-**owner 的重新考虑（2026-11-14）**：记忆即知识，插件即工具，知识与工具不能划等号；本文的对象需要重新考虑，"记忆作为工具"要如何体现、目标是什么，或许要从头考虑。记录与初步分析见 [v0.8 记忆核心总纲](./memory-flow-short-to-mid-term.md)第 1.2 节与[写入链路](./memory-flow-write-path.md)第 3.3 节，下文仍是此前的草案。2026-11-15 owner 决定：可运行是一条独立的轴，不绑在类型上；其中的环境声明属于知识，宿主执行（编译方式与 HiveMemory 宿主哪些环境）留给本文重新考虑，见[类型体系](./memory-type-system.md)第 6.2 节。
+**owner 的重新考虑（2026-11-14）**：记忆即知识，插件即工具，知识与工具不能划等号；本文的对象需要重新考虑，"记忆作为工具"要如何体现、目标是什么，或许要从头考虑。记录与初步分析见 [v0.8 记忆核心总纲](../../ideas/memory-flow-short-to-mid-term.md)第 1.2 节与[写入链路](../../ideas/memory-flow-write-path.md)第 3.3 节，下文仍是此前的草案。2026-11-15 owner 决定：可运行是一条独立的轴，不绑在类型上；其中的环境声明属于知识，宿主执行（编译方式与 HiveMemory 宿主哪些环境）留给本文重新考虑，见[类型体系](../../ideas/memory-type-system.md)第 6.2 节。
 
-**前置条件**: 本 Idea 依赖已裁定边界 [ADR-0003](../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)；不在此重新定义 Workspace、身份或 Artifact 所有权
+**前置条件**: 本 Idea 依赖已裁定边界 [ADR-0003](../../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)；不在此重新定义 Workspace、身份或 Artifact 所有权
 
 ---
 
@@ -104,7 +107,7 @@ ToolInvocationIR
   failure_contract           # 失败 -> 结构化 MTPErrorInfo，不回灌裸 stderr
 ```
 
-要点：这里描述的是未来 RUN 的结构化执行依据。MemoryCompiler 根据 target 编译资产信息；当前调用方的身份与权限由 workspace 的 actor API 逐次授权，参数、deadline、取消和资源限制由 MTP Runtime 在执行前绑定（[ADR-0003](../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)第 4 节）。Shell 只是其中一个后端，不是协议本体。
+要点：这里描述的是未来 RUN 的结构化执行依据。MemoryCompiler 根据 target 编译资产信息；当前调用方的身份与权限由 workspace 的 actor API 逐次授权，参数、deadline、取消和资源限制由 MTP Runtime 在执行前绑定（[ADR-0003](../../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)第 4 节）。Shell 只是其中一个后端，不是协议本体。
 
 ### 4.3 执行证据回流草案
 
@@ -167,7 +170,7 @@ run 记录（原子、revision/hash、参数、IdentityScope、结果、耗时�
 - 三层分区的正式落地（content 指引 + Artifact 引用替代"content 即代码"）；
 - `RUNNABLE_TOOL` 的 `ToolInvocationIR` 编译产物与公共契约；
 - 可执行资产的来源/信任边界与强沙箱；
-- MTP RUN 相对外部 harness + Patchouli 的结构性优势（对应 [VISION](../VISION.md) 的 H4/H5 假设）。
+- MTP RUN 相对外部 harness + Patchouli 的结构性优势（对应 [VISION](../../VISION.md) 的 H4/H5 假设）。
 
 ---
 
@@ -176,9 +179,9 @@ run 记录（原子、revision/hash、参数、IdentityScope、结果、耗时�
 1. `CODE_SNIPPET` 的"content 即代码"语义如何迁移到三层语义模型？是否继续复用现有 `CODE_SNIPPET`，还是由后续设计引入新的表示方式？
 2. 引用层是否继续使用现有 `ArtifactRef`，还是需要独立的引用结构？如果引用可执行资料，如何保证版本、hash、entrypoint 和来源完整？
 3. content 中哪些内容属于 Agent 使用指引，哪些内容必须由 Runtime 结构化校验？如何避免从自由文本推导权限和执行入口？
-4. `RUNNABLE_TOOL` 的执行依据如何与当前 `MemoryCompiler` target 对接？身份与权限已不在其中：由 workspace 的 actor API 逐次授权，Agent Profile 不承载权限（[ADR-0003](../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)第 4 节、[MTP 契约](../contracts/mtp.md#4-权限)）；其余字段中哪些由 Compiler 提供，哪些由 MTP Runtime 在本次调用中绑定？
+4. `RUNNABLE_TOOL` 的执行依据如何与当前 `MemoryCompiler` target 对接？身份与权限已不在其中：由 workspace 的 actor API 逐次授权，Agent Profile 不承载权限（[ADR-0003](../../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)第 4 节、[MTP 契约](../../contracts/mtp.md#4-权限)）；其余字段中哪些由 Compiler 提供，哪些由 MTP Runtime 在本次调用中绑定？
 5. `RUNNABLE_TOOL` 一旦进入公共契约，与 `mtp.md`、`memory-compiler.md` 的哪些字段需要同步冻结？
-6. 强沙箱、可信来源审查与资源限制应在哪个治理主题下建立，是否与 [Executable Asset Sandbox](../ROADMAP.md) 合并立项？
+6. 强沙箱、可信来源审查与资源限制应在哪个治理主题下建立，是否与 [Executable Asset Sandbox](../../ROADMAP.md) 合并立项？
 7. 执行结果如何回流为记忆演化输入：`mtp.run` citation 扩展、独立 outcome 记录还是事件回流？哪些结果只能记录，哪些结果才允许影响验证状态或 vitality？
 8. 一次 RUN 的重试、取消、过期、Provider 撤销和结果大小限制如何表达？
 9. 从终端实践到可执行资产的晋升是否需要系统内捕获机制，还是完全依赖 Agent 或用户主动 `WRITE` 沉淀？
@@ -190,7 +193,7 @@ run 记录（原子、revision/hash、参数、IdentityScope、结果、耗时�
 
 本 Idea 进入 `docs/plans/` 前至少需要：
 
-1. 有真实场景证明可执行记忆资产的 trust/reproducibility/provenance/reuse 需求存在；W1 Chat Attachments 与 `v0.7.0` Document Ingestion 是最现成的候选证据来源：默认解析器走 sys 侧、Agent 主导的选择性解析走能力包，RAW representation 是锚点、解析产物是同一资产的额外 representation，见 [Chat Attachments Idea](../archive/ideas/workspace-mvp-chat-attachments-design.md)；
+1. 有真实场景证明可执行记忆资产的 trust/reproducibility/provenance/reuse 需求存在；W1 Chat Attachments 与 `v0.7.0` Document Ingestion 是最现成的候选证据来源：默认解析器走 sys 侧、Agent 主导的选择性解析走能力包，RAW representation 是锚点、解析产物是同一资产的额外 representation，见 [Chat Attachments Idea](./workspace-mvp-chat-attachments-design.md)；
 2. 明确目标、非目标、受影响的所有权（Alice 执行层 / Patchouli 资产层 / MemoryCompiler）；
 3. 明确三层语义模型与当前 `MemoryAtom`、WorkspaceAsset、Artifact 之间的映射边界；
 4. 冻结 `RUNNABLE_TOOL` 的执行依据以及 Compiler 与 MTP Runtime 的字段分工；
