@@ -31,6 +31,7 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     },
     generation: {
       extractor: { enabled: true },
+      settle_mode: 'one_shot',
       deduplicator: { high_similarity_threshold: 0.95, low_similarity_threshold: 0.75 },
       queue_max_concurrency: 2,
     },

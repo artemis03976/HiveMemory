@@ -5,6 +5,7 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 
 核心组件:
 - MemoryExtractor: LLM 驱动的记忆提取器
+- Librarian: 话题结算的馆长，先查看本话题的写入与库中相关记忆再写
 - Deduplicator: 查重与知识演化管理器
 - MemoryGenerationOrchestrator: 编排器，协调所有组件
 
@@ -30,6 +31,7 @@ from hivememory.engines.generation.interfaces import (
     BaseDeduplicator,
     BaseMemoryExtractor,
 )
+from hivememory.engines.generation.librarian import Librarian, create_librarian
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
@@ -59,6 +61,9 @@ __all__ = [
     "LLMMemoryExtractor",
     "NoOpMemoryExtractor",
     "create_extractor",
+    # 话题结算的馆长
+    "Librarian",
+    "create_librarian",
     # 查重与演化
     "MemoryDeduplicator",
     "NoOpDeduplicator",

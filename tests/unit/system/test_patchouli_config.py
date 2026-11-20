@@ -20,6 +20,25 @@ def test_active_generation_material_rejects_negative_block_count() -> None:
         MemoryGenerationConfig(active_recent_blocks=-1)
 
 
+def test_settle_mode_defaults_to_one_shot_and_accepts_only_two_modes() -> None:
+    """旧配置没有这一项时取一次性生成，升级后结算行为不变。"""
+    assert MemoryGenerationConfig().settle_mode == "one_shot"
+    assert MemoryGenerationConfig(settle_mode="librarian").settle_mode == "librarian"
+    with pytest.raises(ValidationError, match="settle_mode"):
+        MemoryGenerationConfig(settle_mode="agent")
+
+
+def test_librarian_budget_defaults_to_twelve_steps_and_five_search_results() -> None:
+    librarian = MemoryGenerationConfig().librarian
+    assert (librarian.max_steps, librarian.search_top_k) == (12, 5)
+
+
+@pytest.mark.parametrize("field", ["max_steps", "search_top_k"])
+def test_librarian_budget_must_be_positive(field) -> None:
+    with pytest.raises(ValidationError, match=field):
+        MemoryGenerationConfig(librarian={field: 0})
+
+
 def test_retriever_level_reranker_is_rejected_with_migration_hint() -> None:
     """旧位置 retriever.reranker 必须显式失败，而不是被 extra=ignore 静默丢弃。
 

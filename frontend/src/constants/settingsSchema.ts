@@ -52,6 +52,7 @@ export const COMMON_SECTIONS: SettingSectionDef[] = [
     fields: [
       { path: 'patchouli.retrieval.retriever.top_k', label: '检索条数上限', description: '每次检索最多返回几条记忆，至少为 1', kind: 'number', unit: '条', min: 1, step: 1 },
       { path: 'patchouli.generation.extractor.enabled', label: '自动从对话中提取记忆', description: '话题结算时，从对话里提炼出长期记忆', kind: 'switch' },
+      { path: 'patchouli.generation.settle_mode', label: '话题结算时的生成方式', description: '一次性生成更快，但写之前看不到本话题的写入与库，可能留下较多重复；馆长探索先查看本话题的写入与库中相关记忆再写，更慢，模型调用次数是一次性生成的数倍', kind: 'select', options: [{ label: '一次性生成', value: 'one_shot' }, { label: '馆长探索', value: 'librarian' }] },
       { path: 'patchouli.perception.idle_timeout_seconds', label: '对话停多久后结算话题', description: '超过这段时间没有新消息，话题自动结算', kind: 'number', unit: '分钟', scale: 1 / 60, min: 1, step: 1 },
     ],
   },

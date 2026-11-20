@@ -9,6 +9,8 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
     Step 2: 逐条查重判断 → 新建、触碰已有记忆，或新建并提名合并
     Step 3: 记忆原子构建 → MemoryAtom
     Step 4: 返回 GenerationOutcome，外围 Familiar 负责持久化
+
+话题结算选馆长时，Step 1-2 由馆长的探索循环代替：草稿全部新建，不经过查重。
 """
 
 import logging
@@ -41,6 +43,7 @@ from hivememory.engines.generation.interfaces import (
     BaseDeduplicator,
     BaseMemoryExtractor,
 )
+from hivememory.engines.generation.librarian import Librarian
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
@@ -85,6 +88,7 @@ class MemoryGenerationEngine:
         extractor: BaseMemoryExtractor,
         deduplicator: BaseDeduplicator,
         alias_generator: AliasGenerator | None = None,
+        librarian: Librarian | None = None,
     ):
         """
         Args:
@@ -93,11 +97,13 @@ class MemoryGenerationEngine:
             deduplicator: 查重器
             alias_generator: Workspace 内唯一的别名生成器；缺省以 ``mid_term``
                 作为占用查询端口构造
+            librarian: 话题结算选馆长时注入；为 None 时结算走一次性生成（Mode A）
         """
         self._mid_term = mid_term
         self.extractor = extractor
         self.deduplicator = deduplicator
         self._alias_generator = alias_generator or AliasGenerator(mid_term)
+        self._librarian = librarian
         logger.info("MemoryGenerationEngine 初始化完成")
 
     async def process(
@@ -113,6 +119,7 @@ class MemoryGenerationEngine:
 
         Mode A (被动结算): request.write_focus=None, request.update_focus=None
             没有具体 Agent 作为操作来源主体，来源记录使用保留 system；
+            注入了馆长时改由馆长结算，来源裁定相同；
         Mode B (主动响应): request.is_write=True (WRITE 指令触发)
             以提交操作的 actor Agent 为来源；
         Mode C (修订): request.is_update=True (UPDATE 指令触发)
@@ -146,6 +153,10 @@ class MemoryGenerationEngine:
         if request.write_focus is not None:
             return await self._process_mode_b(
                 request, request.write_focus, belong_to, from_actor=from_actor, now=commit_now
+            )
+        if self._librarian is not None:
+            return await self._process_librarian(
+                request, self._librarian, belong_to, from_actor=from_actor, now=commit_now
             )
         return await self._process_mode_a(request, belong_to, from_actor=from_actor, now=commit_now)
 
@@ -208,6 +219,50 @@ class MemoryGenerationEngine:
                 outcome.atom.index.alias
                 for outcome in resolved
                 if outcome.atom is not None and outcome.atom.index.alias
+            )
+        return outcomes
+
+    async def _process_librarian(
+        self,
+        request: GenerationRequest,
+        librarian: Librarian,
+        belong_to: WorkspaceIdentity,
+        *,
+        from_actor: ActorIdentity,
+        now: datetime,
+    ) -> list[GenerationOutcome]:
+        """话题结算的馆长方式：馆长先看本话题的写入与库中相关记忆，再暂存草稿。
+
+        馆长在写之前已经查看过两者，暂存的草稿全部按新建提交，不查重、不触碰、
+        不提名合并；残余的重叠接受。来源裁定、别名分配与段引用与 Mode A 相同。
+        """
+        drafts = await librarian.settle(
+            self._render_transcript(request),
+            topic_write_memory_ids=request.topic_write_memory_ids,
+            belong_to=belong_to,
+            from_actor=from_actor,
+        )
+        provenance = system_settlement_provenance(request.context)
+        outcomes: list[GenerationOutcome] = []
+        taken_aliases: set[str] = set()
+        for draft in drafts:
+            memory = self._draft_to_memory(draft, belong_to, provenance, alias=None, now=now)
+            alias = await self._alias_generator.generate(
+                workspace_identity=belong_to,
+                memory_type=draft.memory_type,
+                alias_suffix=draft.alias_suffix,
+                title=draft.title,
+                memory_id=memory.id,
+                taken=taken_aliases,
+            )
+            memory.index.alias = alias
+            taken_aliases.add(alias)
+            outcomes.append(
+                GenerationOutcome(
+                    atom=memory,
+                    action=GenerationAction.CREATE,
+                    cited_segments=_cite(request.context, draft.source_segments),
+                )
             )
         return outcomes
 
