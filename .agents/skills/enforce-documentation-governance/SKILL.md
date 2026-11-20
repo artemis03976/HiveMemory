@@ -9,6 +9,10 @@ description: Enforce HiveMemory's documentation classification, evidence, truth-
 
 Locate the repository root and read `docs/DOCUMENTATION.md` completely before changing or reviewing documentation. Treat it as authoritative; this skill is only an execution reminder and must not become a second copy of the rules.
 
+The rules for each work and low-frequency document type live in its directory README: Plans in `docs/plans/README.md`, Ideas in `docs/ideas/README.md`, Todo in `docs/todo/README.md`, archiving and archive indexes in `docs/archive/README.md`, Governance and Baselines in `docs/governance/README.md`, Research in `docs/research/README.md`, ADRs in `docs/architecture/decisions/README.md`. Read the matching README as well before creating or editing one of those documents.
+
+Ideas hold the design as it currently stands, not how it was reached: no dated decision lists, no superseded chains, no discussion records. Discussion and shelved ideas go to the untracked working notes in `.hivememory/fields/`, which are outside documentation governance and are never linked from Ideas.
+
 ## Review content before structure
 
 Classify every affected document before editing it, then apply the corresponding truth standard from `docs/DOCUMENTATION.md`:
@@ -35,6 +39,7 @@ Check the edited scope for:
 - duplicated or competing truth sources;
 - lost design rationale or ownership boundaries caused by structure-only rewriting;
 - stale status, metadata, indexes, links, anchors, and archive references;
-- unrelated user changes accidentally overwritten.
+- unrelated user changes accidentally overwritten;
+- code comments, docstrings or `description` strings that point back to documents, plan or batch codes, or decision IDs: references go from documents to code only (`docs/DOCUMENTATION.md` section 11.2), so rewrite such comments to state the rule itself.
 
 Run the repository-appropriate Markdown/link checks and `git diff --check` when available. In the handoff, state each document's classification, the evidence or planning source used, and any content intentionally left in Idea, Plan, Todo, or Roadmap rather than promoted to current fact.
