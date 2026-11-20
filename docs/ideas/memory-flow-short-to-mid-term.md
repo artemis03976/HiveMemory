@@ -58,7 +58,6 @@ last_reviewed: 2026-11-20
 | [库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | 平铺的库、时空图索引、关系层；保存形态 |
 | [类型体系](./memory-type-system.md) | 类型的用途、判据、已移出的三处与剩下的类型 |
 | [评测集](./memory-evaluation-benchmarks.md) | 用公开评测集与 agent 工作流数据检验记忆核心 |
-| [孵化场、试验场与垃圾回收场](./experiment-field.md) | 试验场是 v0.8 评测的承载：快照、插座、对照与试验实例 |
 | [外部参考](../research/memory-core-external-references.md) | 调研过的项目与文章的外部事实 |
 
 三层存储的当前设计见 [MemoryLibrary 与存储层](../patchouli/memory-library.md)，生成、查重与合并见[记忆生成](../patchouli/generation.md)，话题与结算见[感知与短期话题](../patchouli/perception.md)。正文是已定的设计，候选设计标“候选”。
@@ -203,7 +202,7 @@ last_reviewed: 2026-11-20
    - 库的健康走势：重复、过时与互相矛盾的记忆随时间是收敛还是累积；
    - 维护成本：每周花在整理与维护上的 token。
 
-owner 每天实际使用 HiveMemory，这本身就是现成的长程试验场；这里的数据用于验收已建成的机制，不用于推出设计。公开评测集的选择与接入见[评测集](./memory-evaluation-benchmarks.md)，评测由试验场承载（[三场 Idea](./experiment-field.md)第 6 节）；在已有对话数据上回放检验 LLM 能否把握一套设计，做法与结果见[类型体系](./memory-type-system.md)第 9 节，可复用的部分在[回放脚本](../../scripts/memory_replay.py)。
+owner 每天实际使用 HiveMemory，这本身就是现成的长程试验场；这里的数据用于验收已建成的机制，不用于推出设计。公开评测集的选择与接入见[评测集](./memory-evaluation-benchmarks.md)；在已有对话数据上回放检验 LLM 能否把握一套设计，做法与结果见[类型体系](./memory-type-system.md)第 9 节，可复用的部分在[回放脚本](../../scripts/memory_replay.py)。
 
 **统一的检验题**：让一个候选机制连续跑一个月，库会收敛还是退化？按相似度合并使细节漂移、整篇重写在多次修订后走样、过时的状态一直累积、索引的错误自我强化（[库的形状](./memory-library-shape-and-index.md)第 2.3 节）都属于这一类。好的机制应有这些长程性质：重复执行稳定（同一份证据再整理一遍，结果不变）、增长有界、错误能被纠正、人工介入作为一项成本记账。这也连到类型体系：事实会过时、决定会被推翻、状态会到期、偏好缓慢变化、做法越用越好，这种记忆在一个月里会发生什么、该怎样维护，是检验类型的维度之一（[类型体系](./memory-type-system.md)第 5 节）。
 
