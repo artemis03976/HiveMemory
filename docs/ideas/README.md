@@ -28,7 +28,6 @@ last_reviewed: 2026-11-20
 
 | Idea | 简述 |
 |:---|:---|
-| [统一的交互记忆：轨迹、断言与整理](./unified-interaction-memory.md) | 以同一套架构把对话与长程 agent 的交互沉淀为记忆 |
 | [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | 从会话到话题再到 Artifact 的原始资料保存 |
 | [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 会话压缩与话题折叠的视图与摘要质量 |
 | [身份与访问体系](./identity-and-access-model.md) | 身份、认证与授权的单独主线 |
@@ -46,7 +45,6 @@ last_reviewed: 2026-11-20
 | [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | 任务进程表、注册入口与四阶段骨架的演进 |
 | [第五代架构：Workspace 网络](./fifth-generation-architecture.md) | 第五代架构的核心理念及其检验问题 |
 | [AE2 与 HiveMemory 的架构同构性](./ae2-hivememory-architecture-analogy.md) | 以 AE2 的子网、Pattern 与合成 CPU 类比 HiveMemory 的架构方向 |
-| [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md) | 记忆作为工具、技能与插件被消费的边界 |
 | [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md) | 生命力评分由真实使用数据校准，以及落库后的演化质量 |
 | [Agent 轨迹与多 Agent TDA](./TDA_Agent_Research_Ideas.md) | 用拓扑数据分析解释 agent 轨迹的成功、成本与失败 |
 | [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md) | 多视图记忆图能否形成优于平面检索的信号 |

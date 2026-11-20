@@ -63,7 +63,7 @@ code_paths:
   - tests/unit/architecture/test_access_boundaries.py
 related_docs:
   - docs/ideas/external-session-and-topic-projection.md
-  - docs/ideas/unified-interaction-memory.md
+  - docs/archive/ideas/unified-interaction-memory.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/archive/ideas/chat-run-lifecycle-follow-ups.md
   - docs/archive/plans/import-bus-authorization-in-capability-layer.md

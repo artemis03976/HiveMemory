@@ -34,9 +34,9 @@ related_docs:
   - docs/patchouli/memory-library.md
   - docs/patchouli/generation.md
   - docs/patchouli/perception.md
-  - docs/ideas/unified-interaction-memory.md
+  - docs/archive/ideas/unified-interaction-memory.md
   - docs/ideas/short-term-memory-and-context-compaction.md
-  - docs/ideas/memory-as-tool-skill-plugin-boundary.md
+  - docs/archive/ideas/memory-as-tool-skill-plugin-boundary.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/patchouli/artifacts.md
   - docs/todo/generation-dedup-decision-signal.md
@@ -78,7 +78,7 @@ last_reviewed: 2026-11-20
 - **记忆即知识**：持久化、可寻址、可追溯、可演化的记忆资产是 agent 所有知识的外部积累，记忆生成链路要把材料统一内化，成为真正属于 agent 的知识（[写入链路](./memory-flow-write-path.md)第 2.4 节）。
 - **价值由写入者判定**：只有终端的 Patchouli 才有资格决定“看到了什么但不写成记忆”，入口不给价值标记（[写入链路](./memory-flow-write-path.md)第 1 节）。
 - **写入与维护分属**：dreaming 一类的工作属于生命周期维护；记忆的分裂与合并、冲突检测属于落库之后的演化质量（[写入链路](./memory-flow-write-path.md)第 4 节）。
-- **知识不等于工具**：知识由模型的推理消费，工具由环境执行；“记忆作为工具”的对象与目标要从头考虑（[写入链路](./memory-flow-write-path.md)第 3.3 节、[MaaT Idea](./memory-as-tool-skill-plugin-boundary.md)）。
+- **知识不等于工具**：知识由模型的推理消费，工具由环境执行；“记忆作为工具”的对象与目标要从头考虑，在孵化中（[写入链路](./memory-flow-write-path.md)第 3.3 节）。
 - **动态检索、渐进式披露**：记忆动态检索加载，保留从索引到正文的渐进式披露；存储平铺，分层由派生的时空图索引承担（[库的形状](./memory-library-shape-and-index.md)第 1 节）。
 - **记忆的价值在长时间段内衡量**：agent memory 的重点在可演化与动态维护；一个系统连续跑一周、一个月，它积累的内容能否有效用在未来的运行中，以及需要多少人类的介入，才是这个领域真正的价值。单轮召回只是 RAG（第 4.2 节）。
 - **样本统计不作为设计依据**：设计从底层机制出发，不从数据推出。样本以 owner 自己的 HiveMemory 开发会话为主，从中得到的特征只对 owner 现在的使用成立，不能推广；数据只用来验收已建成的机制。
@@ -180,10 +180,11 @@ last_reviewed: 2026-11-20
 
 | 问题 | 位置 |
 |:---|:---|
-| 主动写入生成时能拿到什么材料（短期记忆的定义） | [写入链路](./memory-flow-write-path.md)第 2.2 节 |
-| 什么值得写成记忆 | [写入链路](./memory-flow-write-path.md)第 2.4 节 |
+| 主动写入生成时能拿到什么材料 | [写入链路](./memory-flow-write-path.md)第 2.2 节 |
+| 短期记忆在新流转中的定义 | 孵化中 |
+| 什么值得写成记忆 | 孵化中 |
 | 馆长怎样修订已有记忆 | [写入链路](./memory-flow-write-path.md)第 3.1 节 |
-| 第一当事人“没写”算不算判断 | [统一的交互记忆](./unified-interaction-memory.md)第 5 节 |
+| 第一当事人“没写”算不算判断 | 搁置，[写入链路](./memory-flow-write-path.md)第 6 节 |
 | 记忆的保存形态 | [库的形状](./memory-library-shape-and-index.md)第 4.2 节 |
 | 首个评测切片、原始时间怎样带进评测 | [评测集](./memory-evaluation-benchmarks.md)第 6 节 |
 | 用什么评判新的流转更好 | 本文第 4.2 节 |
@@ -197,7 +198,7 @@ last_reviewed: 2026-11-20
 1. **单轮的底线：不交记忆税**。在同一组题目上，新流转不比“直接检索原始历史”更差（[外部参考](../research/memory-core-external-references.md)第 6 节）；可以与组件级对比合用：只开或只关某一个机制，其余不变，题目与具体证据绑定，固定题目反复回放（Perplexity 的做法）。这是必要条件，远不够。
 2. **长程的标准：演化质量与人工介入**，这是 HiveMemory 真正要证明的：
    - 人工介入量：owner 每周手动删改的记忆数量，即“全自主维护”最直接的度量；
-   - 使用效果：记忆被用上的比例，以及用上之后是否有效（[写入链路](./memory-flow-write-path.md)第 2.4 节的结果信号）；
+   - 使用效果：记忆被用上的比例，以及用上之后是否有效，现在验证状态没有写入方、负反馈没有发出方（第 2.3 节）；
    - 库的健康走势：重复、过时与互相矛盾的记忆随时间是收敛还是累积；
    - 维护成本：每周花在整理与维护上的 token。
 
@@ -214,12 +215,12 @@ owner 每天实际使用 HiveMemory，这本身就是现成的长程试验场；
 
 ## 6. 与其他文档的关系
 
-- [统一的交互记忆](./unified-interaction-memory.md)：轨迹、断言、整理与消费水位的设想，曾被视为 v0.8 可能的出发点；其中消费水位的语义已经退场（[写入链路](./memory-flow-write-path.md)第 2.3 节），断言层作为“生成之前汇合”的一种做法不采用为当前方向（同文第 5 节），第 5 节“没写”算不算判断仍开放。
+- 已归档的[统一的交互记忆](../archive/ideas/unified-interaction-memory.md)：轨迹、断言、整理与消费水位的设想，曾被视为 v0.8 可能的出发点；消费水位的语义已经退场（[写入链路](./memory-flow-write-path.md)第 2.3 节），断言层作为“生成之前汇合”的做法不采用为当前方向（同文第 5 节），“没写”算不算判断搁置在同文第 6 节。
 - [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)：短期这一层自身的压缩与折叠。
 - [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md)与记忆价值体系的重新设计（[ROADMAP](../ROADMAP.md) 第 4.7 节）：维护一侧；落库之后的演化质量（分裂与合并、冲突检测、对照轨迹纠错）记在其方向 6，边界见[写入链路](./memory-flow-write-path.md)第 4 节。
 - [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md)：多视图的记忆图能否优于平面检索，与[库的形状](./memory-library-shape-and-index.md)第 4.1 节相关。
 - [耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)：跨存储写入的事务边界、对账与 archive、revive 的恢复，与[库的形状](./memory-library-shape-and-index.md)第 3.2 节相关。
-- [MaaT 与 Skill/Plugin 边界](./memory-as-tool-skill-plugin-boundary.md)：可执行记忆与 RUN 的长期草案，对象与目标需要从头考虑（[写入链路](./memory-flow-write-path.md)第 3.3 节）。
+- 已归档的 [MaaT 与 Skill/Plugin 边界](../archive/ideas/memory-as-tool-skill-plugin-boundary.md)：可执行记忆与 RUN 的早期草案，前提已变（RUN 的用户工具路径关闭、CODE_SNIPPET 并入资源记忆）；“记忆作为工具”的对象与目标在孵化中，已作出的边界见 [ADR-0003](../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)。
 
 ## 7. 升级为计划的条件
 

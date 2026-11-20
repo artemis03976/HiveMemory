@@ -10,7 +10,7 @@ code_paths:
 related_docs:
   - docs/patchouli/generation.md
   - docs/archive/plans/v0.7.2-multi-memory-extraction.md
-  - docs/ideas/unified-interaction-memory.md
+  - docs/archive/ideas/unified-interaction-memory.md
   - docs/archive/ideas/generation-source-convergence.md
   - docs/todo/generation-dedup-decision-signal.md
 last_reviewed: 2026-11-03
@@ -59,7 +59,7 @@ owner 的最终目标是全自主记忆维护：记忆的新建、合并、删�
 - **提取规则**：收紧拆分，例如只为之后会被单独查找的决定、事实与经验成条，过程与讨论不成条；或要求每条草稿说明之后什么时候会用到它。
 - **输出数量**：限制一次结算的草稿条数。这限制的是输出，与"生成材料不按轮次截断"无关。
 - **价值反馈**：等记忆价值体系重新设计（[ROADMAP](../ROADMAP.md) 第 4.7 节），把留存信号（被删、被合并、被检索命中）作为价值反馈，替代人工清理。
-- **断言整理**：在[统一的交互记忆](../ideas/unified-interaction-memory.md)中，推断的断言默认地位低于第一当事人的断言，被检索或被确认后再提升；第一当事人"没写"是否也是一种判断（该 Idea 第 5 节）直接决定被动提取补回多少内容。
+- **断言整理**：在已归档的[统一的交互记忆](../archive/ideas/unified-interaction-memory.md)中，推断的断言默认地位低于第一当事人的断言，被检索或被确认后再提升；第一当事人"没写"是否也是一种判断（现搁置在 [v0.8 写入链路 Idea](../ideas/memory-flow-write-path.md)第 6 节）直接决定被动提取补回多少内容。
 
 这些方向可以合进任一 Idea 或计划；本 Todo 先保留证据与度量。
 

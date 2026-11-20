@@ -23,7 +23,7 @@ related_docs:
   - docs/ideas/memory-flow-write-path.md
   - docs/ideas/memory-library-shape-and-index.md
   - docs/research/memory-core-external-references.md
-  - docs/ideas/memory-as-tool-skill-plugin-boundary.md
+  - docs/archive/ideas/memory-as-tool-skill-plugin-boundary.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/applications/MealAssistantProductSpec.md
 last_reviewed: 2026-11-20
@@ -76,7 +76,7 @@ last_reviewed: 2026-11-20
 | 类型按“怎样使用”划分，各有不同的送达方式 | 类型只是标签（第 3 节） | 语义丢失；本文的起点 |
 | 原始层按会话与消息指回原文 | 记忆的版本记录引用到段（[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)） | 已经找回 |
 | 生成补丁、不覆盖；历史摘要对 agent 可见 | 版本快照保留了，但 Mode C 整篇重写，agent 看不到变迁 | 漂移；对应局部修改（[写入链路](./memory-flow-write-path.md)第 2.1 节）、沿时间轴回读（[库的形状](./memory-library-shape-and-index.md)第 2.2 节） |
-| 来源分级与动态验证循环 | 置信度生成后基本固定，验证状态没有写入方，负反馈没有发出方 | 设计了没有实现；对应“缺少结果信号”（[写入链路](./memory-flow-write-path.md)第 2.4 节） |
+| 来源分级与动态验证循环 | 置信度生成后基本固定，验证状态没有写入方，负反馈没有发出方 | 设计了没有实现；对应“缺少结果信号”（[总纲](./memory-flow-short-to-mid-term.md)第 2.3 节） |
 | EVOLVE：同一实体的状态变更就地演化 | 一次性生成先新建再合并；馆长只新建 | 漂移；对应对照已有记忆的修订（[写入链路](./memory-flow-write-path.md)第 2.1 节） |
 | DISCARD：低置信的草稿不得覆盖高置信的旧记忆 | 没有 | 丢失；与主动写入的优先权、防止推断冒充事实同类 |
 | 私有记忆经验证后晋升为全局 | 只有 PUBLIC 与 PRIVATE，没有晋升 | 未实现 |
@@ -175,7 +175,7 @@ last_reviewed: 2026-11-20
 候选设计：
 
 - 编译的位置：MemoryCompiler 的编译目标 `RUNNABLE_TOOL`，与提示词注入、向量文本等目标并列。
-- AOT 在写入或结算之后编译并试运行，结果可以作为验证状态的写入方，接回第一版设计中“运行验证成功”的回路；JIT 在 RUN 时编译，简单但没有验证信号。两者的取舍与 HiveMemory 宿主哪些环境，留给 [MaaT Idea](./memory-as-tool-skill-plugin-boundary.md)。
+- AOT 在写入或结算之后编译并试运行，结果可以作为验证状态的写入方，接回第一版设计中“运行验证成功”的回路；JIT 在 RUN 时编译，简单但没有验证信号。两者的取舍与 HiveMemory 宿主哪些环境，留给“记忆作为工具”的重新定型（在孵化中；此前的草案见已归档的 [MaaT Idea](../archive/ideas/memory-as-tool-skill-plugin-boundary.md)）。
 - 环境声明要不要在 v0.8 落地，随内容类别的划分一起决定。
 
 ### 6.3 AGENT_PROFILE 移出中期库
@@ -361,7 +361,7 @@ last_reviewed: 2026-11-20
 结论：
 
 - 按取舍规则应取变体 B，但 B 的稳定性优势主要来自把 Decision 与 Preference 的翻转挪进了适用范围，而范围决定常驻还是按需出现，不稳定没有消失，只是换了位置。
-- “资源记忆与不存”“知识与资源记忆”的摇摆，是两条原则在代码相关的事实上相撞：“环境能重新告诉你的不记”（[写入链路](./memory-flow-write-path.md)第 2.4 节）与“真相在可以查看的源头的归资源记忆”（第 7.1、7.2 节）。
+- “资源记忆与不存”“知识与资源记忆”的摇摆，是两条原则在代码相关的事实上相撞：“环境能重新告诉你的不记”（[外部参考](../research/memory-core-external-references.md)第 4 节）与“真相在可以查看的源头的归资源记忆”（第 7.1、7.2 节）。
 - 只换类型，碎片只少了约两成；碎片的成因在结构上，不在类型（[总纲](./memory-flow-short-to-mid-term.md)第 1.1 节）。
 - 局限：“已不在库中”几乎没有信号意义，owner 只顺手删过一部分记忆，没有筛过全库；chatbot 样本与预期标签由 Claude 起草，不是标准答案。
 

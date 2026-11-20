@@ -128,7 +128,7 @@ last_reviewed: 2026-11-19
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
 | MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
 | Deep Research MVP | Candidate / 不绑定版本 | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 第 4.6 节 |
-| 统一的交互记忆：轨迹、断言与整理 | Candidate / 不绑定版本（owner，2026-11-03） | 同一套架构把对话与长程 agent 的交互都整理成记忆资产：候选记忆是带归属、证据位置与发生时间的断言，唯一写入者按断言的属性整理；对照断言清单标注已做离线回放 | [统一的交互记忆](./ideas/unified-interaction-memory.md) |
+| 统一的交互记忆：轨迹、断言与整理 | Archived（2026-11-20）/ 被 v0.8 的记忆核心 Idea 取代 | “同一套架构把对话与长程 agent 的交互都整理成记忆资产”成为 v0.8 总纲的原则；消费水位退场，断言层不采用为当前方向，“没写”算不算判断搁置在写入链路 Idea | [已归档的 Idea](./archive/ideas/unified-interaction-memory.md)、[v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md) |
 | 外部 harness 的 controller 模式 | Candidate / 不绑定版本（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | 第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md) |
 | 记忆价值体系重新设计 | Candidate / 不绑定版本 | owner 重新设计价值体系，不在现有信号上增补 | 第 4.7 节 |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 随受影响的 API 并行；[Frontend](./frontend/README.md)与第 4.8 节 Todo |
@@ -139,7 +139,7 @@ last_reviewed: 2026-11-19
 
 状态：Completed（2026-11-04；版本目标 owner，2026-11-03）。版本内的三份计划均已归档，规范版本已调整为 0.7.3，本次发布标签为 v0.7.3（合并后创建）。逐项内容、版本目标判定、未纳入的事项与验证结果见[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md)，各计划见 [Archived Plans](./archive/plans/README.md#v073)；证据、离线回放与决定见已归档的[收敛 Idea](./archive/ideas/generation-source-convergence.md)。
 
-- **版本目标**（owner，2026-11-03）：在统一的记忆架构成形之前，先止住两种生成方式互相改写。这是过渡措施，不代表主动写入优先是更好的选择；之后的方向见[统一的交互记忆](./ideas/unified-interaction-memory.md)。DeepSeek Harness 接入后（2026-11-01），owner 经它调研了四个仓库，这是第一批以主动写入为主的真实样本：被动提取复现并改写了主动写入，同一轮里 agent 有意分开写的记忆被查重合并，主动写入的标题在生成时被丢弃，合并失败只能凭时序推断原因。
+- **版本目标**（owner，2026-11-03）：在统一的记忆架构成形之前，先止住两种生成方式互相改写。这是过渡措施，不代表主动写入优先是更好的选择；之后的方向见[统一的交互记忆](./archive/ideas/unified-interaction-memory.md)。DeepSeek Harness 接入后（2026-11-01），owner 经它调研了四个仓库，这是第一批以主动写入为主的真实样本：被动提取复现并改写了主动写入，同一轮里 agent 有意分开写的记忆被查重合并，主动写入的标题在生成时被丢弃，合并失败只能凭时序推断原因。
 - **验收**：各计划以离线回放验收；日常使用中的实测依赖自然发生的结算、写入与失败，不作为归档条件。收尾审计第 1 节逐条判定。
 
 | 方向 | 结果 | 当前事实 |
@@ -148,7 +148,7 @@ last_reviewed: 2026-11-19
 | 生成任务失败带原因码 | 失败分类按异常给出稳定原因码，进入工作记录、`work.failed`、`memory.task.failed` 与分类处的一行日志；任务事件载荷带 `error_class` | [Patchouli 生成](./patchouli/generation.md#61-失败原因码)、[事件契约](./contracts/routes-and-events.md#44-失败与降级观测) |
 | 主动写入沿用 agent 的标题 | Mode B 把 agent 拟定的标题交给模型并要求沿用，只在与内容不符或缺少检索名词时修改；MCP 写入工具说明与使用手册 skill 同步 | [Patchouli 生成](./patchouli/generation.md#32-mode-b主动-write)、[MCP 记忆访问](./contracts/mcp.md#3-工具) |
 
-不在 v0.7.3：合并遇到版本冲突时是否重做（[合并版本冲突 Todo](./todo/merge-version-conflict.md)）；多条提取后被动提取的膨胀与低留存（[被动提取膨胀 Todo](./todo/passive-extraction-volume-and-retention.md)）；两种生成方式在统一架构中的兼容（[统一的交互记忆](./ideas/unified-interaction-memory.md)，候选方向）；查重的判定信号（[查重 Todo](./todo/generation-dedup-decision-signal.md)）；导入轮次的跨会话话题路由（[跨会话话题路由 Todo](./todo/cross-conversation-topic-placement.md)）；本机 HTTP 管理接口证明调用方（2026-11-05 以管理凭据完成防误用，[归档 Todo](./archive/todo/local-http-management-access.md)）。
+不在 v0.7.3：合并遇到版本冲突时是否重做（[合并版本冲突 Todo](./todo/merge-version-conflict.md)）；多条提取后被动提取的膨胀与低留存（[被动提取膨胀 Todo](./todo/passive-extraction-volume-and-retention.md)）；两种生成方式在统一架构中的兼容（[统一的交互记忆](./archive/ideas/unified-interaction-memory.md)，候选方向）；查重的判定信号（[查重 Todo](./todo/generation-dedup-decision-signal.md)）；导入轮次的跨会话话题路由（[跨会话话题路由 Todo](./todo/cross-conversation-topic-placement.md)）；本机 HTTP 管理接口证明调用方（2026-11-05 以管理凭据完成防误用，[归档 Todo](./archive/todo/local-http-management-access.md)）。
 
 ### 4.4 冷启动、历史导入与外源文档资产化（候选）
 

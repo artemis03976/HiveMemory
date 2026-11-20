@@ -14,7 +14,7 @@ related_docs:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/todo/conversation-compact-command.md
-  - docs/ideas/unified-interaction-memory.md
+  - docs/archive/ideas/unified-interaction-memory.md
   - docs/archive/plans/import-bus-authorization-in-capability-layer.md
 last_reviewed: 2026-11-07
 ---
@@ -401,7 +401,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 7. **写入先授权、再建立话题**，MCP 同样：被拒的写入不触发路由、建立话题或 LRU 结算。
 8. **Import Bus 的进度查询与 PASSIVE_MEMORY 路由**在身份访问计划中临时做成 root 方法（`RootInteractionService.interaction_status`、`RootTopicService.route_passive_turn`），在本方向实施时移除。同一计划另加的 `wait_interaction` 与 `prepare_topic` 的去留由本方向决定。
 9. **写入需要话题，先按决定 1 允许第一次写入建立话题**：生成按话题取写入的材料，并按话题登记写入生成的记忆，供该话题结算时查重，所以写入需要话题。写入派发即生成的现有时点不变，话题何时、由谁建立收在一处。
-   - 另一种做法是写入挂在这一轮的交互标识上：交互应用到哪个话题，写入就归到哪个话题，写入从不建立话题。它等于先采用按会话时间线切段的短期记忆形态，与[统一的交互记忆 Idea](./unified-interaction-memory.md)第 3.3 节的切点设想同向，因此暂不采用。
+   - 另一种做法是写入挂在这一轮的交互标识上：交互应用到哪个话题，写入就归到哪个话题，写入从不建立话题。它等于先采用按会话时间线切段的短期记忆形态，与已归档的[统一的交互记忆 Idea](../archive/ideas/unified-interaction-memory.md)第 3.3 节的切点设想同向，因此暂不采用。
    - 短期记忆的单位与形态（话题按内容跨会话归并，还是按会话时间线切段）尚未确定，owner 认为应在 v1.0 发布前确定。本方向不替它决定；形态改变时，需要重做的是话题的建立时点，以及 Import Bus 在写入时确定话题的路径。
 10. **交互提交与写入时确定话题收束为 root API 的两个方法**，入口各授权一次，controller 与 Import Bus 共用：
     - “提交交互”接收封口后的交互与话题来源（已确定的话题、Gateway 的新话题决定，或一轮待路由的导入）。需要路由时先在方法内查重，未接纳或应用失败的才做 PASSIVE_MEMORY 路由，然后交给 Patchouli 的“提交并等待应用”，返回结构化结局；
