@@ -538,6 +538,7 @@ class PatchouliRuntime:
             MemoryGenerationEngine,
             create_deduplicator,
             create_extractor,
+            create_librarian,
         )
 
         config = self._patchouli_config.generation
@@ -556,6 +557,13 @@ class PatchouliRuntime:
             deduplicator=deduplicator,
             # alias 唯一性第一层：生成侧以中期库为占用查询端口。
             alias_generator=AliasGenerator(self.memory_library.mid_term),
+            # 话题结算选馆长时才装配；否则结算走一次性生成。
+            librarian=create_librarian(
+                config,
+                mid_term=self.memory_library.mid_term,
+                llm_service=self._llm_service,
+                llm_params=self._llm_params,
+            ),
         )
 
     def _build_artifact_engine(self):

@@ -17,14 +17,14 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-19
 ---
 
 # 记忆生成
 
 记忆生成是把短期材料或显式保存意图转化为正式 `MemoryAtom` 的冷路径。它必须同时避免两种对称错误：把每段对话都机械保存，会让书库迅速被噪音淹没；把保存完全交给不透明的 LLM 判断，又可能让用户明确要求保留的内容悄悄消失。
 
-当前设计因此保留三种生成模式，并把“构造任务”“执行生成”“写 artifacts 和持久化”“发布任务/settlement 终态”拆成不同层。生成不再是 Perception 的一个回调，也不再由一个 LibrarianCore 同时管理计算与后台任务。
+当前设计因此保留三种生成模式（话题结算又分一次性生成与馆长两种方式，由用户选择，第 3.1 节），并把“构造任务”“执行生成”“写 artifacts 和持久化”“发布任务/settlement 终态”拆成不同层。生成不再是 Perception 的一个回调，也不再由一个 LibrarianCore 同时管理计算与后台任务。
 
 每个 `MemoryGenerationTaskSpec` 都独立携带创建任务时冻结的 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 和 `topic_id`；任务快照沿用相同字段，不保存 `IdentityScope` 或工作 actor。Generation 先限定资源归属，再按发起者读取策略查重，不从进程当前上下文重新推导 Workspace 或权限。WorkspaceAsset 不属于 Generation，生成链只接收 settlement 交接中已经冻结的资产绑定事实；Store 的归属接口见 [WorkspaceAsset](../workspace/assets.md#3-身份与归属)。
 
@@ -41,7 +41,7 @@ MemoryGenerationCoordinator
        -> MemoryGenerationQueue / TaskHandle
        -> local route GENERATION_EXECUTE_SPEC
   -> MemoryGenerationFamiliar
-       -> MemoryGenerationEngine.process
+       -> MemoryGenerationEngine.process（话题结算：一次性提取加查重，或馆长循环）
        -> ArtifactEngine
        -> MidTermMemoryStore.upsert
        -> MemoryGenerationResult
@@ -52,7 +52,7 @@ MemoryGenerationCoordinator
 - TaskController 创建不可变 work 并持有 typed handle，负责领域快照、取消、等待与事件时机；
 - MemoryTaskEventEmitter 负责把领域快照投影为 `memory.task.*` RuntimeEvent；
 - Familiar 是生成数据面，执行 compute -> artifact -> persist；
-- GenerationEngine 负责提取、Mode C 修订、查重、两条记忆的合并计算和构造 outcome，不直接持久化或发布事件。
+- GenerationEngine 负责提取、话题结算的馆长循环（`engines/generation/librarian.py`）、Mode C 修订、查重、两条记忆的合并计算和构造 outcome，不直接持久化或发布事件。
 
 这条边界使 GenerationEngine 的返回值可以在落库前被补充来源信息，也让取消/失败只由 TaskController 写入一次终态。
 
@@ -96,7 +96,7 @@ GenerationContext
 
 截断在构建 `GenerationContext` 时一次完成，渲染为提示词文本时不再截断，多行条目的后续行缩进到条目之下。
 
-Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示词（中英文各一份）都说明材料格式：每轮以 `[User]` 开头，其后按发生顺序排列 `[Assistant]` 正文、`[Subagent]` 消息与以 `- ` 开头的过程条目；`[Subagent]` 是被委托的子 Agent 结束时交回的通知，带它的结局与最后的输出，按 Agent 的结论对待，与助手正文同等；THOUGHT 是 Agent 的推理，不能作为事实依据（Mode A 中主要由它得出的内容降低置信度）；TOOL/RESULT 是外部工具的调用与返回，可以作为依据，`(error)` 表示调用出错；SEARCH/READ/RUN 是记忆系统内部操作的一行摘要，Mode A 另外提示读回的已有记忆不要重复提取；工具结果中省略标记处的内容不要推测。提示词同时要求不把密钥、令牌、密码、证书或连接串中的凭据写入记忆，需要记录相关配置时只保留名称与用途。
+Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示词与馆长的提示词（中英文各一份）都说明材料格式：每轮以 `[User]` 开头，其后按发生顺序排列 `[Assistant]` 正文、`[Subagent]` 消息与以 `- ` 开头的过程条目；`[Subagent]` 是被委托的子 Agent 结束时交回的通知，带它的结局与最后的输出，按 Agent 的结论对待，与助手正文同等；THOUGHT 是 Agent 的推理，不能作为事实依据（Mode A 中主要由它得出的内容降低置信度）；TOOL/RESULT 是外部工具的调用与返回，可以作为依据，`(error)` 表示调用出错；SEARCH/READ/RUN 是记忆系统内部操作的一行摘要，Mode A 与馆长另外提示读回的已有记忆不要重复提取（馆长的提示词还说明主动写入不在材料中，要以工具查看）；工具结果中省略标记处的内容不要推测。提示词同时要求不把密钥、令牌、密码、证书或连接串中的凭据写入记忆，需要记录相关配置时只保留名称与用途。
 
 渲染与截断规则的回归入口为 [材料测试](../../tests/unit/engines/perception/test_material.py)，转写格式见 [生成视图构建器测试](../../tests/unit/engines/generation/test_generation_transcript_builder.py)。
 
@@ -117,19 +117,19 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 段标签只出现在送给模型的生成材料中：渲染函数本身不带标签，token 估算、接力摘要与 Alice 的历史转写不受影响。升级前保存的生成任务（第 6 节）没有段，转写不印标签。
 
-模型输出中的 `source_segments` 是支撑这一条内容的段标签：被动提取与主动写入的格式说明由 `ExtractedMemoryDraft` 的 JSON Schema 自动带上这个字段，修订的 JSON 格式在中英文提示词中手写补上（`RevisionResult.source_segments`）；三类提示词都说明段标签的写法，并要求只引用直接支撑这条内容的段，话题状态摘要中的内容没有段、不引用。引用的容错按“只丢弃这一处引用”处理：
+模型输出中的 `source_segments` 是支撑这一条内容的段标签：被动提取与主动写入的格式说明由 `ExtractedMemoryDraft` 的 JSON Schema 自动带上这个字段，修订的 JSON 格式在中英文提示词中手写补上（`RevisionResult.source_segments`），馆长 `write_memory` 的参数同样在提示词中手写、带这个字段；四类提示词都说明段标签的写法，并要求只引用直接支撑这条内容的段，话题状态摘要中的内容没有段、不引用。引用的容错按“只丢弃这一处引用”处理：
 
 - 格式不对（不是形如 `2.3` 的字符串，或整个字段不是列表）的引用在解析时丢弃，不让草稿或整份被动输出作废；
 - 材料中不存在的标签丢弃，并记一条 INFO 日志（`count`）；
 - 退回的草稿（Mode B 提供商失败或输出无法解析）与追加的修订（Mode C）没有模型引用的段。
 
-引擎把合格的标签按引用顺序去重，换算为 `CitedSegment`（轮次标识加首尾都包含的事件序号区间），经 `GenerationOutcome.cited_segments` 交给提交；新建（含查重为相似时的新建）与修订带引用，查重命中而只触碰已有记忆（TOUCH）时不带。Familiar 把它写进这一版的 MemoryVersionArtifact（第 5 节），合并与手动编辑的版本记录为空。被引用的轮次就在同一份版本记录 `source_artifacts` 指向的交互快照中；被动结算捕获话题的全部交互，主动写入与修订捕获作为背景的最近几轮。引用不进入记忆原子、`ArtifactRef` 与 Qdrant 载荷，管理接口与 MCP 的读取都不返回它；生成侧现在也没有读取方，它供之后对已有记忆的复核读取。
+引擎把合格的标签按引用顺序去重，换算为 `CitedSegment`（轮次标识加首尾都包含的事件序号区间），经 `GenerationOutcome.cited_segments` 交给提交；新建（含查重为相似时的新建与馆长的新建）与修订带引用，查重命中而只触碰已有记忆（TOUCH）时不带。Familiar 把它写进这一版的 MemoryVersionArtifact（第 5 节），合并与手动编辑的版本记录为空。被引用的轮次就在同一份版本记录 `source_artifacts` 指向的交互快照中；被动结算捕获话题的全部交互，主动写入与修订捕获作为背景的最近几轮。引用不进入记忆原子、`ArtifactRef` 与 Qdrant 载荷，管理接口与 MCP 的读取都不返回它；生成侧现在也没有读取方，它供之后对已有记忆的复核读取。
 
 在 1,216 轮真实 Claude Code 记录拼成的材料上回放被动提取（deepseek-chat，30 份材料各 3 次），引用全部格式合格、标签全部存在，同一份材料各次运行引用的段集合两两 Jaccard 均值 0.90；抽查中多数引用指向事实或决定所在的段，少数偏向这一轮开头的段。引用没有标准答案，准确性只能靠合格率、一致性与抽查判断。回放工具是 `scripts/memory_replay.py` 的 `turns-claude-code`、`segments`、`extract-turns` 与 `citations` 子命令。
 
 ## 3. 三种生成模式
 
-三种模式的提示词（被动提取、主动写入与合并，中英文）给出同一组类型：
+三种模式的提示词（被动提取、主动写入与合并，中英文）与馆长的提示词给出同一组类型：
 
 | 类型 | 写什么 |
 |:---|:---|
@@ -138,11 +138,15 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 | `USER_PROFILE` | 用户的偏好与习惯 |
 | `RESOURCE` | 资源记忆：对一个外部资源（网页、文件、代码、文档）的记忆。正文说明它是什么、为什么值得去看、在哪里，把读者引向源头；不抄录源头的内容，真相留在源头 |
 
-模型给出的类型名不在其中时，提取与写入落为 FACT，合并沿用保留记忆的类型（第 4.1 节）。`WORK_IN_PROGRESS`、`CODE_SNIPPET` 与 `URL_RESOURCE` 只作为历史取值留在 `MemoryType` 中（`HISTORICAL_MEMORY_TYPES`）：版本快照记着写入当时的类型，仍要按 schema 2.1 严格解码；模型照旧写出这些名字时同样按未知类型处理。“做到哪了”留在交互记录上，不写成记忆：一条进度只在产生时决定一次类型，修订改不了它，也没有关闭的状态，最终成了名义上一直在进行的工作。
+模型给出的类型名不在其中时，提取、馆长与写入落为 FACT，合并沿用保留记忆的类型（第 4.1 节）。`WORK_IN_PROGRESS`、`CODE_SNIPPET` 与 `URL_RESOURCE` 只作为历史取值留在 `MemoryType` 中（`HISTORICAL_MEMORY_TYPES`）：版本快照记着写入当时的类型，仍要按 schema 2.1 严格解码；模型照旧写出这些名字时同样按未知类型处理。“做到哪了”留在交互记录上，不写成记忆：一条进度只在产生时决定一次类型，修订改不了它，也没有关闭的状态，最终成了名义上一直在进行的工作。
 
 ### 3.1 Mode A：被动观察 / ARCHIVE
 
 当 idle、LRU、shutdown 或 manual settle 形成 `TopicMaterializeTask` 时，Coordinator 用其中的工作视图（未折叠的 blocks 与 `state_summary`）构造 GenerationContext，被折叠的轮次只以摘要进入生成；同一任务的 `InteractionArtifactInput` 携带话题的全部交互记录与折叠记录，来源 InteractionArtifact 因此覆盖已折叠的轮次（第 5 节）。没有 turns 时跳过任务。
+
+话题结算有两种生成方式，由 `patchouli.generation.settle_mode` 选择，是用户选项：一次性生成（`one_shot`，默认）与馆长（`librarian`）。一次性生成只调用一次模型，但写之前看不到本话题已经写入的记忆，也看不到库，只能先尽量多地提取，再由查重、触碰、合并提名与命中本话题写入即丢弃这一串规则补救（第 4 节）；馆长先查看本话题主动写入过的记忆，再检索并阅读库中相关的记忆，只写两者都没有覆盖的内容，代价是一次结算要调用模型数次。两种方式并存，因为馆长明显更慢、开销更大（owner，2026-11-19）；一次性生成按现状冻结，它的重复问题不在这里修补。两者共用 `extractor.enabled` 开关（关闭时都不运行，结算不产生记忆）、结算的发起者与来源裁定（本节末尾）、材料与段引用（第 2 节）、别名分配（第 4.1 节末段）与提交管线（第 5 节）。组合根只在选馆长、提取开启且配置了模型时为引擎装配馆长，引擎有馆长就以馆长结算，否则走一次性生成；两项配置保存后重启生效，关闭时保存的结算任务在下次启动后按当时配置的方式执行。
+
+#### 一次性生成
 
 GenerationEngine 渲染 transcript，调用 extractor 的话题提取（`extract`）。一段话题常包含多项彼此独立的决定、事实与经验，而检索向量只由标题、类型、标签与摘要编译，压进同一条记忆的次要内容只留在正文里，检索不到；因此模型一次输出一组记忆草稿（`ExtractionResult`），每件之后会被单独查找的事写成一条：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一个值得以后去看的外部资源；一项工作做到哪了（进度、下一步、待办）不写成记忆，其中得出的结论、决定与尚未解决的问题本身照常成条。提示词同时要求同一件事的背景、过程与结论不拆开，顺带提及、没有结论的内容不单独成条，也不为凑数拆分；整段没有值得保存的内容时输出空列表。
 
@@ -158,9 +162,34 @@ Extractor 区分以下结果：
 
 Mode A 不捕获 `ModelProviderError`，生成任务以 `model_provider_failed`（超窗为 `model_context_window_exceeded`）失败收尾（第 6.1 节），不再把提供商故障或截断记录成“对话没有价值”。超窗、程序错误与取消不重试，原样传播；分类见[错误模型](../contracts/error-model.md#46-模型调用错误)。
 
+#### 馆长
+
+馆长（`engines/generation/librarian.py`）是 Patchouli 内部的工具循环：工具与循环由 Patchouli 自己定义，不复用 Alice 的执行循环与 MTP，也不经过 Workspace 的 actor API，只操作 Patchouli 自己拥有的数据（owner，2026-11-19）。
+
+- **动作协议**：模型服务只有文本接口，没有原生工具调用。每一步，馆长把对话历史交给 `complete`（要求 JSON 输出），模型输出一个 JSON 动作 `{"tool": "<名称>", "args": {…}}`；Patchouli 执行工具，把结果连同剩余步数（`steps_left`）作为下一条消息交回。材料（话题状态与带段标签的各轮）在第一条消息中给出，不需要工具读取。
+- **工具**：
+
+  | 工具 | 作用 |
+  |:---|:---|
+  | `list_topic_writes` | 列出本话题主动写入结算到的记忆（第 4.2 节的记录）：别名、标题、摘要 |
+  | `search_memories` | 以一句查询检索中期库，`mode` 为 `dense`（缺省）或 `sparse`，单向量、不融合、不重排；返回别名、标题、摘要、类型与分数，最多 `patchouli.generation.librarian.search_top_k`（默认 5）条 |
+  | `read_memory` | 按别名读一条记忆的标题、摘要、标签、类型与正文 |
+  | `write_memory` | 暂存一条新记忆：标题、摘要、标签、类型、正文、置信度、别名后缀与引用的段 |
+  | `finish` | 结束 |
+
+- **读取**：三个读取工具以结算的发起者（Workspace 的 system actor）直接访问中期库，只读得到本 Workspace 的 PUBLIC 记忆；不经过检索服务（`RetrievalFamiliar`），因此不记录命中、不刷新生命力。本话题的写入中 PRIVATE、TEAM 或已删除的不列出：私有内容因此不会被写进公开记忆，代价是馆长可能与它们重叠。
+- **写入**：`write_memory` 只暂存草稿，字段与被动提取的草稿相同，一律视为有价值：是否值得写由馆长在写之前判断。循环结束后暂存的草稿一次交给引擎，按 CREATE 提交：分配别名、引用的段写进版本记录、入库；不查重、不触碰、不提名合并。最后仍有的重叠接受，不加复核、去重或兜底（owner，2026-11-19）。馆长只新建，不修订本话题的写入，也不修订库中已有的记忆。
+- **结束与预算**：模型调用 `finish`，或步数达到 `patchouli.generation.librarian.max_steps`（默认 12，每输出一个动作算一步），或生成 lane 的时限到期（任务以 `memory_generation_timed_out` 失败，暂存的不提交）。步数用完时已暂存的照常提交，并记一条 warning。每次结算记一行日志：结束方式、步数、暂存条数、模型报告的 token 合计与各工具的调用次数。在开发实例上实测（deepseek-chat，2026-11-19），一次结算 5–8 步，模型报告的 token 合计约 1.5 万到 3.8 万。
+- **失败**：动作无法解析、工具不存在或参数不合格时，错误作为工具结果交回模型并计一步，循环继续。模型服务失败不重试（提取器重试一次），与超窗一样原样传播，任务以 `model_provider_failed` 或 `model_context_window_exceeded` 失败（第 6.1 节），暂存的草稿不提交，来源 InteractionArtifact 照常保存。
+- **提示词**：馆长的系统提示词（中英文）规定三步的顺序：先看本话题写过什么，再查库里相关的，最后只写既不与本话题的写入、也不与库中相关记忆重叠的内容；同时给出动作格式与工具说明、步数与检索条数的上限、记忆类型、材料格式、凭据约束、段引用与拆分粒度。被动提示词与 `ExtractionResult` 只服务一次性生成。
+
+循环、预算与五个工具由[馆长测试](../../tests/unit/engines/generation/test_librarian.py)覆盖，两种方式的分派与馆长产出的提交动作由[引擎测试](../../tests/unit/engines/generation/test_engine.py)覆盖，“先写入、后由馆长结算：列出写入、检索库、新建入库”由[生成流水线集成测试](../../tests/integration/patchouli/test_memory_generation_pipeline.py)验证。
+
+#### 发起者与来源
+
 Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内，也与 Import Bus 无关：导入的轮次与主动链路的轮次一样进入话题，之后经 settle 参与 Mode A。它仍作为 Patchouli 后台 memory task 执行。
 
-四种 settle 入口（manual / idle / LRU / shutdown）共享同一发起者裁定：Coordinator 按 `belong_to` 构造 `user_id=owner_user_id`、`agent_id=SYSTEM_AGENT_ID`、`team_id=None` 的 `from_actor`，不继承最后访问者或驱逐触发者。`system` 不属于 Team，也不能成为 PRIVATE policy 的目标，普通读取策略因此把 SETTLE 查重限定为本 Workspace 的 PUBLIC 记忆，避免后台结算触碰某个参与 Agent 才可见的 PRIVATE/TEAM 记忆。新建记忆使用 PUBLIC policy、`source_agent_id=SYSTEM_AGENT_ID` 与 `SYSTEM` creation intent；实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。
+四种 settle 入口（manual / idle / LRU / shutdown）共享同一发起者裁定：Coordinator 按 `belong_to` 构造 `user_id=owner_user_id`、`agent_id=SYSTEM_AGENT_ID`、`team_id=None` 的 `from_actor`，不继承最后访问者或驱逐触发者。`system` 不属于 Team，也不能成为 PRIVATE policy 的目标，普通读取策略因此把 SETTLE 的查重与馆长的读取限定为本 Workspace 的 PUBLIC 记忆，避免后台结算触碰某个参与 Agent 才可见的 PRIVATE/TEAM 记忆。新建记忆使用 PUBLIC policy、`source_agent_id=SYSTEM_AGENT_ID` 与 `SYSTEM` creation intent；实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。
 
 Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记录发起 Agent 本身（无上下文的主动写入仍由发起 Agent 产出），再合并上下文轮次贡献者。WRITE/UPDATE 保留物化意图的 `from_actor`，按该 actor 的普通 PUBLIC/TEAM/PRIVATE 可见性读取，不能沿用 SETTLE 的 system 身份。Mode C 修订保留已有 `meta.provenance` 的来源主体字段，并把本次生成的贡献者并入已有集合；两条记忆合并时沿用保留记忆的来源主体，贡献者取两者的并集（第 4.1 节）。结果随 MemoryAtom 与对应 MemoryVersionArtifact 持久化。来源与贡献者字段只记录 provenance，不参与读取授权。
 
@@ -199,7 +228,7 @@ Engine 用 extractor 的修订（`revise`，结果为 `RevisionResult`）生成�
 
 ## 4. 查重与合并
 
-Mode A 的每条草稿与 Mode B 的草稿都按 MemoryCompiler 的 `DENSE_EMBEDDING` 目标编译为查询文本，对中期库执行 dense top-1 搜索。已有记忆的稠密向量由同一目标的编译文本编码，查询与入库的文本形态一致，内容相同的草稿才能达到 IDENTICAL 所需的相似度；早先查询只拼接 `title summary`，与带字段标签的入库文本形态不同，内容完全相同的草稿也只有约 0.90，触碰分支实际走不到。真实 embedding 与 Qdrant 下内容相同的草稿只触碰已有记忆，由[查重召回测试](../../tests/integration/patchouli/test_generation_dedup_recall.py)验证。Deduplicator 按相似度与内容一致性给出判断（`DuplicateDecision`），GenerationEngine 再把判断翻译为提交动作（`GenerationAction`）：
+查重与合并服务主动写入（Mode B）与一次性生成；馆长写下的草稿不查重，也不提名合并（第 3.1 节）。一次性生成的每条草稿与 Mode B 的草稿都按 MemoryCompiler 的 `DENSE_EMBEDDING` 目标编译为查询文本，对中期库执行 dense top-1 搜索。已有记忆的稠密向量由同一目标的编译文本编码，查询与入库的文本形态一致，内容相同的草稿才能达到 IDENTICAL 所需的相似度；早先查询只拼接 `title summary`，与带字段标签的入库文本形态不同，内容完全相同的草稿也只有约 0.90，触碰分支实际走不到。真实 embedding 与 Qdrant 下内容相同的草稿只触碰已有记忆，由[查重召回测试](../../tests/integration/patchouli/test_generation_dedup_recall.py)验证。Deduplicator 按相似度与内容一致性给出判断（`DuplicateDecision`），GenerationEngine 再把判断翻译为提交动作（`GenerationAction`）：
 
 | 判断 | 条件（默认阈值） | 提交动作 |
 |:---|:---|:---|
@@ -235,9 +264,10 @@ Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前
 
 查重与合并本身不区分来源。只按相似度判断时，被动提取会从同一份材料里重新推导出 agent 已经写入的内容，判为相似后并入；合并按新旧定主次，较新的被动草稿成为骨架，把 agent 有意精简掉的风险清单、行号与未决问题带回记忆。同一轮里 agent 有意分开写的几条记忆，也会因相似度越过阈值而互相合并。证据与考虑过的做法见[已归档的收敛 Idea](../archive/ideas/generation-source-convergence.md)第 2、3 节。因此同一话题内，主动写入结算到的记忆优先：
 
-- **记录**：控制器在进程内按话题记录本话题主动写入结算到的正式记忆，即 WRITE、UPDATE 的结算目标，以及吸收了写入新建记忆的合并所保留的那条。带 settlement 的结果只来自主动写入链路，数据面返回后即记下。
+- **记录**：控制器在进程内按话题记录本话题主动写入结算到的正式记忆（两种结算方式共用这份记录），即 WRITE、UPDATE 的结算目标，以及吸收了写入新建记忆的合并所保留的那条。带 settlement 的结果只来自主动写入链路，数据面返回后即记下。
 - **传递**：WRITE 与 SETTLE 执行时，控制器把该话题当前的记录放进生成请求（`GenerationRequest.topic_write_memory_ids`）；SETTLE 执行成功后清除这个话题的记录，话题结算之后不再接收写入；关闭时保存的 SETTLE 带上这份记录（第 6.2 节）。读取发生在执行时而不是接纳时：同一话题先后派发的写入，前一条完成后，后一条执行时才能看到它。
-- **Mode A**：草稿查重为 IDENTICAL 或 SIMILAR、且命中记录中的记忆时丢弃，不新建、不触碰、不提名合并，只记一行日志。一段话题的草稿全部被丢弃时任务照常成功，没有新记忆，来源 InteractionArtifact 照常保存。被动提取照常运行，写入没有覆盖的事实照常进入记忆。
+- **一次性生成（Mode A）**：草稿查重为 IDENTICAL 或 SIMILAR、且命中记录中的记忆时丢弃，不新建、不触碰、不提名合并，只记一行日志。一段话题的草稿全部被丢弃时任务照常成功，没有新记忆，来源 InteractionArtifact 照常保存。被动提取照常运行，写入没有覆盖的事实照常进入记忆。
+- **馆长**：以 `list_topic_writes` 列出记录中 system actor 读得到的记忆，在写之前查看，不按相似度丢弃草稿（第 3.1 节）。
 - **Mode B**：SIMILAR 命中记录中的记忆时照常新建、不提名合并；IDENTICAL 照常只触碰，同一轮写了两次相同的内容时触碰仍然正确。
 - **不变的部分**：跨话题的查重、合并提名与合并语义不变；Mode C 不查重，不受影响；结算事件、任务快照与任务 API 不变。
 
@@ -268,7 +298,7 @@ artifact。因此 `TimeoutError`、`ConnectionError`、模型异常以及普通�
 
 这不等于系统完全没有重试：通用 Work Queue Runtime 仍保留 retry 状态机，Interaction Submission 也只对
 明确标记的瞬态提交错误做有限重试；Generation extractor 内部的 LLM 边界重试属于另一层策略，只对提供商
-失败重试一次，超窗、程序错误与取消不重试。当前
+失败重试一次，超窗、程序错误与取消不重试；馆长不重试提供商失败。当前
 `FAILED` 只表示本次任务未完成，不保证没有任何外部副作用。Active WRITE/UPDATE 已使用 PendingAtom
 `intent_id` 派生稳定 task/work identity：进程内重复 dispatch 会复用已有任务，且相同 identity 携带不同
 spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 reconciliation 仍留待后续持久化/I2 阶段处理。
@@ -336,7 +366,7 @@ PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中�
 
 Familiar 把一次任务分成两段：
 
-- **提交之前**：为结算保存来源 InteractionArtifact，调用模型提取、修订或合并，查重；合并任务另有写回之前的重读与校验，修订写回之前重读基础记忆（第 3.3 节）。这一段除了交互 Artifact 不写任何东西。
+- **提交之前**：为结算保存来源 InteractionArtifact，调用模型提取、修订或合并（结算选馆长时是馆长的整个循环，含它对中期库的读取），查重；合并任务另有写回之前的重读与校验，修订写回之前重读基础记忆（第 3.3 节）。这一段除了交互 Artifact 不写任何东西。
 - **提交**：写版本记录、upsert 中期存储、提升附件；合并任务是写回保留记忆、删除被吸收的记忆。只有本地写入，一般在秒级。
 
 开始提交之前，Familiar 同步调用执行路由 `generation.execute_spec` 的 `on_commit_started`，控制器把它记在任务句柄上。提交这一段以 `join_shielded` 执行，期间收到的取消等写完再传出，因此在提交之前被中止的任务可以从头重跑，不会留下写了一半的记忆。用户取消或 lane 时限恰好落在提交阶段时，任务写完后以取消或超时结束：写入意图报告取消或失败，记忆已经落库；写入本身出错时，错误随取消一起丢弃。
@@ -383,7 +413,7 @@ Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动
 
 这条解耦边界是对旧链路实际问题的回应。旧实现曾把 MTP WRITE/UPDATE 当作话题结算理由，执行 `archive + compact + clear`：连续两次 WRITE 时，第二次只能看到已经被压扁的 summary；每次主动写还会额外触发一次 summary，使原始细节在明确保存意图下反复丢失。当前实现直接使用 topic 最近 context，并以 `WriteFocus`/`UpdateFocus` 驱动 Mode B/C；主动生成与被动归档保持两条正交流，主动写入后的 blocks 仍可在之后进入 Mode A。
 
-这并不保证主动写出的正文与被动归档结果完全不重复。同一话题内复述主动写入的被动草稿由查重丢弃（第 4.2 节）；跨话题或相似度不高于下限的重复是当前可接受的成本，由查重决定新建、只触碰已有记忆，或新建后合并进已有记忆；为了消除重复，不能重新让 Perception 感知 focus 或 pending 状态，否则会把控制意图污染为对话事实。当前每个主动 task 也会独立捕获 `InteractionArtifact`，因此 provenance 可能重复，这是已知的可追踪性成本，而不是重新合并任务输入的理由。
+这并不保证主动写出的正文与被动归档结果完全不重复。一次性生成中，同一话题内复述主动写入的被动草稿由查重丢弃（第 4.2 节）；馆长在写之前查看本话题的写入与库中相关记忆，最后仍有的重叠接受（第 3.1 节）；跨话题或相似度不高于下限的重复是当前可接受的成本，由查重决定新建、只触碰已有记忆，或新建后合并进已有记忆；为了消除重复，不能重新让 Perception 感知 focus 或 pending 状态，否则会把控制意图污染为对话事实。当前每个主动 task 也会独立捕获 `InteractionArtifact`，因此 provenance 可能重复，这是已知的可追踪性成本，而不是重新合并任务输入的理由。
 
 ## 8. 当前限制
 
@@ -395,8 +425,8 @@ Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动
 - 正常关闭时未执行的工作保存到磁盘、下次启动后继续（第 6.2 节），崩溃或强制结束时随进程丢失；typed result 只存在于当前进程，已结束任务的快照在正常关闭时写进任务历史（第 6 节），崩溃时丢失；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照（含读回的历史）与 Queue 使用同一 `terminal_retention` 上限；
 - Controller 的 admission 持有同一把锁串行执行，并发提交的意图按取得锁的顺序入队；
-- 提取、修订与合并的 LLM 调用没有独立超时，只受生成 lane 的时限（默认 300 秒，到期以 `memory_generation_timed_out` 失败）与取消约束；
-- 后台抽取与 chat 共用提供商配额，限流表现为提供商失败：Mode A 与合并任务按任务失败收尾（合并失败时两条记忆都保留），Mode B/C 使用 fallback；当前没有生成侧的并发控制；
+- 提取、修订、合并与馆长的 LLM 调用没有独立超时，只受生成 lane 的时限（默认 300 秒，到期以 `memory_generation_timed_out` 失败）与取消约束；
+- 后台抽取与 chat 共用提供商配额，限流表现为提供商失败：一次性生成、馆长与合并任务按任务失败收尾（合并失败时两条记忆都保留），Mode B/C 使用 fallback；当前没有生成侧的并发控制；
 - Mode A/B 去重仍只取 dense top-1；检索调用链独立携带归属与发起者，Memory store/adapter 先强制 Workspace ownership hard filter，再重验 actor policy；其他去重策略限制仍待收敛；
 - 查重只按 dense top-1 余弦与固定阈值判断，分不开同一工作与同项目的其他记忆：误判的两条无关记忆也会被合并，只能经版本记录与人工编辑纠正；判定信号的证据与后续见[查重决策信号 Todo](../todo/generation-dedup-decision-signal.md)；
 - 同一工作的各阶段不断并入同一条记忆，正文持续变长，摘要越来越难覆盖全部要点；正文过长时合并可能超出模型窗口，任务失败，两条记忆都保留；
@@ -408,6 +438,10 @@ Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动
 - 复述写入但相似度不高于下限的被动草稿照常新建；话题路由错误时（[跨会话话题路由 Todo](../todo/cross-conversation-topic-placement.md)），另一段对话里与这些写入相似的草稿也会被丢弃；被动草稿里比主动写入更细的内容随草稿一起丢弃；
 - 生成材料只截断工具结果，单个轮次没有总量上限，生成也不分片读取：工作视图保留的 blocks 很大时（例如单轮上百次工具调用），结算的提取可能超出模型窗口，任务以 `model_context_window_exceeded` 失败（超窗不重试），原文仍在来源 InteractionArtifact 中但没有记忆引用；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；关闭时在提交之前被中止的结算任务重跑时再保存一份来源 InteractionArtifact，前一份没有记忆引用；
+- 馆长的产出不与库中记忆合并，也不修订已有记忆：一次性生成留下的相近记忆不会被它合并，两种方式产出的记忆在库中混合；模型没有查到或判断为不重叠的重复照常留下；
+- 同一 Workspace 的两次馆长结算可以同时运行（生成 lane 并发 2），彼此看不到对方暂存的记忆；同一次结算暂存的草稿之间也不查重；
+- 馆长只读中期库中的记忆本身：不读其他话题的原始轨迹（经段引用回到原文需要读取交互快照的组件，现在没有）、冷藏库与版本记录；本话题由 UPDATE 修订过的私有记忆不会被列出；
+- 馆长的动作是文本中的 JSON，模型不按协议输出时只能交回错误、消耗步数；它不重试提供商失败，一次结算的多次调用中任一次失败，整次结算失败、暂存的草稿不提交；
 - memory 版本 Artifact 失败会阻断该次内容提交（无历史不成功）；provenance 写入与 MemoryAtom 发布仍不是原子事务，canonical 失败会留下孤立 Artifact。
 
 未来若引入 durable queue，首先要保持私有工作信封 codec、`WorkRecord` 单一状态源和 settlement 语义不变，避免基础设施升级重新把控制面塞回 GenerationEngine。

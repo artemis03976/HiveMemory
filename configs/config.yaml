@@ -115,6 +115,12 @@ patchouli:
     active_recent_blocks: 5
     extractor:
       enabled: true
+    # 话题结算的生成方式：one_shot 一次性生成（更快，写之前看不到本话题的写入与库）；
+    # librarian 馆长先查看本话题的写入与库中相关记忆再写（更慢，模型调用次数是数倍）
+    settle_mode: "one_shot"
+    librarian:
+      max_steps: 12
+      search_top_k: 5
     deduplicator:
       enabled: true
       high_similarity_threshold: 0.95

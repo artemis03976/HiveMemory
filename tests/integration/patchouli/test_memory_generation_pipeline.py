@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
@@ -6,7 +7,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from hivememory.config.patchouli import ArtifactConfig, DeduplicatorConfig
+from hivememory.config.patchouli import ArtifactConfig, DeduplicatorConfig, LibrarianConfig
 from hivememory.core.models import (
     ArtifactType,
     CitedSegment,
@@ -26,12 +27,14 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFoc
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.librarian import Librarian
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationAction,
     GenerationOutcome,
 )
 from hivememory.engines.perception.models import TopicMaterializeTask
+from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
@@ -60,6 +63,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
@@ -687,3 +691,61 @@ async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
         from_actor=scope.actor_identity,
     )
     assert [hit["memory"].payload.content for hit in stored] == ["what the agent wrote"]
+
+
+@pytest.mark.asyncio
+async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_missing(
+    memory_library, artifact_engine
+):
+    """同一话题先写入、后由馆长结算：馆长列出了写入、检索了库，写下的记忆按新建入库，
+    写入的那条保持原样。"""
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+    extractor = AsyncMock()
+    extractor.extract_write.return_value = _draft("agent title", "what the agent wrote")
+    new_fact = _draft("deploy is manual", "deploys are now run by hand")
+    llm = ScriptedLLMService(
+        json.dumps({"tool": "list_topic_writes", "args": {}}),
+        json.dumps({"tool": "search_memories", "args": {"query": "deploy"}}),
+        json.dumps({"tool": "write_memory", "args": new_fact.model_dump(exclude={"has_value"})}),
+        json.dumps({"tool": "finish", "args": {}}),
+    )
+    engine = MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=extractor,
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+        librarian=Librarian(
+            mid_term=memory_library.mid_term,
+            llm_service=llm,
+            llm_params=LLMRequestParams(model="test-model"),
+            config=LibrarianConfig(),
+        ),
+    )
+    _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
+    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
+    scope = _identity_scope()
+
+    admission = await coordinator.submit_active(
+        _write_task("draft_write"), "topic_1", belong_to=scope.workspace_identity
+    )
+    await controller.wait_task(admission.task.task_id)
+    settle_task = await coordinator.submit_settlement(_settlement_task())
+    settled = await controller.wait_task(settle_task.task_id)
+
+    assert settled.status == MemoryGenerationTaskStatus.COMPLETED
+    # 前两条是系统提示词与话题材料，其后每个工具结果跟在模型的动作之后。
+    replies = [json.loads(m["content"]) for m in llm.calls[-1].messages[2:] if m["role"] == "user"]
+    written_alias = replies[0]["result"][0]["alias"]
+    assert written_alias in [hit["alias"] for hit in replies[1]["result"]]
+    stored = await memory_library.mid_term.search(
+        scope.workspace_identity,
+        query="any",
+        top_k=10,
+        mode="dense",
+        from_actor=scope.actor_identity,
+    )
+    assert sorted(hit["memory"].payload.content for hit in stored) == [
+        "deploys are now run by hand",
+        "what the agent wrote",
+    ]

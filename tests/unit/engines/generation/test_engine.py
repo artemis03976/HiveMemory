@@ -9,16 +9,19 @@ MemoryGenerationEngine 单元测试
 - 查重分支: IDENTICAL / SIMILAR / DISTINCT；命中本话题主动写入结算到的记忆时 Mode A 丢弃、
   Mode B 不提名合并
 - 段引用: 标签换算为轮次标识加事件区间，不存在的标签丢弃；退回草稿、追加修订与触碰不带
+- 结算方式: 一次性生成查重；馆长的草稿全部新建、带段引用、同批别名不冲突；提取关闭时都不运行
 - 纯计算边界: 引擎不改 version/updated_at/decay anchor/confidence，CREATE 用传入 now 打戳；
   多轮修订的 before 快照互不污染
 """
 
+import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
 
+from hivememory.config.patchouli import ExtractorConfig, MemoryGenerationConfig
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import (
     ActorIdentity,
@@ -36,7 +39,10 @@ from hivememory.core.models import (
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType
 from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH
 from hivememory.core.models.provenance import MemoryProvenance
+from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.extractor import create_extractor
+from hivememory.engines.generation.librarian import create_librarian
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
@@ -52,6 +58,8 @@ from hivememory.engines.generation.models import (
 from hivememory.engines.generation.models import (
     GenerationRequest as GenerationRequestModel,
 )
+from hivememory.infrastructure.llm.base import LLMRequestParams
+from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 GenerationRequest = GenerationRequestModel
@@ -1132,6 +1140,120 @@ class TestCitedSegments:
         [outcome] = await self._process(request)
 
         assert (outcome.action, outcome.cited_segments) == (GenerationAction.UPDATE, expected)
+
+
+def _librarian_writes(*drafts: ExtractedMemoryDraft) -> ScriptedLLMService:
+    """馆长依次写下每条草稿后结束。"""
+    actions = [
+        {"tool": "write_memory", "args": draft.model_dump(exclude={"has_value"})}
+        for draft in drafts
+    ]
+    return ScriptedLLMService(
+        *(json.dumps(action, ensure_ascii=False) for action in actions),
+        json.dumps({"tool": "finish", "args": {}}),
+    )
+
+
+class TestGenerationEngineSettleMode:
+    """话题结算按配置的方式分派：一次性生成查重，馆长写下的草稿全部新建。"""
+
+    def setup_method(self):
+        self.identity = make_memory_identity_scope()
+        self.existing = _make_memory(title="部署改为手动", alias="fact_manual_deploy")
+        self.mock_storage = Mock()
+        self.mock_storage.search = AsyncMock(
+            return_value=[{"memory": self.existing, "score": 0.99}]
+        )
+        self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
+        # 与已有记忆内容相同的草稿：一次性生成的查重判为 IDENTICAL。
+        self.same_draft = _make_draft(title="部署改为手动").model_copy(
+            update={"content": "旧内容", "source_segments": ["1.1"]}
+        )
+        self.mock_extractor = AsyncMock()
+        self.mock_extractor.extract.return_value = [self.same_draft]
+
+    def _engine(self, config: MemoryGenerationConfig, llm, extractor=None):
+        return MemoryGenerationEngine(
+            mid_term=self.mock_storage,
+            extractor=extractor or self.mock_extractor,
+            deduplicator=MemoryDeduplicator(config.deduplicator),
+            librarian=create_librarian(
+                config,
+                mid_term=self.mock_storage,
+                llm_service=llm,
+                llm_params=LLMRequestParams(model="test-model"),
+            ),
+        )
+
+    async def _settle(self, engine: MemoryGenerationEngine):
+        return await engine.process(
+            GenerationRequest(context=_segmented_context()),
+            belong_to=self.identity.workspace_identity,
+            from_actor=self.identity.actor_identity,
+            now=FIXED_NOW,
+        )
+
+    @pytest.mark.parametrize(
+        ("settle_mode", "expected_action", "is_existing"),
+        [("one_shot", GenerationAction.TOUCH, True), ("librarian", GenerationAction.CREATE, False)],
+    )
+    @pytest.mark.asyncio
+    async def test_only_one_shot_settlement_dedups_against_the_library(
+        self, settle_mode, expected_action, is_existing
+    ):
+        """库中有内容相同的记忆：一次性生成只触碰它；馆长写下的草稿照常新建，不提名合并。"""
+        config = MemoryGenerationConfig(settle_mode=settle_mode)
+        engine = self._engine(config, _librarian_writes(self.same_draft))
+
+        [outcome] = await self._settle(engine)
+
+        assert (outcome.action, outcome.merge_target_id, outcome.atom.id == self.existing.id) == (
+            expected_action,
+            None,
+            is_existing,
+        )
+
+    @pytest.mark.asyncio
+    async def test_librarian_drafts_cite_segments_of_the_material(self):
+        """馆长草稿引用的段换算为事件区间，材料中不存在的标签丢弃。"""
+        draft = self.same_draft.model_copy(update={"source_segments": ["2.2", "9.1"]})
+        engine = self._engine(
+            MemoryGenerationConfig(settle_mode="librarian"), _librarian_writes(draft)
+        )
+
+        [outcome] = await self._settle(engine)
+
+        assert outcome.cited_segments == [
+            CitedSegment(turn_id="turn-b", first_sequence=3, last_sequence=7)
+        ]
+
+    @pytest.mark.asyncio
+    async def test_librarian_drafts_of_one_settlement_get_distinct_aliases(self):
+        """同一次结算的草稿尚未落库，后一条把前一条已分配的别名视为占用。"""
+        first = _make_draft(title="第一条", alias_suffix="deploy_rule")
+        second = _make_draft(title="第二条", alias_suffix="deploy_rule")
+        engine = self._engine(
+            MemoryGenerationConfig(settle_mode="librarian"), _librarian_writes(first, second)
+        )
+
+        outcomes = await self._settle(engine)
+
+        assert [outcome.atom.index.alias for outcome in outcomes] == [
+            "fact_deploy_rule",
+            "fact_deploy_rule_2",
+        ]
+
+    @pytest.mark.parametrize("settle_mode", ["one_shot", "librarian"])
+    @pytest.mark.asyncio
+    async def test_disabled_extraction_runs_neither_settle_mode(self, settle_mode):
+        """extractor.enabled 是两种方式共同的开关：关闭时结算不产生记忆。"""
+        config = MemoryGenerationConfig(
+            settle_mode=settle_mode, extractor=ExtractorConfig(enabled=False)
+        )
+        llm = _librarian_writes(self.same_draft)
+        extractor = create_extractor(config.extractor, llm, LLMRequestParams(model="test-model"))
+
+        assert await self._settle(self._engine(config, llm, extractor)) == []
 
 
 class TestGenerationEngineHelpers:

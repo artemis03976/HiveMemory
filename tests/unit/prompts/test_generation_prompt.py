@@ -44,7 +44,7 @@ def test_generation_prompt_getter_supports_language_alias():
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
-@pytest.mark.parametrize("mode", ["passive", "write", "update"])
+@pytest.mark.parametrize("mode", ["passive", "write", "update", "librarian"])
 def test_generation_prompts_explain_process_entries_and_forbid_credentials(mode, language):
     """转写中助手正文与过程条目按顺序穿插，提示词必须说明这一格式、各条目的含义与凭据约束。"""
     prompt = get_generation_prompt_text(mode, "system_prompt", language)
@@ -58,9 +58,9 @@ def test_generation_prompts_explain_process_entries_and_forbid_credentials(mode,
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
-@pytest.mark.parametrize("mode", ["passive", "write", "update"])
+@pytest.mark.parametrize("mode", ["passive", "write", "update", "librarian"])
 def test_generation_prompts_explain_segment_labels_and_citations(mode, language):
-    """材料在每段之前印出段标签，三类提示词都说明标签的写法与引用字段。"""
+    """材料在每段之前印出段标签，生成材料的各类提示词都说明标签的写法与引用字段。"""
     prompt = get_generation_prompt_text(mode, "system_prompt", language)
 
     assert "[Segment 2.3]" in prompt
@@ -75,3 +75,28 @@ def test_update_prompt_handwritten_format_includes_citations(language):
 
     assert '"source_segments": ["2.3"]' in system
     assert '"source_segments": [...]' in user
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_librarian_prompt_orders_the_three_steps_and_gives_the_action_format(language):
+    """工作顺序依次是列出本话题的写入、检索库、写入、结束；动作是单个 JSON 对象，
+    步数与检索条数的上限随配置印出。"""
+    prompt = get_generation_prompt_text("librarian", "system_prompt", language).format(
+        max_steps=7, search_top_k=3
+    )
+    heading = {"zh": "## 工作顺序", "en": "## Order of Work"}[language]
+    start = prompt.index(heading)
+    order = prompt[start : prompt.index("##", start + len(heading))]
+    budget = {
+        "zh": ["最多有 7 步", "最多 3 条"],
+        "en": ["at most 7 steps", "at most 3 memories"],
+    }[language]
+
+    assert (
+        order.index("list_topic_writes")
+        < order.index("search_memories")
+        < order.index("write_memory")
+        < order.index("finish")
+    )
+    assert '{"tool": "' in prompt
+    assert [text for text in budget if text not in prompt] == []

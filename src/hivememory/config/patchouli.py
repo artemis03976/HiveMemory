@@ -97,9 +97,26 @@ class GenerationTranscriptConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class LibrarianConfig(BaseModel):
+    """话题结算选馆长时的预算；一次性生成不使用。"""
+
+    max_steps: int = Field(
+        default=12,
+        ge=1,
+        description="一次结算中模型最多输出几个动作；用完时照常提交已暂存的记忆",
+    )
+    search_top_k: int = Field(default=5, ge=1, description="馆长每次检索最多返回的记忆条数")
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class MemoryGenerationConfig(BaseModel):
     extractor: ExtractorConfig = Field(default_factory=ExtractorConfig)
     deduplicator: DeduplicatorConfig = Field(default_factory=DeduplicatorConfig)
+    # 话题结算的生成方式：一次性生成更快，但写之前看不到本话题的写入与库；
+    # 馆长先查看两者再写，模型调用次数是一次性生成的数倍。
+    settle_mode: Literal["one_shot", "librarian"] = Field(default="one_shot")
+    librarian: LibrarianConfig = Field(default_factory=LibrarianConfig)
     transcript: GenerationTranscriptConfig = Field(default_factory=GenerationTranscriptConfig)
     queue_capacity: int = Field(default=128, ge=1)
     queue_max_concurrency: int = Field(default=2, ge=1)
