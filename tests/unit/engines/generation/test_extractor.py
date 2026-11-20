@@ -10,6 +10,7 @@
 
 import asyncio
 import json
+import re
 from datetime import UTC, datetime
 
 import pytest
@@ -41,6 +42,8 @@ _DRAFT_JSON = json.dumps(_DRAFT)
 _EXTRACTION_JSON = json.dumps(
     {"memories": [_DRAFT, {**_DRAFT, "title": "Second", "content": "Other content"}]}
 )
+# CJK 标点、汉字与全角字符；英文提示词中出现任何一个，模型都可能跟着用中文写记忆。
+_CJK = re.compile(r"[　-〿一-鿿＀-￯]")
 
 
 @pytest.fixture(autouse=True)
@@ -73,7 +76,7 @@ class TestLLMMemoryExtractorPrompts:
 
     @pytest.mark.asyncio
     async def test_language_selects_english_passive_prompts(self):
-        """测试全局语言驱动被动提取模板"""
+        """全局语言为英文时，被动提取的提示词全程英文，输出格式的 Schema 说明也是英文。"""
         set_language("en")
         llm = ScriptedLLMService(_EXTRACTION_JSON)
 
@@ -82,10 +85,11 @@ class TestLLMMemoryExtractorPrompts:
         messages = llm.calls[-1].messages
         assert "memory manager" in messages[0]["content"]
         assert "Conversation" in messages[1]["content"]
+        assert _CJK.findall("".join(message["content"] for message in messages)) == []
 
     @pytest.mark.asyncio
     async def test_language_selects_english_write_prompts(self):
-        """测试全局语言驱动 WRITE 模板；没有标题时标题一栏写"未提供"。"""
+        """全局语言为英文时，WRITE 的提示词全程英文；没有标题时标题一栏写"未提供"。"""
         set_language("en")
         llm = ScriptedLLMService(_DRAFT_JSON)
 
@@ -97,6 +101,7 @@ class TestLLMMemoryExtractorPrompts:
         assert "Active Response Mode" in messages[0]["content"]
         assert "Agent-submitted Memory Draft" in messages[1]["content"]
         assert "**Agent-proposed Title**:\n(Not provided)" in messages[1]["content"]
+        assert _CJK.findall("".join(message["content"] for message in messages)) == []
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
