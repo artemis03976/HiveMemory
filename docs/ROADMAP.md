@@ -72,10 +72,10 @@ last_reviewed: 2026-11-20
 
 当前事实见[记忆生成](./patchouli/generation.md)、[MemoryLibrary 与存储层](./patchouli/memory-library.md)，计划见 [Archived Plans](./archive/plans/README.md#v080)。复核的固定流程在分支上实现后不合并。本地提示词工作台（#232）用于在导出的结算材料上对照馆长与一次性生成的提示词，不进入产品。
 
-### 3.3 待定的方向与验收
+### 3.3 进行中的方向与验收
 
-- 下一个方向待定；各设计领域的开放问题见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.1 节。
-- 试验场是 v0.8 评测的承载，试验场的第一版因此成为 v0.8 的一项工作（[孵化场、试验场与垃圾回收场](./ideas/experiment-field.md)第 6 节）；首个评测切片与原始时间的带入见[评测集](./ideas/memory-evaluation-benchmarks.md)第 6 节。
+- 试验场第一版：试验场是 v0.8 评测的承载（[孵化场、试验场与垃圾回收场](./ideas/experiment-field.md)第 6 节），首个评测切片是 HaluMem 的抽取与更新（[评测集](./ideas/memory-evaluation-benchmarks.md)第 6 节）；计划见[试验场第一版](./plans/v0.8.0-experiment-field-halumem.md)，在 HaluMem 上评测一次性生成与馆长。
+- 其余方向待定；各设计领域的开放问题见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.1 节。
 - 验收：单轮不交记忆税，长程看演化质量与人工介入（[v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.2 节）。
 
 ## 4. 版本之外的工作与候选方向
