@@ -1096,6 +1096,43 @@ Start with the order of work and output your first action.
     },
 }
 
+# 话题提取与 WRITE 的输出格式是输出模型的 JSON Schema，Schema 的说明文字来自模型的类 docstring
+# 与字段 description，原文是中文。英文提示词按下表逐项换成译文：键是模型名，或“模型名.字段名”。
+_GENERATION_SCHEMA_DESCRIPTION_EN = {
+    "ExtractionResult": (
+        "Extraction output of topic settlement: independent memory drafts from one topic, "
+        "each worth keeping on its own."
+    ),
+    "ExtractionResult.memories": "List of memory drafts; empty when nothing is worth keeping",
+    "ExtractedMemoryDraft": (
+        "Extracted memory draft - LLM output format\n"
+        "\n"
+        "Attributes:\n"
+        "    title: A concise, clear title (at most 100 characters)\n"
+        "    summary: A one-sentence summary (at most 200 characters)\n"
+        "    tags: 3-5 semantic tags\n"
+        "    memory_type: Memory type (FACT/RESOURCE/...)\n"
+        "    content: Cleaned Markdown content\n"
+        "    confidence_score: Confidence (0.0-1.0)\n"
+        "    has_value: Whether it has long-term value"
+    ),
+    "ExtractedMemoryDraft.title": "A concise, clear title (at most 100 characters)",
+    "ExtractedMemoryDraft.summary": "A one-sentence summary (at most 200 characters)",
+    "ExtractedMemoryDraft.tags": "3-5 semantic tags",
+    "ExtractedMemoryDraft.memory_type": "Memory type: FACT/REFLECTION/USER_PROFILE/RESOURCE",
+    "ExtractedMemoryDraft.content": "Cleaned Markdown content",
+    "ExtractedMemoryDraft.confidence_score": "Confidence (0.0-1.0)",
+    "ExtractedMemoryDraft.has_value": "Whether it has long-term value (true/false)",
+    "ExtractedMemoryDraft.alias_suffix": (
+        "Alias suffix (action/subject, snake_case, without a type prefix). "
+        "For example: 'quicksort_impl', 'project_env'"
+    ),
+    "ExtractedMemoryDraft.source_segments": (
+        "Labels of the segments that support this memory, copying x.y from [Segment x.y] "
+        'in the material, such as ["2.3"]; an empty list when there is no segment to cite'
+    ),
+}
+
 
 def get_system_prompt_text(key: str, language: str | Language | None = None) -> str:
     """返回指定语言的系统提示词文案片段。"""
@@ -1148,6 +1185,20 @@ def get_generation_prompt_text(
     resolved = resolve_language(explicit=language)
     texts = _GENERATION_PROMPT_TEXT_EN if resolved == Language.EN else _GENERATION_PROMPT_TEXT_ZH
     return texts[mode][key]
+
+
+def get_generation_schema_description(
+    key: str,
+    chinese: str,
+    language: str | Language | None = None,
+) -> str:
+    """返回生成输出模型 JSON Schema 中一项说明文字的指定语言版本。
+
+    中文就是模型上的原文 ``chinese``；英文按 ``key`` 取译文，缺少译文时抛出 KeyError，
+    不把中文原文留在英文提示词里。
+    """
+    resolved = resolve_language(explicit=language)
+    return _GENERATION_SCHEMA_DESCRIPTION_EN[key] if resolved == Language.EN else chinese
 
 
 __all__ = [
