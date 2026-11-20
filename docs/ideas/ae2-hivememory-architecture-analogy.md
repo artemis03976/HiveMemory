@@ -18,7 +18,7 @@ related_documents:
   - docs/workspace/README.md
   - docs/patchouli/memory-library.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-20
 ---
 
 # AE2 与 HiveMemory 的架构同构性
@@ -77,7 +77,7 @@ AE2 子网不只是“另一个网络”。它可以拥有自己的存储、设�
 
 ## 3. HiveMemory 的精确映射
 
-执行一侧的对应关系以[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的用语为准（owner，2026-10-06，2026-10-20 修订）；下表是此前的映射，没有逐行改写。
+执行一侧的对应关系以[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的用语为准；下表执行一侧的条目沿用较早的说法，与该节不一致时以该节为准。
 
 | AE2 概念 | HiveMemory 中更精确的对应物 | 当前状态 | 需要保留的限定 |
 |:---|:---|:---|:---|
@@ -87,7 +87,7 @@ AE2 子网不只是“另一个网络”。它可以拥有自己的存储、设�
 | 合成请求来源 | 用户请求、Gateway Decision、System Application Service | 已有基础 | Gateway 形成入口决策，但不执行记忆或 Agent 逻辑 |
 | Pattern | Tool Schema、Capability Contract、Workflow/Recipe Memory | 部分成立 | 当前没有正式的通用 Workflow Memory 类型 |
 | Pattern Provider | Koakuma MTP 分发、公开 Route、能力解析器 | 部分成立 | MTP 是承载协议，不等于所有 Pattern 的完整定义 |
-| Molecular Assembler / 外部机器 | Syscall、代码执行器、外部工具、子 Agent | 部分成立 | `RUN` 仍不是强安全沙箱 |
+| Molecular Assembler / 外部机器 | Syscall、代码执行器、外部工具、子 Agent | 部分成立 | `RUN` 的用户工具路径已关闭，只剩 `sys_*` 系统工具；执行仍不是强安全沙箱 |
 | Crafting CPU | Alice Orchestrator、`ExecutionFrame`、运行时状态 | 部分成立 | 当前没有完整 DAG、并行 specialist、持久化 Job Queue |
 | CPU 中间材料 | `ExecutionProgress`、PendingAtom、materialize task | 已有基础 | 许多状态仍是进程内的，重启后不能恢复 |
 | ME Controller / Network | `GlobalSystemBus`、公共 Route/Contract、System 组合根 | 已有基础 | 当前是单进程异步总线，不承诺分布式投递 |
@@ -107,11 +107,7 @@ Patchouli 当前已经拥有短期话题工作台、中期 Qdrant 事实库、�
 
 一条原始证据、用户偏好或历史事实不是工作流。只有具备明确输入、输出、前置条件、执行方式和完成判据的资产，才真正像 AE2 Pattern。
 
-当前 `MemoryType` 包括 `FACT`、`CODE_SNIPPET`、`REFLECTION`、`USER_PROFILE`、`WORK_IN_PROGRESS` 和 `AGENT_PROFILE`，但还没有正式的 `WORKFLOW` 或 `CAPABILITY_RECIPE` 类型，详见 [`core/models/memory.py`](../../src/hivememory/core/models/memory.py)。现阶段最接近 Pattern 的是：
-
-- `CODE_SNIPPET`：可以由 MTP `RUN` 执行；
-- `AGENT_PROFILE`：可以被发现、解析并通过 `CALL` 实例化为子 Agent；
-- 某些 `WORK_IN_PROGRESS`：可以承载任务状态，但还不是完整的工作流定义。
+当前在用的 `MemoryType` 是 `FACT`、`REFLECTION`、`USER_PROFILE` 与 `RESOURCE`，`WORK_IN_PROGRESS`、`CODE_SNIPPET`、`URL_RESOURCE` 与 `AGENT_PROFILE` 只作为历史取值留在枚举中，还没有正式的 `WORKFLOW` 或 `CAPABILITY_RECIPE` 类型，详见 [`core/models/memory.py`](../../src/hivememory/core/models/memory.py)。现阶段最接近 Pattern 的是 Agent Profile：它不在中期库中，是 AgentProfileStore 中的文件，可用 agent 的列表常驻提示词，通过 `CALL` 实例化为子 Agent（[MemoryLibrary](../patchouli/memory-library.md#15-agent-profile人偶图纸)第 1.5 节）。可执行的记忆现在没有：MTP `RUN` 的用户工具路径已关闭，可运行作为一条独立的轴另行设计（[类型体系](./memory-type-system.md)第 6.2 节）。
 
 因此，更准确的未来分层应是：
 
@@ -453,7 +449,7 @@ AE2 可以统一搬运多种材料，但输入、配方、存储和机器仍然�
 - Patchouli 拥有长期记忆、检索、生成、生命周期和 MemoryCompiler；
 - Alice 拥有 Agent run、Frame、MTP Runtime、PendingAtom 运行时视图和有限 CALL 编排；
 - MTP 提供 `SEARCH / READ / RUN / WRITE / UPDATE / CALL` 六类主动能力；
-- `WRITE / UPDATE` 通过 PendingAtom 延迟物化；
+- `WRITE / UPDATE` 由 workspace 登记为写入意图，经 Patchouli 的生成链物化；外部 harness 经 MCP 的写入与更新走同一条链（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）；
 - `ExecutionFrame` 保存可恢复的单帧运行状态；
 - WorkspaceIdentity、复合资源键和 IdentityScope 传播已经形成初步的“ME 网络”资源边界；
 - Memory v2 的 `PUBLIC / PRIVATE / TEAM` actor read policy 在 Workspace ownership hard
@@ -497,7 +493,7 @@ AE2 可以统一搬运多种材料，但输入、配方、存储和机器仍然�
 
 ## 9. 开放问题
 
-1. `team_id` 是否应演化为显式 `workspace_id`，还是 Workspace 与 Team 需要分开建模？已实施为分开建模：资源归属由 `WorkspaceIdentity`（含 `workspace_id`）表达，`team_id` 只是 `ActorIdentity` 的可选字段与 TEAM 读取策略的目标，见[身份与授权](../workspace/identity-and-authorization.md#1-身份坐标)。
+1. Workspace 与 Team 的关系已经回答：两者分开建模，资源归属由 `WorkspaceIdentity`（含 `workspace_id`）表达，`team_id` 只是 `ActorIdentity` 的可选字段与 TEAM 读取策略的目标，见[身份与授权](../workspace/identity-and-authorization.md#1-身份坐标)。
 2. Workspace 之间应采用严格树状父子关系，还是允许经过权限检查的有向 Mount 图？
 3. Memory alias 在不同 Workspace 中是局部命名，还是允许带 namespace 的全局引用？当前 alias 在同一 Workspace 内唯一（[MemoryLibrary](../patchouli/memory-library.md)第 1.2 节）；跨 Workspace 引用的限定形式见[身份与访问体系 Idea](./identity-and-access-model.md#t-5b-跨-workspace-目标的表达形式) T-5b。
 4. Workspace 的工具环境、模型策略和文件根目录是否需要可持久化并可恢复？
@@ -505,7 +501,7 @@ AE2 可以统一搬运多种材料，但输入、配方、存储和机器仍然�
 6. `EXECUTE` 能力的来源、信任级别、审批和资源限制由谁维护？
 7. 跨 Workspace 的写入是否允许直接修改目标资产，还是必须通过 proposal/review/settlement？
 8. 多 Agent 并发时，资源配额如何传播到子帧、后台任务和重试？权限作用域的传播已实施：CALL 子线程以被调用方身份按其白名单运行，后台任务与重试从载荷恢复资源归属与发起者，见[执行线程](../workspace/execution-threads.md#63-子线程以被调用方身份运行)与[身份与授权](../workspace/identity-and-authorization.md#62-后台任务和重试)；进程能否持有白名单的子集见[身份与访问体系 Idea](./identity-and-access-model.md#p-4a-进程能否持有白名单的子集) P-4a。
-9. Harness-to-Harness 委派的共同最小契约应由 MTP 扩展、MCP、进程协议还是独立 Capability API 承载？外部 harness 访问 HiveMemory 的一侧已决定：多种传输各由操作适配器归一到同一能力层，支持 MCP 的 harness 以 MCP 访问记忆（owner，2026-10-29，[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-2-运行时访问的传输承载) E-2 选项 C）；HiveMemory 驱动外部 harness 的方式见同节 E-2a。
+9. Harness-to-Harness 委派的共同最小契约应由 MTP 扩展、MCP、进程协议还是独立 Capability API 承载？外部 harness 访问 HiveMemory 的一侧已决定：多种传输各由操作适配器归一到同一能力层，支持 MCP 的 harness 以 MCP 访问记忆（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-2-运行时访问的传输承载) E-2 选项 C）；HiveMemory 驱动外部 harness 的方式见同节 E-2a。
 10. 主网如何验证子网“完成了任务”，而不把自然语言声明当成成功证明？
 11. 软件子网是否需要统一 Manifest，还是只要求符合公共 Capability Contract？
 12. 应用级 Workspace Memory 与全局用户 Memory 如何分层、挂载和撤销？

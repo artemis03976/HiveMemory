@@ -18,14 +18,14 @@ related_docs:
   - docs/research/agent-context-compaction-research.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-11-16
+last_reviewed: 2026-11-20
 ---
 
 # 短期记忆与上下文压缩
 
 Alice compact 管理 Agent 继续执行所需的工作记忆；Patchouli page folding 管理话题理解与记忆生成所需的工作集。两者基于交互事实产生各自的有界视图，可以共享预算与摘要机制，但分别维护摘要、覆盖边界和生命周期。完整原始资料的保存由[全链路 Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md)维护。
 
-Alice 自动压缩已于 2026-10-17 完成，当前事实见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)，实施与校准记录见[归档计划](../archive/plans/v0.7.0-alice-session-compaction.md)。本文剩余的 Topic folding 优化、质量评估与共享机制属于未排期候选，不因此成为已实现能力；原始资料链与长 Turn 分属各自专项。
+正文是已定的设计，候选设计标“候选”。Alice 的会话自动压缩已经实现，当前事实见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)；本文剩余的 Topic folding 优化、质量评估与共享机制是候选，原始资料链与长 Turn 分属各自专项。
 
 ## 1. 两种短期记忆的意义
 
@@ -48,40 +48,36 @@ Topic 也不等于“尚未写入 Memory 的队列”：主动 WRITE 可能已�
 
 ## 2. 已确认的方向与范围
 
-| 来源 | 已确认的方向 |
-|:---|:---|
-| owner，2026-09-28 | 会话提供完整、原样积累的对话历史；CPU 自行压缩派生上下文，Session 记录保持原样。Topic 独立组织记忆生成资料，不承担前台会话上下文控制 |
-| owner，2026-09-28 | 保留新建、恢复与会话内 compact；不设“新会话接续旧会话”的交接摘要。把旧会话完整历史带入新会话等同恢复；Topic 的 title、展示 summary 与 state_summary 均不作为会话交接摘要 |
-| owner，2026-10-01 | 用户 `/compact` 对外部 Actor 触发其 harness 的压缩，对 Alice 使用 Alice 自己的实现；后台 Topic page folding 独立运行 |
-| owner，2026-10-15 | Alice 会话压缩从约 v0.7.1 提前到 v0.7.0，在已完成的会话迁移之后单独形成计划；结果属于会话与执行环境，不属于 Agent |
-| owner，2026-10-13 | 对话未来以更原子的结构流式同步到 Patchouli，生成材料包含之前的交互与当前轮已接收消息；输入/封口专项见[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md) |
-| owner，2026-10-16 | 原始资料沿 ConversationSession → Topic 完整资料 → 生成来源 Artifact 保全；原始会话持久化另行计划，具体来源与保留语义见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md) |
-| owner，2026-10-16 | 工具结果减重与轮内预算守卫随 Alice 会话压缩一起实现；v0.7.0 的目标随之调整，实现记录见第 5 节 |
-| owner，2026-10-16 | 压缩检查点存入会话资源（AC-1）；首个计划只做自动压缩，`/compact` 随命令系统接回实施（AC-2），见第 8 节 |
+- 会话提供完整、原样积累的对话历史；CPU 自行压缩派生上下文，Session 记录保持原样。Topic 独立组织记忆生成资料，不承担前台会话上下文的控制。
+- 保留新建、恢复与会话内 compact，不设“新会话接续旧会话”的交接摘要：把旧会话完整历史带入新会话等同恢复；Topic 的 title、展示 summary 与 state_summary 都不作为会话交接摘要。
+- 用户 `/compact` 对外部 Actor 触发其 harness 的压缩，对 Alice 使用 Alice 自己的实现；后台 Topic page folding 独立运行。
+- 会话压缩的结果属于会话与执行环境，不属于 Agent；压缩检查点存入会话资源（AC-1，第 8 节）。
+- 对话不必流式同步到 Patchouli：时间线保留为顺序与身份的骨架，流式降级为按需追平（[v0.8 写入链路 Idea](./memory-flow-write-path.md)第 2.3 节）；未结束 turn 的输入与封口见[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)。
+- 原始资料沿 ConversationSession → Topic 完整资料 → 生成来源 Artifact 保全；原始会话的持久化另行计划，来源与保留语义见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)。
 
-会话和 Topic 的关联、外部输入与路由交接继续由[外部会话 Idea](./external-session-and-topic-projection.md)维护；本文不建立第二套交互提交协议。
+会话和 Topic 的关联、外部输入与路由交接由[外部会话 Idea](./external-session-and-topic-projection.md)维护；本文不建立第二套交互提交协议。
 
 ## 3. 当前基础与缺口
 
-Alice 基线于 2026-10-17 更新；Patchouli 缺口沿用 2026-10-16 的核对，作为剩余候选设计的起点。
+以代码为准。
 
 ### 3.1 Alice
 
-工具结果减重、增量接力摘要、会话检查点、逐帧输入守卫与失败原因已落地，原文保持完整；职责、接受与取消规则分别由 [Agent Runtime](../alice/agent-runtime.md)、[会话资源](../workspace/sessions.md)和[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)维护。固定样本与 HTTP 链路使用提供商替身，真实 LLM 的摘要事实保留、继续执行质量和成本仍待评估。
+工具结果减重、增量接力摘要、会话检查点、逐帧输入守卫与失败原因已经实现，原文保持完整；职责、接受与取消规则分别由 [Agent Runtime](../alice/agent-runtime.md)、[会话资源](../workspace/sessions.md)和[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)维护。固定样本与 HTTP 链路使用提供商替身，真实 LLM 下摘要的事实保留、继续执行的质量和成本还没有评估。
 
-命令当前只解析不执行，没有 `/compact` 入口；后续手动触发由[命令 Todo](../todo/conversation-compact-command.md)承接，轮内压缩由[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)承接。
+命令只解析不执行，没有 `/compact` 入口；手动触发由[命令 Todo](../todo/conversation-compact-command.md)跟踪，轮内压缩由[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)跟踪。
 
 ### 3.2 Patchouli
 
-- page folding 按 token 软水位触发，再按固定 block 数保留后缀；blocks 不足时无法继续折叠，单个超大 block 也不能据此得到严格预算保证。[感知引擎](../../src/hivememory/engines/perception/memory_perception_engine.py)
-- 写回 `total_tokens` 只累计保留 blocks，不包含 `state_summary`。代码默认的 SimpleRelay 追加旧摘要与本批统计，没有摘要自身的有界重写；仓库随附的 `configs/config.yaml` 选用 LLMRelay。[折叠写回](../../src/hivememory/patchouli/services/perception.py)、[Relay](../../src/hivememory/engines/perception/relay_controller.py)、[默认配置](../../src/hivememory/config/patchouli.py)
-- SimpleRelay 主要记录请求数、工具名、token 数与最近问题片段；LLMRelay 在缺少模型、提供商失败或摘要超时时回退为规则摘要，自 2026-10-27 起接在 previous summary 之后。现有字符串返回也未完整表达空、截断或拒绝等摘要终态。[Relay 实现](../../src/hivememory/engines/perception/relay_controller.py)
-- Generation 视图按出现顺序保留用户消息、助手正文、思考与子 Agent 消息；外部工具保留调用参数与结果，单条结果按 `max_result_chars`（默认 800 字符）保留首尾截断；SEARCH、READ、RUN 只有一行摘要，不渲染取回的记忆；WRITE、UPDATE、CALL 不进入材料。截断只依长度，仍需区分可去掉的日志和决定事实含义的关键证据。[材料渲染](../../src/hivememory/engines/perception/material.py)、[生成投影](../../src/hivememory/prompts/transcript/generation.py)、[Patchouli 生成](../patchouli/generation.md)
-- 折叠不再丢弃原文：被折叠的块留在 Topic 的交互记录中，结算时冻结进来源 InteractionArtifact，v0.7.2 已实施（见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)第 0 节 / [感知与短期话题](../patchouli/perception.md)）。剩下的交到 Topic 之前的原文交接与保存承诺归 Raw Evidence，不由摘要算法解决。
+- page folding 在工作视图的 token 之和超过 `fold_token_threshold` 时触发，保留最近 `fold_retain_recent_blocks` 个 block、折叠其余部分；保留数至少为 1，blocks 不足时无法继续折叠，单个超大 block 也不能据此得到严格的预算保证（[感知引擎](../../src/hivememory/engines/perception/memory_perception_engine.py)）。
+- 话题的 `total_tokens` 由工作视图派生，只是保留 blocks 的估算之和，不包含 `state_summary`（[话题模型](../../src/hivememory/core/models/topic.py)）。
+- 摘要有两种：代码默认的 SimpleRelay 把旧摘要与本批的统计拼接在一起，摘要自身没有有界重写；仓库随附的 `configs/config.yaml` 选用 LLMRelay，由模型参照旧摘要写出新摘要，缺少模型、提供商失败或超时的时候回退为规则摘要，接在旧摘要之后。SimpleRelay 主要记录请求数、工具名、token 数与最近问题片段；两者都以字符串返回，没有表达空、截断或拒绝等摘要终态（[Relay](../../src/hivememory/engines/perception/relay_controller.py)、[默认配置](../../src/hivememory/config/patchouli.py)）。
+- Generation 视图按出现顺序保留用户消息、助手正文、思考与子 Agent 消息；外部工具保留调用参数与结果，单条结果按 `max_result_chars`（默认 800 字符）保留首尾截断；SEARCH、READ、RUN 只有一行摘要，不渲染取回的记忆；WRITE、UPDATE、CALL 不进入材料。截断只依长度，还分不开可以去掉的日志和决定事实含义的关键证据（[材料渲染](../../src/hivememory/engines/perception/material.py)、[生成投影](../../src/hivememory/prompts/transcript/generation.py)、[Patchouli 生成](../patchouli/generation.md)）。
+- 折叠不丢弃原文：被折叠的块留在 Topic 的交互记录中，结算时冻结进来源 InteractionArtifact（[感知与短期话题](../patchouli/perception.md)）。交到 Topic 之前的原文交接与保存承诺归 Raw Evidence，不由摘要算法解决。
 
-## 4. 两边的关系与不变量
+## 4. 两边的关系与不变量（候选）
 
-建议关系如下。图中从 Topic 完整资料到生成来源 Artifact 的部分已于 v0.7.2 实施，Session 到 Topic 的交接仍是目标方向；持久化不属于本文范围。
+图中从 Topic 完整资料到生成来源 Artifact 的部分已经实现（[感知与短期话题](../patchouli/perception.md)），Session 到 Topic 的交接是候选方向；持久化不属于本文范围。
 
 ```mermaid
 flowchart LR
@@ -105,11 +101,11 @@ flowchart LR
 
 ## 5. Alice 会话 compact 的已完成范围
 
-原候选算法与实施决定已移交[归档计划](../archive/plans/v0.7.0-alice-session-compaction.md)，最终算法以 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)为准，本节不维护第二份设计。此次完成自动压缩与轮内守卫；Provider 原生压缩、辅助摘要模型、精确计数、后台压缩和会话持久化没有随之实现。
+已经实现自动压缩与轮内守卫，算法以 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)为准，本节不维护第二份设计。Provider 原生压缩、辅助摘要模型、精确计数、后台压缩和会话持久化没有实现。
 
 ## 6. Patchouli Topic page folding 优化
 
-本节为未排期的候选优化，不与第 5 节绑定同一交付范围。Topic 的完整资料集合由 Raw Evidence 定义，page folding 只生成供各消费者处理的有界视图。
+本节是未排期的候选优化，与第 5 节不绑定同一交付范围。Topic 的完整资料集合由 Raw Evidence 定义，page folding 只生成供各消费者处理的有界视图。
 
 | 议题 | 候选优化与需要验证的边界 |
 |:---|:---|
@@ -118,11 +114,11 @@ flowchart LR
 | 摘要目标 | 保留事实、来源、时间、否定与纠正、结果和可复用经验；更新仍有效的旧事实，清除过时结论，摘要自身保持有界。不要只用请求数/工具名统计代替语义材料 |
 | 工具证据 | 从实际工具结果选择关键返回值、错误原因和验证结论，并保留原文定位；保留范围由生成质量样本验证，不要求将所有日志重新内联 |
 | 接受与失败 | 候选摘要完整、有效且满足预算后才切换视图；失败保留上次有效摘要与尚未可靠交接的材料，重试有界并检查是否实际释放空间。原始资料保存失败的责任和阻塞/背压由 Raw Evidence 讨论，不以一条 warning 宣称已保全 |
-| 生成消费 | 先取得契约所选时点的全部可用资料及覆盖信息，再按请求预算编译；按原文分块提取已由 R-1 否决（owner，2026-10-30，见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30)第 0.1 节），生成继续读取话题的工作视图，避免恢复全量材料后一次塞进模型 |
+| 生成消费 | 先取得契约所选时点的全部可用资料及覆盖信息，再按请求预算编译；不按原文分块提取（[Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)第 0 节），生成继续读取话题的工作视图，避免恢复全量材料后一次塞进模型 |
 | 跨入口 | 根据实际 provenance 与能力处理材料；主动/被动或 connector 名称不直接决定是否跳过 folding。混合来源 Topic 仍保持相同资源归属边界 |
 | 观测 | 记录资料规模、内联规模、摘要规模、损失/恢复能力、耗时及失败原因；观测不替代领域提交结果 |
 
-原文资料、摘要视图和正式 Memory 可分别存在。一次 folding 不隐式 settle，不证明已经生成 Memory，也不改变 Topic 的驱逐含义。分块生成已由 R-1 否决（owner，2026-10-30）；去重与 canonical 更新归 Generation，Perception 不另建“每块是否已经生成记忆”的平行状态机。
+原文资料、摘要视图和正式 Memory 可分别存在。一次 folding 不隐式 settle，不证明已经生成 Memory，也不改变 Topic 的驱逐含义。生成不分块；去重与 canonical 更新归 Generation，Perception 不另建“每块是否已经生成记忆”的平行状态机。
 
 ## 7. 可共享的技术与专项边界
 
@@ -134,23 +130,21 @@ flowchart LR
 
 一个未结束 turn 内的多次 compact、开放交互的事件接收和大对象处理见[长 Turn 专项](./long-running-agent-intra-turn-context-folding.md)。CPU 的覆盖点与 Patchouli 摄入水位分别推进，输入流不以 compact 发生作为接收或封口条件。保存与按需回读原文见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，不通过无限增长的活跃模型视图实现。
 
-## 8. Alice 会话压缩计划的决定（owner，2026-10-16）
-
-两项决定及其当时的候选设计已由[归档计划](../archive/plans/v0.7.0-alice-session-compaction.md)保存；本节仅保留引用入口。
+## 8. 会话压缩的两项设计
 
 ### AC-1 压缩检查点存入会话资源
 
-已实现，当前所有权理由与接受规则见 [会话资源](../workspace/sessions.md)。
+压缩检查点属于会话资源，不属于 Agent 或 CPU 的进程内状态。已经实现，所有权理由与接受规则见[会话资源](../workspace/sessions.md)。
 
-### AC-2 本计划只做自动压缩
+### AC-2 自动压缩先行，手动 `/compact` 随命令系统接回
 
-自动压缩已实现；手动 `/compact` 仍由[命令 Todo](../todo/conversation-compact-command.md)跟踪，等待命令系统接回。
+自动压缩已经实现；手动 `/compact` 要等命令系统接回，由[命令 Todo](../todo/conversation-compact-command.md)跟踪。
 
 ## 9. 其他开放问题与 Plan 门槛
 
-- 检索记忆在提示词中的位置与 KV cache：原外部会话 Idea 8.2 的议题迁入此处。现有动态记忆/附件会影响前缀稳定性；摘要位置、刷新边界和缓存成本需共同评估，不把预期命中写成既定收益。
-- 摘要内容质量与预算参数需要用中文夹代码、需求纠正、工具密集、取消/失败和多 Agent 会话验证；事实保留与继续执行能力分别评估，不能只检查摘要格式。
-- Topic 内完整资料与工作视图的边界已于 v0.7.2 实施（交互记录与折叠记录，工作视图由它们派生）；Topic 优化需先确定交到 Topic 之前的完整资料交接，再明确 Relay 语义、summary-only、生成证据与失败策略；不因复用 Alice 的估算或摘要机制而改变 Topic 的资料所有权。
-- 原始资料持久化、编辑/回退/分支后的来源版本与视图失效，由 Raw Evidence 及各自专项供料；不因本文引入摘要就承诺跨重启恢复。
+- 检索记忆在提示词中的位置与 KV cache：动态记忆与附件会影响前缀稳定性；摘要位置、刷新边界和缓存成本要一起评估，不把预期命中写成既定收益。
+- 摘要内容质量与预算参数，要用中文夹代码、需求纠正、工具密集、取消与失败、多 Agent 的会话验证；事实保留与继续执行能力分别评估，不能只检查摘要格式。
+- Topic 内完整资料与工作视图的边界已经实现（交互记录与折叠记录，工作视图由它们派生）；Topic 优化要先确定交到 Topic 之前的完整资料交接，再明确 Relay 语义、summary-only、生成证据与失败策略；不因复用 Alice 的估算或摘要机制而改变 Topic 的资料所有权。
+- 原始资料持久化、编辑/回退/分支后的来源版本与视图失效，由 Raw Evidence 及各自专项跟踪；不因本文引入摘要就承诺跨重启恢复。
 
-技术调研与固定源码证据见 [Agent Harness 会话压缩技术调研](../research/agent-context-compaction-research.md)。本文维护 HiveMemory 的候选设计；调研报告中的外部项目快照不在此复制，也不替代 owner 决定。
+技术调研与固定源码证据见 [Agent Harness 会话压缩技术调研](../research/agent-context-compaction-research.md)。调研报告中的外部项目快照不在此复制，也不替代 owner 决定。

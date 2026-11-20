@@ -17,10 +17,11 @@ last_reviewed: 2026-11-20
 | Idea | 服务的版本 | 简述 |
 |:---|:---|:---|
 | [记忆核心：短期到中期的流转](./memory-flow-short-to-mid-term.md)（总纲） | v0.8 | v0.8 重新设计记忆从短期到中期的流转：目标与原则、共用的代码现状、顺序与评判方式 |
-| [记忆核心：写入链路](./memory-flow-write-path.md) | v0.8 | 两条写入路径的汇合、短期记忆的定义、Patchouli 作为馆长，以及生成的记忆指向交互轮次 |
+| [记忆核心：写入链路](./memory-flow-write-path.md) | v0.8 | 两条写入路径的汇合、主动写入的背景、Patchouli 作为馆长，以及生成的记忆指向交互轮次 |
 | [记忆核心：库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | v0.8 | 中期库的形状、派生的时空图索引与记忆的保存形态 |
 | [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 记忆类型的用途、划分与回放检验 |
 | [记忆核心：评测集](./memory-evaluation-benchmarks.md) | v0.8 | 用公开评测集与 agent 工作流数据检验记忆核心 |
+| [孵化场、试验场与垃圾回收场：低成本地定型、验证与搁置想法](./experiment-field.md) | v0.8 | 孵化场定型模糊的想法，试验场在冻结的真实数据上验证机制并承载 v0.8 评测，垃圾回收场冷藏说不清的想法与失败的方案 |
 
 已实现、被替代或不再跟踪的 Idea 登记在 [Archived Ideas](../archive/ideas/README.md)。
 
@@ -32,7 +33,6 @@ last_reviewed: 2026-11-20
 | [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 会话压缩与话题折叠的视图与摘要质量 |
 | [身份与访问体系](./identity-and-access-model.md) | 身份、认证与授权的单独主线 |
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | 长 turn 内的原子事件流、分段、封口与恢复 |
-| [孵化场、试验场与垃圾回收场：低成本地定型、验证与搁置想法](./experiment-field.md) | 孵化场定型模糊的想法，试验场在冻结的真实数据上验证机制，垃圾回收场冷藏说不清的想法与失败的方案 |
 | [轻量化：模型依赖、运行内存与包体](./lightweight-footprint.md) | 减少模型依赖、常驻内存与安装包体积 |
 
 ## 长期方向与概念（`long-term`）
@@ -70,7 +70,7 @@ Idea 的读者是写计划、判断设计是否成立的人。它写设计现在
 
 ### 不写进 Idea 的
 
-- 讨论过程、各轮解读、试过又放弃的做法与回放过程：写进 `.hivememory/fields/` 的工作笔记，它不提交，也不受文档治理，写法见[孵化场、试验场与垃圾回收场](./experiment-field.md)。其他 Idea 不链接这些笔记，也不链接或依据那份 Idea。
+- 讨论过程、各轮解读、试过又放弃的做法与回放过程：写进 `.hivememory/fields/` 的工作笔记，它不提交，也不受文档治理，写法见[孵化场、试验场与垃圾回收场](./experiment-field.md)。其他 Idea 不链接这些笔记，也不依据孵化场与垃圾回收场的写法；试验场的设计（同一份 Idea 第 4.1～4.7、6 节）是 v0.8 评测的承载，可以引用。
 - 外部系统与论文的事实：放进 [Research](../research/README.md)，Idea 只链接。
 - 阶段划分、交付、验收与文档更新清单：属于 [Plan](../plans/README.md)。
 
