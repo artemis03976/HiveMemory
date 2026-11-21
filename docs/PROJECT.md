@@ -138,10 +138,10 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 | 口径 | 当前值 | 含义 |
 |:---|:---|:---|
 | 最近已发布基线 | `v0.7.3` | Git tag 创建于 2026-11-04；主动写入与被动提取的收敛（过渡措施）：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成任务失败带原因码 |
-| 当前开发版本 | `v0.8.0` | 生成核心的升级：类型的更迭与 Patchouli 馆长 agent，见 [ROADMAP](./ROADMAP.md) 第 3 节 |
-| 规范代码版本 | `0.7.3` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
+| 当前内容基线 | `v0.8.0` | 2026-11-21 收尾，发布标签在合并后创建；生成核心的升级：记忆类型的收敛、Agent Profile 移出中期库、生成的记忆指向交互轮次、馆长 agent 与写入时的编辑集修订，见 [ROADMAP](./ROADMAP.md) 第 3 节 |
+| 规范代码版本 | `0.8.0` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
-版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单为 0.7.3，与最近的发布标签 v0.7.3 一致，v0.8.0 收尾时调整。版本目标判定与核对记录见 [v0.7.3 收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
+版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单为 0.8.0，发布标签 v0.8.0 在合并后创建，最近的发布标签为 v0.7.3。版本目标判定与核对记录见 [v0.8.0 收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
 
 发布信息以 Git tag 为准，开发中的设计状态以本文、[当前架构](./architecture/overview.md)和[路线图](./ROADMAP.md)为准。
 
