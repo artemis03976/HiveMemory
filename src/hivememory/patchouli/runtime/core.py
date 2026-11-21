@@ -535,6 +535,7 @@ class PatchouliRuntime:
             AliasGenerator,
             BaseDeduplicator,
             BaseMemoryExtractor,
+            IndexDriftGuard,
             MemoryGenerationEngine,
             create_deduplicator,
             create_extractor,
@@ -542,6 +543,11 @@ class PatchouliRuntime:
         )
 
         config = self._patchouli_config.generation
+        # 修订、主动 UPDATE 与合并共用一道漂移拦截；向量由中期库编码记忆的同一个嵌入服务编码。
+        drift_guard = IndexDriftGuard(
+            self.storage.embedding_service,
+            min_similarity=config.revision_min_index_similarity,
+        )
 
         extractor: BaseMemoryExtractor = create_extractor(
             config.extractor,
@@ -555,6 +561,7 @@ class PatchouliRuntime:
             mid_term=self.memory_library.mid_term,
             extractor=extractor,
             deduplicator=deduplicator,
+            drift_guard=drift_guard,
             # alias 唯一性第一层：生成侧以中期库为占用查询端口。
             alias_generator=AliasGenerator(self.memory_library.mid_term),
             # 话题结算选馆长时才装配；否则结算走一次性生成。
@@ -563,6 +570,7 @@ class PatchouliRuntime:
                 mid_term=self.memory_library.mid_term,
                 llm_service=self._llm_service,
                 llm_params=self._llm_params,
+                drift_guard=drift_guard,
             ),
         )
 

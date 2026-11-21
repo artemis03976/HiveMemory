@@ -1,7 +1,7 @@
 """
 HiveMemory Generation 模块数据模型
 
-仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``RevisionResult`` / ``MergeResult`` /
+仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``MemoryEditSet`` /
 ``GenerationRequest`` / ``GenerationContext`` / ``GenerationTurn`` / ``GenerationSegment`` /
 ``GenerationOutcome``）。
 
@@ -14,9 +14,16 @@ HiveMemory Generation 模块数据模型
 import re
 from collections.abc import Sequence
 from enum import Enum
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
@@ -150,19 +157,52 @@ def _title_from_content(content: str) -> str:
     return ""
 
 
-class RevisionResult(BaseModel):
+# ============ 编辑集 ============
+
+
+class ReplaceEdit(BaseModel):
+    """把正文、标题或摘要中逐字出现且只出现一次的原文片段换成新文。"""
+
+    op: Literal["replace"]
+    field: Literal["content", "title", "summary"] = "content"
+    old: str = Field(min_length=1)
+    new: str
+
+    # 多出的键说明模型把别的操作写成了这一种，拒绝而不是静默忽略。
+    model_config = ConfigDict(extra="forbid")
+
+
+class AppendEdit(BaseModel):
+    """在正文末尾追加一段；只用于正文，标题与摘要只能片段替换。"""
+
+    op: Literal["append"]
+    text: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RewriteEdit(BaseModel):
+    """整篇改写正文；只用于正文。正文不进入索引，大段改写不会让检索漂移。"""
+
+    op: Literal["rewrite"]
+    text: str = Field(min_length=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+type MemoryEdit = Annotated[ReplaceEdit | AppendEdit | RewriteEdit, Field(discriminator="op")]
+
+
+class MemoryEditSet(BaseModel):
+    """对一条已有记忆的修订：按顺序应用的若干处编辑，加上标签的逐个增删。
+
+    馆长的修订、主动 UPDATE 与查重提名的合并共用这一种形状。类型、访问策略、alias
+    与来源主体不在其中，沿用原记忆。编辑与标签增删都为空表示不需要改。
     """
-    LLM 修订提示词的输出结果
 
-    Mode C (UPDATE) 中 LLM 执行修订后的结构化输出。
-
-    Attributes:
-        new_content: 修订后的新内容
-        changelog: 变更日志 (一句话总结此次修改)
-        source_segments: 支撑这次修订的段标签；格式不对的丢弃
-    """
-
-    new_content: str
+    edits: list[MemoryEdit] = Field(default_factory=list)
+    add_tags: list[str] = Field(default_factory=list)
+    remove_tags: list[str] = Field(default_factory=list)
     changelog: str
     source_segments: list[str] = Field(default_factory=list)
 
@@ -171,26 +211,9 @@ class RevisionResult(BaseModel):
     def _keep_source_segments(cls, value: Any) -> list[str]:
         return _keep_segment_labels(value)
 
-
-class MergeResult(BaseModel):
-    """两条正式记忆融合后的完整内容；别名与来源主体由保留记忆决定。"""
-
-    title: str
-    summary: str
-    tags: list[str]
-    memory_type: str
-    content: str
-    changelog: str
-
-    @model_validator(mode="after")
-    def _fit_index_limits(self) -> "MergeResult":
-        """与草稿使用相同的索引长度上限，空标题从正文派生。"""
-        self.summary = self.summary.strip()[:MEMORY_SUMMARY_MAX_LENGTH].rstrip()
-        title = self.title.strip() or _title_from_content(self.content)
-        self.title = title[:MEMORY_TITLE_MAX_LENGTH].rstrip()
-        if not self.title:
-            raise ValueError("合并结果必须包含标题或可派生标题的正文")
-        return self
+    @property
+    def is_empty(self) -> bool:
+        return not (self.edits or self.add_tags or self.remove_tags)
 
 
 class MergeFocus(BaseModel):
@@ -392,6 +415,13 @@ class GenerationOutcome(BaseModel):
         default_factory=list,
         description="这一版内容引用的交互段，随版本记录保存；只有新建与修订带",
     )
+    edit_set: MemoryEditSet | None = Field(
+        default=None,
+        description=(
+            "产生这一版的编辑集，以 memory_before_snapshot 为底；修订与合并的 UPDATE 都带。"
+            "提交前基础的版本变了时，把它重放到当前版本上"
+        ),
+    )
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -401,9 +431,12 @@ __all__ = [
     "GenerationAction",
     "ExtractedMemoryDraft",
     "ExtractionResult",
+    "AppendEdit",
+    "MemoryEdit",
+    "MemoryEditSet",
     "MemoryProvenance",
-    "RevisionResult",
-    "MergeResult",
+    "ReplaceEdit",
+    "RewriteEdit",
     "MergeFocus",
     "GenerationRequest",
     "GenerationSegment",

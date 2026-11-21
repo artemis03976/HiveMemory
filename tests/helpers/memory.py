@@ -1,5 +1,6 @@
-"""非 Workspace 专项测试使用的 schema 2.1 Memory 构造辅助。"""
+"""非 Workspace 专项测试使用的 schema 2.1 Memory 构造辅助，以及修订用的漂移拦截替身。"""
 
+import math
 from typing import Any
 
 from hivememory.core.models import (
@@ -12,6 +13,8 @@ from hivememory.core.models import (
     MetaData,
     WorkspaceIdentity,
 )
+from hivememory.engines.generation.edits import IndexDriftGuard
+from hivememory.infrastructure.embedding.base import BaseEmbeddingService
 from hivememory.utils.time import utc_now
 
 # 旧平铺测试参数 → meta.lifecycle 聚合字段的透传集合。
@@ -120,4 +123,33 @@ def make_memory_identity_scope(
     )
 
 
-__all__ = ["make_memory_identity_scope", "make_memory_metadata"]
+class FixedSimilarityEmbedding(BaseEmbeddingService):
+    """嵌入服务的替身：批量编码修改前后两段索引文本时，返回余弦相似度为 ``similarity`` 的
+    两条向量；``similarity`` 为 None 时任何编码请求都失败，用于断言不发生编码。"""
+
+    def __init__(self, similarity: float | None = 1.0) -> None:
+        self.similarity = similarity
+
+    async def encode(self, dense_texts=None, sparse_texts=None, **kwargs: Any):
+        if self.similarity is None:
+            raise AssertionError("不应发生编码")
+        assert isinstance(dense_texts, list) and len(dense_texts) == 2
+        return [
+            [1.0, 0.0],
+            [self.similarity, math.sqrt(max(0.0, 1.0 - self.similarity**2))],
+        ]
+
+
+def make_drift_guard(
+    *, similarity: float | None = 1.0, min_similarity: float = 0.85
+) -> IndexDriftGuard:
+    """以固定相似度的替身嵌入服务构造漂移拦截；缺省时一切修订都通过。"""
+    return IndexDriftGuard(FixedSimilarityEmbedding(similarity), min_similarity=min_similarity)
+
+
+__all__ = [
+    "FixedSimilarityEmbedding",
+    "make_drift_guard",
+    "make_memory_identity_scope",
+    "make_memory_metadata",
+]

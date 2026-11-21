@@ -117,6 +117,15 @@ class MemoryGenerationConfig(BaseModel):
     # 馆长先查看两者再写，模型调用次数是一次性生成的数倍。
     settle_mode: Literal["one_shot", "librarian"] = Field(default="one_shot")
     librarian: LibrarianConfig = Field(default_factory=LibrarianConfig)
+    revision_min_index_similarity: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "修订一条已有记忆时，修改前后两版索引（标题、类型、标签与摘要）稠密向量的最低余弦"
+            "相似度；低于它的修订被拒绝。馆长的修订、主动 UPDATE 与查重提名的合并共用"
+        ),
+    )
     transcript: GenerationTranscriptConfig = Field(default_factory=GenerationTranscriptConfig)
     queue_capacity: int = Field(default=128, ge=1)
     queue_max_concurrency: int = Field(default=2, ge=1)

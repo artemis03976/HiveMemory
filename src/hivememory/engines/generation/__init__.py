@@ -7,6 +7,7 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 - MemoryExtractor: LLM 驱动的记忆提取器
 - Librarian: 话题结算的馆长，先查看本话题的写入与库中相关记忆再写
 - Deduplicator: 查重与知识演化管理器
+- IndexDriftGuard: 修订已有记忆时的漂移拦截
 - MemoryGenerationOrchestrator: 编排器，协调所有组件
 
 跨域共享类型（``WriteFocus`` / ``UpdateFocus`` / ``PendingAtomSettlement``）
@@ -21,6 +22,7 @@ from hivememory.engines.generation.deduplicator import (
     NoOpDeduplicator,
     create_deduplicator,
 )
+from hivememory.engines.generation.edits import IndexDriftGuard
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.extractor import (
     LLMMemoryExtractor,
@@ -38,8 +40,8 @@ from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationOutcome,
     GenerationRequest,
+    MemoryEditSet,
     MemoryProvenance,
-    RevisionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,8 +57,8 @@ __all__ = [
     "GenerationAction",
     "GenerationOutcome",
     "GenerationRequest",
+    "MemoryEditSet",
     "MemoryProvenance",
-    "RevisionResult",
     # 记忆提取
     "LLMMemoryExtractor",
     "NoOpMemoryExtractor",
@@ -68,6 +70,8 @@ __all__ = [
     "MemoryDeduplicator",
     "NoOpDeduplicator",
     "create_deduplicator",
+    # 修订的漂移拦截
+    "IndexDriftGuard",
     # 别名生成
     "AliasGenerator",
     # 引擎
