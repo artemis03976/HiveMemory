@@ -106,13 +106,15 @@ class ResourceUnavailableError(WorkspaceDomainError):
 
 
 class MemoryMergeAbortedError(WorkspaceDomainError):
-    """合并的读取、条件、版本或模型输出不满足要求；reason 区分拒绝原因。"""
+    """合并的读取、条件、版本或模型输出不满足要求，或保留记忆的索引变化过大；reason 区分
+    拒绝原因。"""
 
     code = "workspace.memory.merge_aborted"
 
 
 class MemoryUpdateBaseChangedError(WorkspaceDomainError):
-    """UPDATE 的基础记忆在排队期间被修改：写回前的内容版本与登记时读到的不同，修订不写回。"""
+    """UPDATE 的基础记忆在修订期间被修改，且改到了编辑集引用的原文：编辑集无法重放到当前版本，
+    修订不写回。"""
 
     code = "workspace.memory.update_base_changed"
 

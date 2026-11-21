@@ -101,8 +101,9 @@ class UpdateFocus(BaseModel):
 
     关联键（pending_alias / intent_id / belong_to / from_actor）由 PendingAtom 持有，
     通过 PendingAtomMaterializeTask 出境；Focus 只承载 Agent 提交的参数，以及登记时
-    读到的基础记忆坐标。``base_version`` 是登记时基础记忆的内容版本：写回前基础的
-    版本与它不同，说明排队期间基础被修改过，修订不写回。
+    读到的基础记忆坐标。``base_version`` 是登记时基础记忆的内容版本，只作记录：修订以
+    执行时读到的版本为底计算编辑集，写回前基础的版本变了就把编辑集重放到当前版本上，
+    不要求登记时的版本不变。
     """
 
     instruction: str

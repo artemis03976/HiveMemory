@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Coroutine, Mapping
-from datetime import UTC, datetime
+from collections.abc import Callable, Coroutine
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from pydantic import ValidationError
 
 from hivememory.components.cancellation import join_shielded
+from hivememory.components.serial_gate import KeyedSerialGate
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     MemoryMergeAbortedError,
     MemoryUpdateBaseChangedError,
     ResourceNotFoundError,
-    WorkspaceDomainError,
     WorkspaceMismatchError,
 )
 from hivememory.core.memory_access import memory_is_readable
@@ -39,29 +39,29 @@ from hivememory.core.models.artifact import (
     ArtifactRef,
     ArtifactType,
     CitedSegment,
-    DocumentSourceType,
     MemoryEventLog,
     MemoryEventType,
     snapshot_memory_atom,
 )
 from hivememory.core.models.provenance import MemoryProvenance
-from hivememory.core.models.workspace_asset import TopicAssetBinding
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.alias import fallback_alias
+from hivememory.engines.generation.edits import EditSetError, IndexDriftError, rebase_edit_set
 from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationContext,
     GenerationOutcome,
+    GenerationRequest,
     MergeFocus,
 )
 from hivememory.engines.memory_compiler import embedding_inputs_changed
 from hivememory.patchouli.control.memory_generation.models import (
-    InteractionArtifactInput,
     MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
+from hivememory.patchouli.services.source_artifacts import SourceArtifactRecorder
 from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
@@ -73,7 +73,11 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryGenerationFamiliar:
-    """记忆生成数据面，负责执行生成、挂载 artifact 并写入中期记忆库。"""
+    """记忆的唯一写入者：执行生成与合并，也承接管理页的手动创建与编辑。
+
+    所有内容提交都经 ``_commit_outcome``：版本记录先于写入，版本与内容时间在提交边界推进。
+    交互原文与附件的快照由 ``SourceArtifactRecorder`` 保存，它们是生成的来源，不是记忆。
+    """
 
     def __init__(
         self,
@@ -89,13 +93,21 @@ class MemoryGenerationFamiliar:
         self._generation_engine = generation_engine
         self._mid_term = memory_library.mid_term
         self._artifact_engine = artifact_engine or ArtifactEngine.noop()
-        # 附件 promotion 的只读 reader（assembler 经 PatchouliRuntime
-        # 注入进程级唯一 Store）；ref 失效或 Store 关闭时 best-effort 降级。
-        self._asset_reader = asset_reader
+        # 交互原文与附件的快照：生成的来源，不是记忆。
+        self._sources = SourceArtifactRecorder(
+            artifact_engine=self._artifact_engine, asset_reader=asset_reader
+        )
         # 完整内容写入路径的提交时点来源（局部注入，非全局时钟）。
         self._now = now or utc_now
+        # 同一 Workspace 的合并依次执行，见 _run_merge。
+        self._merge_gate = KeyedSerialGate[WorkspaceIdentity]()
+        # 合并成功后“被吸收的记忆 → 吸收它的记忆”，只在进程内：之后以被吸收者为目标的合并
+        # 沿它改指仍然存在的那条。重启后为空，改指不到的合并按目标缺失中止。
+        self._absorbed_into: dict[UUID, UUID] = {}
 
         logger.info("MemoryGenerationFamiliar 初始化完成")
+
+    # ============ 入口 ============
 
     async def execute(
         self,
@@ -114,9 +126,8 @@ class MemoryGenerationFamiliar:
             return await self._run_merge(
                 spec, spec.request.merge_focus, on_commit_started=on_commit_started
             )
-        interaction_ref = await self._capture_interaction_artifact(
-            spec.interaction_input,
-            spec.belong_to,
+        interaction_ref = await self._sources.capture_interaction(
+            spec.interaction_input, spec.belong_to
         )
         return await self._run_generation(
             spec,
@@ -132,284 +143,7 @@ class MemoryGenerationFamiliar:
         on_commit_started()
         return await join_shielded(asyncio.create_task(commit))
 
-    async def _run_merge(
-        self,
-        spec: MemoryGenerationTaskSpec,
-        focus: MergeFocus,
-        *,
-        on_commit_started: Callable[[], None],
-    ) -> list[MemoryGenerationResult]:
-        """先写回保留记忆，再删除被吸收记忆；失败最多留下重复，不回退为覆盖。"""
-        retained = await self._mid_term.get(
-            spec.belong_to, UUID(focus.retained_memory_id), from_actor=spec.from_actor
-        )
-        absorbed = await self._mid_term.get(
-            spec.belong_to, UUID(focus.absorbed_memory_id), from_actor=spec.from_actor
-        )
-        if retained is None or absorbed is None:
-            raise MemoryMergeAbortedError(details={"reason": "memory_missing"})
-        self._require_mergeable(retained, absorbed)
-
-        outcome = await self._generation_engine.merge(retained, absorbed)
-        if outcome is None:
-            raise MemoryMergeAbortedError(details={"reason": "model_output_invalid"})
-
-        # 模型调用期间可能发生修订、删除或策略变更，写回前必须重验。
-        current_retained = await self._read_merge_version(spec, retained)
-        current_absorbed = await self._read_merge_version(spec, absorbed)
-        self._require_mergeable(current_retained, current_absorbed)
-        atom = outcome.atom
-        if atom is None:
-            raise RuntimeError("合并计算未返回待提交的记忆")
-        # 访问与策略变动不推进内容版本，保留重读得到的动态状态。
-        atom.meta.lifecycle = current_retained.meta.lifecycle.model_copy(deep=True)
-        atom.meta.access_policy = current_retained.meta.access_policy.model_copy(deep=True)
-        for ref in absorbed.payload.artifacts.refs:
-            if ref.artifact_type == ArtifactType.INTERACTION:
-                self._append_artifact_ref_once(atom, ref)
-        return await self._commit_uninterrupted(
-            self._commit_merge(spec, focus, outcome, retained, absorbed), on_commit_started
-        )
-
-    async def _commit_merge(
-        self,
-        spec: MemoryGenerationTaskSpec,
-        focus: MergeFocus,
-        outcome: GenerationOutcome,
-        retained: MemoryAtom,
-        absorbed: MemoryAtom,
-    ) -> list[MemoryGenerationResult]:
-        await self._commit_outcome(
-            outcome,
-            belong_to=spec.belong_to,
-            now=require_utc(self._now()),
-            interaction_ref=None,
-            gen_context=spec.request.context,
-            creation_source=spec.source.creation_artifact_intent,
-            update_source=spec.source.version_update_source,
-            source_artifact_refs=absorbed.payload.artifacts.refs,
-        )
-
-        await self._mid_term.delete_by_key(
-            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=absorbed.id)
-        )
-        settlement = None
-        if focus.pending_alias is not None and focus.intent_id is not None:
-            settlement = PendingAtomSettlement(
-                pending_alias=focus.pending_alias,
-                intent_id=focus.intent_id,
-                resolution=PendingAtomResolution.MERGED,
-                canonical_alias=retained.get_alias(),
-                canonical_uuid=str(retained.id),
-            )
-        return [
-            MemoryGenerationResult(
-                canonical_alias=retained.get_alias(),
-                canonical_uuid=str(retained.id),
-                settlement=settlement,
-                absorbed_memory_uuid=str(absorbed.id),
-            )
-        ]
-
-    @staticmethod
-    def _require_mergeable(retained: MemoryAtom, absorbed: MemoryAtom) -> None:
-        """不同策略不能融合；同一条记忆也不能吸收自身。"""
-        if retained.id == absorbed.id or retained.meta.access_policy != absorbed.meta.access_policy:
-            raise MemoryMergeAbortedError(details={"reason": "not_mergeable"})
-
-    async def _read_merge_version(
-        self, spec: MemoryGenerationTaskSpec, original: MemoryAtom
-    ) -> MemoryAtom:
-        """按复合归属键重读，拒绝消失、不可见或内容版本变化的合并对象。"""
-        current = await self._mid_term.get_by_key(
-            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=original.id)
-        )
-        if current is None or not memory_is_readable(
-            current, workspace_identity=spec.belong_to, actor_identity=spec.from_actor
-        ):
-            raise MemoryMergeAbortedError(
-                details={"reason": "memory_missing", "memory_id": str(original.id)}
-            )
-        if current.meta.version != original.meta.version:
-            raise MemoryMergeAbortedError(
-                details={"reason": "version_changed", "memory_id": str(original.id)}
-            )
-        return current
-
-    async def create_external_memory(
-        self,
-        belong_to: WorkspaceIdentity,
-        *,
-        from_actor: ActorIdentity,
-        memory_type: MemoryType,
-        title: str,
-        summary: str = "",
-        content: str = "",
-        tags: list[str] | None = None,
-        alias: str | None = None,
-        access_policy: MemoryAccessPolicy | None = None,
-    ) -> MemoryAtom:
-        """以外部提交的材料创建记忆原子并持久化。
-
-        原子的身份、时间戳、来源记录与生命周期都在这里确定：创建时点取提交
-        边界的同一时刻（created/updated/decay 同值），来源记录取本次发起者，
-        只作展示、不参与可见性授权；没有给出读取策略时为 PUBLIC；没有给出
-        别名时以 ``mem_<memory id>`` 命名。字段非法以
-        ``InvalidMemoryFieldError`` 拒绝。
-        """
-        try:
-            index = IndexLayer(
-                title=title,
-                summary=summary,
-                tags=tags or [],
-                memory_type=memory_type,
-                alias=alias,
-            )
-            payload = PayloadLayer(content=content)
-        except ValidationError as exc:
-            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
-        commit_now = require_utc(self._now())
-        atom = MemoryAtom(
-            meta=MetaData(
-                workspace_identity=belong_to,
-                provenance=MemoryProvenance(
-                    source_agent_id=from_actor.agent_id,
-                    source_team_id=from_actor.team_id,
-                ),
-                access_policy=(
-                    access_policy if access_policy is not None else MemoryAccessPolicy.public()
-                ),
-                created_at=commit_now,
-                updated_at=commit_now,
-                lifecycle=MemoryLifecycleState(decay_anchor_at=commit_now),
-            ),
-            index=index,
-            payload=payload,
-        )
-        if atom.index.alias is None:
-            # 没有给出别名时与生成路径一致，以这条记忆的 id 命名并落库，保证可按别名寻址。
-            atom.index.alias = fallback_alias(atom.id)
-        await self._attach_memory_artifact(
-            atom=atom,
-            action=GenerationAction.CREATE,
-            memory_before_snapshot=None,
-            changelog=None,
-            gen_context=GenerationContext(),
-            interaction_ref=None,
-            creation_source="MANUAL",
-            now=commit_now,
-        )
-        await self._mid_term.upsert(atom, recompute_vectors=True)
-        return atom
-
-    async def update_external_memory(
-        self,
-        memory_id: UUID,
-        *,
-        belong_to: WorkspaceIdentity,
-        title: str | None = None,
-        summary: str | None = None,
-        content: str | None = None,
-        alias: str | None = None,
-        tags: list[str] | None = None,
-        access_policy: MemoryAccessPolicy | None = None,
-    ) -> MemoryAtom | None:
-        """对外部手动的记忆编辑进行持久化处理。
-
-        内容字段有变化时提交新版本；读取策略有变化时随后单独替换，不推进版本、
-        不写版本记录。策略必须在内容之后写：内容提交写回的是本次开始时读到的
-        整条原子，先写的策略会被它改回旧值。两步之间没有原子保证，策略写入
-        失败时内容已经提交，重新提交同一份编辑只会补上策略。
-        """
-        key = WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
-        atom = await self._mid_term.get_by_key(key)
-        if atom is None:
-            return None
-
-        commit_now = require_utc(self._now())
-        # 修改前的完整原子：版本记录的 snapshot_before 与向量输入比较都以它为准。
-        before_snapshot = atom.model_copy(deep=True)
-        changed_fields = self._apply_external_update(
-            atom,
-            title=title,
-            summary=summary,
-            content=content,
-            alias=alias,
-            tags=tags,
-        )
-        if changed_fields:
-            await self._commit_external_edit(atom, before_snapshot, changed_fields, commit_now)
-        else:
-            # 实际内容相同的重复更新不创建新版本。
-            logger.debug("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
-
-        if access_policy is None or access_policy == atom.meta.access_policy:
-            return atom
-        return await self._mid_term.patch_payload(key, {"meta.access_policy": access_policy})
-
-    async def _commit_external_edit(
-        self,
-        atom: MemoryAtom,
-        before_snapshot: MemoryAtom,
-        changed_fields: list[str],
-        commit_now: datetime,
-    ) -> None:
-        """提交一次外部内容编辑：分配版本与内容时间，写版本记录后写回原子。"""
-        # 提交边界分配内容时间/版本/衰减基准/置信度（UPDATE 时置信度重置为 1.0）。
-        atom.meta.version += 1
-        atom.meta.updated_at = commit_now
-        atom.meta.lifecycle.decay_anchor_at = commit_now
-        atom.meta.lifecycle.confidence_score = 1.0
-
-        await self._attach_memory_artifact(
-            atom=atom,
-            action=GenerationAction.UPDATE,
-            memory_before_snapshot=before_snapshot,
-            changelog=_manual_changelog(changed_fields),
-            gen_context=GenerationContext(),
-            interaction_ref=None,
-            creation_source="MANUAL",
-            update_source="MANUAL_EDIT",
-            now=commit_now,
-        )
-        recompute = embedding_inputs_changed(before_snapshot, atom)
-        await self._mid_term.upsert(atom, recompute_vectors=recompute)
-
-    @staticmethod
-    def _apply_external_update(
-        atom: MemoryAtom,
-        *,
-        title: str | None,
-        summary: str | None,
-        content: str | None,
-        alias: str | None,
-        tags: list[str] | None,
-    ) -> list[str]:
-        """按字段应用外部编辑，返回实际发生变化的字段。
-
-        赋值经模型校验与规范化（去首尾空白、空白 alias 转 None、tags 规范
-        化），变化判断比较规范化后的值：实际内容相同的重复更新不创建
-        新版本。非法取值以 ``InvalidMemoryFieldError`` 拒绝。
-        """
-        edits = (
-            (atom.index, "title", title),
-            (atom.index, "summary", summary),
-            (atom.payload, "content", content),
-            (atom.index, "alias", alias),
-            (atom.index, "tags", tags),
-        )
-        changed_fields: list[str] = []
-        for layer, field, value in edits:
-            if value is None:
-                continue
-            before = getattr(layer, field)
-            try:
-                setattr(layer, field, value)
-            except ValidationError as exc:
-                raise InvalidMemoryFieldError.from_validation_error(exc) from exc
-            if getattr(layer, field) != before:
-                changed_fields.append(field)
-        return changed_fields
+    # ============ 生成：结算、WRITE 与 UPDATE ============
 
     async def _run_generation(
         self,
@@ -429,52 +163,73 @@ class MemoryGenerationFamiliar:
 
         # Step 1：纯计算，GenerationEngine 不负责持久化与版本分配。
         outcomes = await self._generation_engine.process(
-            spec.request,
+            await self._with_current_update_base(spec),
             belong_to=spec.belong_to,
             from_actor=spec.from_actor,
             now=commit_now,
         )
+        committable: list[GenerationOutcome] = []
         for outcome in outcomes:
-            if outcome.action == GenerationAction.UPDATE and outcome.atom is not None:
-                await self._recheck_update_base(spec, outcome.atom)
+            if outcome.action == GenerationAction.UPDATE:
+                checked = await self._committable_revision(spec, outcome)
+                if checked is None:
+                    continue
+                outcome = checked
+            committable.append(outcome)
         return await self._commit_uninterrupted(
-            self._commit_generation(spec, outcomes, commit_now, interaction_ref),
+            self._commit_generation(spec, committable, commit_now, interaction_ref),
             on_commit_started,
         )
 
-    async def _recheck_update_base(
-        self, spec: MemoryGenerationTaskSpec, revised: MemoryAtom
-    ) -> None:
-        """修订写回前重读基础记忆：内容版本须与登记 UPDATE 时相同，并沿用此刻的读取策略。
+    async def _with_current_update_base(self, spec: MemoryGenerationTaskSpec) -> GenerationRequest:
+        """主动 UPDATE 以执行时读到的版本为底计算编辑集；其余任务的请求原样交给引擎。
 
-        任务可能排队很久。期间基础的内容被修改过（另一个 UPDATE、管理页编辑）时不写回，
-        以 ``MemoryUpdateBaseChangedError`` 失败：修订是对登记时那一版内容的指令，写回会
-        静默覆盖期间的修改。策略变动不推进内容版本，用户在管理页修改的策略沿用此刻的值，
-        不被整条写回改回去。基础记忆已被删除或对发起者不可读时不写回：发起者不能修订
-        它读不到的记忆，写回也会让已删除的记忆重新出现。缺失与不可读同样按不存在处理。
+        任务可能排队很久：agent 的指令作用在此刻的内容上，排队期间别处的修改模型也看得到，
+        提交前的重放因此只需覆盖模型调用期间的修改。基础已删除或对发起者不可读时不修订：
+        发起者不能修订它读不到的记忆，写回也会让已删除的记忆重新出现。
         """
         focus = spec.request.update_focus
         if focus is None:
-            raise RuntimeError("只有修订产生 UPDATE，任务规范缺少 update_focus")
-        current = await self._mid_term.get_by_key(
-            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=revised.id)
-        )
-        if current is None or not memory_is_readable(
-            current, workspace_identity=spec.belong_to, actor_identity=spec.from_actor
-        ):
+            return spec.request
+        current = await self._read_readable(spec, UUID(focus.base_uuid))
+        if current is None:
             raise ResourceNotFoundError(
-                "修订的基础记忆已不存在或不可读",
-                details={"memory_id": str(revised.id)},
+                "修订的基础记忆已不存在或不可读", details={"memory_id": focus.base_uuid}
             )
-        if current.meta.version != focus.base_version:
-            raise MemoryUpdateBaseChangedError(
-                details={
-                    "memory_id": str(revised.id),
-                    "base_version": focus.base_version,
-                    "current_version": current.meta.version,
-                }
-            )
-        revised.meta.access_policy = current.meta.access_policy.model_copy(deep=True)
+        return spec.request.model_copy(update={"existing_memory": current})
+
+    async def _committable_revision(
+        self, spec: MemoryGenerationTaskSpec, outcome: GenerationOutcome
+    ) -> GenerationOutcome | None:
+        """修订提交前对上基础记忆的当前版本，返回可以提交的修订；丢弃时返回 None。
+
+        对不上时按路径对调用方的承诺处理：
+
+        - 主动 UPDATE 对应 agent 的一次请求，失败要让 agent 知道：基础缺失或不可读以
+          ``ResourceNotFoundError``、编辑集重放不了以 ``MemoryUpdateBaseChangedError`` 让任务失败；
+        - 馆长的修订来自一次结算，同一次结算还有别的结果，一条失败不应连累其余：丢弃这一条，
+          记一行 warning。
+        """
+        base = outcome.memory_before_snapshot
+        if base is None:
+            raise RuntimeError("修订结果缺少修改前快照")
+        from_update = spec.request.update_focus is not None
+        try:
+            checked = await self._onto_current_base(spec, outcome)
+        except EditSetError as error:
+            if from_update:
+                raise MemoryUpdateBaseChangedError(
+                    details={"memory_id": str(base.id), "base_version": base.meta.version}
+                ) from error
+            logger.warning("馆长的修订在提交前丢弃: memory_id=%s, reason=base_changed", base.id)
+            return None
+        if checked is None:
+            if from_update:
+                raise ResourceNotFoundError(
+                    "修订的基础记忆已不存在或不可读", details={"memory_id": str(base.id)}
+                )
+            logger.warning("馆长的修订在提交前丢弃: memory_id=%s, reason=missing", base.id)
+        return checked
 
     async def _commit_generation(
         self,
@@ -515,91 +270,11 @@ class MemoryGenerationFamiliar:
             bindings = (
                 spec.interaction_input.asset_bindings if spec.interaction_input is not None else ()
             )
-            await self._promote_attachment_bindings(
-                bindings,
-                belong_to=spec.belong_to,
-            )
+            await self._sources.promote_attachments(bindings, belong_to=spec.belong_to)
 
         # 只有 artifact 与持久化均完成后，才把 Engine outcome 收缩为跨域事实；
         # settlement 随该结果交给控制面独立发布。
         return [self._build_generation_result(spec, outcome) for outcome in outcomes]
-
-    async def _promote_attachment_bindings(
-        self,
-        bindings: tuple[TopicAssetBinding, ...],
-        *,
-        belong_to: WorkspaceIdentity,
-    ) -> None:
-        """沿 binding.asset_ref 提升附件 DocumentArtifact（best-effort）。
-
-        每个 binding 固定为：acquire READY representation → 构建
-        DocumentArtifact → 释放 lease。ref 已 remove、Store 已关闭或写入
-        失败时跳过该 binding 并记录结构化 warning；已提交的 binding 保持
-        不变，不回滚 Interaction/Memory 结果。promotion
-        retry 复用现有 generation operation identity 与同一 binding payload。
-        """
-        if not bindings:
-            return
-        for binding in bindings:
-            try:
-                await self._promote_single_binding(
-                    binding,
-                    belong_to=belong_to,
-                )
-            except WorkspaceDomainError as exc:
-                logger.warning(
-                    "附件 promotion 跳过: asset_id=%s, code=%s",
-                    binding.asset_id,
-                    exc.code,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "附件 promotion 写入失败: asset_id=%s, error=%s",
-                    binding.asset_id,
-                    type(exc).__name__,
-                    exc_info=True,
-                )
-
-    async def _promote_single_binding(
-        self,
-        binding: TopicAssetBinding,
-        *,
-        belong_to: WorkspaceIdentity,
-    ) -> None:
-        if self._asset_reader is None:
-            return
-        lease = self._asset_reader.acquire_ready_representation(
-            belong_to,
-            binding.asset_ref,
-        )
-        try:
-            representation = lease.representation
-            content_format = ""
-            if isinstance(representation.content_object, Mapping):
-                content_format = str(representation.content_object.get("format") or "")
-            source_type: DocumentSourceType = "markdown" if content_format == "markdown" else "file"
-            mime_type = "text/markdown" if content_format == "markdown" else "text/plain"
-            # 冻结映射：source asset/representation 标识 + revision +
-            # producer/version 全部钉进 source_uri，content_hash 单列，
-            # 使提升产物自身锁定来源版本：消费方读到的始终是被冻结的那个版本。
-            source_uri = (
-                f"attachment://{binding.asset_id}"
-                f"#{representation.representation_id}"
-                f"?revision={representation.revision}"
-                f"&producer={representation.producer}"
-                f"&producer_version={representation.producer_version}"
-            )
-            await self._artifact_engine.document.build_and_store(
-                source_type=source_type,
-                source_uri=source_uri,
-                content_hash=representation.content_hash,
-                retrieved_at=datetime.now(UTC),
-                workspace_identity=belong_to,
-                mime_type=mime_type,
-                title=f"attachment:{binding.asset_id}",
-            )
-        finally:
-            self._asset_reader.release_representation_lease(lease.lease_id)
 
     def _build_generation_result(
         self,
@@ -662,33 +337,348 @@ class MemoryGenerationFamiliar:
             return PendingAtomResolution.TOUCHED
         return PendingAtomResolution.UPDATED
 
-    async def _capture_interaction_artifact(
-        self,
-        interaction_input: InteractionArtifactInput | None,
-        belong_to: WorkspaceIdentity,
-    ) -> ArtifactRef | None:
-        """
-        构建原始交互 artifact：结算时覆盖话题的全部轮次与折叠记录。
+    # ============ 合并 ============
 
-        在生成之前捕获，失败只记录 warning、生成照常进行；提取失败、没有产出
-        或结果为 TOUCH 时，原文仍保存在 Artifact 中，只是没有记忆引用它。
+    async def _run_merge(
+        self,
+        spec: MemoryGenerationTaskSpec,
+        focus: MergeFocus,
+        *,
+        on_commit_started: Callable[[], None],
+    ) -> list[MemoryGenerationResult]:
+        """以保留记忆为底写入被吸收记忆独有的内容，再删除被吸收记忆；失败最多留下重复。
+
+        同一 Workspace 的合并依次执行，从读取两条记忆到写回、删除都在门内：两个合并不会
+        同时写同一条保留记忆，也不会在模型调用期间删掉对方的目标。几次提名串成一串时，
+        无论哪个先执行，内容都依次进入同一条记忆。保留记忆已被另一次合并吸收时，沿吸收关系
+        改指仍然存在的那条。编辑集不能应用或被漂移拦截时中止，两条都保留：要大改标题与摘要
+        才能概括两条，说明它们讲的不是同一件事。
         """
-        if interaction_input is None:
-            return None
-        if not interaction_input.blocks:
-            return None
-        try:
-            return await self._artifact_engine.interaction.build_and_store(
-                topic_id=interaction_input.topic_id,
-                topic_title=interaction_input.topic_title,
-                topic_summary=interaction_input.topic_summary,
-                blocks=interaction_input.blocks,
-                folds=interaction_input.folds,
-                belong_to=belong_to,
+        async with self._merge_gate.hold(spec.belong_to):
+            retained = await self._mid_term.get(
+                spec.belong_to,
+                self._surviving_memory_id(UUID(focus.retained_memory_id)),
+                from_actor=spec.from_actor,
             )
-        except Exception:
-            logger.warning("构建交互 artifact 失败", exc_info=True)
+            absorbed = await self._mid_term.get(
+                spec.belong_to, UUID(focus.absorbed_memory_id), from_actor=spec.from_actor
+            )
+            if retained is None or absorbed is None:
+                raise MemoryMergeAbortedError(details={"reason": "memory_missing"})
+            self._require_mergeable(retained, absorbed)
+
+            try:
+                outcome = await self._generation_engine.merge(retained, absorbed)
+            except EditSetError as error:
+                raise MemoryMergeAbortedError(details={"reason": "model_output_invalid"}) from error
+            except IndexDriftError as error:
+                raise MemoryMergeAbortedError(details={"reason": "index_drift"}) from error
+            if outcome is None:
+                raise MemoryMergeAbortedError(details={"reason": "model_output_invalid"})
+
+            # 门只串行合并；模型调用期间仍可能有修订、删除或策略变更，写回前对上两条的当前版本。
+            try:
+                merged = await self._onto_current_base(spec, outcome)
+            except EditSetError as error:
+                raise MemoryMergeAbortedError(
+                    details={"reason": "version_changed", "memory_id": str(retained.id)}
+                ) from error
+            current_absorbed = await self._read_readable(spec, absorbed.id)
+            if merged is None or current_absorbed is None:
+                missing = retained if merged is None else absorbed
+                raise MemoryMergeAbortedError(
+                    details={"reason": "memory_missing", "memory_id": str(missing.id)}
+                )
+            if current_absorbed.meta.version != absorbed.meta.version:
+                # 被吸收的内容已经不同，按旧内容算出的编辑集不再代表它，不重放。
+                raise MemoryMergeAbortedError(
+                    details={"reason": "version_changed", "memory_id": str(absorbed.id)}
+                )
+            atom = merged.atom
+            if atom is None:
+                raise RuntimeError("合并计算未返回待提交的记忆")
+            self._require_mergeable(atom, current_absorbed)
+            for ref in absorbed.payload.artifacts.refs:
+                if ref.artifact_type == ArtifactType.INTERACTION:
+                    self._append_artifact_ref_once(atom, ref)
+            return await self._commit_uninterrupted(
+                self._commit_merge(spec, focus, merged, retained, absorbed), on_commit_started
+            )
+
+    def _surviving_memory_id(self, memory_id: UUID) -> UUID:
+        """沿进程内的吸收关系找到吸收了 ``memory_id`` 的那条；没有被吸收过时就是它自己。"""
+        surviving = memory_id
+        while surviving in self._absorbed_into:
+            surviving = self._absorbed_into[surviving]
+        if surviving != memory_id:
+            logger.info(
+                "合并目标已被吸收，改指仍然存在的记忆: memory_id=%s, redirected_to=%s",
+                memory_id,
+                surviving,
+            )
+        return surviving
+
+    async def _commit_merge(
+        self,
+        spec: MemoryGenerationTaskSpec,
+        focus: MergeFocus,
+        outcome: GenerationOutcome,
+        retained: MemoryAtom,
+        absorbed: MemoryAtom,
+    ) -> list[MemoryGenerationResult]:
+        await self._commit_outcome(
+            outcome,
+            belong_to=spec.belong_to,
+            now=require_utc(self._now()),
+            interaction_ref=None,
+            gen_context=spec.request.context,
+            creation_source=spec.source.creation_artifact_intent,
+            update_source=spec.source.version_update_source,
+            source_artifact_refs=absorbed.payload.artifacts.refs,
+        )
+
+        await self._mid_term.delete_by_key(
+            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=absorbed.id)
+        )
+        self._absorbed_into[absorbed.id] = retained.id
+        settlement = None
+        if focus.pending_alias is not None and focus.intent_id is not None:
+            settlement = PendingAtomSettlement(
+                pending_alias=focus.pending_alias,
+                intent_id=focus.intent_id,
+                resolution=PendingAtomResolution.MERGED,
+                canonical_alias=retained.get_alias(),
+                canonical_uuid=str(retained.id),
+            )
+        return [
+            MemoryGenerationResult(
+                canonical_alias=retained.get_alias(),
+                canonical_uuid=str(retained.id),
+                settlement=settlement,
+                absorbed_memory_uuid=str(absorbed.id),
+            )
+        ]
+
+    @staticmethod
+    def _require_mergeable(retained: MemoryAtom, absorbed: MemoryAtom) -> None:
+        """不同策略不能融合；同一条记忆也不能吸收自身。"""
+        if retained.id == absorbed.id or retained.meta.access_policy != absorbed.meta.access_policy:
+            raise MemoryMergeAbortedError(details={"reason": "not_mergeable"})
+
+    # ============ 基础变化规则 ============
+
+    async def _onto_current_base(
+        self, spec: MemoryGenerationTaskSpec, outcome: GenerationOutcome
+    ) -> GenerationOutcome | None:
+        """把修订或合并的结果对上基础记忆此刻的版本，返回可以提交的结果。
+
+        馆长的修订、主动 UPDATE 与合并的保留记忆共用这一条规则：基础的内容版本没变就照原样
+        提交；变了就把编辑集重放到当前版本上，期间别处的修改只要没碰到编辑引用的原文就得以
+        保留。访问统计与读取策略的变动不推进内容版本，结果沿用此刻的值，不被整条写回改回去。
+        基础已删除或对发起者不可读时返回 None；怎样失败由各条路径决定。
+
+        Raises:
+            EditSetError: 版本变了，编辑引用的原文在当前版本中已经对不上
+        """
+        atom = outcome.atom
+        base = outcome.memory_before_snapshot
+        if atom is None or base is None or outcome.edit_set is None:
+            raise RuntimeError("修订结果缺少待提交的记忆、修改前快照或编辑集")
+        current = await self._read_readable(spec, base.id)
+        if current is None:
             return None
+        if current.meta.version != base.meta.version:
+            # 重放的结果以当前版本为底，访问统计与读取策略也就是此刻的值。
+            rebased = _rebased(outcome, current)
+            logger.info(
+                "修订的基础已变，编辑集已重放到当前版本: memory_id=%s, base_version=%d, "
+                "current_version=%d",
+                base.id,
+                base.meta.version,
+                current.meta.version,
+            )
+            return rebased
+        atom.meta.lifecycle = current.meta.lifecycle.model_copy(deep=True)
+        atom.meta.access_policy = current.meta.access_policy.model_copy(deep=True)
+        return outcome
+
+    async def _read_readable(
+        self, spec: MemoryGenerationTaskSpec, memory_id: UUID
+    ) -> MemoryAtom | None:
+        """按复合归属键读取一条记忆；已删除或对发起者不可读时返回 None。"""
+        current = await self._mid_term.get_by_key(
+            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=memory_id)
+        )
+        if current is None or not memory_is_readable(
+            current, workspace_identity=spec.belong_to, actor_identity=spec.from_actor
+        ):
+            return None
+        return current
+
+    # ============ 管理页的手动创建与编辑 ============
+
+    async def create_external_memory(
+        self,
+        belong_to: WorkspaceIdentity,
+        *,
+        from_actor: ActorIdentity,
+        memory_type: MemoryType,
+        title: str,
+        summary: str = "",
+        content: str = "",
+        tags: list[str] | None = None,
+        alias: str | None = None,
+        access_policy: MemoryAccessPolicy | None = None,
+    ) -> MemoryAtom:
+        """以外部提交的材料创建记忆原子并持久化。
+
+        原子的身份、时间戳、来源记录与生命周期都在这里确定：创建时点取提交
+        边界的同一时刻（created/updated/decay 同值），来源记录取本次发起者，
+        只作展示、不参与可见性授权；没有给出读取策略时为 PUBLIC；没有给出
+        别名时以 ``mem_<memory id>`` 命名。字段非法以
+        ``InvalidMemoryFieldError`` 拒绝。
+        """
+        try:
+            index = IndexLayer(
+                title=title,
+                summary=summary,
+                tags=tags or [],
+                memory_type=memory_type,
+                alias=alias,
+            )
+            payload = PayloadLayer(content=content)
+        except ValidationError as exc:
+            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
+        commit_now = require_utc(self._now())
+        atom = MemoryAtom(
+            meta=MetaData(
+                workspace_identity=belong_to,
+                provenance=MemoryProvenance(
+                    source_agent_id=from_actor.agent_id,
+                    source_team_id=from_actor.team_id,
+                ),
+                access_policy=(
+                    access_policy if access_policy is not None else MemoryAccessPolicy.public()
+                ),
+                created_at=commit_now,
+                updated_at=commit_now,
+                lifecycle=MemoryLifecycleState(decay_anchor_at=commit_now),
+            ),
+            index=index,
+            payload=payload,
+        )
+        if atom.index.alias is None:
+            # 没有给出别名时与生成路径一致，以这条记忆的 id 命名并落库，保证可按别名寻址。
+            atom.index.alias = fallback_alias(atom.id)
+        await self._commit_manual(
+            GenerationOutcome(atom=atom, action=GenerationAction.CREATE),
+            belong_to=belong_to,
+            commit_now=commit_now,
+        )
+        return atom
+
+    async def update_external_memory(
+        self,
+        memory_id: UUID,
+        *,
+        belong_to: WorkspaceIdentity,
+        title: str | None = None,
+        summary: str | None = None,
+        content: str | None = None,
+        alias: str | None = None,
+        tags: list[str] | None = None,
+        access_policy: MemoryAccessPolicy | None = None,
+    ) -> MemoryAtom | None:
+        """对外部手动的记忆编辑进行持久化处理。
+
+        内容字段有变化时提交新版本；读取策略有变化时随后单独替换，不推进版本、
+        不写版本记录。策略必须在内容之后写：内容提交写回的是本次开始时读到的
+        整条原子，先写的策略会被它改回旧值。两步之间没有原子保证，策略写入
+        失败时内容已经提交，重新提交同一份编辑只会补上策略。
+        """
+        key = WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
+        atom = await self._mid_term.get_by_key(key)
+        if atom is None:
+            return None
+
+        commit_now = require_utc(self._now())
+        # 修改前的完整原子：版本记录的 snapshot_before 与向量输入比较都以它为准。
+        before_snapshot = atom.model_copy(deep=True)
+        changed_fields = self._apply_external_update(
+            atom,
+            title=title,
+            summary=summary,
+            content=content,
+            alias=alias,
+            tags=tags,
+        )
+        if changed_fields:
+            edit = GenerationOutcome(
+                atom=atom,
+                action=GenerationAction.UPDATE,
+                memory_before_snapshot=before_snapshot,
+                changelog=_manual_changelog(changed_fields),
+            )
+            await self._commit_manual(edit, belong_to=belong_to, commit_now=commit_now)
+        else:
+            # 实际内容相同的重复更新不创建新版本。
+            logger.debug("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
+
+        if access_policy is None or access_policy == atom.meta.access_policy:
+            return atom
+        return await self._mid_term.patch_payload(key, {"meta.access_policy": access_policy})
+
+    @staticmethod
+    def _apply_external_update(
+        atom: MemoryAtom,
+        *,
+        title: str | None,
+        summary: str | None,
+        content: str | None,
+        alias: str | None,
+        tags: list[str] | None,
+    ) -> list[str]:
+        """按字段应用外部编辑，返回实际发生变化的字段。
+
+        赋值经模型校验与规范化（去首尾空白、空白 alias 转 None、tags 规范
+        化），变化判断比较规范化后的值：实际内容相同的重复更新不创建
+        新版本。非法取值以 ``InvalidMemoryFieldError`` 拒绝。
+        """
+        edits = (
+            (atom.index, "title", title),
+            (atom.index, "summary", summary),
+            (atom.payload, "content", content),
+            (atom.index, "alias", alias),
+            (atom.index, "tags", tags),
+        )
+        changed_fields: list[str] = []
+        for layer, field, value in edits:
+            if value is None:
+                continue
+            before = getattr(layer, field)
+            try:
+                setattr(layer, field, value)
+            except ValidationError as exc:
+                raise InvalidMemoryFieldError.from_validation_error(exc) from exc
+            if getattr(layer, field) != before:
+                changed_fields.append(field)
+        return changed_fields
+
+    async def _commit_manual(
+        self, outcome: GenerationOutcome, *, belong_to: WorkspaceIdentity, commit_now: datetime
+    ) -> None:
+        """手动创建与编辑与生成走同一条提交：版本记录先于写入，版本与内容时间在此推进。"""
+        await self._commit_outcome(
+            outcome,
+            belong_to=belong_to,
+            now=commit_now,
+            interaction_ref=None,
+            gen_context=GenerationContext(),
+            creation_source="MANUAL",
+            update_source="MANUAL_EDIT",
+        )
+
+    # ============ 提交：版本记录、Artifact 与写入 ============
 
     async def _commit_outcome(
         self,
@@ -915,6 +905,22 @@ class MemoryGenerationFamiliar:
 
 
 __all__ = ["MemoryGenerationFamiliar"]
+
+
+def _rebased(outcome: GenerationOutcome, current: MemoryAtom) -> GenerationOutcome:
+    """把修订或合并携带的编辑集重放到当前版本上，以当前版本为底提交。
+
+    Raises:
+        EditSetError: 编辑引用的原文在当前版本中已经对不上
+    """
+    if outcome.atom is None or outcome.edit_set is None:
+        raise RuntimeError("待重放的结果缺少修订后的记忆或编辑集")
+    return outcome.model_copy(
+        update={
+            "atom": rebase_edit_set(outcome.atom, outcome.edit_set, current),
+            "memory_before_snapshot": current.model_copy(deep=True),
+        }
+    )
 
 
 def _manual_changelog(changed_fields: list[str]) -> str:

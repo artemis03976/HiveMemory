@@ -36,6 +36,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationOutcome,
     GenerationRequest,
+    MemoryEditSet,
 )
 from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
@@ -207,7 +208,7 @@ def _atom(content: str, *, version: int = 1, workspace_id: str = "main_workspace
 
 
 def _update_outcome(before: MemoryAtom, new_content: str) -> GenerationOutcome:
-    """模拟引擎的 UPDATE 纯计算结果：内容合并 + 修改前完整原子快照。"""
+    """模拟引擎的 UPDATE 纯计算结果：整篇改写正文的编辑集 + 修改前完整原子快照。"""
     atom = before.model_copy(deep=True)
     atom.payload.content = new_content
     return GenerationOutcome(
@@ -215,6 +216,9 @@ def _update_outcome(before: MemoryAtom, new_content: str) -> GenerationOutcome:
         action=GenerationAction.UPDATE,
         memory_before_snapshot=before.model_copy(deep=True),
         changelog="merge to new content",
+        edit_set=MemoryEditSet.model_validate(
+            {"edits": [{"op": "rewrite", "text": new_content}], "changelog": "merge to new content"}
+        ),
     )
 
 
