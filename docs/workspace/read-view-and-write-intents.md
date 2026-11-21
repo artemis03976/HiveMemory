@@ -23,7 +23,7 @@ related_docs:
   - docs/contracts/mcp.md
   - docs/patchouli/generation.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-21
 ---
 
 # 读取视图与写入意图
@@ -59,7 +59,7 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 `WriteIntentRegistry`（`workspace/intents/registry.py`）是进程级唯一登记，与任务进程生命周期解耦，记录 `belong_to`、`from_actor` 与只作观测关联的 `process_id`、`thread_id`（同一进程两次 CALL 同一个 Agent 时以线程区分）；不建进程的请求级提交没有进程与线程，二者为空。同 Workspace 的其他 Agent 可经 `memory.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。
 
-WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。UPDATE 登记时记下基础原子的内容版本（`UpdateFocus.base_version`），随意图交给 Patchouli：写回前基础的版本已经不同，说明排队期间基础被修改过，修订不写回，句柄以 `workspace.memory.update_base_changed` 失败（[Patchouli 生成](../patchouli/generation.md#33-mode-c主动-update)第 3.3 节）。登记的归属与发起者取自本次授权结果。
+WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。UPDATE 登记时记下基础原子的内容版本（`UpdateFocus.base_version`），随意图交给 Patchouli，只作记录：执行时 Patchouli 重读基础、以此刻的版本为底修订，排队期间别处的修改得以保留；模型计算期间基础被改到修订要改的原文、编辑集无法重放时，修订不写回，句柄以 `workspace.memory.update_base_changed` 失败（[Patchouli 生成](../patchouli/generation.md#34-编辑集修订已有记忆的共同形式)第 3.4 节）。登记的归属与发起者取自本次授权结果。
 
 线程提交与请求级提交的写入顺序相同：
 

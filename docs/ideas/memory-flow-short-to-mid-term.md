@@ -42,7 +42,7 @@ related_docs:
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/passive-extraction-volume-and-retention.md
   - docs/todo/cross-conversation-topic-placement.md
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-21
 ---
 
 # 记忆核心：短期到中期的流转
@@ -103,13 +103,13 @@ last_reviewed: 2026-11-20
 **判断与修订**
 
 - 外部的价值标记已经移除，代码中没有 `worth_saving`。
-- 修订是整篇重写：Mode C 的输出是整篇新正文加一句变更说明（`RevisionResult`），合并也是整体重写。
-- 修订不改索引层：Mode C 只覆盖正文，标题、摘要、标签与类型保持不变，检索与查重用的向量也随之不变；一条记忆被修订后，检索结果显示的仍是修订前的标题与摘要（[生成引擎](../../src/hivememory/engines/generation/engine.py)）。管理页的手动编辑可以改标题、摘要、标签与正文，不能改类型（[记忆生成服务](../../src/hivememory/patchouli/services/memory_generation.py)）；能改类型的只有合并，类型由模型重选。
+- 修订以编辑集落地：馆长的修订、Mode C 与合并都输出编辑集（片段替换、追加、整篇改写正文与逐个增删标签），以计算时读到的版本为底，提交前按同一条规则重放（[记忆生成](../patchouli/generation.md#34-编辑集修订已有记忆的共同形式)第 3.4 节）。
+- 修订可以有限地改索引层：标题与摘要只做片段替换，标签逐个增删，编译文本变化时向量重算（[编辑集](../../src/hivememory/engines/generation/edits.py)）。管理页的手动编辑可以改标题、摘要、标签与正文（[记忆生成服务](../../src/hivememory/patchouli/services/memory_generation.py)）；修订、合并与手动编辑都不改类型，类型只在产生时决定一次。
 - 证据引用到段：事件记下来自本轮第几次模型响应，段由事件派生；被动提取、主动写入、修订与馆长的模型引用段，代码换算为轮次标识加事件序号区间，保存在这一版记忆的版本记录中。记忆原子中的 `ArtifactRef` 仍指向整个 Artifact；版本记录中的引用现在没有读取方（[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)）。
 
 ### 2.2 中期库：平铺、查重与生成形式
 
-**查重只看索引层**：草稿按 `Title / Type / Tags / Summary` 四行编译成稠密向量的输入（[embedding handler](../../src/hivememory/engines/memory_compiler/handlers/embedding.py)），在整个 Workspace 中取最近的一条，按阈值判为相同、相似（先新建，再由合并任务融合）或不同（[记忆生成](../patchouli/generation.md#4-查重与合并)第 4 节）。正文不参与，正文的长短影响不了相似度。查重只服务主动写入与一次性生成。
+**查重只看索引层**：草稿按 `Title / Type / Tags / Summary` 四行编译成稠密向量的输入（[embedding handler](../../src/hivememory/engines/memory_compiler/handlers/embedding.py)），在整个 Workspace 中取最近的一条，按阈值判为相同、相似（先新建，再由合并任务补进命中的记忆）或不同（[记忆生成](../patchouli/generation.md#4-查重与合并)第 4 节）。正文不参与，正文的长短影响不了相似度。查重只服务主动写入与一次性生成。
 
 **中期库是平铺的**：
 
@@ -183,7 +183,6 @@ last_reviewed: 2026-11-20
 | 主动写入生成时能拿到什么材料 | [写入链路](./memory-flow-write-path.md)第 2.2 节 |
 | 短期记忆在新流转中的定义 | 孵化中 |
 | 什么值得写成记忆 | 孵化中 |
-| 馆长怎样修订已有记忆 | [写入链路](./memory-flow-write-path.md)第 3.1 节 |
 | 第一当事人“没写”算不算判断 | 搁置，[写入链路](./memory-flow-write-path.md)第 6 节 |
 | 记忆的保存形态 | [库的形状](./memory-library-shape-and-index.md)第 4.2 节 |
 | 首个评测切片、原始时间怎样带进评测 | [评测集](./memory-evaluation-benchmarks.md)第 6 节 |

@@ -346,14 +346,18 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
         merge_started.set()
         await release_merge.wait()
         return json.dumps(
-            dict(
-                title="Design and progress",
-                summary="Decisions and later progress",
-                tags=["project"],
-                memory_type="FACT",
-                content="earlier decisions and later progress",
-                changelog="Preserved both stages",
-            )
+            {
+                "edits": [
+                    {
+                        "op": "replace",
+                        "field": "content",
+                        "old": "earlier decisions",
+                        "new": "earlier decisions and later progress",
+                    }
+                ],
+                "add_tags": ["project"],
+                "changelog": "Preserved both stages",
+            }
         )
 
     llm = CallbackLLMService(complete=complete)

@@ -112,7 +112,8 @@ class MemoryMergeAbortedError(WorkspaceDomainError):
 
 
 class MemoryUpdateBaseChangedError(WorkspaceDomainError):
-    """UPDATE 的基础记忆在排队期间被修改：写回前的内容版本与登记时读到的不同，修订不写回。"""
+    """UPDATE 的基础记忆在修订期间被修改，且改到了编辑集引用的原文：编辑集无法重放到当前版本，
+    修订不写回。"""
 
     code = "workspace.memory.update_base_changed"
 

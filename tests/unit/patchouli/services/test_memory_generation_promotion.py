@@ -1,13 +1,15 @@
-"""Topic binding 投影与附件 promotion 的单元测试。
+"""生成的来源 Artifact：topic binding 投影、附件 promotion 与交互原文快照的单元测试。
 
 - handler 把 payload.used_attachments 一次性投影为 bound refs；
 - promotion 只在 Memory CREATE/UPDATE 后发生，沿 binding.asset_ref
   acquire，写入冻结映射的 DocumentArtifact 并释放 lease；
-- ref 失效 / Store 关闭 / 写入失败按 best-effort 降级，不回滚本轮结果。
+- ref 失效 / Store 关闭 / 写入失败按 best-effort 降级，不回滚本轮结果；
+- 交互原文快照没有材料、没有 Artifact 引擎或构建失败时没有产出，生成照常进行。
 """
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -23,16 +25,21 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType
 from hivememory.core.models.workspace_asset import WorkspaceAssetRef
+from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import GenerationAction
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionHandler,
 )
-from hivememory.patchouli.control.memory_generation.models import MemoryGenerationSource
+from hivememory.patchouli.control.memory_generation.models import (
+    InteractionArtifactInput,
+    MemoryGenerationSource,
+)
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+from hivememory.patchouli.services.source_artifacts import SourceArtifactRecorder
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.sessions import make_interaction_payload
+from tests.helpers.sessions import make_interaction_payload, make_logical_block
 from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 
@@ -212,6 +219,15 @@ class _StubMemoryBuilder:
         )
 
 
+def _recorder(
+    store: InMemoryWorkspaceAssetStore, document_builder: _RecordingDocumentBuilder
+) -> SourceArtifactRecorder:
+    return SourceArtifactRecorder(
+        artifact_engine=_StubArtifactEngine(document_builder),  # type: ignore[arg-type]
+        asset_reader=store,
+    )
+
+
 def _familiar(
     store: InMemoryWorkspaceAssetStore,
     document_builder: _RecordingDocumentBuilder,
@@ -276,11 +292,11 @@ async def test_promotion_runs_on_create_and_pins_frozen_source_mapping() -> None
     store = InMemoryWorkspaceAssetStore()
     ref = _make_ready_asset(store, operation_id="op-a")
     builder = _RecordingDocumentBuilder()
-    familiar = _familiar(store, builder, [GenerationAction.CREATE])
+    recorder = _recorder(store, builder)
     workspace = _workspace()
     binding = _binding(store, ref)
 
-    await familiar._promote_attachment_bindings((binding,), belong_to=workspace)
+    await recorder.promote_attachments((binding,), belong_to=workspace)
 
     assert len(builder.calls) == 1
     call = builder.calls[0]
@@ -321,7 +337,7 @@ async def test_generation_gating_skips_promotion_for_touch() -> None:
         belong_to=_workspace(),
         from_actor=make_identity_scope(user_id="user-1", agent_id="agent-1").actor_identity,
         interaction_input=SimpleNamespace(asset_bindings=(binding,)),
-        request=SimpleNamespace(context=GenerationContext()),
+        request=SimpleNamespace(context=GenerationContext(), update_focus=None),
         source=MemoryGenerationSource.SETTLE,
         topic_id="topic-1",
         # promotion 之后的结果收缩路径需要的占位坐标（TOUCH 无 pending）。
@@ -362,11 +378,11 @@ async def test_promotion_degrades_when_ref_removed() -> None:
     ref = _make_ready_asset(store, operation_id="op-a")
     store.remove_asset(_workspace(), ref)
     builder = _RecordingDocumentBuilder()
-    familiar = _familiar(store, builder, [GenerationAction.CREATE])
+    recorder = _recorder(store, builder)
     binding = _binding(store, ref)
 
     # 不抛错：按 best-effort 降级，不写入 artifact。
-    await familiar._promote_attachment_bindings((binding,), belong_to=_workspace())
+    await recorder.promote_attachments((binding,), belong_to=_workspace())
     assert builder.calls == []
 
 
@@ -376,11 +392,11 @@ async def test_promotion_degrades_when_store_closed() -> None:
     store = InMemoryWorkspaceAssetStore()
     ref = _make_ready_asset(store, operation_id="op-a")
     builder = _RecordingDocumentBuilder()
-    familiar = _familiar(store, builder, [GenerationAction.CREATE])
+    recorder = _recorder(store, builder)
     binding = _binding(store, ref)
     store.close_and_clear()
 
-    await familiar._promote_attachment_bindings((binding,), belong_to=_workspace())
+    await recorder.promote_attachments((binding,), belong_to=_workspace())
     assert builder.calls == []
 
 
@@ -390,10 +406,57 @@ async def test_promotion_write_failure_is_best_effort_and_releases_lease() -> No
     store = InMemoryWorkspaceAssetStore()
     ref = _make_ready_asset(store, operation_id="op-a")
     builder = _RecordingDocumentBuilder(fail=True)
-    familiar = _familiar(store, builder, [GenerationAction.CREATE])
+    recorder = _recorder(store, builder)
     binding = _binding(store, ref)
 
-    await familiar._promote_attachment_bindings((binding,), belong_to=_workspace())
+    await recorder.promote_attachments((binding,), belong_to=_workspace())
 
     assert len(builder.calls) == 1  # 写入被尝试过
     assert store.close_and_clear().leases_cleared == 0  # lease 仍被释放
+
+
+# ---------------------------------------------------------------------------
+# 交互原文快照
+# ---------------------------------------------------------------------------
+
+
+def _interaction_input(*blocks) -> InteractionArtifactInput:
+    return InteractionArtifactInput(
+        topic_id="t1", topic_title="Test", topic_summary="Summary", blocks=blocks
+    )
+
+
+@pytest.mark.asyncio
+async def test_interaction_capture_without_an_artifact_engine_has_no_output() -> None:
+    recorder = SourceArtifactRecorder(artifact_engine=ArtifactEngine.noop(), asset_reader=None)
+
+    result = await recorder.capture_interaction(
+        _interaction_input(make_logical_block("q", "a")), _workspace()
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_interaction_capture_without_blocks_builds_nothing() -> None:
+    artifact_engine = Mock()
+    recorder = SourceArtifactRecorder(artifact_engine=artifact_engine, asset_reader=None)
+
+    result = await recorder.capture_interaction(_interaction_input(), _workspace())
+
+    assert result is None
+    artifact_engine.interaction.build_and_store.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_interaction_capture_failure_has_no_output() -> None:
+    """构建失败只记 warning：生成照常进行，没有记忆引用这份原文。"""
+    artifact_engine = Mock()
+    artifact_engine.interaction.build_and_store = AsyncMock(side_effect=RuntimeError("build"))
+    recorder = SourceArtifactRecorder(artifact_engine=artifact_engine, asset_reader=None)
+
+    result = await recorder.capture_interaction(
+        _interaction_input(make_logical_block("q", "a")), _workspace()
+    )
+
+    assert result is None

@@ -246,6 +246,8 @@ class Run:
     status: str = "running"  # running、done 或 failed
     steps: list[Step] = field(default_factory=list)
     drafts: list[dict[str, Any]] = field(default_factory=list)
+    # 馆长暂存的修订：被修订记忆的 alias 与标题，加上编辑集。
+    revisions: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
     started: float = field(default_factory=time.monotonic)
     seconds: float | None = None
@@ -495,7 +497,7 @@ class Workbench:
                         config=self._librarian_config,
                     )
                 try:
-                    drafts = await librarian.settle(
+                    result = await librarian.settle(
                         transcript,
                         topic_write_memory_ids=topic_writes,
                         belong_to=self._belong_to,
@@ -503,6 +505,15 @@ class Workbench:
                     )
                 finally:
                     recorder.sync_replies()
+                drafts = result.drafts
+                run.revisions = [
+                    {
+                        "alias": revision.base.index.alias,
+                        "title": revision.base.index.title,
+                        **revision.edit_set.model_dump(mode="json"),
+                    }
+                    for revision in result.revisions
+                ]
             else:
                 with edited_prompts("passive", prompts):
                     extractor = LLMMemoryExtractor(self._extractor_config, recorder, self._params)
@@ -1003,6 +1014,10 @@ function runCard(r) {
     card.append(el("h4", {}, r.target === "librarian"
       ? `暂存的记忆（${r.drafts.length} 条，不会写入）` : `提取的草稿（${r.drafts.length} 条）`));
     r.drafts.forEach((draft) => card.append(memoryView(draft)));
+    if (r.target === "librarian") {
+      card.append(el("h4", {}, `暂存的修订（${r.revisions.length} 条，不会写入）`));
+      r.revisions.forEach((revision) => card.append(el("pre", {}, pretty(revision))));
+    }
   }
   return card;
 }

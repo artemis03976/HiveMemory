@@ -7,7 +7,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from hivememory.config.patchouli import ArtifactConfig, DeduplicatorConfig, LibrarianConfig
+from hivememory.config.patchouli import (
+    ArtifactConfig,
+    DeduplicatorConfig,
+    ExtractorConfig,
+    LibrarianConfig,
+)
 from hivememory.core.models import (
     ArtifactType,
     CitedSegment,
@@ -27,6 +32,7 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFoc
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.librarian import Librarian
 from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
@@ -749,3 +755,204 @@ async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_
         "deploys are now run by hand",
         "what the agent wrote",
     ]
+
+
+def _edit_set_json(*edits: dict, changelog: str = "revised") -> str:
+    return json.dumps({"edits": list(edits), "changelog": changelog}, ensure_ascii=False)
+
+
+async def _stored(memory_library: MemoryLibrary) -> list[MemoryAtom]:
+    scope = _identity_scope()
+    hits = await memory_library.mid_term.search(
+        scope.workspace_identity,
+        query="any",
+        top_k=10,
+        mode="dense",
+        from_actor=scope.actor_identity,
+    )
+    return [hit["memory"] for hit in hits]
+
+
+@pytest.mark.asyncio
+async def test_librarian_settlement_revises_an_existing_memory_instead_of_adding_one(
+    memory_library, artifact_engine
+):
+    """馆长读到一条被话题改变的记忆并修订它：库中是这条记忆的新版本，没有多出一条重复。"""
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+    existing = _memory_atom()
+    existing.payload.content = "deploys run from CI"
+    await memory_library.mid_term.upsert(existing, recompute_vectors=True)
+    llm = ScriptedLLMService(
+        json.dumps({"tool": "search_memories", "args": {"query": "deploy"}}),
+        json.dumps({"tool": "read_memory", "args": {"alias": "memory_alias"}}),
+        json.dumps(
+            {
+                "tool": "revise_memory",
+                "args": {
+                    "alias": "memory_alias",
+                    "edits": [
+                        {"op": "replace", "field": "content", "old": "from CI", "new": "by hand"}
+                    ],
+                    "changelog": "deploys moved off CI",
+                },
+            }
+        ),
+        json.dumps({"tool": "finish", "args": {}}),
+    )
+    engine = MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=AsyncMock(),
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+        librarian=Librarian(
+            mid_term=memory_library.mid_term,
+            llm_service=llm,
+            llm_params=LLMRequestParams(model="test-model"),
+            config=LibrarianConfig(),
+        ),
+    )
+    _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
+
+    settle_task = await coordinator.submit_settlement(_settlement_task())
+    settled = await controller.wait_task(settle_task.task_id)
+
+    assert settled.status == MemoryGenerationTaskStatus.COMPLETED
+    [stored] = await _stored(memory_library)
+    assert (stored.id, stored.payload.content, stored.meta.version) == (
+        existing.id,
+        "deploys run by hand",
+        2,
+    )
+
+
+class _TitleSearchPort(_InMemoryMidTermPort):
+    """检索只按标题中的字样命中，并记下每次写入是否重算向量。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.recomputed: list[bool] = []
+
+    async def upsert(self, memory: MemoryAtom, *, recompute_vectors: bool = True) -> None:
+        self.recomputed.append(recompute_vectors)
+        await super().upsert(memory, recompute_vectors=recompute_vectors)
+
+    async def search(self, scope, query, top_k, filters=None, mode="dense", **kwargs):
+        return [
+            {"memory": memory, "score": 1.0}
+            for memory in self.memories.values()
+            if memory.workspace_identity == scope and query in memory.index.title
+        ]
+
+
+@pytest.mark.asyncio
+async def test_active_update_of_a_value_in_the_title_is_found_by_the_new_title(
+    tmp_path, artifact_engine
+):
+    """主动 UPDATE 改了标题中的一个值：标题随修订更新、向量重算，检索按新标题命中。"""
+    port = _TitleSearchPort()
+    memory_library = MemoryLibrary(
+        agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
+        short_term=ShortTermMemoryStore(),
+        mid_term=MidTermMemoryStore(primary=port),
+        long_term=LongTermMemoryStore(
+            FileBasedStorageAdapter(archive_dir=str(tmp_path / "archive"), compress=False)
+        ),
+    )
+    existing = _memory_atom()
+    existing.index.title = "service listens on port 3000"
+    existing.payload.content = "The service listens on port 3000."
+    await memory_library.mid_term.upsert(existing, recompute_vectors=True)
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+    llm = ScriptedLLMService(
+        _edit_set_json(
+            {"op": "replace", "field": "content", "old": "port 3000", "new": "port 8080"},
+            {"op": "replace", "field": "title", "old": "port 3000", "new": "port 8080"},
+            changelog="Changed the port from 3000 to 8080",
+        )
+    )
+    engine = MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=LLMMemoryExtractor(ExtractorConfig(), llm, LLMRequestParams(model="m")),
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+    )
+    _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
+    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
+    scope = _identity_scope()
+
+    async def memory_get(memory_id, *, belong_to, from_actor):
+        return await memory_library.mid_term.get(belong_to, memory_id, from_actor=from_actor)
+
+    bus.register(PatchouliLocalRoutes.MEMORY_GET, memory_get)
+
+    admission = await coordinator.submit_active(
+        _update_task(str(existing.id)), "topic_1", belong_to=scope.workspace_identity
+    )
+    completed = await controller.wait_task(admission.task.task_id)
+
+    assert completed.status == MemoryGenerationTaskStatus.COMPLETED
+    search = memory_library.mid_term.search
+    [hit] = await search(
+        scope.workspace_identity, query="port 8080", top_k=5, from_actor=scope.actor_identity
+    )
+    assert (hit["memory"].id, hit["memory"].payload.content, port.recomputed[-1]) == (
+        existing.id,
+        "The service listens on port 8080.",
+        True,
+    )
+    assert (
+        await search(
+            scope.workspace_identity, query="port 3000", top_k=5, from_actor=scope.actor_identity
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_two_drafts_of_one_settlement_both_merge_into_the_memory_they_hit(
+    memory_library, artifact_engine
+):
+    """同一次结算的两条草稿命中同一条记忆：先各自新建，两次合并都落在这条记忆上，没有中止。"""
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+    existing = _memory_atom()
+    await memory_library.mid_term.upsert(existing, recompute_vectors=True)
+    extractor = AsyncMock()
+    extractor.extract.return_value = [
+        _draft("deploy detail one", "first new detail"),
+        _draft("deploy detail two", "second new detail"),
+    ]
+
+    async def merge(retained, absorbed, *, retry=None):
+        return json.dumps(
+            {"edits": [{"op": "append", "text": absorbed.payload.content}], "changelog": "merged"}
+        )
+
+    extractor.merge.side_effect = merge
+    engine = MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=extractor,
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+    )
+    _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
+
+    settle_task = await coordinator.submit_settlement(_settlement_task())
+    await controller.wait_task(settle_task.task_id)
+    # 合并任务在结算的新建落库之后才提交，等结算结束后再等它们。
+    await controller.wait_all(timeout=5)
+    tasks = await controller.list_tasks()
+
+    assert sorted((task.source.value, task.status.value) for task in tasks) == [
+        ("MERGE", "completed"),
+        ("MERGE", "completed"),
+        ("SETTLE", "completed"),
+    ]
+    [stored] = await _stored(memory_library)
+    assert (stored.id, stored.meta.version) == (existing.id, 3)
+    assert (
+        "first new detail" in stored.payload.content,
+        "second new detail" in stored.payload.content,
+    ) == (True, True)

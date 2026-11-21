@@ -10,11 +10,14 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
     Step 3: 记忆原子构建 → MemoryAtom
     Step 4: 返回 GenerationOutcome，外围 Familiar 负责持久化
 
-话题结算选馆长时，Step 1-2 由馆长的探索循环代替：草稿全部新建，不经过查重。
+话题结算选馆长时，Step 1-2 由馆长的探索循环代替：草稿全部新建，不经过查重；对已有记忆的
+修订成为以馆长读到的版本为底的 UPDATE。
+
+修订（馆长、Mode C）与合并都以编辑集改已有记忆：标题与摘要只做片段替换，标签逐个增删。
 """
 
 import logging
-from collections.abc import Collection
+from collections.abc import Awaitable, Callable, Collection
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -39,19 +42,26 @@ from hivememory.core.models.provenance import (
     normalize_contributing_agent_ids,
 )
 from hivememory.engines.generation.alias import AliasGenerator
+from hivememory.engines.generation.edits import (
+    EditSetError,
+    EditSetRetry,
+    apply_edit_set,
+    parse_edit_set,
+)
 from hivememory.engines.generation.interfaces import (
     BaseDeduplicator,
     BaseMemoryExtractor,
 )
 from hivememory.engines.generation.librarian import Librarian
 from hivememory.engines.generation.models import (
+    AppendEdit,
     DuplicateDecision,
     ExtractedMemoryDraft,
     GenerationAction,
     GenerationContext,
     GenerationOutcome,
     GenerationRequest,
-    RevisionResult,
+    MemoryEditSet,
     provenance_from_actor,
     system_settlement_provenance,
 )
@@ -76,7 +86,7 @@ class MemoryGenerationEngine:
         >>> from hivememory.engines.generation import MemoryGenerationEngine
         >>>
         >>> engine = MemoryGenerationEngine(
-        ...     storage=storage,
+        ...     mid_term=mid_term,
         ...     extractor=my_extractor,
         ...     deduplicator=my_deduplicator,
         ... )
@@ -231,12 +241,13 @@ class MemoryGenerationEngine:
         from_actor: ActorIdentity,
         now: datetime,
     ) -> list[GenerationOutcome]:
-        """话题结算的馆长方式：馆长先看本话题的写入与库中相关记忆，再暂存草稿。
+        """话题结算的馆长方式：馆长先看本话题的写入与库中相关记忆，再暂存草稿与修订。
 
         馆长在写之前已经查看过两者，暂存的草稿全部按新建提交，不查重、不触碰、
         不提名合并；残余的重叠接受。来源裁定、别名分配与段引用与 Mode A 相同。
+        修订以馆长读到的版本为底应用编辑集，成为 UPDATE；结算的贡献者并入那条记忆。
         """
-        drafts = await librarian.settle(
+        result = await librarian.settle(
             self._render_transcript(request),
             topic_write_memory_ids=request.topic_write_memory_ids,
             belong_to=belong_to,
@@ -245,7 +256,7 @@ class MemoryGenerationEngine:
         provenance = system_settlement_provenance(request.context)
         outcomes: list[GenerationOutcome] = []
         taken_aliases: set[str] = set()
-        for draft in drafts:
+        for draft in result.drafts:
             memory = self._draft_to_memory(draft, belong_to, provenance, alias=None, now=now)
             alias = await self._alias_generator.generate(
                 workspace_identity=belong_to,
@@ -264,6 +275,16 @@ class MemoryGenerationEngine:
                     cited_segments=_cite(request.context, draft.source_segments),
                 )
             )
+        outcomes.extend(
+            _revision_outcome(
+                revision.base,
+                revision.revised,
+                revision.edit_set,
+                contributors=provenance.contributing_agent_ids,
+                cited_segments=_cite(request.context, revision.edit_set.source_segments),
+            )
+            for revision in result.revisions
+        )
         return outcomes
 
     async def _process_mode_b(
@@ -347,12 +368,13 @@ class MemoryGenerationEngine:
         """
         Mode C: 修订模式 (UPDATE 指令触发)
 
-        Agent 请求修改已有记忆，以 UpdateFocus 为核心。
-        LLM 执行修订，生成新内容和变更日志。
-        包含 fallback 机制：提供商失败或输出无法解析时直接拼接；程序错误不降级。
-        追加的修订没有模型引用的段。
+        模型按指令与新材料写出对目标记忆的编辑集，以 ``existing_memory`` 为底应用；不合格时
+        带着错误重试一次。空编辑集表示不需要改，降为 TOUCH。
+
+        仍不合格、提供商失败或没有模型时回退：带内容就把内容作为带日期的更新段追加到正文，
+        只有指令就不改（TOUCH）。UPDATE 的 ACK 表示意图已被接纳，内容不因模型没能写成
+        编辑集而丢失；回退只改正文、不改索引，没有模型引用的段。程序错误不降级。
         """
-        # 从内存索引中获取原始记忆
         existing = request.existing_memory
 
         if existing is None:
@@ -373,156 +395,109 @@ class MemoryGenerationEngine:
             len(uf.instruction),
         )
 
-        # 格式化对话上下文；空上下文时由 _render_transcript() 统一返回占位文本
-        transcript = self._render_transcript(request)
+        edit_set, revised = await self._revise(request, uf, existing) or _update_fallback(
+            uf, existing, now=now
+        )
+        if edit_set.is_empty:
+            logger.info("[Mode C] UPDATE 不需要改，降级为 TOUCH: memory_id=%s", existing.id)
+            return [GenerationOutcome(atom=existing, action=GenerationAction.TOUCH)]
 
-        # Step 1: 调用 extractor.revise() (Mode C Update Prompt)
-        try:
-            revision_result = await self.extractor.revise(
-                old_content=existing.payload.content,
-                metadata={
-                    "mode": "update",
-                    "instruction": uf.instruction,
-                    "new_content": uf.content or "",
-                    "memory_title": existing.index.title,
-                    "memory_alias": existing.index.alias or uf.base_alias,
-                    "transcript": transcript,
-                },
-            )
-        except ModelProviderError as error:
-            logger.warning("[Mode C] LLM 提供商失败: %s", error)
-            revision_result = None
-
-        # Fallback: LLM 修订失败时直接拼接
-        if revision_result is None:
-            logger.warning("[Mode C] LLM 修订失败，启用 fallback")
-            revision_result = self._build_update_fallback(uf, existing, now=now)
-
-        # Step 2: 版本历史 + 更新，持久化由 Familiar 负责；
         # 主动 UPDATE 以发起 Agent 及上下文贡献者演化已有记忆的贡献者集合。
-        return self._apply_update(
-            existing,
-            revision_result,
-            provenance=provenance_from_actor(from_actor, request.context),
-            cited_segments=_cite(request.context, revision_result.source_segments),
-        )
-
-    def _build_update_fallback(
-        self, uf: UpdateFocus, existing: MemoryAtom, *, now: datetime
-    ) -> RevisionResult:
-        """
-        UPDATE fallback: LLM 修订失败时的保底策略
-
-        - 有 content: 追加到旧内容末尾
-        - 仅有 instruction: 保留旧内容不变，changelog 记录 instruction
-        """
-        if uf.content:
-            new_content = (
-                f"{existing.payload.content}\n\n"
-                f"## 更新 ({now.strftime('%Y-%m-%d')})\n"
-                f"{uf.content}"
-            )
-            changelog = f"Fallback 追加: {uf.instruction[:80]}"
-        else:
-            new_content = existing.payload.content
-            changelog = f"Fallback (无变更): {uf.instruction[:80]}"
-
-        return RevisionResult(new_content=new_content, changelog=changelog)
-
-    async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> GenerationOutcome | None:
-        """纯计算两条记忆的融合内容，不修改输入；版本与持久化由 Familiar 提交。
-
-        来源主体、别名与访问状态始终沿用保留记忆。
-        """
-        result = await self.extractor.merge(retained, absorbed)
-        if result is None:
-            return None
-        memory_type = _producible_memory_type(result.memory_type) or retained.index.memory_type
-        index = IndexLayer(
-            title=result.title,
-            summary=result.summary,
-            tags=result.tags,
-            memory_type=memory_type,
-            alias=retained.index.alias,
-        )
-        memory = retained.model_copy(deep=True)
-        memory.index = index
-        memory.payload.content = result.content
-        memory.meta.provenance.contributing_agent_ids = normalize_contributing_agent_ids(
-            [
-                *retained.meta.provenance.contributing_agent_ids,
-                *absorbed.meta.provenance.contributing_agent_ids,
-            ]
-        )
-        return GenerationOutcome(
-            atom=memory,
-            action=GenerationAction.UPDATE,
-            memory_before_snapshot=retained.model_copy(deep=True),
-            changelog=result.changelog,
-        )
-
-    def _apply_update(
-        self,
-        memory: MemoryAtom,
-        result: RevisionResult,
-        *,
-        provenance: MemoryProvenance,
-        cited_segments: list[CitedSegment],
-    ) -> list[GenerationOutcome]:
-        """
-        执行内容修订（纯计算）。持久化、版本分配与内容时间由 Familiar 在
-        提交边界统一决定；本方法只做：
-
-        1. 捕获变更前完整原子（深拷贝，供版本记录与 embedding 输入对比）
-        2. 覆盖 payload.content
-        3. 并入本次生成的贡献者集合
-        4. 带上修订引用的段，没有新版本（TOUCH）时不带
-
-        ``meta.version``/``updated_at``/``decay_anchor_at``/``confidence_score``
-        的赋值全部发生在 Familiar 的提交边界（使用同一个 ``now``）。
-        """
-        # 实际内容相同的重复更新不创建新版本。修订结果与现有内容一致
-        # 时返回 TOUCH 动作——不合并贡献者、不改任何
-        # 字段；访问统计由 Familiar 经受限 patch_payload 处理。
-        if result.new_content == memory.payload.content:
-            logger.info(
-                "[Mode C] UPDATE 修订结果与现有内容一致，降级为 TOUCH: memory_id=%s",
-                memory.id,
-            )
-            return [
-                GenerationOutcome(
-                    atom=memory,
-                    action=GenerationAction.TOUCH,
-                )
-            ]
-
-        # 深拷贝保留修改前的完整原子；嵌套对象不与候选共享引用。
-        before_snapshot = memory.model_copy(deep=True)
-
-        # Update Head: 覆盖 payload.content
-        memory.payload.content = result.new_content
-
-        # 版本演化引入新的内容贡献者：把本次来源裁定中的贡献者并入已有集合
-        # （去重并保持首次出现顺序）。settle 贡献者因此能进入已有 Memory 及其
-        # 后续 Version Artifact；来源主体字段按约定保留不改写。
-        memory.meta.provenance.contributing_agent_ids = normalize_contributing_agent_ids(
-            [*memory.meta.provenance.contributing_agent_ids, *provenance.contributing_agent_ids]
-        )
-
-        logger.debug(
-            "[Mode C] UPDATE 内容已修订（待提交边界分配版本与内容时间）: memory_id=%s",
-            memory.id,
-        )
-
+        provenance = provenance_from_actor(from_actor, request.context)
         return [
-            GenerationOutcome(
-                atom=memory,
-                action=GenerationAction.UPDATE,
-                memory_before_snapshot=before_snapshot,
-                changelog=result.changelog,
-                cited_segments=cited_segments,
+            _revision_outcome(
+                existing,
+                revised,
+                edit_set,
+                contributors=provenance.contributing_agent_ids,
+                cited_segments=_cite(request.context, edit_set.source_segments),
             )
         ]
+
+    async def _revise(
+        self, request: GenerationRequest, uf: UpdateFocus, existing: MemoryAtom
+    ) -> tuple[MemoryEditSet, MemoryAtom] | None:
+        """请模型写出通过校验的编辑集；需要回退时返回 None，并记下原因。"""
+        transcript = self._render_transcript(request)
+
+        async def ask(retry: EditSetRetry | None) -> str | None:
+            return await self.extractor.revise(
+                existing,
+                instruction=uf.instruction,
+                new_content=uf.content,
+                transcript=transcript,
+                retry=retry,
+            )
+
+        try:
+            accepted = await self._edit_set_with_one_retry(ask, existing)
+        except ModelProviderError as error:
+            logger.warning(
+                "[Mode C] 修订改用回退: memory_id=%s, reason=model_provider_failed, "
+                "error_class=%s",
+                existing.id,
+                type(error).__name__,
+            )
+            return None
+        except EditSetError:
+            logger.warning(
+                "[Mode C] 修订改用回退: memory_id=%s, reason=invalid_edit_set", existing.id
+            )
+            return None
+        if accepted is None:
+            logger.warning("[Mode C] 修订改用回退: memory_id=%s, reason=no_model", existing.id)
+        return accepted
+
+    async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> GenerationOutcome | None:
+        """以保留记忆为底的修订：把被吸收记忆独有的内容写成对保留记忆的编辑集，纯计算。
+
+        标签只增加；类型、来源主体、别名与访问状态沿用保留记忆，
+        贡献者取两边的并集。空编辑集表示被吸收的内容保留记忆都已有：内容不变，仍产出一个
+        记下这次吸收的版本。不修改输入；版本与持久化由 Familiar 提交。未启用模型时没有产出。
+
+        Raises:
+            EditSetError: 带着错误重试一次后仍不能应用
+        """
+
+        async def ask(retry: EditSetRetry | None) -> str | None:
+            return await self.extractor.merge(retained, absorbed, retry=retry)
+
+        accepted = await self._edit_set_with_one_retry(ask, retained, adds_tags_only=True)
+        if accepted is None:
+            return None
+        edit_set, merged = accepted
+        return _revision_outcome(
+            retained,
+            merged,
+            edit_set,
+            contributors=absorbed.meta.provenance.contributing_agent_ids,
+            cited_segments=[],
+        )
+
+    async def _edit_set_with_one_retry(
+        self,
+        ask: Callable[[EditSetRetry | None], Awaitable[str | None]],
+        base: MemoryAtom,
+        *,
+        adds_tags_only: bool = False,
+    ) -> tuple[MemoryEditSet, MemoryAtom] | None:
+        """请模型写一份以 ``base`` 为底的编辑集；不合格时带着上一次的输出与错误再请一次。
+
+        修订与合并没有工具循环，一次带错误的重试是能给模型的最小反馈。返回编辑集与应用之后
+        的记忆（空编辑集时是 ``base`` 的副本）；没有模型时返回 None。
+
+        Raises:
+            EditSetError: 第二次的输出仍不能应用
+        """
+        output = await ask(None)
+        if output is None:
+            return None
+        try:
+            return _accept(output, base, adds_tags_only=adds_tags_only)
+        except EditSetError as rejection:
+            logger.info("编辑集不合格，带着错误重试一次")
+            retried = await ask((output, rejection))
+        return _accept(retried or "", base, adds_tags_only=adds_tags_only)
 
     async def _dedup_and_resolve(
         self,
@@ -704,6 +679,62 @@ class MemoryGenerationEngine:
                 content=draft.content,
             ),
         )
+
+
+def _accept(
+    output: str, base: MemoryAtom, *, adds_tags_only: bool
+) -> tuple[MemoryEditSet, MemoryAtom]:
+    """解析模型输出并以 ``base`` 为底应用；空编辑集表示不需要改。
+
+    合并的编辑集只增加标签：被吸收记忆的内容补进来，不拿走保留记忆原有的标签。
+    """
+    edit_set = parse_edit_set(output)
+    if adds_tags_only and edit_set.remove_tags:
+        raise EditSetError("a merge only adds tags; remove_tags must be empty")
+    if edit_set.is_empty:
+        return edit_set, base.model_copy(deep=True)
+    return edit_set, apply_edit_set(base, edit_set)
+
+
+def _revision_outcome(
+    base: MemoryAtom,
+    revised: MemoryAtom,
+    edit_set: MemoryEditSet,
+    *,
+    contributors: Collection[str],
+    cited_segments: list[CitedSegment],
+) -> GenerationOutcome:
+    """把以 ``base`` 为底应用编辑集得到的 ``revised`` 包成待提交的修订（纯计算）。
+
+    本次的贡献者并入已有集合，来源主体按约定保留不改写。版本、内容时间与置信度在
+    Familiar 的提交边界赋值；提交前基础的版本变了时，Familiar 以携带的编辑集重放到当前版本上。
+    """
+    revised.meta.provenance.contributing_agent_ids = normalize_contributing_agent_ids(
+        [*base.meta.provenance.contributing_agent_ids, *contributors]
+    )
+    return GenerationOutcome(
+        atom=revised,
+        action=GenerationAction.UPDATE,
+        memory_before_snapshot=base.model_copy(deep=True),
+        changelog=edit_set.changelog,
+        cited_segments=cited_segments,
+        edit_set=edit_set,
+    )
+
+
+def _update_fallback(
+    uf: UpdateFocus, existing: MemoryAtom, *, now: datetime
+) -> tuple[MemoryEditSet, MemoryAtom]:
+    """UPDATE 的回退：带内容就追加一段带日期的更新，只有指令就是空编辑集（不改）。"""
+    if not uf.content:
+        unchanged = MemoryEditSet(changelog=f"Fallback (无变更): {uf.instruction[:80]}")
+        return unchanged, existing.model_copy(deep=True)
+    section = f"## 更新 ({now.strftime('%Y-%m-%d')})\n{uf.content}"
+    appended = MemoryEditSet(
+        edits=[AppendEdit(op="append", text=section)],
+        changelog=f"Fallback 追加: {uf.instruction[:80]}",
+    )
+    return appended, apply_edit_set(existing, appended)
 
 
 def _cite(context: GenerationContext, labels: list[str]) -> list[CitedSegment]:

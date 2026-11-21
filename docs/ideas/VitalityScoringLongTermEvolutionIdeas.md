@@ -8,7 +8,7 @@ related_current:
   - docs/patchouli/lifecycle.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/retrieval.md
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-21
 ---
 
 # 生命力分数计算：长期演进方向
@@ -213,7 +213,7 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 ### 现状
 
 - Lifecycle 现在只有生命力计算、按生命力归档与显式复活；
-- 合并只作为写入时查重的后果存在（相似时先新建，再由合并任务融合），没有基于整个库的合并；
+- 合并只作为写入时查重的后果存在（相似时先新建，再由合并任务补进命中的记忆），没有基于整个库的合并；
 - 冲突检测需要记忆之间的关系，而关系层（`relates_to`、`supersedes`、`depends_on`）没有任何写入方；
 - 没有记忆的分裂；
 - 验证状态没有写入方。

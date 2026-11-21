@@ -19,7 +19,7 @@ last_reviewed: 2026-11-12
 - [统一语言设置与外部 Agent 文字的英文版](./language-setting-unification.md)：2026-11-12，PR #220；[全局 i18n](../../system/i18n.md)
 - [日常实例与开发实例分开](./daily-and-dev-instance-separation.md)：2026-11-12，PR #219；[安装与启动](../../help/setup.md#47-与桌面安装版同时开发)、[桌面客户端](../../frontend/desktop-client.md)
 - [正式的 Runtime Event 体系与全局运行页](./runtime-event-system-and-run-view.md)：2026-11-07，PR #193、#195；[运行时事件与可观测性](../../components/observability.md#11-一次运行)、[全局运行页](../../frontend/run-view.md)
-- [主动写入与被动提取的收敛](./generation-source-convergence.md)：2026-11-04，PR #176、#177、#178；[Patchouli 生成](../../patchouli/generation.md)、[合并版本冲突 Todo](../../todo/merge-version-conflict.md)
+- [主动写入与被动提取的收敛](./generation-source-convergence.md)：2026-11-04，PR #176、#177、#178；[Patchouli 生成](../../patchouli/generation.md)、合并版本冲突 Todo（已删除，最后版本在 `9ab2b431`）
 - [话题结算的多条提取、查重与更新](./settlement-multi-memory-extraction-and-dedup.md)：2026-11-01，PR #154、#155；[Patchouli 生成](../../patchouli/generation.md)、[查重 Todo](../../todo/generation-dedup-decision-signal.md)
 - [工具解析链路重写](./tool-call-parsing-chain.md)：2026-10-30，PR #147；[数据模型](../../architecture/data-model.md)、[感知与短期话题](../../patchouli/perception.md)
 - [Import Bus：只向网络输入的记忆来源](./import-bus.md)：2026-10-30，PR #137，后续方向不再跟踪；[Import Bus](../../system/import-bus.md)

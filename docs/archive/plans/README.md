@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-21
 ---
 
 # Archived Plans
@@ -14,6 +14,7 @@ last_reviewed: 2026-11-20
 
 ## v0.8.0
 
+- 写入时的更新：馆长修订、主动 UPDATE 与合并改用编辑集：2026-11-21，未合并（分支 `docs/v0.8.0-edit-set-revision-plan`）；删除前最后版本在 `dbc1e8ab`；[记忆生成](../../patchouli/generation.md#34-编辑集修订已有记忆的共同形式)、[写入链路](../../ideas/memory-flow-write-path.md#21-对照已有记忆判断与修订的形态)
 - 试验场第一版：在 HaluMem 上评测一次性生成与馆长：2026-11-20，PR #234；删除前最后版本在 `8ba22fc3`；[在 HaluMem 上评测记忆生成](../../help/halumem-evaluation.md)、[评测集](../../ideas/memory-evaluation-benchmarks.md#6-首个评测切片)
 - 馆长 agent：话题结算可选馆长，先看本话题的写入与库中相关记忆再写：2026-11-19，PR #231；删除前最后版本在 `96e7a701`；[记忆生成](../../patchouli/generation.md#31-mode-a被动观察--archive)、[System 配置](../../system/configuration.md)
 - 生成的记忆指向交互轮次：事件记下模型响应，记忆引用到段：2026-11-18，PR #228；删除前最后版本在 `84d95b22`；[记忆生成](../../patchouli/generation.md#22-段标签与记忆引用)、[感知与短期话题](../../patchouli/perception.md#2-结构化摄入)

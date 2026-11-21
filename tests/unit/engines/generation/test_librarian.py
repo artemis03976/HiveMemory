@@ -1,4 +1,4 @@
-"""Librarian 单元测试：动作循环、步数预算、五个工具与模型服务失败的传播。"""
+"""Librarian 单元测试：动作循环、步数预算、六个工具（含修订的四项校验）与模型服务失败的传播。"""
 
 import json
 from uuid import uuid4
@@ -14,7 +14,10 @@ from hivememory.engines.generation.librarian import Librarian
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.memory_library.stores import MidTermMemoryStore
 from tests.helpers.llm import ScriptedLLMService
-from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
+from tests.helpers.memory import (
+    make_memory_identity_scope,
+    make_memory_metadata,
+)
 
 WORKSPACE = make_memory_identity_scope().workspace_identity
 # 话题结算的发起者：Workspace owner 加保留的 system agent，只读得到 PUBLIC 记忆。
@@ -110,7 +113,10 @@ FINISH = _action("finish")
 
 
 def _librarian(
-    llm: ScriptedLLMService, *memories: MemoryAtom, max_steps: int = 12, search_top_k: int = 5
+    llm: ScriptedLLMService,
+    *memories: MemoryAtom,
+    max_steps: int = 12,
+    search_top_k: int = 5,
 ) -> Librarian:
     return Librarian(
         mid_term=MidTermMemoryStore(primary=_MemoryPort(*memories)),  # type: ignore[arg-type]
@@ -145,9 +151,9 @@ class TestLibrarianLoop:
         written = _memory("agent_write")
         llm = ScriptedLLMService(_action("list_topic_writes"), _write(), FINISH)
 
-        drafts = await _settle(_librarian(llm, written), written)
+        result = await _settle(_librarian(llm, written), written)
 
-        assert [draft.title for draft in drafts] == ["新的结论"]
+        assert [draft.title for draft in result.drafts] == ["新的结论"]
         assert _replies(llm)[0] == {
             "tool": "list_topic_writes",
             "result": [
@@ -170,28 +176,28 @@ class TestLibrarianLoop:
         """无法解析或工具不存在时把错误交回模型，计一步，循环继续。"""
         llm = ScriptedLLMService(output, _write(), FINISH)
 
-        drafts = await _settle(_librarian(llm, max_steps=3))
+        result = await _settle(_librarian(llm, max_steps=3))
 
         first = _replies(llm)[0]
         assert ("error" in first, first["steps_left"]) == (True, 2)
-        assert [draft.title for draft in drafts] == ["新的结论"]
+        assert [draft.title for draft in result.drafts] == ["新的结论"]
 
     @pytest.mark.asyncio
     async def test_staged_drafts_are_returned_when_steps_run_out(self):
         """步数用完时不再调用模型，已暂存的草稿照常返回。"""
         llm = ScriptedLLMService(_write("第一条"), _write("第二条"))
 
-        drafts = await _settle(_librarian(llm, max_steps=2))
+        result = await _settle(_librarian(llm, max_steps=2))
 
-        assert [draft.title for draft in drafts] == ["第一条", "第二条"]
+        assert [draft.title for draft in result.drafts] == ["第一条", "第二条"]
 
     @pytest.mark.asyncio
     async def test_invalid_write_arguments_return_an_error_without_staging(self):
         llm = ScriptedLLMService(_write(content=None), FINISH)
 
-        drafts = await _settle(_librarian(llm))
+        result = await _settle(_librarian(llm))
 
-        assert drafts == []
+        assert result.drafts == []
         assert "content" in _replies(llm)[0]["error"]
 
     @pytest.mark.parametrize(
@@ -295,3 +301,86 @@ class TestLibrarianTools:
         await _settle(_librarian(llm, memory))
 
         assert memory.meta.lifecycle == before
+
+
+def _revise(alias: str, *edits: dict, **fields) -> str:
+    return _action("revise_memory", alias=alias, edits=list(edits), changelog="改了", **fields)
+
+
+def _replace(field: str, old: str, new: str) -> dict:
+    return {"op": "replace", "field": field, "old": old, "new": new}
+
+
+class TestLibrarianRevisions:
+    @pytest.mark.asyncio
+    async def test_a_revision_of_a_memory_read_in_this_run_is_staged(self):
+        """读过之后修订：以读到的那一版为底的编辑集被暂存。"""
+        memory = _memory("deploy_rule")
+        llm = ScriptedLLMService(
+            _action("read_memory", alias="deploy_rule"),
+            _revise(
+                "deploy_rule",
+                _replace("content", "deploy_rule 的正文", "改为手动部署"),
+                source_segments=["1.1"],
+            ),
+            FINISH,
+        )
+
+        result = await _settle(_librarian(llm, memory))
+
+        [revision] = result.revisions
+        assert (revision.base, revision.edit_set.source_segments) == (memory, ["1.1"])
+        assert _replies(llm)[1]["result"] == {"revised": "deploy_rule"}
+
+    @pytest.mark.parametrize(
+        ("actions", "error_key"),
+        [
+            ([_revise("deploy_rule", _replace("content", "deploy_rule 的正文", "x"))], "unread"),
+            (
+                [
+                    _action("read_memory", alias="deploy_rule"),
+                    _revise("deploy_rule", _replace("content", "并不存在的原文", "x")),
+                ],
+                "invalid",
+            ),
+        ],
+        ids=["unread", "invalid-edit-set"],
+    )
+    @pytest.mark.asyncio
+    async def test_a_revision_that_fails_a_check_is_an_error_and_is_not_staged(
+        self, actions, error_key
+    ):
+        """没读过或编辑集不能应用时，错误交回模型并计一步，不暂存。"""
+        memory = _memory("deploy_rule")
+        llm = ScriptedLLMService(*actions, FINISH)
+
+        result = await _settle(_librarian(llm, memory))
+
+        last = _replies(llm)[len(actions) - 1]
+        assert (result.revisions, "error" in last, last["steps_left"]) == (
+            [],
+            True,
+            12 - len(actions),
+        )
+        assert {
+            "unread": "read_memory",
+            "invalid": "edit 1 (replace in content)",
+        }[
+            error_key
+        ] in last["error"]
+
+    @pytest.mark.asyncio
+    async def test_a_memory_is_revised_at_most_once_per_settlement(self):
+        """同一条记忆第二次修订返回错误，只保留第一次；几处修改应放进同一个编辑集。"""
+        memory = _memory("deploy_rule")
+        llm = ScriptedLLMService(
+            _action("read_memory", alias="deploy_rule"),
+            _revise("deploy_rule", _replace("content", "deploy_rule 的正文", "第一次")),
+            _revise("deploy_rule", _replace("content", "deploy_rule 的正文", "第二次")),
+            FINISH,
+        )
+
+        result = await _settle(_librarian(llm, memory))
+
+        assert [r.edit_set.edits[0].new for r in result.revisions] == ["第一次"]
+        assert "error" in _replies(llm)[2]

@@ -38,8 +38,8 @@ from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationOutcome,
     GenerationRequest,
+    MemoryEditSet,
     MemoryProvenance,
-    RevisionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,8 +55,8 @@ __all__ = [
     "GenerationAction",
     "GenerationOutcome",
     "GenerationRequest",
+    "MemoryEditSet",
     "MemoryProvenance",
-    "RevisionResult",
     # 记忆提取
     "LLMMemoryExtractor",
     "NoOpMemoryExtractor",
