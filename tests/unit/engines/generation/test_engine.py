@@ -42,7 +42,7 @@ from hivememory.core.models import (
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType
 from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
-from hivememory.engines.generation.edits import EditSetError, IndexDriftError
+from hivememory.engines.generation.edits import EditSetError
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.extractor import (
     LLMMemoryExtractor,
@@ -67,7 +67,6 @@ from hivememory.engines.generation.models import (
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.memory import (
-    make_drift_guard,
     make_memory_identity_scope,
     make_memory_metadata,
 )
@@ -184,7 +183,6 @@ class TestGenerationEngineRouting:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
-            drift_guard=make_drift_guard(),
         )
 
     @pytest.mark.asyncio
@@ -290,7 +288,6 @@ class TestGenerationEngineModeA:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
-            drift_guard=make_drift_guard(),
         )
 
     @pytest.mark.asyncio
@@ -510,7 +507,6 @@ class TestGenerationEngineModeB:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
-            drift_guard=make_drift_guard(),
         )
 
     @pytest.mark.asyncio
@@ -657,10 +653,10 @@ def _replace(field: str, old: str, new: str) -> dict:
 
 
 class TestGenerationEngineModeC:
-    """Mode C (UPDATE 修订)：模型给出编辑集并经过漂移拦截；不合格时带着错误重试一次，
+    """Mode C (UPDATE 修订)：模型给出编辑集；不合格时带着错误重试一次，
     仍不合格、提供商失败或没有模型时回退，回退只改正文。"""
 
-    def _engine(self, *outputs, similarity: float | None = 1.0, extractor=None):
+    def _engine(self, *outputs, extractor=None):
         return MemoryGenerationEngine(
             mid_term=Mock(),
             extractor=extractor
@@ -668,7 +664,6 @@ class TestGenerationEngineModeC:
                 ExtractorConfig(), ScriptedLLMService(*outputs), LLMRequestParams(model="m")
             ),
             deduplicator=Mock(),
-            drift_guard=make_drift_guard(similarity=similarity),
         )
 
     async def _update(self, engine, existing, *, content=None, context=None):
@@ -775,20 +770,18 @@ class TestGenerationEngineModeC:
         [
             (_edit_set_json(_replace("content", "并不存在的原文", "x")), "edit 1"),
             ("这不是 JSON", "not a JSON object"),
-            (_edit_set_json(_replace("title", "已有记忆", "另一件事")), "0.500"),
         ],
-        ids=["not-applicable", "unparsable", "drifting"],
+        ids=["not-applicable", "unparsable"],
     )
     async def test_mode_c_retries_once_with_the_error_before_falling_back(
         self, first_output, reason_in_retry
     ):
-        """第一次的输出不能应用、无法解析或被漂移拦截：把它与被拒的原因交回模型再要一次，
+        """第一次的输出不能应用或无法解析：把它与被拒的原因交回模型再要一次，
         第二次合格就照常修订。"""
         llm = ScriptedLLMService(
             first_output, _edit_set_json(_replace("content", "旧内容", "改对了"))
         )
         engine = self._engine(
-            similarity=0.5,
             extractor=LLMMemoryExtractor(ExtractorConfig(), llm, LLMRequestParams(model="m")),
         )
 
@@ -802,30 +795,19 @@ class TestGenerationEngineModeC:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("outputs", "similarity", "noop"),
+        ("outputs", "noop"),
         [
-            (
-                [_edit_set_json(_replace("content", "并不存在的原文", "x"))] * 2,
-                1.0,
-                False,
-            ),
-            ([_edit_set_json(_replace("title", "已有记忆", "另一件事"))] * 2, 0.5, False),
-            ([ModelProviderError("down"), ModelProviderError("still down")], 1.0, False),
-            ([], 1.0, True),
+            ([_edit_set_json(_replace("content", "并不存在的原文", "x"))] * 2, False),
+            ([ModelProviderError("down"), ModelProviderError("still down")], False),
+            ([], True),
         ],
-        ids=["still-invalid", "still-drifting", "provider-failure", "no-model"],
+        ids=["still-invalid", "provider-failure", "no-model"],
     )
-    async def test_mode_c_falls_back_to_appending_without_touching_the_index(
-        self, outputs, similarity, noop
-    ):
+    async def test_mode_c_falls_back_to_appending_without_touching_the_index(self, outputs, noop):
         """重试后仍不合格、提供商失败或没有模型时，以提交时点日期把新内容追加到正文；
         标题、摘要与标签不变，内容不因模型没能写成编辑集而丢失。"""
         existing = _make_memory()
-        engine = self._engine(
-            *outputs,
-            similarity=similarity,
-            extractor=NoOpMemoryExtractor() if noop else None,
-        )
+        engine = self._engine(*outputs, extractor=NoOpMemoryExtractor() if noop else None)
 
         [outcome] = await self._update(engine, existing, content="追加内容")
 
@@ -872,7 +854,6 @@ class TestGenerationEngineDedup:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
-            drift_guard=make_drift_guard(),
         )
 
     @pytest.mark.asyncio
@@ -1043,7 +1024,6 @@ class TestCitedSegments:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
-            drift_guard=make_drift_guard(),
         )
         self.identity = make_memory_identity_scope()
 
@@ -1168,13 +1148,11 @@ class TestGenerationEngineSettleMode:
             mid_term=self.mock_storage,
             extractor=extractor or self.mock_extractor,
             deduplicator=MemoryDeduplicator(config.deduplicator),
-            drift_guard=make_drift_guard(),
             librarian=create_librarian(
                 config,
                 mid_term=self.mock_storage,
                 llm_service=llm,
                 llm_params=LLMRequestParams(model="test-model"),
-                drift_guard=make_drift_guard(),
             ),
         )
 
@@ -1300,7 +1278,6 @@ class TestGenerationEngineHelpers:
             mid_term=Mock(),
             extractor=Mock(),
             deduplicator=Mock(),
-            drift_guard=make_drift_guard(),
         )
 
     def test_render_transcript(self):
@@ -1362,16 +1339,15 @@ class TestGenerationEngineHelpers:
 
 
 class TestMemoryMerge:
-    """合并以保留记忆为底：被吸收记忆独有的内容写成对保留记忆的编辑集，经同一道漂移拦截。"""
+    """合并以保留记忆为底：被吸收记忆独有的内容写成对保留记忆的编辑集。"""
 
-    def _engine(self, *outputs, similarity: float = 1.0) -> MemoryGenerationEngine:
+    def _engine(self, *outputs) -> MemoryGenerationEngine:
         return MemoryGenerationEngine(
             mid_term=Mock(),
             extractor=LLMMemoryExtractor(
                 ExtractorConfig(), ScriptedLLMService(*outputs), LLMRequestParams(model="m")
             ),
             deduplicator=Mock(),
-            drift_guard=make_drift_guard(similarity=similarity),
         )
 
     def _pair(self):
@@ -1437,23 +1413,18 @@ class TestMemoryMerge:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("output", "similarity", "error"),
+        "output",
         [
-            (_edit_set_json(_replace("content", "并不存在的原文", "x")), 1.0, EditSetError),
-            (_edit_set_json(_replace("title", "已有记忆", "另一件事")), 0.5, IndexDriftError),
-            (
-                json.dumps({"edits": [], "remove_tags": ["t"], "changelog": "去掉标签"}),
-                1.0,
-                EditSetError,
-            ),
+            _edit_set_json(_replace("content", "并不存在的原文", "x")),
+            json.dumps({"edits": [], "remove_tags": ["t"], "changelog": "去掉标签"}),
         ],
-        ids=["invalid", "drifting", "removes-tags"],
+        ids=["invalid", "removes-tags"],
     )
-    async def test_merge_rejected_twice_raises_the_rejection(self, output, similarity, error):
-        """编辑集带着错误重试一次后仍不能应用、仍被拦截，或要删去保留记忆的标签时，抛出拒绝，
+    async def test_merge_rejected_twice_raises_the_rejection(self, output):
+        """编辑集带着错误重试一次后仍不能应用，或要删去保留记忆的标签时，抛出拒绝，
         由提交一侧中止合并。"""
         retained, absorbed = self._pair()
-        engine = self._engine(output, output, similarity=similarity)
+        engine = self._engine(output, output)
 
-        with pytest.raises(error):
+        with pytest.raises(EditSetError):
             await engine.merge(retained, absorbed)

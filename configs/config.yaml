@@ -121,9 +121,6 @@ patchouli:
     librarian:
       max_steps: 12
       search_top_k: 5
-    # 修订已有记忆（馆长的修订、主动 UPDATE、查重提名的合并）时，修改前后两版索引
-    # 稠密向量的最低余弦相似度；低于它说明这条记忆被改成了另一件事，修订被拒绝
-    revision_min_index_similarity: 0.85
     deduplicator:
       enabled: true
       high_similarity_threshold: 0.95

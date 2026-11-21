@@ -72,7 +72,6 @@ from hivememory.patchouli.services.memory_generation import MemoryGenerationFami
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
-from tests.helpers.memory import make_drift_guard
 
 
 class _VectorStore:
@@ -217,7 +216,6 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
             mid_term=mid_term,
             extractor=extractor,
             deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-            drift_guard=make_drift_guard(),
         ),
         memory_library=library,
         artifact_engine=ArtifactEngine.from_store(artifacts, ArtifactConfig()),

@@ -18,7 +18,7 @@ last_reviewed: 2026-11-20
 
 版本目标：生成核心的升级（Claude 整理，待 owner 确认），摘要见 [ROADMAP](../ROADMAP.md) 第 3 节；设计见总纲[记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)；v0.8 的评测由试验场承载，见[孵化场、试验场与垃圾回收场](../ideas/experiment-field.md)第 6 节。
 
-- [写入时的更新：馆长修订、主动 UPDATE 与合并改用编辑集](./v0.8.0-edit-set-revision.md)：共用的编辑集与漂移拦截、馆长的修订工具与提交时的重放、Mode C 与合并的编辑集与重试，以及在 HaluMem 上与第一次评测对照。
+- [写入时的更新：馆长修订、主动 UPDATE 与合并改用编辑集](./v0.8.0-edit-set-revision.md)：共用的编辑集、馆长的修订工具与提交时的重放、Mode C 与合并的编辑集与重试，以及在 HaluMem 上与第一次评测对照。
 - 记忆类型的收敛、AgentProfileStore、生成的记忆指向交互轮次、馆长 agent 与试验场第一版：已完成，见 [Archived Plans](../archive/plans/README.md#v080)。
 
 ## 已发布的版本

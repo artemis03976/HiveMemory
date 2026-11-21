@@ -75,12 +75,10 @@ from hivememory.core.errors.model import ModelProviderError
 from hivememory.core.models import WorkspaceIdentity, system_actor_for_workspace
 from hivememory.engines.generation import extractor as extractor_module
 from hivememory.engines.generation import librarian as librarian_module
-from hivememory.engines.generation.edits import IndexDriftGuard
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.librarian import Librarian
 from hivememory.engines.generation.models import GenerationContext
 from hivememory.i18n import Language, get_generation_prompt_text, set_language
-from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.infrastructure.llm.base import (
     BaseLLMService,
     LLMCompletion,
@@ -325,7 +323,6 @@ class Workbench:
         params: LLMRequestParams,
         extractor_config: ExtractorConfig,
         librarian_config: LibrarianConfig,
-        drift_guard: IndexDriftGuard,
         mid_term: MidTermMemoryStore,
         storage: QdrantConfig,
         belong_to: WorkspaceIdentity,
@@ -338,7 +335,6 @@ class Workbench:
         self._params = params
         self._extractor_config = extractor_config
         self._librarian_config = librarian_config
-        self._drift_guard = drift_guard
         self._mid_term = mid_term
         self._storage = storage
         self._belong_to = belong_to
@@ -499,7 +495,6 @@ class Workbench:
                         llm_service=recorder,
                         llm_params=self._params,
                         config=self._librarian_config,
-                        drift_guard=self._drift_guard,
                     )
                 try:
                     result = await librarian.settle(
@@ -669,11 +664,6 @@ def main(argv: list[str] | None = None) -> None:
         params=params,
         extractor_config=extractor_config,
         librarian_config=config.patchouli.generation.librarian,
-        # 与组合根相同：漂移拦截用中期库编码记忆的同一个嵌入服务（进程内单例）。
-        drift_guard=IndexDriftGuard(
-            get_bge_m3_service(config=config.shared.embedding.default),
-            min_similarity=config.patchouli.generation.revision_min_index_similarity,
-        ),
         mid_term=mid_term,
         storage=storage,
         belong_to=WorkspaceIdentity(

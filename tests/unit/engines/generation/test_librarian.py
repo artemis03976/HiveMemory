@@ -15,7 +15,6 @@ from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.memory_library.stores import MidTermMemoryStore
 from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.memory import (
-    make_drift_guard,
     make_memory_identity_scope,
     make_memory_metadata,
 )
@@ -118,14 +117,12 @@ def _librarian(
     *memories: MemoryAtom,
     max_steps: int = 12,
     search_top_k: int = 5,
-    similarity: float = 1.0,
 ) -> Librarian:
     return Librarian(
         mid_term=MidTermMemoryStore(primary=_MemoryPort(*memories)),  # type: ignore[arg-type]
         llm_service=llm,
         llm_params=PARAMS,
         config=LibrarianConfig(max_steps=max_steps, search_top_k=search_top_k),
-        drift_guard=make_drift_guard(similarity=similarity, min_similarity=0.85),
     )
 
 
@@ -317,7 +314,7 @@ def _replace(field: str, old: str, new: str) -> dict:
 class TestLibrarianRevisions:
     @pytest.mark.asyncio
     async def test_a_revision_of_a_memory_read_in_this_run_is_staged(self):
-        """读过之后修订：以读到的那一版为底的编辑集被暂存，结果带索引相似度。"""
+        """读过之后修订：以读到的那一版为底的编辑集被暂存。"""
         memory = _memory("deploy_rule")
         llm = ScriptedLLMService(
             _action("read_memory", alias="deploy_rule"),
@@ -333,44 +330,31 @@ class TestLibrarianRevisions:
 
         [revision] = result.revisions
         assert (revision.base, revision.edit_set.source_segments) == (memory, ["1.1"])
-        assert _replies(llm)[1]["result"] == {"revised": "deploy_rule", "index_similarity": 1.0}
+        assert _replies(llm)[1]["result"] == {"revised": "deploy_rule"}
 
     @pytest.mark.parametrize(
-        ("actions", "similarity", "error_key"),
+        ("actions", "error_key"),
         [
-            (
-                [_revise("deploy_rule", _replace("content", "deploy_rule 的正文", "x"))],
-                1.0,
-                "unread",
-            ),
+            ([_revise("deploy_rule", _replace("content", "deploy_rule 的正文", "x"))], "unread"),
             (
                 [
                     _action("read_memory", alias="deploy_rule"),
                     _revise("deploy_rule", _replace("content", "并不存在的原文", "x")),
                 ],
-                1.0,
                 "invalid",
             ),
-            (
-                [
-                    _action("read_memory", alias="deploy_rule"),
-                    _revise("deploy_rule", _replace("title", "deploy_rule 的标题", "另一件事")),
-                ],
-                0.5,
-                "drift",
-            ),
         ],
-        ids=["unread", "invalid-edit-set", "index-drift"],
+        ids=["unread", "invalid-edit-set"],
     )
     @pytest.mark.asyncio
     async def test_a_revision_that_fails_a_check_is_an_error_and_is_not_staged(
-        self, actions, similarity, error_key
+        self, actions, error_key
     ):
-        """没读过、编辑集不能应用或被漂移拦截时，错误交回模型并计一步，不暂存。"""
+        """没读过或编辑集不能应用时，错误交回模型并计一步，不暂存。"""
         memory = _memory("deploy_rule")
         llm = ScriptedLLMService(*actions, FINISH)
 
-        result = await _settle(_librarian(llm, memory, similarity=similarity))
+        result = await _settle(_librarian(llm, memory))
 
         last = _replies(llm)[len(actions) - 1]
         assert (result.revisions, "error" in last, last["steps_left"]) == (
@@ -381,8 +365,9 @@ class TestLibrarianRevisions:
         assert {
             "unread": "read_memory",
             "invalid": "edit 1 (replace in content)",
-            "drift": "0.500",
-        }[error_key] in last["error"]
+        }[
+            error_key
+        ] in last["error"]
 
     @pytest.mark.asyncio
     async def test_a_memory_is_revised_at_most_once_per_settlement(self):

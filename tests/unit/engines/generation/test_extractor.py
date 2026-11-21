@@ -19,7 +19,7 @@ import pytest
 from hivememory.config.patchouli import ExtractorConfig
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
-from hivememory.engines.generation.edits import EditSetError, IndexDriftError
+from hivememory.engines.generation.edits import EditSetError
 from hivememory.engines.generation.extractor import LLMMemoryExtractor, NoOpMemoryExtractor
 from hivememory.i18n import set_language
 from hivememory.infrastructure.llm.base import (
@@ -330,19 +330,10 @@ async def test_merge_sends_both_memories_and_newer_marker(language):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("rejection", "reason"),
-    [
-        (
-            EditSetError("edit 1 (replace in content): the old text does not occur"),
-            "edit 1 (replace in content): the old text does not occur",
-        ),
-        (IndexDriftError(0.512, 0.85), "0.512"),
-    ],
-    ids=["not-applicable", "drifting"],
-)
-async def test_retry_appends_the_previous_output_and_why_it_was_rejected(rejection, reason):
-    """重试时原对话不变，其后接上一次的输出与被拒的原因；两种原因各有一段文本。"""
+async def test_retry_appends_the_previous_output_and_why_it_was_rejected():
+    """重试时原对话不变，其后接上一次的输出与被拒的原因。"""
+    reason = "edit 1 (replace in content): the old text does not occur"
+    rejection = EditSetError(reason)
     llm = ScriptedLLMService(_EDIT_SET_JSON, _EDIT_SET_JSON)
     extractor = _extractor(llm)
 

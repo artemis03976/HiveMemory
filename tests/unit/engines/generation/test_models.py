@@ -1,5 +1,5 @@
 """生成流水线的模型：ExtractedMemoryDraft 草稿入口把 LLM 越界输出截断到 IndexLayer 上限；
-编辑集的解析、应用、重放与漂移拦截。"""
+编辑集的解析、应用与重放。"""
 
 import pytest
 
@@ -7,13 +7,12 @@ from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLa
 from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH, MEMORY_TITLE_MAX_LENGTH
 from hivememory.engines.generation.edits import (
     EditSetError,
-    IndexDriftError,
     apply_edit_set,
     parse_edit_set,
     rebase_edit_set,
 )
 from hivememory.engines.generation.models import ExtractedMemoryDraft, MemoryEditSet
-from tests.helpers.memory import make_drift_guard, make_memory_metadata
+from tests.helpers.memory import make_memory_metadata
 
 
 def _draft(**overrides) -> ExtractedMemoryDraft:
@@ -234,39 +233,3 @@ def test_rebasing_keeps_changes_made_elsewhere_and_unions_contributors():
     assert rebased.payload.content == "用户计划去京都和大阪，预算 3000 USD。"
     assert rebased.meta.version == current.meta.version
     assert rebased.meta.provenance.contributing_agent_ids == ("a1", "editor", "settler")
-
-
-@pytest.mark.asyncio
-async def test_drift_guard_does_not_encode_a_body_only_change():
-    """只改了正文时两版索引的编译文本相同，相似度为 1，不调用嵌入服务。"""
-    memory = _memory()
-    revised = apply_edit_set(memory, _edit_set({"op": "append", "text": "补充"}))
-
-    assert await make_drift_guard(similarity=None).check(memory, revised) == 1.0
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("similarity", [0.9, 0.85])
-async def test_drift_guard_passes_an_index_change_at_or_above_the_threshold(similarity):
-    memory = _memory()
-    revised = apply_edit_set(memory, _edit_set(_replace("title", "5000 USD", "3000 USD")))
-
-    similarity_seen = await make_drift_guard(similarity=similarity, min_similarity=0.85).check(
-        memory, revised
-    )
-
-    assert similarity_seen == pytest.approx(similarity)
-
-
-@pytest.mark.asyncio
-async def test_drift_guard_rejects_an_index_change_below_the_threshold():
-    memory = _memory()
-    revised = apply_edit_set(memory, _edit_set(_replace("title", "5000 USD", "3000 USD")))
-
-    with pytest.raises(IndexDriftError) as raised:
-        await make_drift_guard(similarity=0.84, min_similarity=0.85).check(memory, revised)
-
-    assert (raised.value.similarity, raised.value.min_similarity) == (
-        pytest.approx(0.84),
-        0.85,
-    )

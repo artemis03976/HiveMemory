@@ -47,7 +47,7 @@ from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.alias import fallback_alias
-from hivememory.engines.generation.edits import EditSetError, IndexDriftError, rebase_edit_set
+from hivememory.engines.generation.edits import EditSetError, rebase_edit_set
 from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationContext,
@@ -351,8 +351,7 @@ class MemoryGenerationFamiliar:
         同一 Workspace 的合并依次执行，从读取两条记忆到写回、删除都在门内：两个合并不会
         同时写同一条保留记忆，也不会在模型调用期间删掉对方的目标。几次提名串成一串时，
         无论哪个先执行，内容都依次进入同一条记忆。保留记忆已被另一次合并吸收时，沿吸收关系
-        改指仍然存在的那条。编辑集不能应用或被漂移拦截时中止，两条都保留：要大改标题与摘要
-        才能概括两条，说明它们讲的不是同一件事。
+        改指仍然存在的那条。编辑集带着错误重试一次后仍不能应用时中止，两条都保留。
         """
         async with self._merge_gate.hold(spec.belong_to):
             retained = await self._mid_term.get(
@@ -371,8 +370,6 @@ class MemoryGenerationFamiliar:
                 outcome = await self._generation_engine.merge(retained, absorbed)
             except EditSetError as error:
                 raise MemoryMergeAbortedError(details={"reason": "model_output_invalid"}) from error
-            except IndexDriftError as error:
-                raise MemoryMergeAbortedError(details={"reason": "index_drift"}) from error
             if outcome is None:
                 raise MemoryMergeAbortedError(details={"reason": "model_output_invalid"})
 

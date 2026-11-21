@@ -26,7 +26,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
 )
-from tests.helpers.memory import make_drift_guard, make_memory_identity_scope
+from tests.helpers.memory import make_memory_identity_scope
 from tests.helpers.workspace import make_workspace_identity
 
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
@@ -279,7 +279,6 @@ async def test_engine_create_uses_generator_disambiguated_alias():
         mid_term=store,
         extractor=_Extractor(draft),
         deduplicator=_CreateDeduplicator(),
-        drift_guard=make_drift_guard(),
     )
 
     outcomes = await engine.process(

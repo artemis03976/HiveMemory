@@ -46,7 +46,7 @@ from hivememory.core.models.artifact import (
 from hivememory.core.models.pending import UpdateFocus, WriteFocus
 from hivememory.engines.artifacts.interaction import InteractionArtifactBuilder
 from hivememory.engines.artifacts.memory import MemoryArtifactBuilder, MemoryCreationBundle
-from hivememory.engines.generation.edits import EditSetError, IndexDriftError, apply_edit_set
+from hivememory.engines.generation.edits import EditSetError, apply_edit_set
 from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationContext,
@@ -1432,7 +1432,6 @@ async def test_merge_with_an_empty_edit_set_still_records_the_absorption():
         "same_memory",
         "model_output",
         "invalid_edit_set",
-        "index_drift",
     ],
 )
 async def test_merge_rejects_invalid_inputs_without_writing(failure):
@@ -1463,9 +1462,6 @@ async def test_merge_rejects_invalid_inputs_without_writing(failure):
     elif failure == "invalid_edit_set":
         engine.merge.side_effect = EditSetError("the old text does not occur")
         reason = "model_output_invalid"
-    elif failure == "index_drift":
-        engine.merge.side_effect = IndexDriftError(0.5, 0.85)
-        reason = "index_drift"
     before = {key: value.model_copy(deep=True) for key, value in store.memories.items()}
 
     with pytest.raises(MemoryMergeAbortedError) as raised:

@@ -1,15 +1,13 @@
 """
-HiveMemory - 编辑集的应用与漂移拦截
+HiveMemory - 编辑集的应用
 
 馆长的修订、主动 UPDATE 与查重提名的合并都以编辑集改一条已有记忆：正文、标题与摘要的片段
 替换，正文的追加与整篇改写，标签的逐个增删。整篇重写在多次修订中会让细节漂移；片段替换要求
 原文逐字出现且只出现一次，模型因此有了“只改变化的那一处”的选项。
 
-检索与查重的向量只由标题、类型、标签与摘要编译，不含正文。修订让这几项一起变化时，落地之前
-比较修改前后两版的稠密向量：余弦相似度低于阈值说明这条记忆被改成了另一件事，拒绝这次修订。
+检索与查重的向量只由标题、类型、标签与摘要编译，不含正文。这几项只能片段替换、逐个增删，
+类型不变，索引因此只会有限度地变化；不再另外比较修改前后的向量。
 """
-
-import math
 
 from pydantic import ValidationError
 
@@ -22,11 +20,7 @@ from hivememory.engines.generation.models import (
     ReplaceEdit,
     RewriteEdit,
 )
-from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
-from hivememory.infrastructure.embedding.base import BaseEmbeddingService
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
-
-_compiler = MemoryCompiler()
 
 _INDEX_LIMITS = {"title": MEMORY_TITLE_MAX_LENGTH, "summary": MEMORY_SUMMARY_MAX_LENGTH}
 
@@ -35,20 +29,8 @@ class EditSetError(ValueError):
     """编辑集不能以给定的记忆为底应用；说明指出第几处编辑与原因，原样交回模型。"""
 
 
-class IndexDriftError(Exception):
-    """修改前后两版索引的稠密相似度低于阈值：这条记忆的标题、标签或摘要变化过大。"""
-
-    def __init__(self, similarity: float, min_similarity: float) -> None:
-        super().__init__(
-            f"index similarity {similarity:.3f} is below {min_similarity:.3f}: the title, tags "
-            "or summary changed too much"
-        )
-        self.similarity = similarity
-        self.min_similarity = min_similarity
-
-
 # 上一次的模型输出与它被拒的原因；修订与合并带着它再请模型写一次编辑集。
-type EditSetRetry = tuple[str, EditSetError | IndexDriftError]
+type EditSetRetry = tuple[str, EditSetError]
 
 
 def parse_edit_set(text: str) -> MemoryEditSet:
@@ -182,55 +164,9 @@ def _normalize_tag(tag: str) -> str:
     return tag.lower().strip()
 
 
-class IndexDriftGuard:
-    """比较一次修改前后两版索引的稠密向量，余弦相似度低于阈值时拒绝。
-
-    向量输入与中期库编码记忆时相同（``DENSE_EMBEDDING`` 的编译文本），由同一个嵌入服务编码，
-    因此相似度反映检索与查重实际看到的变化。比较的是这一次修改的前后两版，不与最初的版本比较。
-    """
-
-    def __init__(self, embedding_service: BaseEmbeddingService, *, min_similarity: float) -> None:
-        self._embedding_service = embedding_service
-        self.min_similarity = min_similarity
-
-    async def check(self, before: MemoryAtom, after: MemoryAtom) -> float:
-        """返回两版索引的稠密相似度；只改了正文时两段编译文本相同，相似度为 1，不编码。
-
-        Raises:
-            IndexDriftError: 相似度低于阈值
-        """
-        before_text = _compiler.compile(before, MemoryCompileTarget.DENSE_EMBEDDING).text
-        after_text = _compiler.compile(after, MemoryCompileTarget.DENSE_EMBEDDING).text
-        if before_text == after_text:
-            return 1.0
-        vectors = await self._embedding_service.encode(dense_texts=[before_text, after_text])
-        similarity = _cosine(*_two_vectors(vectors))
-        if similarity < self.min_similarity:
-            raise IndexDriftError(similarity, self.min_similarity)
-        return similarity
-
-
-def _two_vectors(output: object) -> tuple[list[float], list[float]]:
-    """批量编码两段文本的结果；嵌入服务推理失败时退化为空向量，这里显式失败而不是放行。"""
-    if (
-        not isinstance(output, list)
-        or len(output) != 2
-        or not all(isinstance(vector, list) and vector for vector in output)
-    ):
-        raise RuntimeError("嵌入服务没有为修改前后的索引返回两条稠密向量")
-    return output[0], output[1]
-
-
-def _cosine(left: list[float], right: list[float]) -> float:
-    dot = sum(a * b for a, b in zip(left, right, strict=True))
-    return dot / (math.sqrt(sum(a * a for a in left)) * math.sqrt(sum(b * b for b in right)))
-
-
 __all__ = [
     "EditSetError",
     "EditSetRetry",
-    "IndexDriftError",
-    "IndexDriftGuard",
     "apply_edit_set",
     "describe_validation_error",
     "parse_edit_set",

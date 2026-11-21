@@ -76,7 +76,7 @@ from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, CallbackLLMService
-from tests.helpers.memory import make_drift_guard, make_memory_metadata
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -365,7 +365,6 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
         mid_term=chain.store,
         extractor=LLMMemoryExtractor(ExtractorConfig(), llm, DEFAULT_LLM_PARAMS),
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-        drift_guard=make_drift_guard(),
     )
     familiar = MemoryGenerationFamiliar(
         generation_engine=engine,

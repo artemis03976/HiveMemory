@@ -13,7 +13,7 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 话题结算选馆长时，Step 1-2 由馆长的探索循环代替：草稿全部新建，不经过查重；对已有记忆的
 修订成为以馆长读到的版本为底的 UPDATE。
 
-修订（馆长、Mode C）与合并都以编辑集改已有记忆，经同一道漂移拦截。
+修订（馆长、Mode C）与合并都以编辑集改已有记忆：标题与摘要只做片段替换，标签逐个增删。
 """
 
 import logging
@@ -45,8 +45,6 @@ from hivememory.engines.generation.alias import AliasGenerator
 from hivememory.engines.generation.edits import (
     EditSetError,
     EditSetRetry,
-    IndexDriftError,
-    IndexDriftGuard,
     apply_edit_set,
     parse_edit_set,
 )
@@ -91,7 +89,6 @@ class MemoryGenerationEngine:
         ...     mid_term=mid_term,
         ...     extractor=my_extractor,
         ...     deduplicator=my_deduplicator,
-        ...     drift_guard=drift_guard,
         ... )
     """
 
@@ -100,8 +97,6 @@ class MemoryGenerationEngine:
         mid_term: "MidTermMemoryStore",
         extractor: BaseMemoryExtractor,
         deduplicator: BaseDeduplicator,
-        *,
-        drift_guard: IndexDriftGuard,
         alias_generator: AliasGenerator | None = None,
         librarian: Librarian | None = None,
     ):
@@ -110,7 +105,6 @@ class MemoryGenerationEngine:
             mid_term: 中期记忆存储（查重检索与 alias 唯一性查询）
             extractor: LLM 提取器
             deduplicator: 查重器
-            drift_guard: Mode C 与合并的编辑集落地之前的漂移拦截
             alias_generator: Workspace 内唯一的别名生成器；缺省以 ``mid_term``
                 作为占用查询端口构造
             librarian: 话题结算选馆长时注入；为 None 时结算走一次性生成（Mode A）
@@ -118,7 +112,6 @@ class MemoryGenerationEngine:
         self._mid_term = mid_term
         self.extractor = extractor
         self.deduplicator = deduplicator
-        self._drift_guard = drift_guard
         self._alias_generator = alias_generator or AliasGenerator(mid_term)
         self._librarian = librarian
         logger.info("MemoryGenerationEngine 初始化完成")
@@ -375,8 +368,8 @@ class MemoryGenerationEngine:
         """
         Mode C: 修订模式 (UPDATE 指令触发)
 
-        模型按指令与新材料写出对目标记忆的编辑集，以 ``existing_memory`` 为底应用并经过漂移
-        拦截；不合格时带着错误重试一次。空编辑集表示不需要改，降为 TOUCH。
+        模型按指令与新材料写出对目标记忆的编辑集，以 ``existing_memory`` 为底应用；不合格时
+        带着错误重试一次。空编辑集表示不需要改，降为 TOUCH。
 
         仍不合格、提供商失败或没有模型时回退：带内容就把内容作为带日期的更新段追加到正文，
         只有指令就不改（TOUCH）。UPDATE 的 ACK 表示意图已被接纳，内容不因模型没能写成
@@ -446,9 +439,10 @@ class MemoryGenerationEngine:
                 type(error).__name__,
             )
             return None
-        except (EditSetError, IndexDriftError) as rejection:
-            reason = "index_drift" if isinstance(rejection, IndexDriftError) else "invalid_edit_set"
-            logger.warning("[Mode C] 修订改用回退: memory_id=%s, reason=%s", existing.id, reason)
+        except EditSetError:
+            logger.warning(
+                "[Mode C] 修订改用回退: memory_id=%s, reason=invalid_edit_set", existing.id
+            )
             return None
         if accepted is None:
             logger.warning("[Mode C] 修订改用回退: memory_id=%s, reason=no_model", existing.id)
@@ -457,13 +451,12 @@ class MemoryGenerationEngine:
     async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> GenerationOutcome | None:
         """以保留记忆为底的修订：把被吸收记忆独有的内容写成对保留记忆的编辑集，纯计算。
 
-        编辑集经同一道漂移拦截，标签只增加；类型、来源主体、别名与访问状态沿用保留记忆，
+        标签只增加；类型、来源主体、别名与访问状态沿用保留记忆，
         贡献者取两边的并集。空编辑集表示被吸收的内容保留记忆都已有：内容不变，仍产出一个
         记下这次吸收的版本。不修改输入；版本与持久化由 Familiar 提交。未启用模型时没有产出。
 
         Raises:
             EditSetError: 带着错误重试一次后仍不能应用
-            IndexDriftError: 带着错误重试一次后仍被漂移拦截
         """
 
         async def ask(retry: EditSetRetry | None) -> str | None:
@@ -495,33 +488,16 @@ class MemoryGenerationEngine:
 
         Raises:
             EditSetError: 第二次的输出仍不能应用
-            IndexDriftError: 第二次的输出仍被漂移拦截
         """
         output = await ask(None)
         if output is None:
             return None
         try:
-            return await self._accept(output, base, adds_tags_only=adds_tags_only)
-        except (EditSetError, IndexDriftError) as rejection:
-            logger.info("编辑集不合格，带着错误重试一次: error_class=%s", type(rejection).__name__)
+            return _accept(output, base, adds_tags_only=adds_tags_only)
+        except EditSetError as rejection:
+            logger.info("编辑集不合格，带着错误重试一次")
             retried = await ask((output, rejection))
-        return await self._accept(retried or "", base, adds_tags_only=adds_tags_only)
-
-    async def _accept(
-        self, output: str, base: MemoryAtom, *, adds_tags_only: bool
-    ) -> tuple[MemoryEditSet, MemoryAtom]:
-        """解析模型输出并以 ``base`` 为底应用，再经过漂移拦截；空编辑集表示不需要改。
-
-        合并的编辑集只增加标签：被吸收记忆的内容补进来，不拿走保留记忆原有的标签。
-        """
-        edit_set = parse_edit_set(output)
-        if adds_tags_only and edit_set.remove_tags:
-            raise EditSetError("a merge only adds tags; remove_tags must be empty")
-        if edit_set.is_empty:
-            return edit_set, base.model_copy(deep=True)
-        revised = apply_edit_set(base, edit_set)
-        await self._drift_guard.check(base, revised)
-        return edit_set, revised
+        return _accept(retried or "", base, adds_tags_only=adds_tags_only)
 
     async def _dedup_and_resolve(
         self,
@@ -703,6 +679,21 @@ class MemoryGenerationEngine:
                 content=draft.content,
             ),
         )
+
+
+def _accept(
+    output: str, base: MemoryAtom, *, adds_tags_only: bool
+) -> tuple[MemoryEditSet, MemoryAtom]:
+    """解析模型输出并以 ``base`` 为底应用；空编辑集表示不需要改。
+
+    合并的编辑集只增加标签：被吸收记忆的内容补进来，不拿走保留记忆原有的标签。
+    """
+    edit_set = parse_edit_set(output)
+    if adds_tags_only and edit_set.remove_tags:
+        raise EditSetError("a merge only adds tags; remove_tags must be empty")
+    if edit_set.is_empty:
+        return edit_set, base.model_copy(deep=True)
+    return edit_set, apply_edit_set(base, edit_set)
 
 
 def _revision_outcome(

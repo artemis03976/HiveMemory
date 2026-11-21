@@ -704,7 +704,7 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
 - 每处 replace 逐字抄出当前文本中的原文片段（old），它在该字段中只能出现一次；出现多次时多抄一些上下文。只改变化的部分，不要整段重写。
 - 标题与摘要只在其中的说法变了时，用 replace 改那一处；标签只增删受影响的。
 - 补充新的一段用 append；只有大部分正文都变了才用 rewrite 整篇改写正文。
-- 修订被拒时工具结果带 error：原文对不上就照读到的全文重新抄；索引变化过大就只替换变化的那几个字，不要改写整个标题或摘要。
+- 修订被拒时工具结果带 error：原文对不上就照读到的全文重新抄。
 
 ## 动作格式
 每次只输出一个 JSON 对象，不要输出其他文字：
@@ -714,7 +714,7 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
 - **list_topic_writes**，args 为 {{}}：返回本话题主动写入的记忆，每条有 alias、title、summary。
 - **search_memories**，args 为 {{"query": "一句检索语", "mode": "dense"}}：mode 为 dense（按语义）或 sparse（按关键词），缺省为 dense。返回最多 {search_top_k} 条记忆，每条有 alias、title、summary、memory_type 与 score。检索只比较标题、类型、标签与摘要，不比较正文。
 - **read_memory**，args 为 {{"alias": "..."}}：返回一条记忆的 title、summary、tags、memory_type 与 content。
-- **revise_memory**，args 为对一条读过的记忆的编辑集：{{"alias": "...", "edits": [...], "add_tags": ["..."], "remove_tags": ["..."], "changelog": "一句话说明改了什么、为什么", "source_segments": ["2.3"]}}。edits 按顺序应用，后一处在前一处的结果上查找原文，每处是以下三种之一：{{"op": "replace", "field": "content", "old": "原文片段", "new": "新文"}}（field 为 content、title 或 summary）；{{"op": "append", "text": "追加到正文末尾的一段"}}；{{"op": "rewrite", "text": "整篇新正文"}}。类型不能改。成功时返回 revised 与 index_similarity（修改前后标题、类型、标签与摘要的相似度）。
+- **revise_memory**，args 为对一条读过的记忆的编辑集：{{"alias": "...", "edits": [...], "add_tags": ["..."], "remove_tags": ["..."], "changelog": "一句话说明改了什么、为什么", "source_segments": ["2.3"]}}。edits 按顺序应用，后一处在前一处的结果上查找原文，每处是以下三种之一：{{"op": "replace", "field": "content", "old": "原文片段", "new": "新文"}}（field 为 content、title 或 summary）；{{"op": "append", "text": "追加到正文末尾的一段"}}；{{"op": "rewrite", "text": "整篇新正文"}}。类型不能改。成功时返回 revised。
 - **write_memory**，args 为一条新记忆：{{"title": "...", "summary": "...", "tags": ["..."], "memory_type": "FACT", "content": "...", "confidence_score": 0.9, "alias_suffix": "...", "source_segments": ["2.3"]}}。title 不超过 100 字，summary 一句话、不超过 200 字，tags 3-5 个，content 为 Markdown。
 - **finish**，args 为 {{}}：结束本次结算。
 
@@ -785,21 +785,11 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
         "error_revise_invalid": (
             "编辑集不能应用：{details}。照 read_memory 读到的全文逐字抄出原文后重试"
         ),
-        "error_revise_drift": (
-            "索引变化过大：修改前后标题、类型、标签与摘要的相似度为 {similarity}，低于 "
-            "{min_similarity}。标题与摘要只替换说法变了的片段，标签只增删受影响的；要写的已经"
-            "不是同一件事时，改用 write_memory 新建"
-        ),
     },
     "edit_set": {
         "retry_invalid": (
             "上一次输出的编辑集不能应用：{details}。请改正出错的地方，重新输出完整的编辑集 JSON；"
             "原文片段必须逐字抄自当前文本。"
-        ),
-        "retry_drift": (
-            "上一次的修改让标题、类型、标签与摘要的相似度降到 {similarity}，低于 "
-            "{min_similarity}，索引变化过大。标题与摘要只替换说法变了的片段，不要改写整个标题"
-            "或摘要；请重新输出完整的编辑集 JSON。"
         ),
     },
 }
@@ -1101,7 +1091,7 @@ You have at most {max_steps} steps; each action you output is one step, and step
 - Each replace copies the original fragment (old) verbatim from the current text, and it must occur only once in that field; when it occurs more than once, include more surrounding text. Change only what changed; do not rewrite whole passages.
 - Change the title or summary only where what they say has changed, with a replace of that spot; add or remove only the affected tags.
 - Use append for a new passage; use rewrite to replace the whole body only when most of it has changed.
-- When a revision is rejected, the tool result carries an error: if the old text does not match, copy it again from the full text you read; if the index changed too much, replace only the few words that changed instead of rewriting the whole title or summary.
+- When a revision is rejected, the tool result carries an error: if the old text does not match, copy it again from the full text you read.
 
 ## Action Format
 Output exactly one JSON object each time and nothing else:
@@ -1111,7 +1101,7 @@ Output exactly one JSON object each time and nothing else:
 - **list_topic_writes**, args {{}}: returns the memories written explicitly in this topic, each with alias, title, and summary.
 - **search_memories**, args {{"query": "one search sentence", "mode": "dense"}}: mode is dense (by meaning) or sparse (by keywords), dense by default. Returns at most {search_top_k} memories, each with alias, title, summary, memory_type, and score. Search compares only title, type, tags, and summary, not the body.
 - **read_memory**, args {{"alias": "..."}}: returns a memory's title, summary, tags, memory_type, and content.
-- **revise_memory**, args are an edit set on a memory you read: {{"alias": "...", "edits": [...], "add_tags": ["..."], "remove_tags": ["..."], "changelog": "one sentence on what changed and why", "source_segments": ["2.3"]}}. edits are applied in order, each looking for its old text in the result of the previous ones, and each is one of: {{"op": "replace", "field": "content", "old": "original fragment", "new": "new text"}} (field is content, title, or summary); {{"op": "append", "text": "a passage appended to the end of the body"}}; {{"op": "rewrite", "text": "the whole new body"}}. The type cannot be changed. On success it returns revised and index_similarity (the similarity of title, type, tags, and summary before and after).
+- **revise_memory**, args are an edit set on a memory you read: {{"alias": "...", "edits": [...], "add_tags": ["..."], "remove_tags": ["..."], "changelog": "one sentence on what changed and why", "source_segments": ["2.3"]}}. edits are applied in order, each looking for its old text in the result of the previous ones, and each is one of: {{"op": "replace", "field": "content", "old": "original fragment", "new": "new text"}} (field is content, title, or summary); {{"op": "append", "text": "a passage appended to the end of the body"}}; {{"op": "rewrite", "text": "the whole new body"}}. The type cannot be changed. On success it returns revised.
 - **write_memory**, args are one new memory: {{"title": "...", "summary": "...", "tags": ["..."], "memory_type": "FACT", "content": "...", "confidence_score": 0.9, "alias_suffix": "...", "source_segments": ["2.3"]}}. Title at most 100 characters, summary one sentence of at most 200 characters, 3-5 tags, content in Markdown.
 - **finish**, args {{}}: ends this settlement.
 
@@ -1186,24 +1176,12 @@ Start with the order of work and output your first action.
             "The edit set cannot be applied: {details}. Copy the old text verbatim from the full "
             "text read_memory returned and try again"
         ),
-        "error_revise_drift": (
-            "The index changed too much: the similarity of title, type, tags, and summary before "
-            "and after is {similarity}, below {min_similarity}. Replace only the fragments of the "
-            "title and summary whose statement changed, and add or remove only the affected tags; "
-            "if what you want to write is no longer the same thing, create it with write_memory"
-        ),
     },
     "edit_set": {
         "retry_invalid": (
             "The edit set in your last output cannot be applied: {details}. Fix what is wrong and "
             "output the complete edit set JSON again; every old fragment must be copied verbatim "
             "from the current text."
-        ),
-        "retry_drift": (
-            "Your last edits brought the similarity of title, type, tags, and summary down to "
-            "{similarity}, below {min_similarity}: the index changed too much. Replace only the "
-            "fragments of the title and summary whose statement changed instead of rewriting "
-            "them, and output the complete edit set JSON again."
         ),
     },
 }

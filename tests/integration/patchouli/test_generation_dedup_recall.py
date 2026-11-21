@@ -37,7 +37,7 @@ from hivememory.engines.generation.models import (
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.memory_library import MidTermMemoryStore
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
-from tests.helpers.memory import make_drift_guard, make_memory_metadata
+from tests.helpers.memory import make_memory_metadata
 
 _CONFIG = load_app_config()
 _USER_ID = "dedup_recall_user"
@@ -120,7 +120,6 @@ async def test_identical_draft_touches_existing_memory_through_real_recall(mid_t
         mid_term=mid_term,
         extractor=_FixedDraftExtractor(draft),
         deduplicator=MemoryDeduplicator(config=_CONFIG.patchouli.generation.deduplicator),
-        drift_guard=make_drift_guard(),
     )
     belong_to = resolve_default_workspace_identity(_USER_ID)
     context = GenerationContext(

@@ -11,8 +11,8 @@ Patchouli 定义的工具，先看本话题主动写入过的记忆，再检索�
 读过的记忆的修订（编辑集）在循环结束后交回引擎，草稿按新建提交，不查重、不触碰、不提名合并，
 修订成为以读到的版本为底的 UPDATE。残余的重叠接受。
 
-修订只改本次运行读过的记忆，一条记忆一次结算只修订一次；编辑集在循环中以读到的版本为底应用
-并经过漂移拦截，对不上或被拦截时作为工具错误交回模型，由它在剩余的步数内改正。
+修订只改本次运行读过的记忆，一条记忆一次结算只修订一次；编辑集在循环中以读到的版本为底应用，
+对不上时作为工具错误交回模型，由它在剩余的步数内改正。
 """
 
 import json
@@ -29,8 +29,6 @@ from hivememory.config.patchouli import LibrarianConfig, MemoryGenerationConfig
 from hivememory.core.models import ActorIdentity, MemoryAtom, WorkspaceIdentity
 from hivememory.engines.generation.edits import (
     EditSetError,
-    IndexDriftError,
-    IndexDriftGuard,
     apply_edit_set,
     describe_validation_error,
 )
@@ -121,10 +119,8 @@ class Librarian:
         llm_service: BaseLLMService,
         llm_params: LLMRequestParams,
         config: LibrarianConfig,
-        drift_guard: IndexDriftGuard,
     ) -> None:
         self._mid_term = mid_term
-        self._drift_guard = drift_guard
         self._llm_service = llm_service
         # 每一步只输出一个 JSON 对象；提供商不支持 JSON 输出时退回普通补全，照样按文本解析。
         self._llm_params = llm_params.model_copy(update={"json_output": True})
@@ -154,9 +150,6 @@ class Librarian:
         )
         self._error_revise_invalid = get_generation_prompt_text(
             "librarian", "error_revise_invalid", language
-        )
-        self._error_revise_drift = get_generation_prompt_text(
-            "librarian", "error_revise_drift", language
         )
 
     async def settle(
@@ -267,7 +260,7 @@ class Librarian:
                     )
                     return {"result": {"staged": len(run.staged)}}
                 case "revise_memory":
-                    return await self._revise_memory(run, _ReviseArgs.model_validate(action.args))
+                    return self._revise_memory(run, _ReviseArgs.model_validate(action.args))
                 case "finish":
                     return {"result": {"staged": len(run.staged)}}
                 case _:
@@ -277,12 +270,12 @@ class Librarian:
                 "error": self._error_invalid_args.format(details=describe_validation_error(error))
             }
 
-    async def _revise_memory(self, run: _Run, args: _ReviseArgs) -> dict[str, Any]:
+    def _revise_memory(self, run: _Run, args: _ReviseArgs) -> dict[str, Any]:
         """校验并暂存一条修订；不满足任何一条时返回错误、不暂存。
 
         只改本次运行读过的记忆：材料中有不可信内容，而馆长能改全库，读过才能给出依据。
-        一条记忆一次结算只修订一次，几处修改放进同一个编辑集。编辑集以读到的版本为底应用，
-        再经过漂移拦截；提交前基础的版本变了时由提交一侧重放。
+        一条记忆一次结算只修订一次，几处修改放进同一个编辑集。编辑集以读到的版本为底应用；
+        提交前基础的版本变了时由提交一侧重放。
         """
         base = run.read.get(args.alias)
         if base is None:
@@ -292,18 +285,10 @@ class Librarian:
         edit_set = MemoryEditSet.model_validate(args.model_dump(exclude={"alias"}))
         try:
             revised = apply_edit_set(base, edit_set)
-            similarity = await self._drift_guard.check(base, revised)
         except EditSetError as error:
             return {"error": self._error_revise_invalid.format(details=error)}
-        except IndexDriftError as error:
-            return {
-                "error": self._error_revise_drift.format(
-                    similarity=f"{error.similarity:.3f}",
-                    min_similarity=f"{error.min_similarity:.3f}",
-                )
-            }
         run.revisions.append(StagedRevision(base=base, edit_set=edit_set, revised=revised))
-        return {"result": {"revised": args.alias, "index_similarity": round(similarity, 3)}}
+        return {"result": {"revised": args.alias}}
 
     async def _list_topic_writes(self, run: _Run) -> list[dict[str, Any]]:
         """本话题主动写入结算到的记忆；发起者读不到的（PRIVATE、TEAM 或已删除）跳过。"""
@@ -348,7 +333,6 @@ def create_librarian(
     mid_term: "MidTermMemoryStore",
     llm_service: BaseLLMService | None,
     llm_params: LLMRequestParams | None,
-    drift_guard: IndexDriftGuard,
 ) -> Librarian | None:
     """话题结算选馆长、提取开启且配置了模型时返回馆长，否则返回 None，结算走一次性生成。
 
@@ -364,7 +348,6 @@ def create_librarian(
         llm_service=llm_service,
         llm_params=llm_params,
         config=config.librarian,
-        drift_guard=drift_guard,
     )
 
 

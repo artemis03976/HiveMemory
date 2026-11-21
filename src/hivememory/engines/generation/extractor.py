@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from hivememory.config.patchouli import ExtractorConfig
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.generation.edits import EditSetRetry, IndexDriftError
+from hivememory.engines.generation.edits import EditSetRetry
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft, ExtractionResult
 from hivememory.i18n import (
@@ -42,7 +42,7 @@ _PROMPT_KEYS = {
     "write": ("system_prompt", "user_prompt", "reason_empty", "title_empty"),
     "update": ("system_prompt", "user_prompt", "new_content_empty", "transcript_empty"),
     "merge": ("system_prompt", "user_prompt"),
-    "edit_set": ("retry_invalid", "retry_drift"),
+    "edit_set": ("retry_invalid",),
 }
 
 
@@ -247,13 +247,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         if retry is None:
             return messages
         output, rejection = retry
-        if isinstance(rejection, IndexDriftError):
-            reason = self.prompt("edit_set", "retry_drift").format(
-                similarity=f"{rejection.similarity:.3f}",
-                min_similarity=f"{rejection.min_similarity:.3f}",
-            )
-        else:
-            reason = self.prompt("edit_set", "retry_invalid").format(details=rejection)
+        reason = self.prompt("edit_set", "retry_invalid").format(details=rejection)
         return [
             *messages,
             {"role": "assistant", "content": output},

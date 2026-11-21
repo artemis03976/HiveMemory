@@ -70,7 +70,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from tests.helpers.llm import ScriptedLLMService
-from tests.helpers.memory import make_drift_guard, make_memory_metadata
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
@@ -621,7 +621,6 @@ async def test_passive_settlement_records_the_cited_segment_of_the_captured_turn
         mid_term=memory_library.mid_term,
         extractor=extractor,
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-        drift_guard=make_drift_guard(),
     )
     _wire_generation_familiar(
         bus, memory_library, engine, ArtifactEngine.from_store(store, ArtifactConfig(enabled=True))
@@ -674,7 +673,6 @@ async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
         mid_term=memory_library.mid_term,
         extractor=extractor,
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-        drift_guard=make_drift_guard(),
     )
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
     bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
@@ -723,13 +721,11 @@ async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_
         mid_term=memory_library.mid_term,
         extractor=extractor,
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-        drift_guard=make_drift_guard(),
         librarian=Librarian(
             mid_term=memory_library.mid_term,
             llm_service=llm,
             llm_params=LLMRequestParams(model="test-model"),
             config=LibrarianConfig(),
-            drift_guard=make_drift_guard(),
         ),
     )
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
@@ -809,13 +805,11 @@ async def test_librarian_settlement_revises_an_existing_memory_instead_of_adding
         mid_term=memory_library.mid_term,
         extractor=AsyncMock(),
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-        drift_guard=make_drift_guard(),
         librarian=Librarian(
             mid_term=memory_library.mid_term,
             llm_service=llm,
             llm_params=LLMRequestParams(model="test-model"),
             config=LibrarianConfig(),
-            drift_guard=make_drift_guard(),
         ),
     )
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
@@ -883,7 +877,6 @@ async def test_active_update_of_a_value_in_the_title_is_found_by_the_new_title(
         mid_term=memory_library.mid_term,
         extractor=LLMMemoryExtractor(ExtractorConfig(), llm, LLMRequestParams(model="m")),
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-        drift_guard=make_drift_guard(similarity=0.97),
     )
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
     bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
@@ -943,7 +936,6 @@ async def test_two_drafts_of_one_settlement_both_merge_into_the_memory_they_hit(
         mid_term=memory_library.mid_term,
         extractor=extractor,
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-        drift_guard=make_drift_guard(),
     )
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
 
