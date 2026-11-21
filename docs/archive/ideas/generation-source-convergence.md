@@ -17,7 +17,6 @@ related_docs:
   - docs/archive/plans/v0.7.3-topic-active-write-precedence.md
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/cross-conversation-topic-placement.md
-  - docs/todo/merge-version-conflict.md
   - docs/todo/passive-extraction-volume-and-retention.md
   - docs/archive/ideas/unified-interaction-memory.md
   - docs/archive/ideas/pending-intent-migration.md
@@ -28,7 +27,7 @@ last_reviewed: 2026-11-04
 
 # 主动写入与被动提取的收敛
 
-> 已归档（2026-11-04，v0.7.3 收尾）。第 3.3 节决定的三项已随三份计划实施，当前事实见 [Patchouli 生成](../../patchouli/generation.md)第 3.2、4.2、6.1 节；"话题内主动写入优先"是过渡措施，之后的方向见[统一的交互记忆](./unified-interaction-memory.md)。第 4.4 节移交[合并版本冲突 Todo](../../todo/merge-version-conflict.md)，其余事项的去向见文末"归档说明"。以下正文保留归档前的原文，链接已改为归档后的相对路径。
+> 已归档（2026-11-04，v0.7.3 收尾）。第 3.3 节决定的三项已随三份计划实施，当前事实见 [Patchouli 生成](../../patchouli/generation.md)第 3.2、4.2、6.1 节；"话题内主动写入优先"是过渡措施，之后的方向见[统一的交互记忆](./unified-interaction-memory.md)。第 4.4 节移交合并版本冲突 Todo（已删除，最后版本在 `9ab2b431`），其余事项的去向见文末"归档说明"。以下正文保留归档前的原文，链接已改为归档后的相对路径。
 
 ## 0. 文档性质
 
@@ -330,7 +329,7 @@ v0.7.3 的三份计划都已实施并归档，本文不再跟踪以下事项：
 
 | 事项 | 去向 |
 |:---|:---|
-| 第 4.4 节：合并遇到版本冲突时是否重做 | [合并版本冲突 Todo](../../todo/merge-version-conflict.md)：第 2.5 节的四次失败与 2026-11-04 的第五次一并移入 |
+| 第 4.4 节：合并遇到版本冲突时是否重做 | 合并版本冲突 Todo（已删除，最后版本在 `9ab2b431`）：第 2.5 节的四次失败与 2026-11-04 的第五次一并移入 |
 | 两种生成方式在统一架构中的兼容 | [统一的交互记忆](./unified-interaction-memory.md)（候选方向） |
 | 多条提取后被动提取的膨胀与低留存 | [被动提取膨胀 Todo](../../todo/passive-extraction-volume-and-retention.md) |
 | 第 5 节搁置项：Mode A 在调研话题上仍完整提取一遍 | 不单独跟踪；模型调用的成本随上一项的方向一并考虑 |

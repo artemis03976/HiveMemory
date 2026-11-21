@@ -183,7 +183,6 @@ last_reviewed: 2026-11-20
 | 主动写入生成时能拿到什么材料 | [写入链路](./memory-flow-write-path.md)第 2.2 节 |
 | 短期记忆在新流转中的定义 | 孵化中 |
 | 什么值得写成记忆 | 孵化中 |
-| 馆长怎样修订已有记忆 | [写入链路](./memory-flow-write-path.md)第 3.1 节 |
 | 第一当事人“没写”算不算判断 | 搁置，[写入链路](./memory-flow-write-path.md)第 6 节 |
 | 记忆的保存形态 | [库的形状](./memory-library-shape-and-index.md)第 4.2 节 |
 | 首个评测切片、原始时间怎样带进评测 | [评测集](./memory-evaluation-benchmarks.md)第 6 节 |

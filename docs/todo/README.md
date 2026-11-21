@@ -18,7 +18,6 @@ last_reviewed: 2026-11-20
 - [保存后修改 Agent 别名，并实时更新所有引用](./agent-alias-rename.md)：改名时访问登记、接入声明等引用随之更新；
 - [引用记忆面板的“相关度”](./referenced-memory-relevance.md)：相关度条需要后端交出检索分数；
 - [WorkspaceAsset Store 中没有生产调用方的方法](./workspace-asset-store-unused-methods.md)：只在测试中调用的方法，逐个补上使用方或删除；
-- [合并中止并留下重复：合并目标正等着被吸收，或两个合并同时写同一条记忆](./merge-version-conflict.md)：合并因目标已被删除或版本已变而中止，两条记忆都留下；
 - [多条提取后被动提取的记忆膨胀与低留存](./passive-extraction-volume-and-retention.md)：被动提取新建过多、留存偏低的证据与度量；
 - [导入轮次被落进另一个外部会话的话题](./cross-conversation-topic-placement.md)：外部会话的第一轮被路由进无关会话的话题；
 - [Agent Profile 以 ModelSelection 表达模型选择](./agent-profile-model-selection.md)：Profile 的模型参数改用 ModelSelection；

@@ -3,7 +3,7 @@ title: Archived Todo
 status: current
 owner: project
 scope: completed-todo-history
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-20
 ---
 
 # Archived Todo
@@ -12,6 +12,7 @@ last_reviewed: 2026-11-18
 
 此后完成的 Todo 在收尾时删除，不再存入本目录（[文档治理规范](../../DOCUMENTATION.md)第 10 节），只在这里登记一行：标题、完成日期、PR，以及删除前最后版本所在的 commit；仍约束当前实现的结论已写进当前事实文档，处置过程见该 PR 合并到主线的提交说明。
 
+- 合并中止并留下重复：合并目标正等着被吸收，或两个合并同时写同一条记忆：2026-11-20 并入 v0.8.0 计划“写入时的更新：馆长修订、主动 UPDATE 与合并改用编辑集”，文件删除，删除前最后版本在 commit `9ab2b431`
 - [engines 对上层的既有导入](./engines-upward-imports.md)：2026-11-09，PR #207；[系统架构概览](../../architecture/overview.md)、[MemoryLibrary](../../patchouli/memory-library.md)
 - [RUN 目标的可执行性检查](./run-target-executability-check.md)：2026-11-07，PR #189；[能力层](../../workspace/capability.md#7-引用读取的副作用)、[MTP 契约](../../contracts/mtp.md)
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)：2026-11-07，PR #189；[状态与传输](../../frontend/state-and-transports.md#6-mock-降级边界)、[管理页面](../../frontend/management-views.md)
