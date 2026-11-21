@@ -7,6 +7,8 @@ owner: patchouli
 scope: v0.8-memory-evaluation-public-benchmarks-agent-workflow-datasets-and-harness
 code_paths:
   - scripts/memory_replay.py
+  - scripts/halumem_eval.py
+  - scripts/trial_instance.py
   - src/hivememory/system/services/import_bus/models.py
   - src/hivememory/mcp_server/server.py
 related_docs:
@@ -34,6 +36,7 @@ last_reviewed: 2026-11-20
 - **导入**：外部会话经 Import Bus 按轮导入。一轮带来源、外部会话与轮次的标识、用户消息、此后的事件与结局，没有时间字段（[Import Bus 模型](../../src/hivememory/system/services/import_bus/models.py)），记忆记下的是导入的时刻。
 - **读取**：外部 harness 经 MCP 的 `memory_search` 只传一句查询（[MCP 入口](../../src/hivememory/mcp_server/server.py)）；HiveMemory 只交出记忆，不负责作答。
 - **长程**：owner 每天实际使用 HiveMemory，这是现成的长程试验场，但只能验收已建成的机制（[总纲](./memory-flow-short-to-mid-term.md)第 4.2 节）。
+- **HaluMem**：[`halumem_eval.py`](../../scripts/halumem_eval.py) 在一个独立的实例（[`trial_instance.py`](../../scripts/trial_instance.py)，自己的数据根与端口、每个用户一个 Workspace）上逐次会话导入 HaluMem 的对话、结算并取出写出的记忆，按官方协议判抽取与更新，汇总成报告；用法见[在 HaluMem 上评测记忆生成](../help/halumem-evaluation.md)。问答与依赖日期的题没有接入。
 
 ## 3. 候选评测集
 
@@ -87,6 +90,22 @@ last_reviewed: 2026-11-20
 
 - 首个评测切片是 HaluMem 的 Medium 版。v0.8 改的是写入一侧，HaluMem 是唯一逐个环节打分抽取、准确与更新的评测集，测的正是写得全不全、写出的有没有编造、更新时有没有改对；问答类的评测集还掺进了检索与作答两层。
 - 首轮只测抽取与更新，不测问答与依赖日期的题；原始时间暂不带入，Import Bus 的一轮不加时间字段，日期也不写进用户消息。时间推理类的题留给之后：届时在“给 Import Bus 的一轮加上原始时间”（公开契约的变更，日常的批量补录也会受益）与“日期写进用户消息”（不改契约，但改变生成材料）之间选择。
+
+**现状：第一次评测**（仓库 `c0a9fcc5`；Medium 按对话量分层取 5 个用户，346 次会话、7,499 轮；生成 deepseek-flash、英文提示词；评判 GPT-6 Luna，温度 0、推理关闭；每种结算方式只跑了一次）：
+
+| 指标 | 一次性生成 | 馆长 | 馆长更高的用户 |
+|:---|---:|---:|---:|
+| 完整度（召回 / 按重要度加权） | 63.7% / 81.0% | 66.1% / 76.3% | 3/5、0/5 |
+| 准确度（落在要点内的记忆 / 全部记忆） | 92.3% / 66.3% | 87.9% / 75.1% | 0/5、5/5 |
+| 不记干扰 | 29.0% | 38.4% | 5/5 |
+| 更新（正确 / 幻觉 / 遗漏） | 44.6% / 5.6% / 49.6% | 48.1% / 3.9% / 47.4% | 3/5（正确） |
+| 每次会话写出的记忆 / 正文平均字数 | 3.51 / 1,782 | 2.73 / 718 | — |
+| 失败的生成任务 | 82 / 1,385，全部是合并中止 | 12 / 594，提供商失败与超时 | — |
+
+- 评判的 10% 复判一致率为 92–94%，几个百分点以内的差距只看逐用户方向一致的指标：馆长写出的记忆整体更准、更少记干扰、每次写得更少；落在要点内的那部分准确度反而略低；更新与完整度两者相当。
+- HaluMem 论文（评判 GPT-4o、全部 20 个用户）中各系统在同一组指标上的数字只作参考：两种结算方式的完整度与 F1 仅次于 MemOS，全部记忆的准确度高于所有系统；不记干扰低于所有系统；更新的幻觉率高于所有系统（它们都不超过 1.2%）。HiveMemory 的记忆是长文，条数与粒度都与它们不同。
+- 被判为更新幻觉的样本中，生成模型编出事实的只占少数，主要是两类：被推翻的旧事实没有撤下或标为过时（一次性生成的合并只融合相似的记忆，馆长不修订旧记忆），以及新值没有写进库、检索到的旧值被判为幻觉。数据本身也有噪声：数值类的更新要点中约三分之一的新值在该次会话的对话里没有出现。
+- 运行目录、逐项数字、预注册与结论的核对、以及上面的归因在开发 checkout 的 `.hivememory/lab/`（运行目录 `runs/eval1-*` 与账本 `ledger.md`），不进仓库。
 
 ## 7. 升级为计划的条件
 

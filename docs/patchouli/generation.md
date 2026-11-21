@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-19
+last_reviewed: 2026-11-20
 ---
 
 # 记忆生成
@@ -117,7 +117,7 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 段标签只出现在送给模型的生成材料中：渲染函数本身不带标签，token 估算、接力摘要与 Alice 的历史转写不受影响。升级前保存的生成任务（第 6 节）没有段，转写不印标签。
 
-模型输出中的 `source_segments` 是支撑这一条内容的段标签：被动提取与主动写入的格式说明由 `ExtractedMemoryDraft` 的 JSON Schema 自动带上这个字段，修订的 JSON 格式在中英文提示词中手写补上（`RevisionResult.source_segments`），馆长 `write_memory` 的参数同样在提示词中手写、带这个字段；四类提示词都说明段标签的写法，并要求只引用直接支撑这条内容的段，话题状态摘要中的内容没有段、不引用。引用的容错按“只丢弃这一处引用”处理：
+模型输出中的 `source_segments` 是支撑这一条内容的段标签：被动提取与主动写入的格式说明由 `ExtractedMemoryDraft` 的 JSON Schema 自动带上这个字段（Schema 的说明文字随提示词语言，见[全局 i18n](../system/i18n.md)），修订的 JSON 格式在中英文提示词中手写补上（`RevisionResult.source_segments`），馆长 `write_memory` 的参数同样在提示词中手写、带这个字段；四类提示词都说明段标签的写法，并要求只引用直接支撑这条内容的段，话题状态摘要中的内容没有段、不引用。引用的容错按“只丢弃这一处引用”处理：
 
 - 格式不对（不是形如 `2.3` 的字符串，或整个字段不是列表）的引用在解析时丢弃，不让草稿或整份被动输出作废；
 - 材料中不存在的标签丢弃，并记一条 INFO 日志（`count`）；

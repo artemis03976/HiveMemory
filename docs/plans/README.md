@@ -18,8 +18,7 @@ last_reviewed: 2026-11-20
 
 版本目标：生成核心的升级（Claude 整理，待 owner 确认），摘要见 [ROADMAP](../ROADMAP.md) 第 3 节；设计见总纲[记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)；v0.8 的评测由试验场承载，见[孵化场、试验场与垃圾回收场](../ideas/experiment-field.md)第 6 节。
 
-- [试验场第一版：在 HaluMem 上评测一次性生成与馆长](./v0.8.0-experiment-field-halumem.md)：试验实例、HaluMem 驱动与评分器，以及第一次评测。
-- 记忆类型的收敛、生成的记忆指向交互轮次与馆长 agent：已完成，见 [Archived Plans](../archive/plans/README.md#v080)。
+当前没有活动计划。记忆类型的收敛、AgentProfileStore、生成的记忆指向交互轮次、馆长 agent 与试验场第一版已完成，见 [Archived Plans](../archive/plans/README.md#v080)。
 
 ## 已发布的版本
 

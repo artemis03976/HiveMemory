@@ -6,6 +6,8 @@ owner: project
 scope: idea-incubator-experiment-field-and-garbage-collection-yard-on-frozen-real-data
 code_paths:
   - scripts/memory_replay.py
+  - scripts/trial_instance.py
+  - scripts/halumem_eval.py
   - src/hivememory/config/files.py
   - src/hivememory/config/patchouli.py
   - src/hivememory/engines/artifacts/
@@ -69,6 +71,7 @@ last_reviewed: 2026-11-20
   - 工具调用与结果的原文随 InteractionArtifact 的 `turn_events` 快照保存（[Artifacts](../patchouli/artifacts.md)）。
   - 推断：从中可以还原"检索了什么、随后读了哪几条"，需要核对。
   - 删除不留单独的记录。被动提取的留存统计，是用 memory_creation Artifact 与库的现状对比得出的（[被动提取的膨胀与留存](../todo/passive-extraction-volume-and-retention.md)）；owner 只顺手删过一部分，删除信号偏弱（[评测集](./memory-evaluation-benchmarks.md)第 1 节）。
+- **试验实例与第一个插座**：[`trial_instance.py`](../../scripts/trial_instance.py) 在一次运行目录下建立独立的数据根，有自己的配置覆盖、访问登记、Qdrant 存储与端口，每个用户一个 Workspace，每次从空库开始；端口被占用或属于安装版时拒绝启动。[`halumem_eval.py`](../../scripts/halumem_eval.py) 是“写”插座的驱动、评分器与报告：把 HaluMem 的对话逐次会话导入试验实例，按官方协议判抽取与更新，报告可以并排几次运行并向账本追加一条。用法见[在 HaluMem 上评测记忆生成](../help/halumem-evaluation.md)。
 - **代码检查的范围**：
   - 注释自包含的架构测试扫描 `src`、`tests`、`scripts`、`integrations`（[`test_self_contained_comments.py`](../../tests/unit/architecture/test_self_contained_comments.py)）；
   - `ruff check .` 与 `black --check .` 覆盖整个仓库；
@@ -233,6 +236,8 @@ last_reviewed: 2026-11-20
 
 备选：在仓库顶层新建一个提交原型代码的目录。好处是原型有版本记录、可以评审；代价是多出一个不受分层规则管理、却与源码同仓的区域。本文默认不这样做。
 
+**现状**：第一版按默认做法：试验台是 `scripts/` 下的两个脚本，试验根是开发 checkout 中被 git 忽略的 `.hivememory/lab/`（数据集、官方评判提示词、运行目录与结果账本）。
+
 ### 4.7 最小的第一版
 
 第一版只做三件事：
@@ -250,6 +255,14 @@ last_reviewed: 2026-11-20
 - 任何界面。
 
 第一版的首个公开插座是 HaluMem 的抽取与更新（[评测集](./memory-evaluation-benchmarks.md)第 6 节）。之后再用一个便宜的想法试运行“找”插座的整条流程，例如"检索前对向量做部分去均值"；再用一条 TDA 主张作为第一个真正"接不上轨"的用例。
+
+**现状**：第一版的三件事已经建成（第 2 节），并在 HaluMem Medium 的 5 个用户上对照了一次性生成与馆长，结果见[评测集](./memory-evaluation-benchmarks.md)第 6 节。跑之前在账本写下预注册（假设与门槛），跑完逐条核对，没有改门槛。实际运转中补上的做法：
+
+- 先用 1 个用户的前 10 次会话试跑，核对“取出的记忆完整”（按会话重放取出的记忆，与实例最终的库逐条比对）与评判的解析失败率，再跑全量；
+- 评判模型与生成模型必须不同，并随机抽 10% 的调用复判，一致率作为评判本身波动的底线，几个百分点以内的差距按逐用户的方向来读；
+- 两种方式各用一个试验实例、一组端口，同时运行。
+
+差距：账本只记次数与馆长的 token，路由与一次性生成的 token 没有记录，花费以提供商账单为准；一个变体只跑了一次，没有重复运行的方差。
 
 ### 4.8 孵化场：定型还说不清的想法
 
@@ -324,12 +337,11 @@ owner 可能一眼否掉两种，或者发现自己想的是第四种；这一�
 
 理由：评测与试验只维护一套数据与隔离规则；评测若在开发实例上跑，第 4.4 节所说的开发实例漂移、端口与插件问题会先在评测里出现。代价是 v0.8 多了一项工作：试验场的第一版（第 4.7 节）。
 
-首个评测切片选哪一个、原始时间怎样带进评测，仍由[评测集](./memory-evaluation-benchmarks.md)第 6 节讨论，本文不另设问题。
+首个评测切片与原始时间的处理见[评测集](./memory-evaluation-benchmarks.md)第 6 节，本文不另设问题。
 
 ## 7. 升级为计划的条件
 
-- [评测集](./memory-evaluation-benchmarks.md)第 6 节的两项已决定（首个公开插座取决于它）。
-- 第一版的三件事（第 4.7 节）范围明确：试验实例的隔离、首个插座的判分做法、报告与账本的格式。
+- 第一版（第 4.7 节）已经完成。
 - 用日常数据的插座进入之前：第 5 节前两项已在一份真实快照上核对，隐式正例确实可以还原，偏差可以估计。
 
 ## 8. 与其他文档的关系

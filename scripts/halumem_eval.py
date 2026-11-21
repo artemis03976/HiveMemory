@@ -34,7 +34,7 @@ Workspace。生成模型与结算方式写在试验实例的配置里，评判�
         .hivememory/lab/runs/pilot-one-shot --users 15 --sessions 10 --settle-mode one_shot
     python scripts/halumem_eval.py judge .hivememory/lab/datasets/halumem/HaluMem-Medium.jsonl \\
         .hivememory/lab/runs/pilot-one-shot --prompts .hivememory/lab/halumem/prompts \\
-        --judge-model gpt-6-luna
+        --judge-model gpt-6-luna --reasoning-effort none
     python scripts/halumem_eval.py report .hivememory/lab/runs/pilot-one-shot
 """
 
