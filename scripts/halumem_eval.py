@@ -111,6 +111,15 @@ def memory_text(memory: dict[str, Any]) -> str:
     return f"{memory['title']}\n{memory['summary']}\n{memory['content']}"
 
 
+def memories_for_judge(texts: list[str]) -> str:
+    """多条记忆交给评判的文本：逐条编号，条与条之间空一行。
+
+    官方评分器每条记忆一行、以换行拼接。HiveMemory 的记忆是多行长文，正文里也常有空行，
+    只靠换行或空行分不出一条在哪里结束；编号让评判看得出哪几行属于同一条记忆。
+    """
+    return "\n\n".join(f"[{number}] {text}" for number, text in enumerate(texts, 1))
+
+
 def append_jsonl(path: Path, row: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as file:
@@ -421,7 +430,7 @@ def judge_calls(users: list[dict[str, Any]], run_dir: Path) -> list[dict[str, An
             session = users[index]["sessions"][row["session_index"]]
             prefix = f"{row['user']}/{row['session_index']}"
             extracted = row["extracted_memories"]
-            extracted_text = "\n\n".join(memory_text(memory) for memory in extracted)
+            extracted_text = memories_for_judge([memory_text(memory) for memory in extracted])
             for i, point in enumerate(session["memory_points"]):
                 base = {
                     "user": row["user"],
@@ -438,7 +447,7 @@ def judge_calls(users: list[dict[str, Any]], run_dir: Path) -> list[dict[str, An
                             "key": f"{prefix}/update/{i}",
                             "kind": "update",
                             "fields": {
-                                "memories": "\n".join(searched),
+                                "memories": memories_for_judge(searched),
                                 "updated_memory": point["memory_content"],
                                 "original_memory": "\n".join(point["original_memories"]),
                             },
