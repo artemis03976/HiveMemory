@@ -54,6 +54,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import litellm
+import openai
 from memory_replay import gather_limited, read_jsonl
 from trial_instance import (
     InstanceEndpoints,
@@ -66,9 +68,8 @@ from trial_instance import (
 )
 
 from hivememory.config.app import provider_credentials_from_env
-from hivememory.core.errors.model import ModelProviderError
 from hivememory.core.models.model_definition import ModelSelection
-from hivememory.infrastructure.llm.litellm_service import LiteLLMService
+from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
@@ -503,6 +504,31 @@ def judge_result(kind: str, payload: Any) -> dict[str, Any]:
     return {"score": result if result in valid else None}
 
 
+async def complete_judge(
+    params: LLMRequestParams, prompt: str, reasoning_effort: str | None
+) -> tuple[str, int | None]:
+    """评判的一次调用，要求以 JSON 对象输出，返回文本与总 token。
+
+    直接调用 litellm 而不经产品的 LLM 服务：推理模型（如 gpt-6-luna）只在推理强度为 none 时
+    接受温度，而产品的请求参数没有推理强度这一项。
+    """
+    arguments = {
+        "model": params.model,
+        "api_key": params.api_key,
+        "api_base": params.api_base,
+        "temperature": params.temperature,
+        "max_tokens": params.max_tokens,
+        "reasoning_effort": reasoning_effort,
+    }
+    response = await litellm.acompletion(
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        **{key: value for key, value in arguments.items() if value is not None},
+    )
+    usage = getattr(response, "usage", None)
+    return response.choices[0].message.content or "", getattr(usage, "total_tokens", None)
+
+
 async def judge(args: argparse.Namespace) -> None:
     spec = load_spec(args.run_dir)
     if args.judge_model == spec.generation_model:
@@ -512,8 +538,7 @@ async def judge(args: argparse.Namespace) -> None:
         provider_registry=ProviderRegistry(env_providers=provider_credentials_from_env())
     )
     params = registry.resolve(ModelSelection(model_id=args.judge_model, temperature=0.0))
-    params = params.model_copy(update={"json_output": True})
-    llm = LiteLLMService()
+    provider_errors: collections.Counter[str] = collections.Counter()
     out = args.run_dir / "judged.jsonl"
     done = {(row["key"], row["attempt"]) for row in read_jsonl_if_exists(out)}
     calls = judge_calls(load_users(args.dataset), args.run_dir)
@@ -527,12 +552,15 @@ async def judge(args: argparse.Namespace) -> None:
 
     async def run(call: dict[str, Any], attempt: int) -> None:
         prompt = prompts[call["kind"]].format(**call["fields"])
-        tokens = None
         try:
-            completion = await llm.complete([{"role": "user", "content": prompt}], params)
-            tokens = completion.usage.total_tokens if completion.usage else None
-            payload: Any = parse_llm_json(completion.text)
-        except (ModelProviderError, JSONParseError) as error:
+            text, tokens = await complete_judge(params, prompt, args.reasoning_effort)
+        except openai.APIError as error:
+            # 提供商失败不入账：再运行一次 judge 会补判这次调用；只有解析失败按无分入账。
+            provider_errors[type(error).__name__] += 1
+            return
+        try:
+            payload: Any = parse_llm_json(text)
+        except JSONParseError as error:
             payload = {"error": type(error).__name__}
         row = {key: value for key, value in call.items() if key != "fields"}
         append_jsonl(
@@ -544,11 +572,14 @@ async def judge(args: argparse.Namespace) -> None:
                 "tokens": tokens,
                 "raw": payload,
                 "judge_model": args.judge_model,
+                "reasoning_effort": args.reasoning_effort,
             },
         )
 
     jobs = [lambda c=c, a=a: run(c, a) for c, a in pending]
     await gather_limited(jobs, args.concurrency)
+    if provider_errors:
+        print(f"提供商失败没有入账，再运行一次 judge 补判：{dict(provider_errors)}", flush=True)
 
 
 # ---------------------------------------------------------------- report
@@ -800,6 +831,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_dir", type=Path)
     p.add_argument("--prompts", type=Path, required=True, help="prompts 子命令写出的目录")
     p.add_argument("--judge-model", required=True, help="models.yaml 中的模型 id")
+    p.add_argument(
+        "--reasoning-effort", default=None, help="推理模型的推理强度，例如 none；不给时不发送"
+    )
     p.add_argument("--concurrency", type=int, default=10)
 
     p = commands.add_parser("report", help="汇总指标，写出报告")
