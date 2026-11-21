@@ -182,14 +182,18 @@ class Librarian:
         ]
         tool_calls: Counter[str] = Counter()
         revise_rejected = 0
-        total_tokens = 0
+        total_tokens = prompt_tokens = cached_prompt_tokens = 0
         steps = 0
         finished = False
         while steps < self._config.max_steps and not finished:
             steps += 1
+            # 每一步都重发整段对话；消息只往后追加、前缀不变，所以第二步起的输入大部分
+            # 可以命中提供商的上下文缓存，日志分开记下命中的部分。
             completion = await self._llm_service.complete(messages, self._llm_params)
             if completion.usage is not None:
                 total_tokens += completion.usage.total_tokens
+                prompt_tokens += completion.usage.prompt_tokens
+                cached_prompt_tokens += completion.usage.cached_prompt_tokens
             messages.append({"role": "assistant", "content": completion.text})
             action = _parse_action(completion.text)
             if action is None:
@@ -207,12 +211,14 @@ class Librarian:
         # 步数用完是预算截断：模型没有说写完，已暂存的照常提交。
         logger.log(
             logging.INFO if finished else logging.WARNING,
-            "馆长结算结束: end=%s, steps=%d, staged=%d, total_tokens=%d, tool_calls=%s, "
-            "revised=%d, revise_rejected=%d",
+            "馆长结算结束: end=%s, steps=%d, staged=%d, total_tokens=%d, prompt_tokens=%d, "
+            "cached_prompt_tokens=%d, tool_calls=%s, revised=%d, revise_rejected=%d",
             "finish" if finished else "max_steps",
             steps,
             len(run.staged),
             total_tokens,
+            prompt_tokens,
+            cached_prompt_tokens,
             " ".join(f"{name}={count}" for name, count in sorted(tool_calls.items())),
             len(run.revisions),
             revise_rejected,

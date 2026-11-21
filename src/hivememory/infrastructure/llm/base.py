@@ -47,6 +47,11 @@ class LLMUsage(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     total_tokens: int = Field(description="本次调用消耗的总 token 数")
+    prompt_tokens: int = Field(default=0, description="输入的 token 数；提供商没有报告时为 0")
+    cached_prompt_tokens: int = Field(
+        default=0,
+        description="输入中命中提供商上下文缓存、按缓存价计费的 token 数；提供商没有报告时为 0",
+    )
 
 
 class LLMCompletion(BaseModel):

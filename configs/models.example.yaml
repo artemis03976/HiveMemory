@@ -23,8 +23,8 @@
 
 models:
   - id: "deepseek-chat"
-    display_name: "DeepSeek V4"
-    litellm_model: "deepseek/deepseek-chat"
+    display_name: "DeepSeek V4.1 Flash"
+    litellm_model: "deepseek/deepseek-flash"
     provider: "deepseek"
     temperature: 0.7
     max_tokens: 4096

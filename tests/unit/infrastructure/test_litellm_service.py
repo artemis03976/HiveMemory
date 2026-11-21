@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import litellm
 import pytest
+from litellm.types.utils import Usage
 
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.infrastructure.llm.base import (
@@ -150,6 +151,40 @@ class TestComplete:
 
         assert completion == LLMCompletion(
             text="回复", finish_reason="length", usage=LLMUsage(total_tokens=42)
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "usage",
+        [
+            Usage(
+                prompt_tokens=100,
+                completion_tokens=5,
+                total_tokens=105,
+                prompt_cache_hit_tokens=80,
+                prompt_cache_miss_tokens=20,
+            ),
+            Usage(
+                prompt_tokens=100,
+                completion_tokens=5,
+                total_tokens=105,
+                prompt_tokens_details={"cached_tokens": 80},
+            ),
+        ],
+        ids=["deepseek", "openai"],
+    )
+    async def test_usage_separates_prompt_tokens_that_hit_the_provider_cache(
+        self, monkeypatch, usage
+    ):
+        """各提供商报告缓存命中的字段不同，经 litellm 归一后都读成同一个命中数。"""
+        response = _completion_response("回复")
+        response.usage = usage
+        _install(monkeypatch, _RecordingSDK(response))
+
+        completion = await LiteLLMService().complete(_MESSAGES, _FULL_PARAMS)
+
+        assert completion.usage == LLMUsage(
+            total_tokens=105, prompt_tokens=100, cached_prompt_tokens=80
         )
 
     @pytest.mark.asyncio
