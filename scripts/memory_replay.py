@@ -563,7 +563,7 @@ async def extract_turns(args: argparse.Namespace) -> None:
     extractor = create_extractor(extractor_config, llm, params)
     if not isinstance(extractor, LLMMemoryExtractor):
         raise SystemExit("主配置的被动提取器没有启用")
-    system = extractor.normal_system_prompt.format(
+    system = extractor.prompt("passive", "system_prompt").format(
         format_instructions=extractor.passive_format_instructions
     )
     builder = GenerationTranscriptBuilder()
@@ -578,7 +578,9 @@ async def extract_turns(args: argparse.Namespace) -> None:
 
     def job(material_id: str, context: GenerationContext, run: int):
         async def go() -> dict[str, Any]:
-            user = extractor.normal_user_prompt.format(transcript=transcripts[material_id])
+            user = extractor.prompt("passive", "user_prompt").format(
+                transcript=transcripts[material_id]
+            )
             result: dict[str, Any] = {"id": material_id, "run": run, "memories": None}
             try:
                 completion = await llm.complete(

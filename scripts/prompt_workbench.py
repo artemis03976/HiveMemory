@@ -75,10 +75,12 @@ from hivememory.core.errors.model import ModelProviderError
 from hivememory.core.models import WorkspaceIdentity, system_actor_for_workspace
 from hivememory.engines.generation import extractor as extractor_module
 from hivememory.engines.generation import librarian as librarian_module
+from hivememory.engines.generation.edits import IndexDriftGuard
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.librarian import Librarian
 from hivememory.engines.generation.models import GenerationContext
 from hivememory.i18n import Language, get_generation_prompt_text, set_language
+from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.infrastructure.llm.base import (
     BaseLLMService,
     LLMCompletion,
@@ -246,6 +248,8 @@ class Run:
     status: str = "running"  # running、done 或 failed
     steps: list[Step] = field(default_factory=list)
     drafts: list[dict[str, Any]] = field(default_factory=list)
+    # 馆长暂存的修订：被修订记忆的 alias 与标题，加上编辑集。
+    revisions: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
     started: float = field(default_factory=time.monotonic)
     seconds: float | None = None
@@ -321,6 +325,7 @@ class Workbench:
         params: LLMRequestParams,
         extractor_config: ExtractorConfig,
         librarian_config: LibrarianConfig,
+        drift_guard: IndexDriftGuard,
         mid_term: MidTermMemoryStore,
         storage: QdrantConfig,
         belong_to: WorkspaceIdentity,
@@ -333,6 +338,7 @@ class Workbench:
         self._params = params
         self._extractor_config = extractor_config
         self._librarian_config = librarian_config
+        self._drift_guard = drift_guard
         self._mid_term = mid_term
         self._storage = storage
         self._belong_to = belong_to
@@ -493,9 +499,10 @@ class Workbench:
                         llm_service=recorder,
                         llm_params=self._params,
                         config=self._librarian_config,
+                        drift_guard=self._drift_guard,
                     )
                 try:
-                    drafts = await librarian.settle(
+                    result = await librarian.settle(
                         transcript,
                         topic_write_memory_ids=topic_writes,
                         belong_to=self._belong_to,
@@ -503,6 +510,15 @@ class Workbench:
                     )
                 finally:
                     recorder.sync_replies()
+                drafts = result.drafts
+                run.revisions = [
+                    {
+                        "alias": revision.base.index.alias,
+                        "title": revision.base.index.title,
+                        **revision.edit_set.model_dump(mode="json"),
+                    }
+                    for revision in result.revisions
+                ]
             else:
                 with edited_prompts("passive", prompts):
                     extractor = LLMMemoryExtractor(self._extractor_config, recorder, self._params)
@@ -653,6 +669,11 @@ def main(argv: list[str] | None = None) -> None:
         params=params,
         extractor_config=extractor_config,
         librarian_config=config.patchouli.generation.librarian,
+        # 与组合根相同：漂移拦截用中期库编码记忆的同一个嵌入服务（进程内单例）。
+        drift_guard=IndexDriftGuard(
+            get_bge_m3_service(config=config.shared.embedding.default),
+            min_similarity=config.patchouli.generation.revision_min_index_similarity,
+        ),
         mid_term=mid_term,
         storage=storage,
         belong_to=WorkspaceIdentity(
@@ -1003,6 +1024,10 @@ function runCard(r) {
     card.append(el("h4", {}, r.target === "librarian"
       ? `暂存的记忆（${r.drafts.length} 条，不会写入）` : `提取的草稿（${r.drafts.length} 条）`));
     r.drafts.forEach((draft) => card.append(memoryView(draft)));
+    if (r.target === "librarian") {
+      card.append(el("h4", {}, `暂存的修订（${r.revisions.length} 条，不会写入）`));
+      r.revisions.forEach((revision) => card.append(el("pre", {}, pretty(revision))));
+    }
   }
   return card;
 }
