@@ -69,7 +69,7 @@ last_reviewed: 2026-11-20
 | AgentProfileStore | Agent Profile 移出中期库，以文件保存并热重载；可用 agent 的列表常驻提示词 | #226 |
 | 生成的记忆指向交互轮次 | 事件记下来自本轮第几次模型响应，段由事件派生，记忆的版本记录引用段 | #228 |
 | 馆长 agent | 话题结算可选馆长：先看本话题的写入与库中相关记忆再写；与一次性生成并存为用户选项 | #231 |
-| 试验场第一版 | 隔离的试验实例与 HaluMem 的驱动、评分器与报告；在 Medium 的 5 个用户上对照一次性生成与馆长；评测之前修复英文提取提示词中的中文 Schema 说明 | 未合并 |
+| 试验场第一版 | 隔离的试验实例与 HaluMem 的驱动、评分器与报告；在 Medium 的 5 个用户上对照一次性生成与馆长；评测之前修复英文提取提示词中的中文 Schema 说明 | #234 |
 
 当前事实见[记忆生成](./patchouli/generation.md)、[MemoryLibrary 与存储层](./patchouli/memory-library.md)，计划见 [Archived Plans](./archive/plans/README.md#v080)。复核的固定流程在分支上实现后不合并。本地提示词工作台（#232）用于在导出的结算材料上对照馆长与一次性生成的提示词，不进入产品。试验场是 v0.8 评测的承载（[孵化场、试验场与垃圾回收场](./ideas/experiment-field.md)第 6 节），第一次评测的结果见[评测集](./ideas/memory-evaluation-benchmarks.md)第 6 节，用法见[在 HaluMem 上评测记忆生成](./help/halumem-evaluation.md)。
 

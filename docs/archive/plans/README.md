@@ -14,7 +14,7 @@ last_reviewed: 2026-11-20
 
 ## v0.8.0
 
-- 试验场第一版：在 HaluMem 上评测一次性生成与馆长：2026-11-20，未合并（分支 `docs/v0.8.0-experiment-field-v1-plan`）；删除前最后版本在 `8ba22fc3`；[在 HaluMem 上评测记忆生成](../../help/halumem-evaluation.md)、[评测集](../../ideas/memory-evaluation-benchmarks.md#6-首个评测切片)
+- 试验场第一版：在 HaluMem 上评测一次性生成与馆长：2026-11-20，PR #234；删除前最后版本在 `8ba22fc3`；[在 HaluMem 上评测记忆生成](../../help/halumem-evaluation.md)、[评测集](../../ideas/memory-evaluation-benchmarks.md#6-首个评测切片)
 - 馆长 agent：话题结算可选馆长，先看本话题的写入与库中相关记忆再写：2026-11-19，PR #231；删除前最后版本在 `96e7a701`；[记忆生成](../../patchouli/generation.md#31-mode-a被动观察--archive)、[System 配置](../../system/configuration.md)
 - 生成的记忆指向交互轮次：事件记下模型响应，记忆引用到段：2026-11-18，PR #228；删除前最后版本在 `84d95b22`；[记忆生成](../../patchouli/generation.md#22-段标签与记忆引用)、[感知与短期话题](../../patchouli/perception.md#2-结构化摄入)
 - [AgentProfileStore：Agent Profile 移出中期记忆库，以文件保存并热重载](./v0.8.0-agent-profile-store.md)：2026-11-18，PR #226；[MemoryLibrary 与存储层](../../patchouli/memory-library.md#15-agent-profile人偶图纸)、[任务进程](../../workspace/task-process.md#6-cpu-分配)
