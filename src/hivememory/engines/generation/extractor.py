@@ -27,7 +27,12 @@ from hivememory.engines.generation.models import (
     MergeResult,
     RevisionResult,
 )
-from hivememory.i18n import get_generation_prompt_text, resolve_language
+from hivememory.i18n import (
+    Language,
+    get_generation_prompt_text,
+    get_generation_schema_description,
+    resolve_language,
+)
 from hivememory.infrastructure.llm.base import BaseLLMService, LLMCompletion, LLMRequestParams
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
@@ -132,8 +137,8 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         )
 
         # 话题提取输出草稿列表，WRITE 只输出一条草稿，两者的 JSON Schema 不同。
-        self.passive_format_instructions = _schema_text(ExtractionResult)
-        self.write_format_instructions = _schema_text(ExtractedMemoryDraft)
+        self.passive_format_instructions = _schema_text(ExtractionResult, self.language)
+        self.write_format_instructions = _schema_text(ExtractedMemoryDraft, self.language)
         self.merge_system_prompt = get_generation_prompt_text(
             "merge", "system_prompt", self.language
         )
@@ -346,9 +351,23 @@ class NoOpMemoryExtractor(BaseMemoryExtractor):
         return []
 
 
-def _schema_text(model: type[BaseModel]) -> str:
-    """把输出模型的 JSON Schema 渲染为提示词中的格式说明。"""
-    return json.dumps(model.model_json_schema(), ensure_ascii=False, indent=2)
+def _schema_text(model: type[BaseModel], language: Language) -> str:
+    """把输出模型的 JSON Schema 渲染为提示词中的格式说明，说明文字与提示词同一语言。
+
+    Schema 的说明文字来自模型的类 docstring 与字段 description，原文是中文；原样嵌进英文
+    提示词时，模型会跟着中文说明用中文写记忆。结构仍取自模型，只逐项换掉说明文字。
+    """
+    schema = model.model_json_schema()
+    for definition in (schema, *schema.get("$defs", {}).values()):
+        name = definition["title"]
+        nodes = {name: definition}
+        nodes.update({f"{name}.{field}": node for field, node in definition["properties"].items()})
+        for key, node in nodes.items():
+            if "description" in node:
+                node["description"] = get_generation_schema_description(
+                    key, node["description"], language
+                )
+    return json.dumps(schema, ensure_ascii=False, indent=2)
 
 
 # 便捷函数
