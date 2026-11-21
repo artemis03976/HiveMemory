@@ -34,7 +34,7 @@ last_reviewed: 2026-11-21
 - **最近已发布**：`v0.7.3`（Git tag，2026-11-04），主动写入与被动提取的收敛，作为过渡措施。
 - **当前内容基线**：`v0.8.0`，生成核心的升级，2026-11-21 收尾（第 3 节，[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md)），发布标签 `v0.8.0` 在合并后创建；之后的版本目标尚未确定。
 - **规范代码版本**：`0.8.0`，由 `src/hivememory/_version.py` 唯一声明，Python 包、前端清单与锁文件保持一致。
-- **v1.0 已确定的范围**：桌面客户端，以及 Claude Code、DeepSeek Harness、Codex 与 pi 四个 harness 的 plugin 模式接入；安装包与版本号随 v1.0 发布。
+- **v1.0 已确定的范围**：桌面客户端，以及 Claude Code、DeepSeek Harness、Codex 与 pi 四个 harness 的 plugin 模式接入。从 v1.0 起，每个版本的 GitHub Release 附上本机打的桌面安装包；此前的版本照常只发布工作流生成的 Python 包与前端产物（owner，2026-11-21）。
 
 ## 2. 发布历史
 

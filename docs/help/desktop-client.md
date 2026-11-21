@@ -6,7 +6,7 @@ scope: install-first-start-upgrade-data-deletion-and-uninstall-of-the-windows-de
 related_docs:
   - docs/frontend/desktop-client.md
   - docs/help/setup.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-21
 ---
 
 # 使用桌面客户端
@@ -18,7 +18,7 @@ last_reviewed: 2026-11-12
 1. 运行安装包 `HiveMemory Setup <版本>.exe`。安装包没有代码签名，Windows 会显示“Windows 已保护你的电脑”：选择“更多信息”，再选择“仍要运行”。
 2. 按向导完成安装，默认装在 `%LOCALAPPDATA%\Programs\HiveMemory`，按当前用户安装，不需要管理员权限。
 
-安装包从源码生成：在 `desktop` 目录执行 `npm ci` 后执行 `npm run package`，产物在 `desktop\dist`。打包需要 uv、Node.js 与开发环境中可用的 `qdrant.exe`（`.hivememory\dev.env` 的 `QDRANT_BIN`）。
+GitHub Release 上没有附安装包，安装包从源码生成：在 `desktop` 目录执行 `npm ci` 后执行 `npm run package`，产物在 `desktop\dist`。打包需要 uv、Node.js 与开发环境中可用的 `qdrant.exe`（`.hivememory\dev.env` 的 `QDRANT_BIN`）。
 
 ## 2. 首次启动
 
