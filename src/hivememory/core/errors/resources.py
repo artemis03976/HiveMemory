@@ -106,8 +106,7 @@ class ResourceUnavailableError(WorkspaceDomainError):
 
 
 class MemoryMergeAbortedError(WorkspaceDomainError):
-    """合并的读取、条件、版本或模型输出不满足要求，或保留记忆的索引变化过大；reason 区分
-    拒绝原因。"""
+    """合并的读取、条件、版本或模型输出不满足要求；reason 区分拒绝原因。"""
 
     code = "workspace.memory.merge_aborted"
 

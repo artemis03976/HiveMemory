@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-21
 ---
 
 # HiveMemory 开发路线图
@@ -70,13 +70,13 @@ last_reviewed: 2026-11-20
 | 生成的记忆指向交互轮次 | 事件记下来自本轮第几次模型响应，段由事件派生，记忆的版本记录引用段 | #228 |
 | 馆长 agent | 话题结算可选馆长：先看本话题的写入与库中相关记忆再写；与一次性生成并存为用户选项 | #231 |
 | 试验场第一版 | 隔离的试验实例与 HaluMem 的驱动、评分器与报告；在 Medium 的 5 个用户上对照一次性生成与馆长；评测之前修复英文提取提示词中的中文 Schema 说明 | #234 |
+| 写入时的更新 | 馆长可以修订读过的记忆；馆长的修订、主动 UPDATE 与查重提名的合并改用编辑集，索引的修改幅度由编辑集的结构限制；三条路径提交前按同一条规则重读与重放；合并按 Workspace 依次执行、沿吸收关系改指 | 未合并 |
 
 当前事实见[记忆生成](./patchouli/generation.md)、[MemoryLibrary 与存储层](./patchouli/memory-library.md)，计划见 [Archived Plans](./archive/plans/README.md#v080)。复核的固定流程在分支上实现后不合并。本地提示词工作台（#232）用于在导出的结算材料上对照馆长与一次性生成的提示词，不进入产品。试验场是 v0.8 评测的承载（[孵化场、试验场与垃圾回收场](./ideas/experiment-field.md)第 6 节），第一次评测的结果见[评测集](./ideas/memory-evaluation-benchmarks.md)第 6 节，用法见[在 HaluMem 上评测记忆生成](./help/halumem-evaluation.md)。
 
 ### 3.3 进行中的方向与验收
 
-- 写入时的更新（Planned）：馆长的修订、主动 UPDATE 与查重提名的合并改用编辑集，索引层的标题与摘要只做片段替换、标签逐个增删，修改的幅度由编辑集的结构限制；写入时的合并以保留记忆为底，表达不了就保留两条（[写入链路](./ideas/memory-flow-write-path.md)第 2.1、3.1 节）。计划见[写入时的更新](./plans/v0.8.0-edit-set-revision.md)，原来的合并中止 Todo 并入其中，保证同一条链路上的更新结局不取决于时序。
-- 其余方向待定；各设计领域的开放问题见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.1 节。
+- 下一个方向待定；各设计领域的开放问题见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.1 节。
 - 验收：单轮不交记忆税，长程看演化质量与人工介入（[v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.2 节）。
 
 ## 4. 版本之外的工作与候选方向
