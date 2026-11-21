@@ -5,6 +5,7 @@
 - LLM 消息格式与按语言选择的提示词
 - 话题提取的草稿列表解析、“没有产出”与输出截断
 - 只对提供商失败重试，耗尽后显式失败
+- 修订与合并返回模型原文；重试时把上一次的输出与被拒的原因接在对话之后
 - 等待 LLM 期间不阻塞事件循环
 """
 
@@ -18,7 +19,7 @@ import pytest
 from hivememory.config.patchouli import ExtractorConfig
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
-from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH, MEMORY_TITLE_MAX_LENGTH
+from hivememory.engines.generation.edits import EditSetError, IndexDriftError
 from hivememory.engines.generation.extractor import LLMMemoryExtractor, NoOpMemoryExtractor
 from hivememory.i18n import set_language
 from hivememory.infrastructure.llm.base import (
@@ -42,6 +43,11 @@ _DRAFT_JSON = json.dumps(_DRAFT)
 _EXTRACTION_JSON = json.dumps(
     {"memories": [_DRAFT, {**_DRAFT, "title": "Second", "content": "Other content"}]}
 )
+_EDIT_SET_JSON = json.dumps(
+    {"edits": [{"op": "append", "text": "Later progress"}], "changelog": "Appended progress"}
+)
+
+
 # CJK 标点、汉字与全角字符；英文提示词中出现任何一个，模型都可能跟着用中文写记忆。
 _CJK = re.compile(r"[　-〿一-鿿＀-￯]")
 
@@ -129,26 +135,30 @@ class TestLLMMemoryExtractorPrompts:
 
     @pytest.mark.asyncio
     async def test_language_selects_english_update_prompts(self):
-        """测试全局语言驱动 UPDATE 模板"""
+        """全局语言为英文时，UPDATE 的提示词全程英文；目标记忆带摘要与标签。"""
         set_language("en")
-        llm = ScriptedLLMService(
-            json.dumps({"new_content": "New content", "changelog": "Updated content"})
-        )
+        llm = ScriptedLLMService(_EDIT_SET_JSON)
 
         await _extractor(llm).revise(
-            old_content="Old content",
-            metadata={
-                "instruction": "Update it",
-                "memory_title": "Title",
-                "memory_alias": "alias",
-            },
+            _merge_memories()[0],
+            instruction="Update it",
+            new_content=None,
+            transcript="",
         )
 
         messages = llm.calls[-1].messages
         assert "Editor Mode" in messages[0]["content"]
-        assert "Target Memory" in messages[1]["content"]
-        assert "No new material" in messages[1]["content"]
-        assert "No background conversation" in messages[1]["content"]
+        assert all(
+            text in messages[1]["content"]
+            for text in (
+                "Target Memory",
+                "**Summary**: Decision",
+                '**Tags**: ["design"]',
+                "No new material",
+                "No background conversation",
+            )
+        )
+        assert _CJK.findall("".join(message["content"] for message in messages)) == []
 
 
 class TestLLMMemoryExtractorResults:
@@ -293,29 +303,16 @@ def _merge_memories():
     return retained, absorbed
 
 
-def _merge_json(**changes):
-    fields = dict(
-        title="Merged",
-        summary="Decision and progress",
-        tags=["work"],
-        memory_type="FACT",
-        content="Both pieces",
-        changelog="Preserved both stages",
-    )
-    fields.update(changes)
-    return json.dumps(fields)
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["zh", "en"])
 async def test_merge_sends_both_memories_and_newer_marker(language):
-    """两种语言都携带完整内容、较新标记与 Librarian 请求参数。"""
+    """两种语言都携带两条记忆的完整内容、较新标记与 Librarian 请求参数。"""
     set_language(language)
-    llm = ScriptedLLMService(_merge_json())
+    llm = ScriptedLLMService(_EDIT_SET_JSON)
     result = await _extractor(llm).merge(*_merge_memories())
     call = llm.calls[0]
     assert call.params == DEFAULT_LLM_PARAMS
-    assert result.content == "Both pieces"
+    assert result == _EDIT_SET_JSON
     user_prompt = call.messages[1]["content"]
     assert all(
         text in user_prompt
@@ -333,39 +330,39 @@ async def test_merge_sends_both_memories_and_newer_marker(language):
 
 
 @pytest.mark.asyncio
-async def test_merge_parses_and_truncates_model_output_after_provider_retry():
-    """合并重用提供商重试，输出在进入索引前收敛长度。"""
-    llm = ScriptedLLMService(
-        ModelProviderError("transient"),
-        _merge_json(
-            title="题" * (MEMORY_TITLE_MAX_LENGTH + 50),
-            summary="摘" * (MEMORY_SUMMARY_MAX_LENGTH + 50),
-        ),
-    )
-    result = await _extractor(llm).merge(*_merge_memories())
-    assert (result.title, result.summary, result.tags, result.memory_type, result.changelog) == (
-        "题" * MEMORY_TITLE_MAX_LENGTH,
-        "摘" * MEMORY_SUMMARY_MAX_LENGTH,
-        ["work"],
-        "FACT",
-        "Preserved both stages",
-    )
-    assert len(llm.calls) == 2
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "output",
-    ["", "not json", '{"content":"partial"}', _merge_json(title="", content="")],
-    ids=["empty", "unparseable", "missing-fields", "blank-title-and-body"],
+    ("rejection", "reason"),
+    [
+        (
+            EditSetError("edit 1 (replace in content): the old text does not occur"),
+            "edit 1 (replace in content): the old text does not occur",
+        ),
+        (IndexDriftError(0.512, 0.85), "0.512"),
+    ],
+    ids=["not-applicable", "drifting"],
 )
-async def test_merge_invalid_output_returns_none_without_retry(output):
-    """没有完整合并内容时不能用追加或原始材料替代。"""
-    llm = ScriptedLLMService(output)
-    assert await _extractor(llm).merge(*_merge_memories()) is None
-    assert len(llm.calls) == 1
+async def test_retry_appends_the_previous_output_and_why_it_was_rejected(rejection, reason):
+    """重试时原对话不变，其后接上一次的输出与被拒的原因；两种原因各有一段文本。"""
+    llm = ScriptedLLMService(_EDIT_SET_JSON, _EDIT_SET_JSON)
+    extractor = _extractor(llm)
+
+    await extractor.merge(*_merge_memories())
+    await extractor.merge(*_merge_memories(), retry=("previous output", rejection))
+
+    first, retry = llm.calls
+    assert retry.messages[:2] == first.messages
+    assert [(m["role"], m["content"]) for m in retry.messages[2:3]] == [
+        ("assistant", "previous output")
+    ]
+    assert (retry.messages[3]["role"], reason in retry.messages[3]["content"]) == ("user", True)
 
 
 @pytest.mark.asyncio
-async def test_noop_merge_has_no_output():
-    assert await NoOpMemoryExtractor().merge(*_merge_memories()) is None
+async def test_noop_extractor_has_no_revision_or_merge():
+    retained, absorbed = _merge_memories()
+    noop = NoOpMemoryExtractor()
+
+    assert (
+        await noop.merge(retained, absorbed),
+        await noop.revise(retained, instruction="Update", new_content=None, transcript=""),
+    ) == (None, None)

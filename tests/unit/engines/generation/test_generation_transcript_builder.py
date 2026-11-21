@@ -22,7 +22,7 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
-from tests.helpers.memory import make_memory_identity_scope
+from tests.helpers.memory import make_drift_guard, make_memory_identity_scope
 from tests.helpers.sessions import make_logical_block
 
 # ============ 辅助工厂 ============
@@ -263,6 +263,7 @@ class TestEngineWithGenerationContext:
             mid_term=storage,
             extractor=extractor,
             deduplicator=deduplicator,
+            drift_guard=make_drift_guard(),
         )
         return engine, extractor, deduplicator
 

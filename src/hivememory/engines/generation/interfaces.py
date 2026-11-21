@@ -10,14 +10,13 @@ HiveMemory - Generation 模块接口抽象层
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Optional
 
 from hivememory.core.models import MemoryAtom
+from hivememory.engines.generation.edits import EditSetRetry
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
-    MergeResult,
-    RevisionResult,
 )
 
 # ========== 接口定义 ==========
@@ -76,34 +75,34 @@ class BaseMemoryExtractor(ABC):
 
     async def revise(
         self,
-        old_content: str,
-        metadata: dict[str, Any],
-    ) -> Optional["RevisionResult"]:
+        memory: MemoryAtom,
+        *,
+        instruction: str,
+        new_content: str | None,
+        transcript: str,
+        retry: EditSetRetry | None = None,
+    ) -> str | None:
         """
-        执行记忆修订 (Mode C: UPDATE)
+        执行记忆修订 (Mode C: UPDATE)：请模型写出对目标记忆的编辑集，返回模型原文
 
-        调用 LLM 将旧内容与修改指令合并，生成新内容和变更日志。
-        默认实现返回 None (NoOp)，子类可覆盖。
+        默认实现返回 None (NoOp)，调用方据此使用回退。
 
         Args:
-            old_content: 目标记忆的当前内容
-            metadata: 元信息，包含:
-                - instruction: 修改指令
-                - new_content: 新素材 (可能为空)
-                - memory_title: 目标记忆标题
-                - memory_alias: 目标记忆别名
-                - transcript: 近期对话上下文
-
-        Returns:
-            RevisionResult: 修订结果；模型输出为空或无法解析时返回 None
+            memory: 目标记忆的当前版本
+            instruction: 修改指令
+            new_content: 新素材，可能为空
+            transcript: 近期对话上下文
+            retry: 重试时为上一次的输出与它被拒的原因
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽
         """
         return None
 
-    async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> MergeResult | None:
-        """融合两条正式记忆，返回完整索引与正文；未启用模型时没有产出。"""
+    async def merge(
+        self, retained: MemoryAtom, absorbed: MemoryAtom, *, retry: EditSetRetry | None = None
+    ) -> str | None:
+        """请模型写出把被吸收记忆独有的内容补进保留记忆的编辑集；未启用模型时没有产出。"""
         return None
 
 

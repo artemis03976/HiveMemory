@@ -51,7 +51,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
-from tests.helpers.memory import make_memory_metadata
+from tests.helpers.memory import make_drift_guard, make_memory_metadata
 from tests.helpers.sessions import make_interaction_payload
 
 
@@ -136,6 +136,7 @@ async def test_settle_skips_restricted_dedup_but_write_keeps_actor_visibility(
         mid_term=MidTermMemoryStore(QdrantStorageAdapter(_LeakyVectorStore(existing))),
         extractor=_Extractor(),
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+        drift_guard=make_drift_guard(),
     )
     request = GenerationRequest(
         context=GenerationContext(
@@ -234,6 +235,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
             mid_term=mid_term,
             extractor=_Extractor(),
             deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+            drift_guard=make_drift_guard(),
         ),
         memory_library=library,
         artifact_engine=ArtifactEngine.from_store(artifacts, ArtifactConfig(enabled=True)),

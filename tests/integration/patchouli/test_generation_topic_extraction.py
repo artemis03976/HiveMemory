@@ -27,6 +27,7 @@ from hivememory.engines.generation.models import (
 from hivememory.infrastructure.llm import LiteLLMService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
+from tests.helpers.memory import make_drift_guard
 
 pytestmark = pytest.mark.live_llm
 
@@ -59,6 +60,7 @@ def _engine() -> MemoryGenerationEngine:
             llm_params=llm_params,
         ),
         deduplicator=MemoryDeduplicator(config=config.patchouli.generation.deduplicator),
+        drift_guard=make_drift_guard(),
     )
 
 

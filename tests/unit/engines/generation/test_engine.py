@@ -5,13 +5,16 @@ MemoryGenerationEngine 单元测试
 - Mode 路由: A (被动) / B (WRITE) / C (UPDATE)
 - Mode A: 多条草稿逐条查重 / 无价值草稿丢弃 / 没有草稿 / 同批别名不冲突
 - Mode B: 正常 WRITE / LLM 失败 fallback
-- Mode C: 正常 UPDATE / existing_memory=None / LLM 修订失败 fallback
+- Mode C: 编辑集修订 / existing_memory=None / 带错误重试一次 / 重试后仍不合格、提供商失败与
+  没有模型时回退且不改索引 / 空编辑集降为 TOUCH
 - 查重分支: IDENTICAL / SIMILAR / DISTINCT；命中本话题主动写入结算到的记忆时 Mode A 丢弃、
   Mode B 不提名合并
 - 段引用: 标签换算为轮次标识加事件区间，不存在的标签丢弃；退回草稿、追加修订与触碰不带
-- 结算方式: 一次性生成查重；馆长的草稿全部新建、带段引用、同批别名不冲突；提取关闭时都不运行
+- 结算方式: 一次性生成查重；馆长的草稿全部新建、带段引用、同批别名不冲突，修订成为 UPDATE；
+  提取关闭时都不运行
+- 合并: 以保留记忆为底的编辑集，类型沿用保留记忆，空编辑集仍是 UPDATE，拒绝向上抛出
 - 纯计算边界: 引擎不改 version/updated_at/decay anchor/confidence，CREATE 用传入 now 打戳；
-  多轮修订的 before 快照互不污染
+  修订与合并不修改输入
 """
 
 import json
@@ -38,10 +41,14 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType
 from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH
-from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
+from hivememory.engines.generation.edits import EditSetError, IndexDriftError
 from hivememory.engines.generation.engine import MemoryGenerationEngine
-from hivememory.engines.generation.extractor import create_extractor
+from hivememory.engines.generation.extractor import (
+    LLMMemoryExtractor,
+    NoOpMemoryExtractor,
+    create_extractor,
+)
 from hivememory.engines.generation.librarian import create_librarian
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -50,8 +57,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationSegment,
     GenerationTurn,
-    MergeResult,
-    RevisionResult,
+    MemoryEditSet,
     provenance_from_actor,
     system_settlement_provenance,
 )
@@ -60,7 +66,11 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from tests.helpers.llm import ScriptedLLMService
-from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
+from tests.helpers.memory import (
+    make_drift_guard,
+    make_memory_identity_scope,
+    make_memory_metadata,
+)
 
 GenerationRequest = GenerationRequestModel
 
@@ -131,6 +141,17 @@ def _make_draft(
     )
 
 
+def _append(text: str, *, segments: tuple[str, ...] = ()) -> MemoryEditSet:
+    """在正文末尾追加一段的编辑集。"""
+    return MemoryEditSet.model_validate(
+        {
+            "edits": [{"op": "append", "text": text}],
+            "changelog": f"追加{text}",
+            "source_segments": list(segments),
+        }
+    )
+
+
 def _make_memory(title="已有记忆", alias: str | None = None) -> MemoryAtom:
     return MemoryAtom(
         meta=make_memory_metadata(
@@ -163,6 +184,7 @@ class TestGenerationEngineRouting:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
+            drift_guard=make_drift_guard(),
         )
 
     @pytest.mark.asyncio
@@ -233,8 +255,7 @@ class TestGenerationEngineRouting:
             base_uuid=str(existing.id),
             base_alias="fact_test",
         )
-        revision_result = RevisionResult(new_content="新内容", changelog="添加了错误处理")
-        self.mock_extractor.revise.return_value = revision_result
+        self.mock_extractor.revise.return_value = _append("错误处理").model_dump_json()
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(
@@ -250,9 +271,7 @@ class TestGenerationEngineRouting:
 
         self.mock_extractor.revise.assert_called_once()
         self.mock_extractor.extract.assert_not_called()
-        metadata = self.mock_extractor.revise.call_args.kwargs["metadata"]
-        assert metadata["mode"] == "update"
-        assert metadata["instruction"] == "添加错误处理"
+        assert self.mock_extractor.revise.call_args.kwargs["instruction"] == "添加错误处理"
         assert len(result) == 1
 
 
@@ -271,6 +290,7 @@ class TestGenerationEngineModeA:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
+            drift_guard=make_drift_guard(),
         )
 
     @pytest.mark.asyncio
@@ -490,6 +510,7 @@ class TestGenerationEngineModeB:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
+            drift_guard=make_drift_guard(),
         )
 
     @pytest.mark.asyncio
@@ -617,60 +638,94 @@ class TestGenerationEngineModeB:
         assert draft.title == "A very long content that should be truncated for t"
 
 
+def _edit_set_json(*edits: dict, add_tags=(), segments=(), changelog="改了") -> str:
+    """模型输出的一份编辑集。"""
+    return json.dumps(
+        {
+            "edits": list(edits),
+            "add_tags": list(add_tags),
+            "remove_tags": [],
+            "changelog": changelog,
+            "source_segments": list(segments),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _replace(field: str, old: str, new: str) -> dict:
+    return {"op": "replace", "field": field, "old": old, "new": new}
+
+
 class TestGenerationEngineModeC:
-    """Mode C (UPDATE 修订) 测试"""
+    """Mode C (UPDATE 修订)：模型给出编辑集并经过漂移拦截；不合格时带着错误重试一次，
+    仍不合格、提供商失败或没有模型时回退，回退只改正文。"""
 
-    def setup_method(self):
-        self.mock_storage = Mock()
-        self.mock_storage.search = AsyncMock(return_value=[])
-        self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
-        self.mock_storage.upsert = AsyncMock()
-        self.mock_extractor = AsyncMock()
-        self.mock_deduplicator = Mock()
-        self.mock_deduplicator.check_duplicate = Mock()
-        self.engine = MemoryGenerationEngine(
-            mid_term=self.mock_storage,
-            extractor=self.mock_extractor,
-            deduplicator=self.mock_deduplicator,
+    def _engine(self, *outputs, similarity: float | None = 1.0, extractor=None):
+        return MemoryGenerationEngine(
+            mid_term=Mock(),
+            extractor=extractor
+            or LLMMemoryExtractor(
+                ExtractorConfig(), ScriptedLLMService(*outputs), LLMRequestParams(model="m")
+            ),
+            deduplicator=Mock(),
+            drift_guard=make_drift_guard(similarity=similarity),
         )
 
-    def _make_update_request(self, existing=None, instruction="更新内容", content=None):
-        if existing is None:
-            existing = _make_memory()
-        uf = UpdateFocus(
-            base_version=1,
-            instruction=instruction,
-            content=content,
-            base_uuid=str(existing.id),
-            base_alias="fact_test",
-        )
-        return GenerationRequest(
-            context=GenerationContext(),
-            update_focus=uf,
+    async def _update(self, engine, existing, *, content=None, context=None):
+        request = GenerationRequest(
+            context=context or GenerationContext(),
+            update_focus=UpdateFocus(
+                base_version=existing.meta.version,
+                instruction="更新内容",
+                content=content,
+                base_uuid=str(existing.id),
+                base_alias="fact_test",
+            ),
             existing_memory=existing,
         )
-
-    @pytest.mark.asyncio
-    async def test_mode_c_revision_success(self):
-        """正常 UPDATE 修订流程"""
-        revision_result = RevisionResult(new_content="合并后内容", changelog="更新了内容")
-        self.mock_extractor.revise.return_value = revision_result
-        self.mock_storage.upsert = AsyncMock()
-        existing = _make_memory(alias="fact_test")
-        memory_id = existing.id
-
-        request = self._make_update_request(existing=existing)
-        result = await self.engine.process(
+        return await engine.process(
             request,
             belong_to=make_memory_identity_scope().workspace_identity,
             from_actor=make_memory_identity_scope().actor_identity,
+            now=FIXED_NOW,
         )
 
-        assert len(result) == 1
-        assert result[0].atom.payload.content == "合并后内容"
-        # UPDATE 修订已有记忆，不另建原子
-        assert result[0].atom.id == memory_id
-        assert result[0].atom.index.alias == "fact_test"
+    @pytest.mark.asyncio
+    async def test_mode_c_applies_the_edit_set_to_the_existing_memory(self):
+        """编辑集改正文、标题与标签；身份、类型、版本、内容时间与置信度不变，输入不被修改。"""
+        existing = _make_memory(alias="fact_test")
+        existing.meta.lifecycle.confidence_score = 0.42
+        before = existing.model_copy(deep=True)
+        engine = self._engine(
+            _edit_set_json(
+                _replace("content", "旧内容", "新内容"),
+                _replace("title", "已有记忆", "已修订的记忆"),
+                add_tags=["新"],
+                changelog="改为新内容",
+            )
+        )
+
+        [outcome] = await self._update(engine, existing)
+
+        atom = outcome.atom
+        assert outcome.action == GenerationAction.UPDATE
+        assert (atom.index.title, atom.index.tags, atom.payload.content) == (
+            "已修订的记忆",
+            ["t", "新"],
+            "新内容",
+        )
+        assert (atom.id, atom.index.alias, atom.index.memory_type) == (
+            before.id,
+            "fact_test",
+            before.index.memory_type,
+        )
+        assert (
+            atom.meta.version,
+            atom.meta.updated_at,
+            atom.meta.lifecycle.confidence_score,
+        ) == (before.meta.version, before.meta.updated_at, 0.42)
+        assert (outcome.memory_before_snapshot, outcome.changelog) == (before, "改为新内容")
+        assert existing == before
 
     @pytest.mark.asyncio
     async def test_mode_c_update_merges_actor_and_context_contributors(self):
@@ -689,183 +744,117 @@ class TestGenerationEngineModeC:
             ),
             payload=PayloadLayer(content="旧内容"),
         )
-        revision_result = RevisionResult(new_content="合并后内容", changelog="更新了内容")
-        self.mock_extractor.revise.return_value = revision_result
-        self.mock_storage.upsert = AsyncMock()
+        engine = self._engine(_edit_set_json(_replace("content", "旧内容", "新内容")))
 
-        uf = UpdateFocus(
-            base_version=1,
-            instruction="更新内容",
-            base_uuid=str(existing.id),
-            base_alias="fact_test",
-        )
-        request = GenerationRequest(
-            context=_make_context_with_agents(["b2"]),
-            update_focus=uf,
-            existing_memory=existing,
-        )
-        result = await self.engine.process(
-            request,
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
-        )
+        [outcome] = await self._update(engine, existing, context=_make_context_with_agents(["b2"]))
 
-        atom = result[0].atom
+        atom = outcome.atom
         assert atom.meta.provenance.source_agent_id == "creator"
         assert atom.meta.provenance.contributing_agent_ids == ("creator", "a1", "b2")
 
     @pytest.mark.asyncio
     async def test_mode_c_no_existing_memory(self):
-        """existing_memory=None 时返回空"""
-        uf = UpdateFocus(
-            base_version=1,
-            instruction="更新",
-            base_uuid=str(uuid4()),
-            base_alias="fact_test",
+        """existing_memory=None 时返回空，不调用模型（替身没有预置输出，调用即失败）。"""
+        request = GenerationRequest(
+            context=GenerationContext(),
+            update_focus=UpdateFocus(
+                base_version=1, instruction="更新", base_uuid=str(uuid4()), base_alias="fact_test"
+            ),
         )
-        request = GenerationRequest(context=GenerationContext(), update_focus=uf)
-        result = await self.engine.process(
+        result = await self._engine().process(
             request,
             belong_to=make_memory_identity_scope().workspace_identity,
             from_actor=make_memory_identity_scope().actor_identity,
         )
 
         assert result == []
-        self.mock_extractor.revise.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "revision_outcome",
-        [None, ModelProviderError("provider down")],
-        ids=["no-output", "provider-failure"],
+        ("first_output", "reason_in_retry"),
+        [
+            (_edit_set_json(_replace("content", "并不存在的原文", "x")), "edit 1"),
+            ("这不是 JSON", "not a JSON object"),
+            (_edit_set_json(_replace("title", "已有记忆", "另一件事")), "0.500"),
+        ],
+        ids=["not-applicable", "unparsable", "drifting"],
     )
-    async def test_mode_c_fallback_on_revision_failure(self, revision_outcome):
-        """没有产出或提供商失败时以提交时点日期把新内容追加到旧内容之后"""
-        self.mock_extractor.revise.side_effect = [revision_outcome]
-        self.mock_storage.upsert = AsyncMock()
-
-        request = self._make_update_request(content="追加内容")
-        result = await self.engine.process(
-            request,
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
-            now=FIXED_NOW,
+    async def test_mode_c_retries_once_with_the_error_before_falling_back(
+        self, first_output, reason_in_retry
+    ):
+        """第一次的输出不能应用、无法解析或被漂移拦截：把它与被拒的原因交回模型再要一次，
+        第二次合格就照常修订。"""
+        llm = ScriptedLLMService(
+            first_output, _edit_set_json(_replace("content", "旧内容", "改对了"))
+        )
+        engine = self._engine(
+            similarity=0.5,
+            extractor=LLMMemoryExtractor(ExtractorConfig(), llm, LLMRequestParams(model="m")),
         )
 
-        assert len(result) == 1
-        assert result[0].atom.payload.content == "旧内容\n\n## 更新 (2026-09-01)\n追加内容"
-        assert result[0].changelog.startswith("Fallback")
+        [outcome] = await self._update(engine, _make_memory(), content="追加内容")
+
+        assert (outcome.action, outcome.atom.payload.content) == (
+            GenerationAction.UPDATE,
+            "改对了",
+        )
+        assert reason_in_retry in llm.calls[-1].messages[-1]["content"]
 
     @pytest.mark.asyncio
-    async def test_mode_c_fallback_no_content(self):
-        """fallback 仅有 instruction 无 content 时内容不变，降级为 TOUCH 而不创建版本"""
+    @pytest.mark.parametrize(
+        ("outputs", "similarity", "noop"),
+        [
+            (
+                [_edit_set_json(_replace("content", "并不存在的原文", "x"))] * 2,
+                1.0,
+                False,
+            ),
+            ([_edit_set_json(_replace("title", "已有记忆", "另一件事"))] * 2, 0.5, False),
+            ([ModelProviderError("down"), ModelProviderError("still down")], 1.0, False),
+            ([], 1.0, True),
+        ],
+        ids=["still-invalid", "still-drifting", "provider-failure", "no-model"],
+    )
+    async def test_mode_c_falls_back_to_appending_without_touching_the_index(
+        self, outputs, similarity, noop
+    ):
+        """重试后仍不合格、提供商失败或没有模型时，以提交时点日期把新内容追加到正文；
+        标题、摘要与标签不变，内容不因模型没能写成编辑集而丢失。"""
         existing = _make_memory()
-        self.mock_extractor.revise.return_value = None
-        self.mock_storage.upsert = AsyncMock()
-
-        request = self._make_update_request(existing=existing, content=None)
-        result = await self.engine.process(
-            request,
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
+        engine = self._engine(
+            *outputs,
+            similarity=similarity,
+            extractor=NoOpMemoryExtractor() if noop else None,
         )
 
-        assert len(result) == 1
-        assert result[0].atom.payload.content == "旧内容"
-        assert result[0].action == GenerationAction.TOUCH
+        [outcome] = await self._update(engine, existing, content="追加内容")
 
-    def test_apply_update_merges_content_and_captures_before_snapshot(self):
-        """纯计算边界：内容合并 + before 快照；version/时间/confidence 留给提交边界"""
+        assert outcome.atom.payload.content == "旧内容\n\n## 更新 (2026-09-01)\n追加内容"
+        assert outcome.atom.index == existing.index
+        assert outcome.changelog.startswith("Fallback")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("output", "content"),
+        [(_edit_set_json(changelog="不需要改"), "追加内容"), (None, None)],
+        ids=["empty-edit-set", "fallback-without-content"],
+    )
+    async def test_mode_c_without_a_change_degrades_to_touch(self, output, content):
+        """空编辑集表示不需要改；回退时只有指令没有内容也不改。两者都降为 TOUCH，不建版本。"""
         existing = _make_memory()
-        existing.meta.lifecycle.confidence_score = 0.42
-        version_before = existing.meta.version
-        updated_at_before = existing.meta.updated_at
-        decay_anchor_before = existing.meta.lifecycle.decay_anchor_at
-        revision_result = RevisionResult(new_content="新版本", changelog="v2 更新")
-        self.mock_storage.upsert = Mock()
+        engine = (
+            self._engine(output)
+            if output is not None
+            else self._engine(extractor=NoOpMemoryExtractor())
+        )
 
-        result = self.engine._apply_update(
+        [outcome] = await self._update(engine, existing, content=content)
+
+        assert (outcome.action, outcome.atom, outcome.memory_before_snapshot) == (
+            GenerationAction.TOUCH,
             existing,
-            revision_result,
-            provenance=system_settlement_provenance(GenerationContext()),
-            cited_segments=[],
+            None,
         )
-
-        assert len(result) == 1
-        mem = result[0].atom
-        assert result[0].action == GenerationAction.UPDATE
-        # 引擎只合并内容，不分配版本与置信度（提交边界由 Familiar 负责）
-        assert mem.payload.content == "新版本"
-        assert mem.meta.version == version_before
-        assert mem.meta.lifecycle.confidence_score == 0.42
-        assert mem.meta.updated_at == updated_at_before
-        assert mem.meta.lifecycle.decay_anchor_at == decay_anchor_before
-        # before 快照是深拷贝，保留修改前的完整原子
-        snapshot = result[0].memory_before_snapshot
-        assert snapshot is not existing
-        assert snapshot.payload.content == "旧内容"
-        assert snapshot.meta.version == version_before
-        assert result[0].changelog == "v2 更新"
-
-    def test_apply_update_snapshots_each_round_without_cross_contamination(self):
-        """连续修订同一原子：每轮 before 快照只记录当轮修改前的内容，引擎不推进版本"""
-        existing = _make_memory()
-        version_before = existing.meta.version
-        provenance = system_settlement_provenance(GenerationContext())
-
-        first = self.engine._apply_update(
-            existing,
-            RevisionResult(new_content="v2 content", changelog="first"),
-            provenance=provenance,
-            cited_segments=[],
-        )
-        second = self.engine._apply_update(
-            existing,
-            RevisionResult(new_content="v3 content", changelog="second"),
-            provenance=provenance,
-            cited_segments=[],
-        )
-
-        assert existing.payload.content == "v3 content"
-        assert first[0].memory_before_snapshot.payload.content == "旧内容"
-        assert second[0].memory_before_snapshot.payload.content == "v2 content"
-        assert first[0].memory_before_snapshot.meta.version == version_before
-        assert second[0].memory_before_snapshot.meta.version == version_before
-        assert existing.meta.version == version_before
-
-    def test_apply_update_degrades_to_touch_when_content_unchanged(self):
-        """修订结果与现有内容一致时不创建新版本，返回 TOUCH 提交动作。"""
-        existing = _make_memory()
-        existing.payload.content = "旧内容"
-        existing.meta.lifecycle.access_count = 3
-        version_before = existing.meta.version
-        updated_at_before = existing.meta.updated_at
-        contributors_before = existing.meta.provenance.contributing_agent_ids
-        # 裁定中携带新的贡献者：无内容变化时不得并入（贡献者只随受控内容提交合并）。
-        provenance = MemoryProvenance(
-            source_agent_id="a1",
-            contributing_agent_ids=("new-contributor",),
-        )
-        revision_result = RevisionResult(new_content="旧内容", changelog="Fallback (无变更)")
-
-        result = self.engine._apply_update(
-            existing,
-            revision_result,
-            provenance=provenance,
-            cited_segments=[],
-        )
-
-        assert len(result) == 1
-        outcome = result[0]
-        assert outcome.action == GenerationAction.TOUCH
-        # 零变更：内容、版本、内容时间、贡献者集合全部原样。
-        assert outcome.atom is existing
-        assert outcome.atom.payload.content == "旧内容"
-        assert outcome.atom.meta.version == version_before
-        assert outcome.atom.meta.updated_at == updated_at_before
-        assert outcome.atom.meta.provenance.contributing_agent_ids == contributors_before
-        assert outcome.memory_before_snapshot is None
-        assert outcome.changelog is None
 
 
 class TestGenerationEngineDedup:
@@ -883,6 +872,7 @@ class TestGenerationEngineDedup:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
+            drift_guard=make_drift_guard(),
         )
 
     @pytest.mark.asyncio
@@ -1053,6 +1043,7 @@ class TestCitedSegments:
             mid_term=self.mock_storage,
             extractor=self.mock_extractor,
             deduplicator=self.mock_deduplicator,
+            drift_guard=make_drift_guard(),
         )
         self.identity = make_memory_identity_scope()
 
@@ -1114,7 +1105,7 @@ class TestCitedSegments:
         ("revision", "expected"),
         [
             (
-                RevisionResult(new_content="新内容", changelog="改", source_segments=["1.1"]),
+                _append("新内容", segments=("1.1",)).model_dump_json(),
                 [CitedSegment(turn_id="turn-a", first_sequence=0, last_sequence=1)],
             ),
             (None, []),
@@ -1122,7 +1113,7 @@ class TestCitedSegments:
         ids=["model-revision", "appended-fallback"],
     )
     async def test_revision_cites_only_with_a_model_revision(self, revision, expected):
-        """修订带模型引用的段；模型没有产出时追加的修订不带引用。"""
+        """修订带编辑集引用的段；没有模型时追加的修订不带引用。"""
         existing = _make_memory()
         self.mock_extractor.revise.return_value = revision
         request = GenerationRequest(
@@ -1177,11 +1168,13 @@ class TestGenerationEngineSettleMode:
             mid_term=self.mock_storage,
             extractor=extractor or self.mock_extractor,
             deduplicator=MemoryDeduplicator(config.deduplicator),
+            drift_guard=make_drift_guard(),
             librarian=create_librarian(
                 config,
                 mid_term=self.mock_storage,
                 llm_service=llm,
                 llm_params=LLMRequestParams(model="test-model"),
+                drift_guard=make_drift_guard(),
             ),
         )
 
@@ -1243,6 +1236,49 @@ class TestGenerationEngineSettleMode:
             "fact_deploy_rule_2",
         ]
 
+    @pytest.mark.asyncio
+    async def test_librarian_revision_becomes_an_update_of_the_memory_it_read(self):
+        """馆长修订读过的记忆：成为以读到的版本为底的 UPDATE，带修改前快照、结算贡献者与
+        引用的段；同一次结算的新建不受影响。"""
+        self.existing.meta.provenance.contributing_agent_ids = ("creator",)
+        self.mock_storage.get_by_alias = AsyncMock(return_value=self.existing)
+        draft = _make_draft(title="另一件事", alias_suffix="other_thing")
+        llm = ScriptedLLMService(
+            json.dumps({"tool": "read_memory", "args": {"alias": "fact_manual_deploy"}}),
+            json.dumps(
+                {
+                    "tool": "revise_memory",
+                    "args": {
+                        "alias": "fact_manual_deploy",
+                        "edits": [_replace("content", "旧内容", "新内容")],
+                        "changelog": "部署方式变了",
+                        "source_segments": ["2.2"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {"tool": "write_memory", "args": draft.model_dump(exclude={"has_value"})},
+                ensure_ascii=False,
+            ),
+            json.dumps({"tool": "finish", "args": {}}),
+        )
+        engine = self._engine(MemoryGenerationConfig(settle_mode="librarian"), llm)
+
+        created, revised = await self._settle(engine)
+
+        assert (created.action, created.atom.index.title) == (GenerationAction.CREATE, "另一件事")
+        assert (revised.action, revised.atom.id, revised.atom.payload.content) == (
+            GenerationAction.UPDATE,
+            self.existing.id,
+            "新内容",
+        )
+        assert revised.memory_before_snapshot == self.existing
+        assert revised.atom.meta.provenance.contributing_agent_ids == ("creator", "a1")
+        assert revised.cited_segments == [
+            CitedSegment(turn_id="turn-b", first_sequence=3, last_sequence=7)
+        ]
+
     @pytest.mark.parametrize("settle_mode", ["one_shot", "librarian"])
     @pytest.mark.asyncio
     async def test_disabled_extraction_runs_neither_settle_mode(self, settle_mode):
@@ -1264,6 +1300,7 @@ class TestGenerationEngineHelpers:
             mid_term=Mock(),
             extractor=Mock(),
             deduplicator=Mock(),
+            drift_guard=make_drift_guard(),
         )
 
     def test_render_transcript(self):
@@ -1325,62 +1362,98 @@ class TestGenerationEngineHelpers:
 
 
 class TestMemoryMerge:
-    """两条正式记忆的纯计算融合。"""
+    """合并以保留记忆为底：被吸收记忆独有的内容写成对保留记忆的编辑集，经同一道漂移拦截。"""
+
+    def _engine(self, *outputs, similarity: float = 1.0) -> MemoryGenerationEngine:
+        return MemoryGenerationEngine(
+            mid_term=Mock(),
+            extractor=LLMMemoryExtractor(
+                ExtractorConfig(), ScriptedLLMService(*outputs), LLMRequestParams(model="m")
+            ),
+            deduplicator=Mock(),
+            drift_guard=make_drift_guard(similarity=similarity),
+        )
+
+    def _pair(self):
+        retained = _make_memory(alias="fact_original")
+        retained.index.memory_type = MemoryType.REFLECTION
+        retained.meta.provenance.contributing_agent_ids = ("a1", "shared")
+        absorbed = _make_memory("新进展")
+        absorbed.meta.provenance.contributing_agent_ids = ("shared", "a2")
+        return retained, absorbed
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "memory_type, expected_type",
-        [
-            ("REFLECTION", MemoryType.REFLECTION),
-            ("UNKNOWN", MemoryType.FACT),
-            ("WORK_IN_PROGRESS", MemoryType.FACT),
-        ],
-    )
-    async def test_merge_preserves_identity_and_captures_snapshot(self, memory_type, expected_type):
-        retained = _make_memory(alias="fact_original")
-        retained.meta.provenance.contributing_agent_ids = ["a1", "shared"]
-        absorbed = _make_memory("新进展")
-        absorbed.meta.provenance.contributing_agent_ids = ["shared", "a2"]
+    async def test_merge_applies_the_edit_set_to_the_retained_memory(self):
+        """内容补进保留记忆：标题与类型沿用它，标签只增加，身份与来源不变，贡献者取并集；
+        不修改输入。"""
+        retained, absorbed = self._pair()
         before = retained.model_copy(deep=True)
-        extractor = AsyncMock()
-        extractor.merge.return_value = MergeResult(
-            title="设计与进展",
-            summary="保留设计并补充进展",
-            tags=[" WORK ", "work", "new"],
-            memory_type=memory_type,
-            content="旧决定与新进展",
-            changelog="补充进展",
+        engine = self._engine(
+            _edit_set_json(
+                {"op": "append", "text": "新进展"}, add_tags=["progress"], changelog="补充进展"
+            )
         )
-        engine = MemoryGenerationEngine(mid_term=Mock(), extractor=extractor, deduplicator=Mock())
 
         outcome = await engine.merge(retained, absorbed)
 
+        atom = outcome.atom
         assert outcome.action == GenerationAction.UPDATE
         assert (
-            outcome.atom.index.title,
-            outcome.atom.index.summary,
-            outcome.atom.index.tags,
-            outcome.atom.index.memory_type,
-            outcome.atom.payload.content,
-        ) == ("设计与进展", "保留设计并补充进展", ["work", "new"], expected_type, "旧决定与新进展")
-        assert (
-            outcome.atom.id,
-            outcome.atom.index.alias,
-            outcome.atom.meta.provenance.source_agent_id,
-            outcome.atom.meta.provenance.source_team_id,
+            atom.index.title,
+            atom.index.memory_type,
+            atom.index.tags,
+            atom.payload.content,
         ) == (
+            before.index.title,
+            MemoryType.REFLECTION,
+            ["t", "progress"],
+            "旧内容\n\n新进展",
+        )
+        assert (atom.id, atom.index.alias, atom.meta.provenance.source_agent_id) == (
             before.id,
             "fact_original",
             before.meta.provenance.source_agent_id,
-            before.meta.provenance.source_team_id,
         )
-        assert outcome.atom.meta.provenance.contributing_agent_ids == ("a1", "shared", "a2")
-        assert (
-            outcome.atom.meta.version,
-            outcome.atom.meta.updated_at,
-            outcome.atom.meta.lifecycle,
-        ) == (before.meta.version, before.meta.updated_at, before.meta.lifecycle)
-        assert outcome.changelog == "补充进展"
-        outcome.atom.payload.content = "caller mutation"
-        assert outcome.memory_before_snapshot == before
+        assert atom.meta.provenance.contributing_agent_ids == ("a1", "shared", "a2")
+        assert (atom.meta.version, atom.meta.updated_at, atom.meta.lifecycle) == (
+            before.meta.version,
+            before.meta.updated_at,
+            before.meta.lifecycle,
+        )
+        assert (outcome.changelog, outcome.memory_before_snapshot) == ("补充进展", before)
         assert retained == before
+
+    @pytest.mark.asyncio
+    async def test_merge_with_an_empty_edit_set_keeps_the_retained_content(self):
+        """被吸收的内容保留记忆都已有：内容与索引不变，仍是一个记下这次吸收的 UPDATE。"""
+        retained, absorbed = self._pair()
+        engine = self._engine(_edit_set_json(changelog="N 已被 M 覆盖"))
+
+        outcome = await engine.merge(retained, absorbed)
+
+        assert (outcome.action, outcome.changelog) == (GenerationAction.UPDATE, "N 已被 M 覆盖")
+        assert (outcome.atom.index, outcome.atom.payload) == (retained.index, retained.payload)
+        assert outcome.atom.meta.provenance.contributing_agent_ids == ("a1", "shared", "a2")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("output", "similarity", "error"),
+        [
+            (_edit_set_json(_replace("content", "并不存在的原文", "x")), 1.0, EditSetError),
+            (_edit_set_json(_replace("title", "已有记忆", "另一件事")), 0.5, IndexDriftError),
+            (
+                json.dumps({"edits": [], "remove_tags": ["t"], "changelog": "去掉标签"}),
+                1.0,
+                EditSetError,
+            ),
+        ],
+        ids=["invalid", "drifting", "removes-tags"],
+    )
+    async def test_merge_rejected_twice_raises_the_rejection(self, output, similarity, error):
+        """编辑集带着错误重试一次后仍不能应用、仍被拦截，或要删去保留记忆的标签时，抛出拒绝，
+        由提交一侧中止合并。"""
+        retained, absorbed = self._pair()
+        engine = self._engine(output, output, similarity=similarity)
+
+        with pytest.raises(error):
+            await engine.merge(retained, absorbed)

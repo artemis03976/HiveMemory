@@ -2,31 +2,26 @@
 HiveMemory - 记忆提取器 (Memory Extractor)
 
 职责:
-    调用 LLM 将自然对话转换为结构化的记忆草稿。
+    调用 LLM 将自然对话转换为结构化的记忆草稿，并为修订与合并取得模型写出的编辑集。
 
 实现策略:
     - 经 LLM 服务接口异步调用，等待模型期间不阻塞事件循环
     - Pydantic 输出解析
     - JSON 容错；只对提供商失败重试
-    - 支持自定义 Prompt
+    - 修订与合并只返回模型原文，编辑集的解析、校验与带错误的重试由生成引擎负责
 """
 
 import json
 import logging
-from typing import Any
 
 from pydantic import BaseModel
 
 from hivememory.config.patchouli import ExtractorConfig
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.core.models import MemoryAtom
+from hivememory.engines.generation.edits import EditSetRetry, IndexDriftError
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
-from hivememory.engines.generation.models import (
-    ExtractedMemoryDraft,
-    ExtractionResult,
-    MergeResult,
-    RevisionResult,
-)
+from hivememory.engines.generation.models import ExtractedMemoryDraft, ExtractionResult
 from hivememory.i18n import (
     Language,
     get_generation_prompt_text,
@@ -38,8 +33,17 @@ from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 logger = logging.getLogger(__name__)
 
-# 一次提取、修订或合并对提供商的最多请求次数（含首次）。
+# 一次模型调用对提供商的最多请求次数（含首次）。
 _MAX_LLM_ATTEMPTS = 2
+
+# 提取器用到的提示词：生成模式 → 键。构造时一次读完，提示词工作台在构造期间替换读取函数。
+_PROMPT_KEYS = {
+    "passive": ("system_prompt", "user_prompt"),
+    "write": ("system_prompt", "user_prompt", "reason_empty", "title_empty"),
+    "update": ("system_prompt", "user_prompt", "new_content_empty", "transcript_empty"),
+    "merge": ("system_prompt", "user_prompt"),
+    "edit_set": ("retry_invalid", "retry_drift"),
+}
 
 
 class LLMMemoryExtractor(BaseMemoryExtractor):
@@ -48,23 +52,11 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
 
     经 LLM 服务接口调用 DeepSeek/GPT 等模型，将对话转换为结构化记忆草稿。
 
-    特性:
-        - 支持自定义 Prompt
-        - JSON 解析容错 (支持代码块、纯 JSON)
-        - 提供商失败重试，耗尽后以提供商失败结束
-        - 详细日志记录
-
     失败语义:
-        模型输出为空或无法解析时没有产出（话题提取为空列表，其余为 ``None``）；
-        提供商失败在重试耗尽后抛出 ``ModelProviderError``，上下文超窗不重试；
-        话题提取的输出被截断时同样抛出 ``ModelProviderError``；程序错误与
-        取消原样传播。
-
-    Examples:
-        >>> extractor = LLMMemoryExtractor(config, llm_service, llm_params)
-        >>> drafts = await extractor.extract("User: 如何解析日期?\nAssistant: 使用 datetime...")
-        >>> print(drafts[0].title)
-        "Python 日期解析方法"
+        话题提取与 WRITE 的模型输出为空或无法解析时没有产出（话题提取为空列表，WRITE 为
+        ``None``）；修订与合并只返回模型原文，是否合格由调用方判断。提供商失败在重试耗尽
+        后抛出 ``ModelProviderError``，上下文超窗不重试；话题提取的输出被截断时同样抛出
+        ``ModelProviderError``；程序错误与取消原样传播。
     """
 
     def __init__(
@@ -74,77 +66,27 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         llm_params: LLMRequestParams,
     ):
         """
-        初始化 LLM 提取器
-
         Args:
             config: 提取器配置
             llm_service: LLM 服务实例（依赖注入）
             llm_params: 由 Librarian 组件 LLM 配置转换的请求参数
         """
-
         self._llm_service = llm_service
         self._llm_params = llm_params
         self.language = resolve_language()
-        self.normal_system_prompt = get_generation_prompt_text(
-            "passive",
-            "system_prompt",
-            self.language,
-        )
-        self.normal_user_prompt = get_generation_prompt_text(
-            "passive",
-            "user_prompt",
-            self.language,
-        )
-        self.write_system_prompt = get_generation_prompt_text(
-            "write",
-            "system_prompt",
-            self.language,
-        )
-        self.write_user_prompt = get_generation_prompt_text(
-            "write",
-            "user_prompt",
-            self.language,
-        )
-        self.write_reason_empty = get_generation_prompt_text(
-            "write",
-            "reason_empty",
-            self.language,
-        )
-        self.write_title_empty = get_generation_prompt_text(
-            "write",
-            "title_empty",
-            self.language,
-        )
-        self.update_system_prompt = get_generation_prompt_text(
-            "update",
-            "system_prompt",
-            self.language,
-        )
-        self.update_user_prompt = get_generation_prompt_text(
-            "update",
-            "user_prompt",
-            self.language,
-        )
-        self.update_new_content_empty = get_generation_prompt_text(
-            "update",
-            "new_content_empty",
-            self.language,
-        )
-        self.update_transcript_empty = get_generation_prompt_text(
-            "update",
-            "transcript_empty",
-            self.language,
-        )
-
+        self._prompts = {
+            (mode, key): get_generation_prompt_text(mode, key, self.language)
+            for mode, keys in _PROMPT_KEYS.items()
+            for key in keys
+        }
         # 话题提取输出草稿列表，WRITE 只输出一条草稿，两者的 JSON Schema 不同。
         self.passive_format_instructions = _schema_text(ExtractionResult, self.language)
         self.write_format_instructions = _schema_text(ExtractedMemoryDraft, self.language)
-        self.merge_system_prompt = get_generation_prompt_text(
-            "merge", "system_prompt", self.language
-        )
-        self.merge_user_prompt = get_generation_prompt_text("merge", "user_prompt", self.language)
-
         logger.info("LLMMemoryExtractor 初始化完成 (模型: %s)", llm_params.model)
+
+    def prompt(self, mode: str, key: str) -> str:
+        """构造时读到的一段提示词。"""
+        return self._prompts[mode, key]
 
     async def _complete(self, messages: list[dict[str, str]]) -> LLMCompletion:
         """调用 LLM 并返回完整结果；只对提供商失败重试，最后一次的失败原样抛出。
@@ -175,11 +117,14 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         messages = [
             {
                 "role": "system",
-                "content": self.normal_system_prompt.format(
+                "content": self.prompt("passive", "system_prompt").format(
                     format_instructions=self.passive_format_instructions
                 ),
             },
-            {"role": "user", "content": self.normal_user_prompt.format(transcript=transcript)},
+            {
+                "role": "user",
+                "content": self.prompt("passive", "user_prompt").format(transcript=transcript),
+            },
         ]
         completion = await self._complete(messages)
         if completion.finish_reason == "length":
@@ -210,16 +155,16 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         messages = [
             {
                 "role": "system",
-                "content": self.write_system_prompt.format(
+                "content": self.prompt("write", "system_prompt").format(
                     format_instructions=self.write_format_instructions
                 ),
             },
             {
                 "role": "user",
-                "content": self.write_user_prompt.format(
-                    write_title=title or self.write_title_empty,
+                "content": self.prompt("write", "user_prompt").format(
+                    write_title=title or self.prompt("write", "title_empty"),
                     write_content=content,
-                    write_reason=reason or self.write_reason_empty,
+                    write_reason=reason or self.prompt("write", "reason_empty"),
                     transcript=transcript,
                 ),
             },
@@ -240,93 +185,84 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
 
     async def revise(
         self,
-        old_content: str,
-        metadata: dict[str, Any],
-    ) -> RevisionResult | None:
-        """
-        Mode C: 执行 LLM 驱动的记忆修订 (UPDATE 指令)
+        memory: MemoryAtom,
+        *,
+        instruction: str,
+        new_content: str | None,
+        transcript: str,
+        retry: EditSetRetry | None = None,
+    ) -> str:
+        """Mode C：请模型按 UPDATE 的指令与新材料写出对目标记忆的编辑集，返回模型原文。
 
-        Args:
-            old_content: 目标记忆的当前内容
-            metadata: 元信息，包含:
-                - instruction: 修改指令
-                - new_content: 新素材 (可能为空)
-                - memory_title: 目标记忆标题
-                - memory_alias: 目标记忆别名
-                - transcript: 近期对话上下文
-
-        Returns:
-            RevisionResult: 修订结果；模型输出为空或无法解析时返回 None
+        模型看到目标记忆的标题、别名、摘要、标签与正文。
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽，或上下文超窗
         """
-        # Step 1: 构建修订提示词
-        new_content = metadata.get("new_content", "")
         messages = [
-            {
-                "role": "system",
-                "content": self.update_system_prompt,
-            },
+            {"role": "system", "content": self.prompt("update", "system_prompt")},
             {
                 "role": "user",
-                "content": self.update_user_prompt.format(
-                    old_payload=old_content,
-                    instruction=metadata.get("instruction", ""),
-                    new_content=new_content or self.update_new_content_empty,
-                    transcript=metadata.get("transcript") or self.update_transcript_empty,
-                    memory_title=metadata.get("memory_title", ""),
-                    memory_alias=metadata.get("memory_alias", ""),
+                "content": self.prompt("update", "user_prompt").format(
+                    memory_title=memory.index.title,
+                    memory_alias=memory.index.alias or "",
+                    memory_summary=memory.index.summary,
+                    memory_tags=json.dumps(memory.index.tags, ensure_ascii=False),
+                    old_payload=memory.payload.content,
+                    instruction=instruction,
+                    new_content=new_content or self.prompt("update", "new_content_empty"),
+                    transcript=transcript or self.prompt("update", "transcript_empty"),
                 ),
             },
         ]
-        logger.debug("Mode C (修订): 使用 UPDATE 专用提示词")
+        return (await self._complete(self._with_retry(messages, retry))).text
 
-        # Step 2: 调用 LLM（只对提供商失败重试）
-        raw_output = (await self._complete(messages)).text
+    async def merge(
+        self, retained: MemoryAtom, absorbed: MemoryAtom, *, retry: EditSetRetry | None = None
+    ) -> str:
+        """合并：请模型写出把被吸收记忆独有的内容补进保留记忆的编辑集，返回模型原文。
 
-        if not raw_output:
-            logger.warning("LLM 返回空响应 (Mode C)")
-            return None
-
-        # Step 3: 解析 JSON → RevisionResult；只把模型文本无法解析或不符合结构视为没有产出
-        try:
-            result = parse_llm_json(raw_output, as_model=RevisionResult)
-        except JSONParseError:
-            logger.warning("Mode C JSON 解析失败")
-            return None
-
-        logger.debug("成功修订记忆")
-        return result
-
-    async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> MergeResult | None:
-        """合并两条记忆；只重试提供商失败，无效输出不使用追加或覆盖回退。"""
+        Raises:
+            ModelProviderError: 提供商失败且重试耗尽，或上下文超窗
+        """
         # 以内容更新时间标明新旧，不能用访问时间或版本号比较两条独立记忆。
         newer = "M" if retained.meta.updated_at >= absorbed.meta.updated_at else "N"
         messages = [
-            {"role": "system", "content": self.merge_system_prompt},
+            {"role": "system", "content": self.prompt("merge", "system_prompt")},
             {
                 "role": "user",
-                "content": self.merge_user_prompt.format(
+                "content": self.prompt("merge", "user_prompt").format(
                     retained=self._merge_material(retained),
                     absorbed=self._merge_material(absorbed),
                     newer=newer,
                 ),
             },
         ]
-        raw_output = (await self._complete(messages)).text
-        if not raw_output:
-            logger.warning("合并模型返回空响应")
-            return None
-        try:
-            return parse_llm_json(raw_output, as_model=MergeResult)
-        except JSONParseError:
-            logger.warning("合并模型输出无法解析")
-            return None
+        return (await self._complete(self._with_retry(messages, retry))).text
+
+    def _with_retry(
+        self, messages: list[dict[str, str]], retry: EditSetRetry | None
+    ) -> list[dict[str, str]]:
+        """重试时把上一次的输出与它被拒的原因接在对话之后，模型据此改正。"""
+        if retry is None:
+            return messages
+        output, rejection = retry
+        if isinstance(rejection, IndexDriftError):
+            reason = self.prompt("edit_set", "retry_drift").format(
+                similarity=f"{rejection.similarity:.3f}",
+                min_similarity=f"{rejection.min_similarity:.3f}",
+            )
+        else:
+            reason = self.prompt("edit_set", "retry_invalid").format(details=rejection)
+        return [
+            *messages,
+            {"role": "assistant", "content": output},
+            {"role": "user", "content": reason},
+        ]
 
     @staticmethod
     def _merge_material(memory: MemoryAtom) -> str:
-        """只向模型提供融合所需的内容字段，正式身份不由模型决定。"""
+        """只向模型提供合并所需的内容字段，正式身份不由模型决定。"""
         return json.dumps(
             {
                 "title": memory.index.title,

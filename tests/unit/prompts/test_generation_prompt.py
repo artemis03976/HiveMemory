@@ -1,6 +1,30 @@
+import re
+
 import pytest
 
 from hivememory.i18n import get_generation_prompt_text
+from hivememory.i18n.prompts import _GENERATION_PROMPT_TEXT_EN, _GENERATION_PROMPT_TEXT_ZH
+
+# CJK 标点、汉字与全角字符；英文提示词中出现任何一个，模型都可能跟着用中文写记忆。
+_CJK = re.compile(r"[　-〿一-鿿＀-￯]")
+
+
+def test_generation_prompts_have_the_same_keys_in_both_languages():
+    """每种生成模式的中英文提示词键齐全，切换语言时不会缺少错误文本或重试文本。"""
+    assert {mode: sorted(texts) for mode, texts in _GENERATION_PROMPT_TEXT_EN.items()} == {
+        mode: sorted(texts) for mode, texts in _GENERATION_PROMPT_TEXT_ZH.items()
+    }
+
+
+def test_english_generation_prompts_contain_no_chinese():
+    leaking = [
+        f"{mode}.{key}"
+        for mode, texts in _GENERATION_PROMPT_TEXT_EN.items()
+        for key, text in texts.items()
+        if _CJK.search(text)
+    ]
+
+    assert leaking == []
 
 
 def test_generation_prompt_getter_supports_three_modes_default_chinese():
@@ -69,17 +93,21 @@ def test_generation_prompts_explain_segment_labels_and_citations(mode, language)
 
 @pytest.mark.parametrize("language", ["zh", "en"])
 def test_update_prompt_handwritten_format_includes_citations(language):
-    """修订的输出格式在提示词中手写，系统提示词的 JSON 示例与用户提示词的输出要求都带引用。"""
+    """修订的输出格式是手写的编辑集：系统提示词的 JSON 示例与用户提示词的输出要求都带编辑
+    与引用，用户提示词给出目标记忆的摘要与标签。"""
     system = get_generation_prompt_text("update", "system_prompt", language)
     user = get_generation_prompt_text("update", "user_prompt", language)
 
     assert '"source_segments": ["2.3"]' in system
+    assert '"op": "replace"' in system
     assert '"source_segments": [...]' in user
+    assert '"edits": [...]' in user
+    assert ["{memory_summary}" in user, "{memory_tags}" in user] == [True, True]
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
 def test_librarian_prompt_orders_the_three_steps_and_gives_the_action_format(language):
-    """工作顺序依次是列出本话题的写入、检索库、写入、结束；动作是单个 JSON 对象，
+    """工作顺序依次是列出本话题的写入、检索库、修订、新建、结束；动作是单个 JSON 对象，
     步数与检索条数的上限随配置印出。"""
     prompt = get_generation_prompt_text("librarian", "system_prompt", language).format(
         max_steps=7, search_top_k=3
@@ -95,6 +123,7 @@ def test_librarian_prompt_orders_the_three_steps_and_gives_the_action_format(lan
     assert (
         order.index("list_topic_writes")
         < order.index("search_memories")
+        < order.index("revise_memory")
         < order.index("write_memory")
         < order.index("finish")
     )

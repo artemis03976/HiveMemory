@@ -45,6 +45,7 @@ from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.memory_tasks import router
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from tests.helpers.memory import make_drift_guard
 from tests.helpers.workspace import make_server_access_overrides, make_workspace_identity
 
 MAIN = make_workspace_identity(owner_user_id="user-1")
@@ -136,6 +137,7 @@ def task_api_stack(tmp_path) -> Iterator[_TaskApiStack]:
             mid_term=mid_term,
             extractor=_Extractor(),
             deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+            drift_guard=make_drift_guard(),
         ),
         memory_library=library,
     )
