@@ -94,9 +94,21 @@ async def _request(arguments: dict[str, Any], *, json_output: bool) -> Any:
 
 
 def _usage(response: Any) -> LLMUsage | None:
+    """读出 token 用量。litellm 把各提供商报告的缓存命中（DeepSeek 的
+    ``prompt_cache_hit_tokens``、OpenAI 的 ``cached_tokens``）统一放在
+    ``prompt_tokens_details.cached_tokens``。"""
     usage = getattr(response, "usage", None)
     total_tokens = getattr(usage, "total_tokens", None) if usage else None
-    return LLMUsage(total_tokens=total_tokens) if isinstance(total_tokens, int) else None
+    if not isinstance(total_tokens, int):
+        return None
+    prompt_tokens = getattr(usage, "prompt_tokens", None)
+    details = getattr(usage, "prompt_tokens_details", None)
+    cached_tokens = getattr(details, "cached_tokens", None) if details else None
+    return LLMUsage(
+        total_tokens=total_tokens,
+        prompt_tokens=prompt_tokens if isinstance(prompt_tokens, int) else 0,
+        cached_prompt_tokens=cached_tokens if isinstance(cached_tokens, int) else 0,
+    )
 
 
 async def _close_response(response: Any) -> None:
