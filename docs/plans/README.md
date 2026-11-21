@@ -16,7 +16,7 @@ last_reviewed: 2026-11-21
 
 ## v0.8.0
 
-版本目标：生成核心的升级（Claude 整理，待 owner 确认），摘要见 [ROADMAP](../ROADMAP.md) 第 3 节；设计见总纲[记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)；v0.8 的评测由试验场承载，见[孵化场、试验场与垃圾回收场](../ideas/experiment-field.md)第 6 节。
+已收尾，计划与收尾审计见 [Archived Plans](../archive/plans/README.md#v080)。版本目标：生成核心的升级，摘要见 [ROADMAP](../ROADMAP.md) 第 3 节；设计见总纲[记忆核心：短期到中期的流转](../ideas/memory-flow-short-to-mid-term.md)；v0.8 的评测由试验场承载，见[孵化场、试验场与垃圾回收场](../ideas/experiment-field.md)第 6 节。
 
 当前没有活动计划。
 

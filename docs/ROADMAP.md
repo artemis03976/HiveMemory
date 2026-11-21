@@ -32,8 +32,8 @@ last_reviewed: 2026-11-21
 | Deferred | 已明确后置，不属于近期承诺 |
 
 - **最近已发布**：`v0.7.3`（Git tag，2026-11-04），主动写入与被动提取的收敛，作为过渡措施。
-- **当前开发版本**：`v0.8.0`，版本目标为生成核心的升级（第 3 节）。
-- **规范代码版本**：`0.7.3`，由 `src/hivememory/_version.py` 唯一声明，Python 包、前端清单与锁文件保持一致；v0.8.0 收尾时调整。
+- **当前内容基线**：`v0.8.0`，生成核心的升级，2026-11-21 收尾（第 3 节，[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md)），发布标签 `v0.8.0` 在合并后创建；之后的版本目标尚未确定。
+- **规范代码版本**：`0.8.0`，由 `src/hivememory/_version.py` 唯一声明，Python 包、前端清单与锁文件保持一致。
 - **v1.0 已确定的范围**：桌面客户端，以及 Claude Code、DeepSeek Harness、Codex 与 pi 四个 harness 的 plugin 模式接入；安装包与版本号随 v1.0 发布。
 
 ## 2. 发布历史
@@ -52,14 +52,15 @@ last_reviewed: 2026-11-21
 | `v0.7.1` | plugin 模式接入 Claude Code：Import Bus 对话回流与 MCP 记忆访问 | [Import Bus](./system/import-bus.md)、[MCP 记忆访问](./contracts/mcp.md)、[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md) |
 | `v0.7.2` | 生成质量：生成材料不再按单轮截断、一个话题提取多条记忆、查重命中后先落库再合并、Claude Code 经 MCP 写入与更新记忆 | [记忆生成](./patchouli/generation.md)、[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md) |
 | `v0.7.3` | 主动写入与被动提取的收敛（过渡措施）：话题内主动写入优先、生成失败带原因码、主动写入沿用 agent 的标题 | [记忆生成](./patchouli/generation.md#42-本话题的主动写入)、[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
+| `v0.8.0` | 生成核心的升级：记忆类型的收敛、AgentProfileStore、生成的记忆指向交互轮次、馆长 agent 与写入时的编辑集修订；试验场与第一次 HaluMem 评测 | [记忆生成](./patchouli/generation.md)、[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md) |
 
 各版本的计划见 [Archived Plans](./archive/plans/README.md)。过去文档中的 `v0.5.1` 至 `v0.5.3` 是 v0.5 开发期的内部批次，不是发布标签；旧文档中出现的、后来撤销或改排的版本号（例如 `v0.7.2` Deep Research、`v0.8.x` 产品化窗口）以本文为准，不重写历史。
 
-## 3. 当前开发版本：v0.8.0
+## 3. v0.8.0：生成核心的升级（已收尾）
 
 ### 3.1 版本目标
 
-生成核心的升级（Claude 整理，待 owner 确认）：类型的更迭与 Patchouli 馆长 agent。v0.8 重新设计记忆从短期到中期的流转，不为现有症状打补丁；顺序是生成核心的升级、被动生成、主动写入，馆长 agent 是被动生成体系中的一环。一个版本围绕一个功能，由几份能各自验收的计划完成。设计见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)及其子文档。
+生成核心的升级：类型的更迭与 Patchouli 馆长 agent。owner 于 2026-11-21 决定以已经完成的方向收尾，被动生成的“写什么”不在 v0.8.0 中等待。v0.8 重新设计记忆从短期到中期的流转，不为现有症状打补丁；顺序是生成核心的升级、被动生成、主动写入，馆长 agent 是被动生成体系中的一环。一个版本围绕一个功能，由几份能各自验收的计划完成。设计见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)及其子文档。
 
 ### 3.2 已完成的方向
 
@@ -74,10 +75,10 @@ last_reviewed: 2026-11-21
 
 当前事实见[记忆生成](./patchouli/generation.md)、[MemoryLibrary 与存储层](./patchouli/memory-library.md)，计划见 [Archived Plans](./archive/plans/README.md#v080)。复核的固定流程在分支上实现后不合并。本地提示词工作台（#232）用于在导出的结算材料上对照馆长与一次性生成的提示词，不进入产品。试验场是 v0.8 评测的承载（[孵化场、试验场与垃圾回收场](./ideas/experiment-field.md)第 6 节），第一次评测的结果见[评测集](./ideas/memory-evaluation-benchmarks.md)第 6 节，用法见[在 HaluMem 上评测记忆生成](./help/halumem-evaluation.md)。
 
-### 3.3 进行中的方向与验收
+### 3.3 未纳入的事项与验收
 
-- 下一个方向待定；各设计领域的开放问题见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.1 节。
-- 验收：单轮不交记忆税，长程看演化质量与人工介入（[v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.2 节）。
+- 未纳入 v0.8.0 的事项见[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md)第 4 节：被动生成写什么与短期记忆的定义仍在孵化，主动写入的生成材料、时空图索引与读的一侧没有开始；各设计领域的开放问题见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.1 节。
+- 验收方式仍是候选：单轮不交记忆税，长程看演化质量与人工介入（[v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.2 节）；留存率与人工介入量没有在新机制上复测。
 
 ## 4. 版本之外的工作与候选方向
 
@@ -93,7 +94,7 @@ last_reviewed: 2026-11-21
 
 | 方向 | 状态 | 目标结果 | 入口 |
 |:---|:---:|:---|:---|
-| `v0.8.0` 生成核心的升级 | Current Development | 类型的更迭与馆长 agent；被动生成与主动写入随后 | 第 3 节 |
+| `v0.8.0` 生成核心的升级 | Completed（2026-11-21 收尾） | 类型的更迭、馆长 agent 与写入时的编辑集修订；被动生成与主动写入的版本未定 | 第 3 节 |
 | 身份与访问体系 | Candidate / 单独主线 | 发布前打好地基：调用方证明、登记生效时点等仍未决定的项 | 第 4.3 节；[身份与访问体系 Idea](./ideas/identity-and-access-model.md) |
 | 观测与日志 | Unscheduled / 版本之外 | 存量日志收敛的剩余部分 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
 | 冷启动、历史导入与外源文档资产化 | Candidate | 冷启动种子、历史对话导入、文档解析与来源保全 | 第 4.4 节 |
@@ -139,8 +140,8 @@ owner 重新设计价值体系，不在现有信号上增补。现状：入口�
 ```text
 v0.7.3（已发布）
    |
-   +-> v0.8.0（开发中）生成核心的升级：类型 / AgentProfileStore / 轮次指向 / 馆长
-          -> 被动生成 -> 主动写入；试验场第一版（已完成）承载评测
+   +-> v0.8.0（已收尾）生成核心的升级：类型 / AgentProfileStore / 轮次指向 / 馆长 / 编辑集修订；试验场第一版承载评测
+          -> 被动生成 -> 主动写入（版本未定）
 
 候选方向之间的依赖（判断一份计划能否立即执行，不表示排期）：
 外部 Actor 的身份 / 来源 / 提交语义 -> 历史导入契约与批次能力
