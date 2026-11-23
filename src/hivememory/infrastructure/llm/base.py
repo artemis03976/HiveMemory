@@ -8,16 +8,25 @@ LLM 服务的中立接口与请求参数、调用结果、流式分块模型；�
 使用方的固定配置在各自一侧转换为请求参数。提供商失败由实现在 SDK 边界
 转换为 ``core.errors`` 的中立错误：上下文超窗为
 ``ModelContextWindowExceededError``，其他已知失败为 ``ModelProviderError``，
-原始异常保留在原因链；程序错误与取消原样传播。
+原始异常保留在原因链；程序错误与取消原样传播。服务接口不重试；需要对提供商失败
+重试的使用方经 ``complete_with_provider_retry`` 调用。
 """
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Coroutine
 from typing import Any, Literal, overload
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
+
+logger = logging.getLogger(__name__)
+
+# 带重试的完整调用对提供商的最多请求次数（含首次）。
+_MAX_ATTEMPTS = 2
 
 
 class LLMRequestParams(BaseModel):
@@ -138,10 +147,29 @@ class BaseLLMService(ABC):
         """返回流式调用的异步生成器，语义见 :meth:`complete`。"""
 
 
+async def complete_with_provider_retry(
+    llm_service: BaseLLMService, messages: list[dict[str, str]], params: LLMRequestParams
+) -> LLMCompletion:
+    """完整调用；只对提供商失败重试一次，最后一次的失败原样抛出。
+
+    服务接口本身不重试，是否重试由使用方决定。超窗时同一请求必然再次失败，不重试；
+    程序错误与取消不重试、原样传播。
+    """
+    for attempt in range(1, _MAX_ATTEMPTS):
+        try:
+            return await llm_service.complete(messages, params)
+        except ModelContextWindowExceededError:
+            raise
+        except ModelProviderError as error:
+            logger.warning("LLM 调用失败 (尝试 %s/%s): %s", attempt, _MAX_ATTEMPTS, error)
+    return await llm_service.complete(messages, params)
+
+
 __all__ = [
     "BaseLLMService",
     "LLMCompletion",
     "LLMRequestParams",
     "LLMStreamChunk",
     "LLMUsage",
+    "complete_with_provider_retry",
 ]

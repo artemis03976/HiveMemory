@@ -267,6 +267,7 @@ class RecordingLLM(BaseLLMService):
     馆长在同一个消息列表上依次追加模型输出与工具结果：列表依次是系统消息、材料、输出 1、
     结果 1、输出 2……所以每次调用时能补上前面各步的工具结果；循环结束后，同一个列表
     已经带有最后一步的结果，由 ``sync_replies`` 补上。一次性生成的列表只有前两条。
+    提供商失败的调用也记成一步并带上错误，馆长在同一步内重试；它没有输出，也就没有结果。
     """
 
     def __init__(self, inner: BaseLLMService, run: Run) -> None:
@@ -302,7 +303,8 @@ class RecordingLLM(BaseLLMService):
         return self._inner.complete(messages, params, stream=True)
 
     def sync_replies(self) -> None:
-        for step, message in zip(self._run.steps, self._messages[3::2], strict=False):
+        answered = [step for step in self._run.steps if step.error is None]
+        for step, message in zip(answered, self._messages[3::2], strict=False):
             step.reply = json.loads(message["content"])
 
 

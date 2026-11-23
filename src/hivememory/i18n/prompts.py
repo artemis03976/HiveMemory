@@ -600,6 +600,10 @@ Agent 拟定了标题时沿用它，不改写措辞；只有它与草稿内容�
 """,
         "reason_empty": "(未提供)",
         "title_empty": "(未提供)",
+        "retry_invalid": (
+            "上一次的输出不能用作记忆草稿：{details}。请改正出错的地方，重新输出完整的 JSON 对象；"
+            '字符串里的双引号写成 \\"，换行写成 \\n。'
+        ),
     },
     "update": {
         "system_prompt": """
@@ -987,6 +991,11 @@ Output structured Memory Atom JSON.
 """,
         "reason_empty": "(Not provided)",
         "title_empty": "(Not provided)",
+        "retry_invalid": (
+            "Your last output cannot be used as a memory draft: {details}. Fix what is wrong and "
+            'output the complete JSON object again; inside strings, write double quotes as \\" '
+            "and line breaks as \\n."
+        ),
     },
     "update": {
         "system_prompt": """

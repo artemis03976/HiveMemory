@@ -34,7 +34,11 @@ from hivememory.engines.generation.edits import (
 )
 from hivememory.engines.generation.models import ExtractedMemoryDraft, MemoryEditSet
 from hivememory.i18n import get_generation_prompt_text, resolve_language
-from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
+from hivememory.infrastructure.llm.base import (
+    BaseLLMService,
+    LLMRequestParams,
+    complete_with_provider_retry,
+)
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 if TYPE_CHECKING:
@@ -108,8 +112,9 @@ class Librarian:
 
     失败语义:
         动作无法解析、工具不存在、参数不合格或修订不能落地时，把错误作为工具结果交回模型
-        并计一步，不中止循环；步数用完时照常返回已暂存的内容。模型服务失败（含上下文超窗）
-        不重试、原样传播，生成任务以对应的原因码失败；取消原样传播。
+        并计一步，不中止循环；步数用完时照常返回已暂存的内容。提供商失败在同一步内重试一次、
+        不另计步，与提取器的模型调用相同，一次瞬时失败不让整次结算失败。重试耗尽或上下文超窗
+        时原样传播，生成任务以对应的原因码失败；取消原样传播。
     """
 
     def __init__(
@@ -169,7 +174,8 @@ class Librarian:
             from_actor: 读取的发起者；结算时是 Workspace 的 system actor
 
         Raises:
-            ModelProviderError: 模型服务失败，或上下文超窗（ModelContextWindowExceededError）
+            ModelProviderError: 提供商失败且重试耗尽，或上下文超窗
+                （ModelContextWindowExceededError）
         """
         run = _Run(
             belong_to=belong_to,
@@ -189,7 +195,9 @@ class Librarian:
             steps += 1
             # 每一步都重发整段对话；消息只往后追加、前缀不变，所以第二步起的输入大部分
             # 可以命中提供商的上下文缓存，日志分开记下命中的部分。
-            completion = await self._llm_service.complete(messages, self._llm_params)
+            completion = await complete_with_provider_retry(
+                self._llm_service, messages, self._llm_params
+            )
             if completion.usage is not None:
                 total_tokens += completion.usage.total_tokens
                 prompt_tokens += completion.usage.prompt_tokens

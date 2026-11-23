@@ -4,8 +4,8 @@
 测试覆盖:
 - LLM 消息格式与按语言选择的提示词
 - 话题提取的草稿列表解析、“没有产出”与输出截断
-- 只对提供商失败重试，耗尽后显式失败
-- 修订与合并返回模型原文；重试时把上一次的输出与被拒的原因接在对话之后
+- 模型调用经 LLM 接口的重试：提供商失败再请求一次（重试策略本身由接口模块的测试覆盖）
+- WRITE、修订与合并返回模型原文；重试时把上一次的输出与被拒的说明接在对话之后
 - 等待 LLM 期间不阻塞事件循环
 """
 
@@ -17,9 +17,8 @@ from datetime import UTC, datetime
 import pytest
 
 from hivememory.config.patchouli import ExtractorConfig
-from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
+from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
-from hivememory.engines.generation.edits import EditSetError
 from hivememory.engines.generation.extractor import LLMMemoryExtractor, NoOpMemoryExtractor
 from hivememory.i18n import set_language
 from hivememory.infrastructure.llm.base import (
@@ -224,34 +223,6 @@ class TestLLMMemoryExtractorResults:
         assert [d.title for d in drafts] == ["Extracted", "Second"]
         assert len(llm.calls) == 2
 
-    @pytest.mark.asyncio
-    async def test_exhausted_provider_retries_fail_explicitly(self):
-        """重试耗尽后抛出最后一次的提供商失败，不被记录为没有产出。"""
-        last_failure = ModelProviderError("still failing")
-        llm = ScriptedLLMService(ModelProviderError("transient"), last_failure)
-
-        with pytest.raises(ModelProviderError) as raised:
-            await _extractor(llm).merge(*_merge_memories())
-
-        assert raised.value is last_failure
-        assert len(llm.calls) == 2
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "failure",
-        [ModelContextWindowExceededError("too long"), TypeError("broken prompt wiring")],
-        ids=["context-window", "program-error"],
-    )
-    async def test_non_retryable_failures_propagate_after_one_attempt(self, failure):
-        """超窗时同一请求必然再次失败，程序错误不属于提供商失败；两者都不重试。"""
-        llm = ScriptedLLMService(failure, _EXTRACTION_JSON)
-
-        with pytest.raises(type(failure)) as raised:
-            await _extractor(llm).extract("User: Hi")
-
-        assert raised.value is failure
-        assert len(llm.calls) == 1
-
 
 class _GatedLLMService(BaseLLMService):
     """在放行前一直挂起的完整调用，用于观察等待期间事件循环是否推进。"""
@@ -330,22 +301,39 @@ async def test_merge_sends_both_memories_and_newer_marker(language):
 
 
 @pytest.mark.asyncio
-async def test_retry_appends_the_previous_output_and_why_it_was_rejected():
-    """重试时原对话不变，其后接上一次的输出与被拒的原因。"""
-    reason = "edit 1 (replace in content): the old text does not occur"
-    rejection = EditSetError(reason)
-    llm = ScriptedLLMService(_EDIT_SET_JSON, _EDIT_SET_JSON)
+@pytest.mark.parametrize(
+    ("ask", "wording"),
+    [
+        (
+            lambda extractor, retry: extractor.extract_write(
+                "User: Save this", content="正文", reason=None, title=None, retry=retry
+            ),
+            "记忆草稿",
+        ),
+        (lambda extractor, retry: extractor.merge(*_merge_memories(), retry=retry), "编辑集"),
+    ],
+    ids=["write-draft", "merge-edit-set"],
+)
+async def test_retry_appends_the_previous_output_and_why_it_was_rejected(ask, wording):
+    """重试时原对话不变，其后接上一次的输出与被拒的说明；说明按输出是草稿还是编辑集取各自的写法。"""
+    reason = "the output is not a JSON object"
+    llm = ScriptedLLMService("first output", "second output")
     extractor = _extractor(llm)
 
-    await extractor.merge(*_merge_memories())
-    await extractor.merge(*_merge_memories(), retry=("previous output", rejection))
+    await ask(extractor, None)
+    await ask(extractor, ("previous output", reason))
 
     first, retry = llm.calls
     assert retry.messages[:2] == first.messages
     assert [(m["role"], m["content"]) for m in retry.messages[2:3]] == [
         ("assistant", "previous output")
     ]
-    assert (retry.messages[3]["role"], reason in retry.messages[3]["content"]) == ("user", True)
+    request = retry.messages[3]
+    assert (request["role"], reason in request["content"], wording in request["content"]) == (
+        "user",
+        True,
+        True,
+    )
 
 
 @pytest.mark.asyncio

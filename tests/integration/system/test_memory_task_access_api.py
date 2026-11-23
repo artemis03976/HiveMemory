@@ -54,7 +54,7 @@ USER_HEADERS = {"x-user-id": "user-1"}
 class _Extractor:
     """LLM 提取端口的确定性替身，让真实生成链继续进入向量查询。"""
 
-    async def extract_write(self, transcript, *, content, reason, title) -> ExtractedMemoryDraft:
+    async def extract_write(self, transcript, *, content, reason, title, retry=None) -> str:
         return ExtractedMemoryDraft(
             title="待取消的记忆",
             summary="等待外部向量查询",
@@ -64,7 +64,7 @@ class _Extractor:
             confidence_score=1.0,
             has_value=True,
             alias_suffix="task_access",
-        )
+        ).model_dump_json()
 
 
 class _BlockingVectorStore:

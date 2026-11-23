@@ -14,12 +14,17 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 修订成为以馆长读到的版本为底的 UPDATE。
 
 修订（馆长、Mode C）与合并都以编辑集改已有记忆：标题与摘要只做片段替换，标签逐个增删。
+
+WRITE、修订与合并的模型输出不合格时，带着上一次的输出与被拒的说明再请模型一次
+（``_ask_with_one_retry``）。馆长在自己的循环里把错误交回模型，话题提取的输出不合格时没有产出。
 """
 
 import logging
 from collections.abc import Awaitable, Callable, Collection
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+from pydantic import ValidationError
 
 from hivememory.core.errors import ModelProviderError, WorkspaceMismatchError
 from hivememory.core.models import (
@@ -44,8 +49,10 @@ from hivememory.core.models.provenance import (
 from hivememory.engines.generation.alias import AliasGenerator
 from hivememory.engines.generation.edits import (
     EditSetError,
-    EditSetRetry,
+    InvalidOutputError,
+    OutputRetry,
     apply_edit_set,
+    describe_validation_error,
     parse_edit_set,
 )
 from hivememory.engines.generation.interfaces import (
@@ -66,6 +73,7 @@ from hivememory.engines.generation.models import (
     system_settlement_provenance,
 )
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
+from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
@@ -299,31 +307,17 @@ class MemoryGenerationEngine:
         """
         Mode B: 主动响应模式 (WRITE 指令触发)
 
-        Agent 明确要求保存，以 WriteFocus 为核心，对话历史为背景。
-        包含 fallback 机制：提供商失败或输出无法解析时直接从 WriteFocus 构建
-        草稿，明确的保存意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级。
-        退回的草稿没有模型引用的段。
+        Agent 明确要求保存，以 WriteFocus 为核心，对话历史为背景。模型的输出不能用作草稿时
+        带着错误重试一次；仍不能用、提供商失败或没有模型时直接从 WriteFocus 构建兜底草稿，
+        明确的保存意图不因模型暂时失败而丢失；程序错误不降级。兜底草稿没有模型引用的段。
 
         相似命中本话题其他主动写入结算到的记忆时照常新建、不提名合并：同一话题里
         agent 分开写的记忆是有意分开的。
         """
         logger.debug("[Mode B] WRITE 主动响应: content_length=%d", len(focus.content))
 
-        # 格式化背景对话；空上下文时由 _render_transcript() 统一返回占位文本
-        transcript = self._render_transcript(request)
-
-        # Step 1: LLM 提取 (Mode B prompt)
-        try:
-            draft = await self.extractor.extract_write(
-                transcript, content=focus.content, reason=focus.reason, title=focus.title
-            )
-        except ModelProviderError as error:
-            logger.warning("[Mode B] LLM 提供商失败: %s", error)
-            draft = None
-
-        # Fallback: LLM 失败时直接从 WriteFocus 构建草稿 (保底入库)
+        draft = await self._write_draft(request, focus)
         if draft is None:
-            logger.warning("[Mode B] LLM 提取失败，启用 fallback 直接构建草稿")
             draft = self._build_fallback_draft(focus)
 
         # Step 2-4: 查重 → 构建/更新 → 返回 outcome
@@ -336,6 +330,43 @@ class MemoryGenerationEngine:
             cited_segments=_cite(request.context, draft.source_segments),
             kept_apart_from=request.topic_write_memory_ids,
         )
+
+    async def _write_draft(
+        self, request: GenerationRequest, focus: WriteFocus
+    ) -> ExtractedMemoryDraft | None:
+        """请模型把 WRITE 写成草稿；需要兜底时返回 None，并记下原因。
+
+        明确的保存意图强制入库：草稿的 has_value 为真、置信度为 1.0，不采用模型的判断。
+        """
+        # 空上下文时由 _render_transcript() 统一返回占位文本
+        transcript = self._render_transcript(request)
+
+        async def ask(retry: OutputRetry | None) -> str | None:
+            return await self.extractor.extract_write(
+                transcript,
+                content=focus.content,
+                reason=focus.reason,
+                title=focus.title,
+                retry=retry,
+            )
+
+        try:
+            draft = await _ask_with_one_retry(ask, _parse_write_draft)
+        except ModelProviderError as error:
+            logger.warning(
+                "[Mode B] 写入改用兜底草稿: reason=model_provider_failed, error_class=%s",
+                type(error).__name__,
+            )
+            return None
+        except InvalidOutputError:
+            logger.warning("[Mode B] 写入改用兜底草稿: reason=invalid_output")
+            return None
+        if draft is None:
+            logger.warning("[Mode B] 写入改用兜底草稿: reason=no_model")
+            return None
+        draft.has_value = True
+        draft.confidence_score = 1.0
+        return draft
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
         """
@@ -420,7 +451,7 @@ class MemoryGenerationEngine:
         """请模型写出通过校验的编辑集；需要回退时返回 None，并记下原因。"""
         transcript = self._render_transcript(request)
 
-        async def ask(retry: EditSetRetry | None) -> str | None:
+        async def ask(retry: OutputRetry | None) -> str | None:
             return await self.extractor.revise(
                 existing,
                 instruction=uf.instruction,
@@ -430,7 +461,9 @@ class MemoryGenerationEngine:
             )
 
         try:
-            accepted = await self._edit_set_with_one_retry(ask, existing)
+            accepted = await _ask_with_one_retry(
+                ask, lambda output: _accept(output, existing, adds_tags_only=False)
+            )
         except ModelProviderError as error:
             logger.warning(
                 "[Mode C] 修订改用回退: memory_id=%s, reason=model_provider_failed, "
@@ -459,10 +492,12 @@ class MemoryGenerationEngine:
             EditSetError: 带着错误重试一次后仍不能应用
         """
 
-        async def ask(retry: EditSetRetry | None) -> str | None:
+        async def ask(retry: OutputRetry | None) -> str | None:
             return await self.extractor.merge(retained, absorbed, retry=retry)
 
-        accepted = await self._edit_set_with_one_retry(ask, retained, adds_tags_only=True)
+        accepted = await _ask_with_one_retry(
+            ask, lambda output: _accept(output, retained, adds_tags_only=True)
+        )
         if accepted is None:
             return None
         edit_set, merged = accepted
@@ -473,31 +508,6 @@ class MemoryGenerationEngine:
             contributors=absorbed.meta.provenance.contributing_agent_ids,
             cited_segments=[],
         )
-
-    async def _edit_set_with_one_retry(
-        self,
-        ask: Callable[[EditSetRetry | None], Awaitable[str | None]],
-        base: MemoryAtom,
-        *,
-        adds_tags_only: bool = False,
-    ) -> tuple[MemoryEditSet, MemoryAtom] | None:
-        """请模型写一份以 ``base`` 为底的编辑集；不合格时带着上一次的输出与错误再请一次。
-
-        修订与合并没有工具循环，一次带错误的重试是能给模型的最小反馈。返回编辑集与应用之后
-        的记忆（空编辑集时是 ``base`` 的副本）；没有模型时返回 None。
-
-        Raises:
-            EditSetError: 第二次的输出仍不能应用
-        """
-        output = await ask(None)
-        if output is None:
-            return None
-        try:
-            return _accept(output, base, adds_tags_only=adds_tags_only)
-        except EditSetError as rejection:
-            logger.info("编辑集不合格，带着错误重试一次")
-            retried = await ask((output, rejection))
-        return _accept(retried or "", base, adds_tags_only=adds_tags_only)
 
     async def _dedup_and_resolve(
         self,
@@ -679,6 +689,47 @@ class MemoryGenerationEngine:
                 content=draft.content,
             ),
         )
+
+
+async def _ask_with_one_retry[T](
+    ask: Callable[[OutputRetry | None], Awaitable[str | None]],
+    accept: Callable[[str], T],
+) -> T | None:
+    """请模型输出一次并交给 ``accept``；被拒时带着上一次的输出与说明再请一次。
+
+    WRITE、修订与合并没有工具循环，一次带错误的重试是能给模型的最小反馈。重试发生在同一次
+    生成之内、提交之前，不重复任何写入。没有模型时返回 None。
+
+    Raises:
+        InvalidOutputError: 第二次的输出仍被拒绝
+    """
+    output = await ask(None)
+    if output is None:
+        return None
+    try:
+        return accept(output)
+    except InvalidOutputError as rejection:
+        logger.info("模型输出不合格，带着错误重试一次")
+        retried = await ask((output, str(rejection)))
+    return accept(retried or "")
+
+
+def _parse_write_draft(output: str) -> ExtractedMemoryDraft:
+    """把 WRITE 的模型输出解析为草稿；说明与编辑集的解析写法相同，是英文的原因与字段路径。
+
+    Raises:
+        InvalidOutputError: 输出不是一个 JSON 对象，或不符合草稿的结构
+    """
+    try:
+        data = parse_llm_json(output)
+    except JSONParseError as error:
+        raise InvalidOutputError("the output is not a JSON object") from error
+    if not isinstance(data, dict):
+        raise InvalidOutputError("the output is not a JSON object")
+    try:
+        return ExtractedMemoryDraft.model_validate(data)
+    except ValidationError as error:
+        raise InvalidOutputError(describe_validation_error(error)) from error
 
 
 def _accept(

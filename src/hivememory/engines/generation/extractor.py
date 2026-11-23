@@ -2,13 +2,13 @@
 HiveMemory - 记忆提取器 (Memory Extractor)
 
 职责:
-    调用 LLM 将自然对话转换为结构化的记忆草稿，并为修订与合并取得模型写出的编辑集。
+    调用 LLM 将自然对话转换为结构化的记忆草稿，并为 WRITE、修订与合并取得模型的输出。
 
 实现策略:
     - 经 LLM 服务接口异步调用，等待模型期间不阻塞事件循环
     - Pydantic 输出解析
-    - JSON 容错；只对提供商失败重试
-    - 修订与合并只返回模型原文，编辑集的解析、校验与带错误的重试由生成引擎负责
+    - JSON 容错；只对提供商失败重试（LLM 接口模块的 ``complete_with_provider_retry``）
+    - WRITE、修订与合并只返回模型原文，草稿与编辑集的解析、校验与带错误的重试由生成引擎负责
 """
 
 import json
@@ -17,9 +17,9 @@ import logging
 from pydantic import BaseModel
 
 from hivememory.config.patchouli import ExtractorConfig
-from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
+from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.generation.edits import EditSetRetry
+from hivememory.engines.generation.edits import OutputRetry
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
 from hivememory.engines.generation.models import ExtractedMemoryDraft, ExtractionResult
 from hivememory.i18n import (
@@ -28,18 +28,20 @@ from hivememory.i18n import (
     get_generation_schema_description,
     resolve_language,
 )
-from hivememory.infrastructure.llm.base import BaseLLMService, LLMCompletion, LLMRequestParams
+from hivememory.infrastructure.llm.base import (
+    BaseLLMService,
+    LLMCompletion,
+    LLMRequestParams,
+    complete_with_provider_retry,
+)
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 logger = logging.getLogger(__name__)
 
-# 一次模型调用对提供商的最多请求次数（含首次）。
-_MAX_LLM_ATTEMPTS = 2
-
 # 提取器用到的提示词：生成模式 → 键。构造时一次读完，提示词工作台在构造期间替换读取函数。
 _PROMPT_KEYS = {
     "passive": ("system_prompt", "user_prompt"),
-    "write": ("system_prompt", "user_prompt", "reason_empty", "title_empty"),
+    "write": ("system_prompt", "user_prompt", "reason_empty", "title_empty", "retry_invalid"),
     "update": ("system_prompt", "user_prompt", "new_content_empty", "transcript_empty"),
     "merge": ("system_prompt", "user_prompt"),
     "edit_set": ("retry_invalid",),
@@ -53,10 +55,10 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
     经 LLM 服务接口调用 DeepSeek/GPT 等模型，将对话转换为结构化记忆草稿。
 
     失败语义:
-        话题提取与 WRITE 的模型输出为空或无法解析时没有产出（话题提取为空列表，WRITE 为
-        ``None``）；修订与合并只返回模型原文，是否合格由调用方判断。提供商失败在重试耗尽
-        后抛出 ``ModelProviderError``，上下文超窗不重试；话题提取的输出被截断时同样抛出
-        ``ModelProviderError``；程序错误与取消原样传播。
+        话题提取的模型输出为空或无法解析时没有产出（空列表）；WRITE、修订与合并只返回模型
+        原文，是否合格由调用方判断。提供商失败在重试耗尽后抛出 ``ModelProviderError``，
+        上下文超窗不重试；话题提取的输出被截断时同样抛出 ``ModelProviderError``；程序错误
+        与取消原样传播。
     """
 
     def __init__(
@@ -89,18 +91,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         return self._prompts[mode, key]
 
     async def _complete(self, messages: list[dict[str, str]]) -> LLMCompletion:
-        """调用 LLM 并返回完整结果；只对提供商失败重试，最后一次的失败原样抛出。
-
-        超窗时同一请求必然再次失败，不重试；程序错误与取消不重试、原样传播。
-        """
-        for attempt in range(1, _MAX_LLM_ATTEMPTS):
-            try:
-                return await self._llm_service.complete(messages, self._llm_params)
-            except ModelContextWindowExceededError:
-                raise
-            except ModelProviderError as error:
-                logger.warning("LLM 调用失败 (尝试 %s/%s): %s", attempt, _MAX_LLM_ATTEMPTS, error)
-        return await self._llm_service.complete(messages, self._llm_params)
+        return await complete_with_provider_retry(self._llm_service, messages, self._llm_params)
 
     async def extract(self, transcript: str) -> list[ExtractedMemoryDraft]:
         """
@@ -141,13 +132,19 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         return result.memories
 
     async def extract_write(
-        self, transcript: str, *, content: str, reason: str | None, title: str | None
-    ) -> ExtractedMemoryDraft | None:
+        self,
+        transcript: str,
+        *,
+        content: str,
+        reason: str | None,
+        title: str | None,
+        retry: OutputRetry | None = None,
+    ) -> str:
         """
-        Mode B：以 WRITE 提交的内容为核心，结合背景对话结构化为一条草稿。
+        Mode B：请模型以 WRITE 提交的内容为核心、结合背景对话写出一条草稿，返回模型原文。
 
-        明确的保存意图强制入库：草稿的 has_value 为真、置信度为 1.0。agent 拟定的标题
-        随提示词交给模型，由模型按提示词沿用，只在它与内容不符或缺少检索名词时修改。
+        agent 拟定的标题随提示词交给模型，由模型按提示词沿用，只在它与内容不符或缺少检索
+        名词时修改。
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽，或上下文超窗
@@ -169,19 +166,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 ),
             },
         ]
-        raw_output = (await self._complete(messages)).text
-        if not raw_output:
-            logger.warning("LLM 返回空响应 (Mode B)")
-            return None
-        try:
-            draft = parse_llm_json(raw_output, as_model=ExtractedMemoryDraft)
-        except JSONParseError:
-            logger.warning("Mode B JSON 解析失败")
-            return None
-        draft.has_value = True
-        draft.confidence_score = 1.0
-        logger.debug("成功提取主动写入的记忆草稿")
-        return draft
+        return (await self._complete(self._with_retry(messages, retry, "write"))).text
 
     async def revise(
         self,
@@ -190,7 +175,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         instruction: str,
         new_content: str | None,
         transcript: str,
-        retry: EditSetRetry | None = None,
+        retry: OutputRetry | None = None,
     ) -> str:
         """Mode C：请模型按 UPDATE 的指令与新材料写出对目标记忆的编辑集，返回模型原文。
 
@@ -215,10 +200,10 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 ),
             },
         ]
-        return (await self._complete(self._with_retry(messages, retry))).text
+        return (await self._complete(self._with_retry(messages, retry, "edit_set"))).text
 
     async def merge(
-        self, retained: MemoryAtom, absorbed: MemoryAtom, *, retry: EditSetRetry | None = None
+        self, retained: MemoryAtom, absorbed: MemoryAtom, *, retry: OutputRetry | None = None
     ) -> str:
         """合并：请模型写出把被吸收记忆独有的内容补进保留记忆的编辑集，返回模型原文。
 
@@ -238,16 +223,19 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 ),
             },
         ]
-        return (await self._complete(self._with_retry(messages, retry))).text
+        return (await self._complete(self._with_retry(messages, retry, "edit_set"))).text
 
     def _with_retry(
-        self, messages: list[dict[str, str]], retry: EditSetRetry | None
+        self, messages: list[dict[str, str]], retry: OutputRetry | None, mode: str
     ) -> list[dict[str, str]]:
-        """重试时把上一次的输出与它被拒的原因接在对话之后，模型据此改正。"""
+        """重试时把上一次的输出与它被拒的说明接在对话之后，模型据此改正。
+
+        说明的写法按输出的种类取 ``mode`` 下的 ``retry_invalid``：草稿与编辑集各有一段。
+        """
         if retry is None:
             return messages
         output, rejection = retry
-        reason = self.prompt("edit_set", "retry_invalid").format(details=rejection)
+        reason = self.prompt(mode, "retry_invalid").format(details=rejection)
         return [
             *messages,
             {"role": "assistant", "content": output},

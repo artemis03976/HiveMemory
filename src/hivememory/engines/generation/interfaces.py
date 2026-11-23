@@ -10,10 +10,9 @@ HiveMemory - Generation 模块接口抽象层
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from hivememory.core.models import MemoryAtom
-from hivememory.engines.generation.edits import EditSetRetry
+from hivememory.engines.generation.edits import OutputRetry
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
@@ -52,21 +51,25 @@ class BaseMemoryExtractor(ABC):
         pass
 
     async def extract_write(
-        self, transcript: str, *, content: str, reason: str | None, title: str | None
-    ) -> Optional["ExtractedMemoryDraft"]:
+        self,
+        transcript: str,
+        *,
+        content: str,
+        reason: str | None,
+        title: str | None,
+        retry: OutputRetry | None = None,
+    ) -> str | None:
         """
-        Mode B：以 WRITE 提交的内容为核心，结合背景对话结构化为一条草稿
+        Mode B：请模型以 WRITE 提交的内容为核心、结合背景对话写出一条草稿，返回模型原文
 
-        默认实现返回 None (NoOp)，调用方据此使用 fallback 草稿。
+        默认实现返回 None (NoOp)，调用方据此使用兜底草稿。
 
         Args:
             transcript: 格式化的背景对话
             content: WRITE 提交的内容
             reason: WRITE 给出的理由，可能为空
             title: WRITE 拟定的标题，可能为空
-
-        Returns:
-            ExtractedMemoryDraft: 草稿；模型输出为空或无法解析时返回 None
+            retry: 重试时为上一次的输出与它被拒的说明
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽
@@ -80,7 +83,7 @@ class BaseMemoryExtractor(ABC):
         instruction: str,
         new_content: str | None,
         transcript: str,
-        retry: EditSetRetry | None = None,
+        retry: OutputRetry | None = None,
     ) -> str | None:
         """
         执行记忆修订 (Mode C: UPDATE)：请模型写出对目标记忆的编辑集，返回模型原文
@@ -92,7 +95,7 @@ class BaseMemoryExtractor(ABC):
             instruction: 修改指令
             new_content: 新素材，可能为空
             transcript: 近期对话上下文
-            retry: 重试时为上一次的输出与它被拒的原因
+            retry: 重试时为上一次的输出与它被拒的说明
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽
@@ -100,7 +103,7 @@ class BaseMemoryExtractor(ABC):
         return None
 
     async def merge(
-        self, retained: MemoryAtom, absorbed: MemoryAtom, *, retry: EditSetRetry | None = None
+        self, retained: MemoryAtom, absorbed: MemoryAtom, *, retry: OutputRetry | None = None
     ) -> str | None:
         """请模型写出把被吸收记忆独有的内容补进保留记忆的编辑集；未启用模型时没有产出。"""
         return None

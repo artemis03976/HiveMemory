@@ -27,6 +27,7 @@ from hivememory.config.patchouli import (
 from hivememory.core.models import MemoryAtom, MemoryLifecycleState
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
+from hivememory.engines.generation.edits import OutputRetry
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import ExtractedMemoryDraft
 from hivememory.engines.lifecycle.engine import MemoryLifecycleEngine
@@ -130,8 +131,14 @@ class _Extractor:
         self.inputs: list[dict[str, Any]] = []
 
     async def extract_write(
-        self, transcript: str, *, content: str, reason: str | None, title: str | None
-    ) -> ExtractedMemoryDraft:
+        self,
+        transcript: str,
+        *,
+        content: str,
+        reason: str | None,
+        title: str | None,
+        retry: OutputRetry | None = None,
+    ) -> str:
         self.inputs.append(
             {"transcript": transcript, "content": content, "reason": reason, "title": title}
         )
@@ -144,7 +151,7 @@ class _Extractor:
             content="HTTP chat materialized content",
             confidence_score=1.0,
             has_value=True,
-        )
+        ).model_dump_json()
 
 
 class _Relay:
