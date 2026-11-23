@@ -33,6 +33,7 @@ last_reviewed: 2026-11-20
 | [身份与访问体系](./identity-and-access-model.md) | 身份、认证与授权的单独主线 |
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | 长 turn 内的原子事件流、分段、封口与恢复 |
 | [轻量化：模型依赖、运行内存与包体](./lightweight-footprint.md) | 减少模型依赖、常驻内存与安装包体积 |
+| [记忆置信度：起始值与浮动](./memory-confidence.md) | 置信度的起始值由来源推出，并由带证据的事件推动浮动 |
 
 ## 长期方向与概念（`long-term`）
 
