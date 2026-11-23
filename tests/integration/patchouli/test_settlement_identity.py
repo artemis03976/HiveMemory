@@ -90,8 +90,8 @@ class _Extractor:
     async def extract(self, transcript):
         return [self._draft()]
 
-    async def extract_write(self, transcript, *, content, reason, title):
-        return self._draft()
+    async def extract_write(self, transcript, *, content, reason, title, retry=None):
+        return self._draft().model_dump_json()
 
 
 class _LeakyVectorStore:

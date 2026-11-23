@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-23
 ---
 
 # System 组合根与生命周期
@@ -107,7 +107,8 @@ System 只创建一个 `LiteLLMService`，它是 `infrastructure.llm.base.BaseLL
 - 完整调用返回 `LLMCompletion`（首个候选的文本、提供商报告的 finish_reason 与可缺省用量）；提供商没有返回文本时以 `ModelProviderError` 结束，空字符串仍是文本；
 - 流式调用返回可关闭的异步生成器，首次拉取时才发出请求；中间项是非空文本增量，正常耗尽时最后一项携带 finish_reason。流在耗尽、被关闭或拉取时被取消都会关闭提供商响应，关闭失败只记录日志，不替换正在传播的异常或取消；
 - 请求参数逐项传给 SDK，为 `None` 或为空的项不发送，凭证缺省时由 SDK 从环境变量读取；JSON 输出要求只在 SDK 明确报告不支持该参数时退回普通补全；
-- SDK 异常只在实现中转换为 `core.errors` 的中立错误，完整调用、流式启动与流式拉取采用同一转换，程序错误与取消原样传播，见[错误模型](../contracts/error-model.md#46-模型调用错误)。
+- SDK 异常只在实现中转换为 `core.errors` 的中立错误，完整调用、流式启动与流式拉取采用同一转换，程序错误与取消原样传播，见[错误模型](../contracts/error-model.md#46-模型调用错误)；
+- 服务接口本身不重试。接口模块另提供 `complete_with_provider_retry(service, messages, params)`：建立在 `complete` 之上的完整调用，只对提供商失败重试一次（共两次请求），超窗、程序错误与取消不重试；是否采用由使用方决定，当前是 Patchouli 的记忆提取器与馆长（[Patchouli 生成](../patchouli/generation.md#51-重试边界)第 5.1 节）。
 
 提供商 SDK 只在 `infrastructure/llm/` 中导入，接口模块 `base.py` 不依赖 SDK；除组合根外，引擎与子系统从 LLM 包只导入接口模块，不导入实现模块或包根。这三条由分层架构测试守护，使更换 SDK 或加入其他实现时，使用方不需要随之修改。
 

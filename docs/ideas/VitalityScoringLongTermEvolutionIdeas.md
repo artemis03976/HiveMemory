@@ -268,7 +268,7 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 4. **clamp 在 100 截断** — 公式原始输出 `[0, 120]`，靠 clamp 到 100。提示 base+boost 的设计没有预留 hit_boost/feedback_boost 的叠加空间。当前公式保留 clamp，公式扩展时需要重新审视上限。
 
-5. **confidence 缺乏上行通道** — `reinforce()` 只在负反馈时改 confidence（×0.5），正向事件都不提升 confidence。"被反复验证有效应提升记忆强度"的语义在当前公式实现不了。**当前公式没有处理这一项**，留给方向 1、4。
+5. **confidence 缺乏上行通道** — `reinforce()` 只在负反馈时改 confidence（×0.5），正向事件都不提升 confidence。"被反复验证有效应提升记忆强度"的语义在当前公式实现不了。**当前公式没有处理这一项**，留给方向 1、4。置信度本身的起始值与浮动见[记忆置信度](./memory-confidence.md)。
 
 ---
 

@@ -667,7 +667,9 @@ async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
     coordinator, controller = _wire_generation_pipeline(bus)
     await controller.start()
     extractor = AsyncMock()
-    extractor.extract_write.return_value = _draft("agent title", "what the agent wrote")
+    extractor.extract_write.return_value = _draft(
+        "agent title", "what the agent wrote"
+    ).model_dump_json()
     extractor.extract.return_value = [_draft("restated title", "the agent's write, restated")]
     engine = MemoryGenerationEngine(
         mid_term=memory_library.mid_term,
@@ -709,7 +711,9 @@ async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_
     coordinator, controller = _wire_generation_pipeline(bus)
     await controller.start()
     extractor = AsyncMock()
-    extractor.extract_write.return_value = _draft("agent title", "what the agent wrote")
+    extractor.extract_write.return_value = _draft(
+        "agent title", "what the agent wrote"
+    ).model_dump_json()
     new_fact = _draft("deploy is manual", "deploys are now run by hand")
     llm = ScriptedLLMService(
         json.dumps({"tool": "list_topic_writes", "args": {}}),

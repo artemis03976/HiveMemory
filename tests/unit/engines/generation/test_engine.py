@@ -4,7 +4,8 @@ MemoryGenerationEngine 单元测试
 测试覆盖:
 - Mode 路由: A (被动) / B (WRITE) / C (UPDATE)
 - Mode A: 多条草稿逐条查重 / 无价值草稿丢弃 / 没有草稿 / 同批别名不冲突
-- Mode B: 正常 WRITE / LLM 失败 fallback
+- Mode B: 模型草稿新建且置信度为 1.0 / 不合格时带错误重试一次 / 仍不合格、提供商失败与
+  没有模型时兜底
 - Mode C: 编辑集修订 / existing_memory=None / 带错误重试一次 / 重试后仍不合格、提供商失败与
   没有模型时回退且不改索引 / 空编辑集降为 TOUCH
 - 查重分支: IDENTICAL / SIMILAR / DISTINCT；命中本话题主动写入结算到的记忆时 Mode A 丢弃、
@@ -221,8 +222,7 @@ class TestGenerationEngineRouting:
     async def test_routes_to_mode_b(self):
         """有 write_focus 时走 Mode B，结构化调用携带写入内容、理由与 agent 拟定的标题"""
         focus = WriteFocus(content="保存这段代码", reason="后续复用", title="排序函数的实现")
-        draft = _make_draft()
-        self.mock_extractor.extract_write.return_value = draft
+        self.mock_extractor.extract_write.return_value = _make_draft().model_dump_json()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
@@ -493,58 +493,61 @@ class TestGenerationEngineModeA:
 
 
 class TestGenerationEngineModeB:
-    """Mode B (WRITE 主动响应) 测试"""
+    """Mode B (WRITE 主动响应)：模型写出草稿；不能用作草稿时带着错误重试一次，
+    仍不能用、提供商失败或没有模型时以兜底草稿保住写入的内容。"""
 
     def setup_method(self):
         self.mock_storage = Mock()
         self.mock_storage.search = AsyncMock(return_value=[])
         self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
-        self.mock_storage.upsert = AsyncMock()
-        self.mock_extractor = AsyncMock()
         self.mock_deduplicator = Mock()
-        self.mock_deduplicator.check_duplicate = Mock()
-        self.engine = MemoryGenerationEngine(
+        self.mock_deduplicator.check_duplicate = Mock(
+            return_value=(DuplicateDecision.DISTINCT, None)
+        )
+
+    def _engine(self, *outputs, extractor=None):
+        return MemoryGenerationEngine(
             mid_term=self.mock_storage,
-            extractor=self.mock_extractor,
+            extractor=extractor
+            or LLMMemoryExtractor(
+                ExtractorConfig(), ScriptedLLMService(*outputs), LLMRequestParams(model="m")
+            ),
             deduplicator=self.mock_deduplicator,
         )
 
-    @pytest.mark.asyncio
-    async def test_mode_b_extract_success(self):
-        """正常 WRITE 流程"""
-        focus = WriteFocus(content="重要代码片段", reason="保存备用")
-        draft = _make_draft()
-        self.mock_extractor.extract_write.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
-        self.mock_storage.upsert = AsyncMock()
-
-        request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(
+    async def _write(self, engine, *, content="写入的内容", context=None):
+        request = GenerationRequest(
+            context=context or GenerationContext(),
+            write_focus=WriteFocus(content=content, reason="保存"),
+        )
+        return await engine.process(
             request,
             belong_to=make_memory_identity_scope().workspace_identity,
             from_actor=make_memory_identity_scope().actor_identity,
         )
 
-        assert len(result) == 1
+    @pytest.mark.asyncio
+    async def test_mode_b_creates_the_model_draft_with_full_confidence(self):
+        """模型的草稿按原样新建；明确的保存意图强制入库，置信度为 1.0，不采用模型的判断。"""
+        draft = _make_draft(has_value=False).model_copy(update={"confidence_score": 0.3})
+
+        [outcome] = await self._write(self._engine(draft.model_dump_json()))
+
+        atom = outcome.atom
+        assert (outcome.action, atom.index.title, atom.index.tags) == (
+            GenerationAction.CREATE,
+            "测试记忆",
+            ["t1"],
+        )
+        assert atom.meta.lifecycle.confidence_score == 1.0
 
     @pytest.mark.asyncio
     async def test_mode_b_create_seeds_actor_before_context_contributors(self):
         """WRITE 主动创建以提交操作的 actor 为来源；贡献者先记录发起 Agent，
         再合并上下文轮次贡献者。"""
-        focus = WriteFocus(content="主动写入的内容", reason="保存")
-        draft = _make_draft()
-        self.mock_extractor.extract_write.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
+        engine = self._engine(_make_draft().model_dump_json())
 
-        request = GenerationRequest(
-            context=_make_context_with_agents(["b2"]),
-            write_focus=focus,
-        )
-        result = await self.engine.process(
-            request,
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
-        )
+        result = await self._write(engine, context=_make_context_with_agents(["b2"]))
 
         atom = result[0].atom
         assert atom.meta.provenance.source_agent_id == "a1"
@@ -554,17 +557,7 @@ class TestGenerationEngineModeB:
     @pytest.mark.asyncio
     async def test_mode_b_create_without_context_records_actor_as_contributor(self):
         """无背景上下文的主动 WRITE：发起 Agent 本身仍作为内容贡献者记录。"""
-        focus = WriteFocus(content="无上下文的主动写入", reason="保存")
-        draft = _make_draft()
-        self.mock_extractor.extract_write.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
-
-        request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(
-            request,
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
-        )
+        result = await self._write(self._engine(_make_draft().model_dump_json()))
 
         atom = result[0].atom
         assert atom.meta.provenance.source_agent_id == "a1"
@@ -572,50 +565,65 @@ class TestGenerationEngineModeB:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "extract_outcome",
-        [None, ModelProviderError("provider down")],
-        ids=["no-output", "provider-failure"],
+        ("first_output", "reason_in_retry"),
+        [
+            ("这不是 JSON", "not a JSON object"),
+            (json.dumps(_make_draft().model_dump(exclude={"content"})), "content"),
+        ],
+        ids=["unparsable", "missing-field"],
     )
-    async def test_mode_b_fallback_on_extract_failure(self, extract_outcome):
-        """没有产出或提供商失败时启用 fallback，明确的保存意图不丢失"""
-        focus = WriteFocus(content="重要内容不能丢", reason="保存")
-        self.mock_extractor.extract_write.side_effect = [extract_outcome]
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
-        self.mock_storage.upsert = AsyncMock()
-
-        request = GenerationRequest(context=GenerationContext(), write_focus=focus)
-        result = await self.engine.process(
-            request,
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
+    async def test_mode_b_retries_once_with_the_error_before_falling_back(
+        self, first_output, reason_in_retry
+    ):
+        """第一次的输出解析不了或缺少字段：把它与被拒的原因交回模型再要一次，
+        第二次合格就按模型的草稿新建，而不是兜底草稿。"""
+        llm = ScriptedLLMService(first_output, _make_draft().model_dump_json())
+        engine = self._engine(
+            extractor=LLMMemoryExtractor(ExtractorConfig(), llm, LLMRequestParams(model="m"))
         )
 
-        # fallback 应保证内容不丢失
-        assert len(result) == 1
-        assert result[0].atom.payload.content == "重要内容不能丢"
+        [outcome] = await self._write(engine)
+
+        assert (outcome.atom.index.title, outcome.atom.index.tags) == ("测试记忆", ["t1"])
+        assert reason_in_retry in llm.calls[-1].messages[-1]["content"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("outputs", "noop"),
+        [
+            (["这不是 JSON", "仍然不是 JSON"], False),
+            ([ModelProviderError("down"), ModelProviderError("still down")], False),
+            ([], True),
+        ],
+        ids=["still-invalid", "provider-failure", "no-model"],
+    )
+    async def test_mode_b_falls_back_to_the_written_content(self, outputs, noop):
+        """重试后仍不能用、提供商失败或没有模型时启用兜底草稿，明确的保存意图不丢失。"""
+        engine = self._engine(*outputs, extractor=NoOpMemoryExtractor() if noop else None)
+
+        [outcome] = await self._write(engine, content="重要内容不能丢")
+
+        assert (outcome.atom.payload.content, outcome.atom.index.tags) == (
+            "重要内容不能丢",
+            ["mtp_write"],
+        )
 
     @pytest.mark.asyncio
     async def test_mode_b_program_error_is_not_replaced_by_fallback(self):
         """程序错误不属于 LLM 失败，不能由 fallback 掩盖。"""
         failure = TypeError("broken prompt wiring")
-        self.mock_extractor.extract_write.side_effect = failure
+        extractor = AsyncMock()
+        extractor.extract_write.side_effect = failure
 
-        request = GenerationRequest(
-            context=GenerationContext(), write_focus=WriteFocus(content="内容", reason="保存")
-        )
         with pytest.raises(TypeError) as raised:
-            await self.engine.process(
-                request,
-                belong_to=make_memory_identity_scope().workspace_identity,
-                from_actor=make_memory_identity_scope().actor_identity,
-            )
+            await self._write(self._engine(extractor=extractor))
 
         assert raised.value is failure
 
     def test_build_fallback_draft(self):
         """fallback 草稿构建逻辑"""
         focus = WriteFocus(content="内容", title="标题", reason="原因")
-        draft = self.engine._build_fallback_draft(focus)
+        draft = self._engine()._build_fallback_draft(focus)
 
         assert draft.title == "标题"
         # 摘要直接取 reason，不再为凑足长度拼接正文片段。
@@ -629,7 +637,7 @@ class TestGenerationEngineModeB:
     def test_build_fallback_draft_no_title(self):
         """fallback 无 title 时取 content 前 50 个字符"""
         focus = WriteFocus(content="A very long content that should be truncated for title")
-        draft = self.engine._build_fallback_draft(focus)
+        draft = self._engine()._build_fallback_draft(focus)
 
         assert draft.title == "A very long content that should be truncated for t"
 
@@ -906,7 +914,7 @@ class TestGenerationEngineDedup:
             frozenset({str(existing.id)}) if restriction == "topic_write" else frozenset()
         )
         before = existing.model_copy(deep=True)
-        self.mock_extractor.extract_write.return_value = draft
+        self.mock_extractor.extract_write.return_value = draft.model_dump_json()
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.SIMILAR, existing)
         identity = make_memory_identity_scope()
 
@@ -1062,7 +1070,7 @@ class TestCitedSegments:
         ("model_draft", "expected"),
         [
             (
-                _make_draft().model_copy(update={"source_segments": ["2.1"]}),
+                _make_draft().model_copy(update={"source_segments": ["2.1"]}).model_dump_json(),
                 [CitedSegment(turn_id="turn-b", first_sequence=0, last_sequence=2)],
             ),
             (ModelProviderError("provider down"), []),

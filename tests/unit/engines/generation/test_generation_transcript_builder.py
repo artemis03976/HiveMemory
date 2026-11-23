@@ -329,7 +329,7 @@ class TestEngineWithGenerationContext:
             confidence_score=0.9,
             has_value=True,
         )
-        extractor.extract_write.return_value = draft
+        extractor.extract_write.return_value = draft.model_dump_json()
         deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         ctx = GenerationContext(turns=[_turn("q", "[Assistant]: a")])

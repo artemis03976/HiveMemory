@@ -7,6 +7,9 @@ HiveMemory - 编辑集的应用
 
 检索与查重的向量只由标题、类型、标签与摘要编译，不含正文。这几项只能片段替换、逐个增删，
 类型不变，索引因此只会有限度地变化；不再另外比较修改前后的向量。
+
+编辑集不能应用是模型输出被拒的一种；WRITE 的草稿解析不了是另一种。两者都以
+``InvalidOutputError`` 表达，生成引擎据此带着上一次的输出与说明再请模型一次。
 """
 
 from pydantic import ValidationError
@@ -25,12 +28,16 @@ from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 _INDEX_LIMITS = {"title": MEMORY_TITLE_MAX_LENGTH, "summary": MEMORY_SUMMARY_MAX_LENGTH}
 
 
-class EditSetError(ValueError):
+class InvalidOutputError(ValueError):
+    """模型的输出不能用：解析不了、结构不对或不能落地。说明原样交回模型，供它重试时改正。"""
+
+
+class EditSetError(InvalidOutputError):
     """编辑集不能以给定的记忆为底应用；说明指出第几处编辑与原因，原样交回模型。"""
 
 
-# 上一次的模型输出与它被拒的原因；修订与合并带着它再请模型写一次编辑集。
-type EditSetRetry = tuple[str, EditSetError]
+# 上一次的模型输出与它被拒的说明；WRITE、修订与合并带着它再请模型输出一次。
+type OutputRetry = tuple[str, str]
 
 
 def parse_edit_set(text: str) -> MemoryEditSet:
@@ -166,7 +173,8 @@ def _normalize_tag(tag: str) -> str:
 
 __all__ = [
     "EditSetError",
-    "EditSetRetry",
+    "InvalidOutputError",
+    "OutputRetry",
     "apply_edit_set",
     "describe_validation_error",
     "parse_edit_set",

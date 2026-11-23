@@ -31,7 +31,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-21
+last_reviewed: 2026-11-23
 ---
 
 # 跨边界错误模型
@@ -318,7 +318,7 @@ Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明
 | 使用方 | 处理 |
 |:---|:---|
 | Gateway 查询理解与话题路由 | 转为各自的能力错误，由 workflow 保守降级（第 4.2 节） |
-| Patchouli 记忆抽取与合并 | 只对提供商失败重试，一次提取或合并最多两次请求；超窗与程序错误不重试。重试耗尽后抛出最后一次的 `ModelProviderError`；模型输出为空或无法解析是“没有产出”，不是失败。话题结算的提取输出被截断时抛出 `ModelProviderError`、不重试：截断的草稿列表无法解析，当作没有产出会让整段话题不留记忆 |
+| Patchouli 记忆抽取、合并与馆长 | 每次模型调用只对提供商失败重试，最多两次请求；馆长在同一步内重试、不另计步。超窗与程序错误不重试。重试耗尽后抛出最后一次的 `ModelProviderError`；话题提取的模型输出为空或无法解析是“没有产出”，不是失败；WRITE、修订与合并的输出不合格由生成引擎带着原因再请一次，不属于提供商失败。话题结算的提取输出被截断时抛出 `ModelProviderError`、不重试：截断的草稿列表无法解析，当作没有产出会让整段话题不留记忆 |
 | Patchouli 生成引擎 | Mode A 不捕获提供商失败，生成任务以 `model_provider_failed`（超窗为 `model_context_window_exceeded`）失败收尾，不再记录为没有产出；Mode B/C 对提供商失败使用既有 fallback，保证明确的保存与更新意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级 |
 | Page Folding 摘要 | 只在提供商失败时回退为规则摘要，程序错误沿 compact 路径传播 |
 | Alice 帧生成 | frame 形成 `FAILED`；超窗投影为 `model_context_window_exceeded`，其他提供商失败不填原因码（第 2.2 节） |

@@ -1,4 +1,4 @@
-"""Librarian 单元测试：动作循环、步数预算、六个工具（含修订的四项校验）与模型服务失败的传播。"""
+"""Librarian 单元测试：动作循环、步数预算、六个工具（含修订的四项校验）与模型服务失败的重试和传播。"""
 
 import json
 from uuid import uuid4
@@ -200,18 +200,34 @@ class TestLibrarianLoop:
         assert result.drafts == []
         assert "content" in _replies(llm)[0]["error"]
 
+    @pytest.mark.asyncio
+    async def test_provider_failure_is_retried_within_the_step(self):
+        """提供商失败在同一步内重试一次，不另计步：两步的预算仍够写下草稿并结束。"""
+        llm = ScriptedLLMService(ModelProviderError("rate limited"), _write(), FINISH)
+
+        result = await _settle(_librarian(llm, max_steps=2))
+
+        assert [draft.title for draft in result.drafts] == ["新的结论"]
+        assert _replies(llm)[0]["steps_left"] == 1
+
     @pytest.mark.parametrize(
-        "error",
-        [ModelProviderError("rate limited"), ModelContextWindowExceededError("window")],
-        ids=["provider", "context-window"],
+        "errors",
+        [
+            (ModelProviderError("rate limited"), ModelProviderError("still limited")),
+            (ModelContextWindowExceededError("window"),),
+        ],
+        ids=["provider-retry-exhausted", "context-window"],
     )
     @pytest.mark.asyncio
-    async def test_model_service_failure_propagates(self, error):
-        """模型服务失败与上下文超窗不被当作动作错误交回模型，原样传播给生成任务。"""
-        llm = ScriptedLLMService(_write(), error)
+    async def test_model_service_failure_propagates(self, errors):
+        """重试耗尽的提供商失败与上下文超窗不被当作动作错误交回模型，原样传播给生成任务；
+        超窗不重试（替身没有多余的预置结果，重试即失败）。"""
+        llm = ScriptedLLMService(_write(), *errors)
 
-        with pytest.raises(type(error)):
+        with pytest.raises(type(errors[-1])) as raised:
             await _settle(_librarian(llm))
+
+        assert raised.value is errors[-1]
 
 
 class TestLibrarianTools:
