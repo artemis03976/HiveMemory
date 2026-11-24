@@ -3,7 +3,7 @@ HiveMemory - 馆长 (Librarian)
 
 话题结算的另一种生成方式。一次性生成看不到本话题已经写入的记忆，也看不到库，只能先尽量多地
 提取，再靠查重与合并的规则补救；馆长改为先探索再写：模型每一步输出一个 JSON 动作，调用
-Patchouli 定义的工具，先看本话题主动写入过的记忆，再检索并阅读库中相关的记忆，然后只写两者
+Patchouli 定义的工具，先看本话题写入过的记忆，再检索并阅读库中相关的记忆，然后只写两者
 都没有覆盖的内容。
 
 工具只读写 Patchouli 自己的数据：读取以结算的发起者（Workspace 的 system actor）直接访问
@@ -169,7 +169,8 @@ class Librarian:
 
         Args:
             transcript: 带段标签的话题材料，放在第一条消息中
-            topic_write_memory_ids: 本话题主动写入结算到的记忆 ID，由 list_topic_writes 列出
+            topic_write_memory_ids: 本话题写入过的记忆 ID（主动写入结算到的，以及本话题此前
+                沉淀新建的），由 list_topic_writes 列出
             belong_to: 读取的 Workspace 归属
             from_actor: 读取的发起者；结算时是 Workspace 的 system actor
 
@@ -305,7 +306,7 @@ class Librarian:
         return {"result": {"revised": args.alias}}
 
     async def _list_topic_writes(self, run: _Run) -> list[dict[str, Any]]:
-        """本话题主动写入结算到的记忆；发起者读不到的（PRIVATE、TEAM 或已删除）跳过。"""
+        """本话题写入过的记忆；发起者读不到的（PRIVATE、TEAM 或已删除）跳过。"""
         views = []
         for memory_id in run.topic_write_memory_ids:
             memory = await self._mid_term.get(

@@ -296,6 +296,7 @@ class MemoryGenerationFamiliar:
                 intent_id=spec.intent_id if is_write else None,
             )
         return MemoryGenerationResult(
+            action=outcome.action,
             canonical_alias=canonical_alias,
             canonical_uuid=canonical_uuid,
             merge_nomination=merge_nomination,
@@ -449,6 +450,8 @@ class MemoryGenerationFamiliar:
             )
         return [
             MemoryGenerationResult(
+                # 合并写回保留记忆的新版本，对控制面而言是一次修订。
+                action=GenerationAction.UPDATE,
                 canonical_alias=retained.get_alias(),
                 canonical_uuid=str(retained.id),
                 settlement=settlement,

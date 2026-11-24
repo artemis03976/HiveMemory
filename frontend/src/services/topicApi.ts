@@ -24,6 +24,8 @@ export interface ApiTopicSnapshot {
   last_update: number;
   total_tokens?: number;
   model_used?: string;
+  /** 是否有还没有沉淀为长期记忆的交互。 */
+  has_unsettled_interactions: boolean;
 }
 
 interface ActiveTopicListResponse {
@@ -41,6 +43,7 @@ export function mapTopic(raw: ApiTopicSnapshot): Topic {
     lastActive: raw.last_update * 1000,
     blockCount: raw.block_count ?? 0,
     totalTokens: raw.total_tokens ?? 0,
+    hasUnsettledInteractions: raw.has_unsettled_interactions,
   };
 }
 

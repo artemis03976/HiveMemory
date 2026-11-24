@@ -9,9 +9,10 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 - LRU 驱逐: 池满驱逐最久未访问话题、busy 候选改选、admission 失败传播
 - 折叠: 应用不在内部折叠、needs_compact 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
   失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已结算时直接结束、未超保留块数不折叠
-- manual_settle_topic / evict_topic 具名用例，含 admission 失败可重试
-- scan_idle_buffers_once / flush_all_for_shutdown 维护投影，含跨 Workspace 结算、
-  折叠后结算携带被折叠的轮次、占用话题记为 failed 与生成跳过
+- manual_settle_topic / evict_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
+- scan_idle_buffers_once：空闲只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀
+- flush_all_for_shutdown 维护投影，含跨 Workspace 退役、折叠后结算携带被折叠的轮次、
+  占用话题记为 failed 与生成跳过
 - 感知关闭时无副作用
 """
 
@@ -286,6 +287,7 @@ class TestLruEviction:
         task = bus.request.await_args.args[1]
         assert task.topic_id == t1
         assert task.reason is TriggerReason.LRU_EVICTION
+        assert task.retires_topic is True
 
     @pytest.mark.asyncio
     async def test_busy_candidate_is_skipped_for_older_leased_topic(self):
@@ -516,39 +518,53 @@ class TestNamedUseCases:
         assert result.generation_task_id == "task-1"
         assert result.generation_submitted is True
         assert store.get(scope.workspace_identity, topic_id) is None
-        assert bus.request.await_args.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
+        route, task = bus.request.await_args.args
+        assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
+        assert task.retires_topic is True
         assert _topic_events(events) == [
             ("topic.created", topic_id, {"created_by": "interaction"}),
             (
                 "topic.settled",
                 topic_id,
-                {"reason": TriggerReason.MANUAL_SETTLE.value, "generation_submitted": True},
+                {
+                    "reason": TriggerReason.MANUAL_SETTLE.value,
+                    "generation_submitted": True,
+                    "retired": True,
+                },
             ),
         ]
 
     @pytest.mark.asyncio
-    async def test_manual_settle_empty_topic_skips_generation(self):
+    async def test_manual_settle_retires_settled_topic_without_generation(self):
+        """空闲时已沉淀、之后没有新交互的话题，手动结算直接退役，不再生成。"""
         events = RecordingRuntimeEventSink()
-        familiar, store, _, bus = _make_familiar(events=events)
+        clock = _FakeClock()
+        familiar, store, _, bus = _make_familiar(idle_timeout=30, clock=clock, events=events)
         scope = _identity_scope()
-        topic_id = await familiar.prepare_topic(
-            "NEW_TOPIC", "标题", "摘要", scope.workspace_identity
+        topic_id = await familiar.apply_interaction(
+            _payload(),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            interaction_id="i-1",
         )
+        clock.advance(100)
+        assert await familiar.scan_idle_buffers_once() == [topic_id]
 
         result = await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
 
         assert result.generation_submitted is False
         assert result.generation_task_id is None
-        bus.request.assert_not_awaited()
+        assert bus.request.await_count == 1  # 只有空闲时的那次沉淀
         assert store.get(scope.workspace_identity, topic_id) is None
-        assert _topic_events(events) == [
-            ("topic.created", topic_id, {"created_by": "prepare"}),
-            (
-                "topic.settled",
-                topic_id,
-                {"reason": TriggerReason.MANUAL_SETTLE.value, "generation_submitted": False},
-            ),
-        ]
+        assert _topic_events(events)[-1] == (
+            "topic.settled",
+            topic_id,
+            {
+                "reason": TriggerReason.MANUAL_SETTLE.value,
+                "generation_submitted": False,
+                "retired": True,
+            },
+        )
 
     @pytest.mark.asyncio
     async def test_manual_settle_busy_topic_raises_busy_error(self):
@@ -654,9 +670,13 @@ class TestNamedUseCases:
 
 class TestMaintenance:
     @pytest.mark.asyncio
-    async def test_scan_idle_settles_only_timed_out_topics(self):
+    async def test_scan_idle_settles_timed_out_topic_and_keeps_it_in_pool(self):
+        """空闲沉淀之后话题仍在存储与驻留中，访问时间不变，记下覆盖到的交互数。"""
+        events = RecordingRuntimeEventSink()
         clock = _FakeClock()
-        familiar, store, _, bus = _make_familiar(idle_timeout=30, clock=clock)
+        familiar, store, working_set, bus = _make_familiar(
+            idle_timeout=30, clock=clock, events=events
+        )
         scope = _identity_scope()
         stale_id = await familiar.apply_interaction(
             _payload("1"),
@@ -675,11 +695,23 @@ class TestMaintenance:
         flushed = await familiar.scan_idle_buffers_once()
 
         assert flushed == [stale_id]
-        assert store.get(scope.workspace_identity, stale_id) is None
-        assert store.get(scope.workspace_identity, fresh_id) is not None
+        assert store.get(scope.workspace_identity, stale_id).settled_interaction_count == 1
+        assert store.get(scope.workspace_identity, fresh_id).settled_interaction_count == 0
+        # 访问时间没有被沉淀刷新：话题仍在驻留集合中，也仍是空闲候选。
+        assert working_set.list_idle_candidates(30) == [(scope.workspace_identity, stale_id)]
         route, settlement = bus.request.await_args.args
         assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         assert settlement.reason == TriggerReason.IDLE_TIMEOUT
+        assert settlement.retires_topic is False
+        assert _topic_events(events)[-1] == (
+            "topic.settled",
+            stale_id,
+            {
+                "reason": TriggerReason.IDLE_TIMEOUT.value,
+                "generation_submitted": True,
+                "retired": False,
+            },
+        )
 
     @pytest.mark.asyncio
     async def test_scan_idle_skips_leased_topic(self):
@@ -716,9 +748,11 @@ class TestMaintenance:
 
         flushed = await familiar.scan_idle_buffers_once()
 
-        # idle 维护不向上传播；话题保留等待下一轮
+        # idle 维护不向上传播；话题与沉淀进度不变，下一轮重试
         assert flushed == []
-        assert store.get(scope.workspace_identity, topic_id) is not None
+        assert store.get(scope.workspace_identity, topic_id).has_unsettled_interactions is True
+        bus.request = AsyncMock(return_value=None)
+        assert await familiar.scan_idle_buffers_once() == [topic_id]
 
     @pytest.mark.asyncio
     async def test_shutdown_flush_classifies_settled_skipped_and_failed(self):
@@ -755,48 +789,32 @@ class TestMaintenance:
         assert store.get(scope.workspace_identity, bad_id) is not None
 
     @pytest.mark.asyncio
-    async def test_idle_flush_skips_empty_settlement_submission(self):
+    async def test_scan_idle_settles_again_only_after_new_interactions(self):
+        """同一段空闲不重复沉淀；话题接收新交互后再次空闲，沉淀覆盖到最新一轮。"""
         clock = _FakeClock()
-        familiar, store, _, bus = _make_familiar(idle_timeout=1, clock=clock)
+        familiar, store, _, bus = _make_familiar(idle_timeout=30, clock=clock)
         scope = _identity_scope()
-        topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
-        assert store.get(scope.workspace_identity, topic_id) is not None
-
-        clock.advance(100)
-        flushed = await familiar.scan_idle_buffers_once()
-
-        assert flushed == [topic_id]
-        # 真正空 Topic：不提交 settlement，但生命周期正常结束
-        bus.request.assert_not_awaited()
-        assert store.get(scope.workspace_identity, topic_id) is None
-
-    @pytest.mark.asyncio
-    async def test_idle_flush_frees_slot(self):
-        clock = _FakeClock()
-        familiar, store, _, _ = _make_familiar(idle_timeout=1, max_resident=2, clock=clock)
-        first = _identity_scope(user_id="u1", agent_id="a1")
-        second = _identity_scope(user_id="u2", agent_id="a2")
-        third = _identity_scope(user_id="u3", agent_id="a3")
-        for scope, message in ((first, "q1"), (second, "q2")):
-            await familiar.apply_interaction(
-                _payload(message),
-                belong_to=scope.workspace_identity,
-                from_actor=scope.actor_identity,
-                target_topic_id="NEW_TOPIC",
-            )
-        assert len(store.list_by_workspace(first.workspace_identity)) == 1
-        assert len(store.list_by_workspace(second.workspace_identity)) == 1
-
-        clock.advance(100)
-        assert len(await familiar.scan_idle_buffers_once()) == 2
-
-        await familiar.apply_interaction(
-            _payload("q3"),
-            belong_to=third.workspace_identity,
-            from_actor=third.actor_identity,
-            target_topic_id="NEW_TOPIC",
+        topic_id = await familiar.apply_interaction(
+            _payload("1"),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            interaction_id="i-1",
         )
-        assert len(store.list_by_workspace(third.workspace_identity)) == 1
+        clock.advance(100)
+        assert await familiar.scan_idle_buffers_once() == [topic_id]
+
+        clock.advance(100)
+        assert await familiar.scan_idle_buffers_once() == []
+        assert bus.request.await_count == 1
+
+        await _apply_to_topic(familiar, scope, topic_id, "2")
+        clock.advance(100)
+        assert await familiar.scan_idle_buffers_once() == [topic_id]
+
+        assert bus.request.await_count == 2
+        settlement = bus.request.await_args.args[1]
+        assert [block.user_message for block in settlement.interactions] == ["1", "2"]
+        assert store.get(scope.workspace_identity, topic_id).settled_interaction_count == 2
 
     @pytest.mark.asyncio
     async def test_shutdown_flush_settles_and_swaps_out_all_topics(self):
@@ -823,6 +841,7 @@ class TestMaintenance:
         for call in bus.request.await_args_list:
             assert call.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
             assert call.args[1].reason == TriggerReason.SHUTDOWN
+            assert call.args[1].retires_topic is True
 
     @pytest.mark.asyncio
     async def test_shutdown_reports_busy_topic_in_failed_ids_without_generation(self):

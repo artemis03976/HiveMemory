@@ -27,6 +27,8 @@ export interface Topic {
   /** 最近一次写入的毫秒时间戳，由后端的写入时间换算。 */
   lastActive: number;
   totalTokens: number;
+  /** 是否有还没有沉淀为长期记忆的交互；没有时空闲不会再触发沉淀。 */
+  hasUnsettledInteractions: boolean;
 }
 
 /** 用户为一轮对话指定的话题，随发送请求带上。 */

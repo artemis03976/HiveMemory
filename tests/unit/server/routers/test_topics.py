@@ -73,6 +73,7 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
         total_tokens=100,
         topic_summary="topic summary",
         model_used="model-a",
+        has_unsettled_interactions=True,
     )
 
 
@@ -100,6 +101,7 @@ class TestTopicsRouter:
         assert data["topics"][0]["total_tokens"] == 100
         assert data["topics"][0]["last_update"] == 1_700_000_000.0
         assert data["topics"][0]["model_used"] == "model-a"
+        assert data["topics"][0]["has_unsettled_interactions"] is True
         assert "workspace_identity" not in data["topics"][0]
 
     def test_list_topics_empty(self):

@@ -35,6 +35,9 @@ class TopicSnapshot(BaseModel):
     block_count: int = 0
     model_used: str = ""
     last_update: float = Field(description="话题最近一次写入的 Unix 时间戳（秒）")
+    has_unsettled_interactions: bool = Field(
+        default=False, description="话题是否有还没有沉淀为长期记忆的交互"
+    )
 
     model_config = ConfigDict(frozen=True, use_enum_values=True)
 
@@ -110,8 +113,11 @@ class TopicData(BaseModel):
     与 ``total_tokens``）由二者派生、不单独存储：分开存储的副本需要在每次写入与
     折叠时维持“工作视图是交互记录的后缀”，派生不会失去一致。
 
-    快照只经 ``merge_interaction_into_topic`` 与 ``fold_topic`` 写入，二者以完整
-    构造产生新快照，构造时的校验不会被绕过。执行占用不建模为记录字段，跨 await
+    ``settled_interaction_count`` 是最近一次被生成队列接纳的沉淀所覆盖的交互数：
+    话题空闲时只沉淀、不结束，之后还会接收交互，下一次沉淀据此判断有没有新内容。
+
+    快照只经 ``merge_interaction_into_topic``、``fold_topic`` 与 ``mark_topic_settled``
+    写入，三者以完整构造产生新快照，构造时的校验不会被绕过。执行占用不建模为记录字段，跨 await
     的占用权由 ``TopicWorkingSet`` 的 lease 表管理。不携带话题级 Agent 身份：
     来源 provenance 由每个 block 的 ``turn.identity`` 记录，资源授权使用归属与
     本次操作的发起者。
@@ -126,6 +132,7 @@ class TopicData(BaseModel):
     bindings: tuple[TopicAssetBinding, ...] = Field(default_factory=tuple)
     last_update: float
     model_used: str = ""
+    settled_interaction_count: int = Field(default=0, ge=0)
 
     model_config = ConfigDict(frozen=True, use_enum_values=False, extra="forbid")
 
@@ -139,6 +146,13 @@ class TopicData(BaseModel):
         prefix_ids = [block.block_id for block in self.interactions[: len(folded_ids)]]
         if folded_ids != prefix_ids:
             raise ValueError("折叠记录必须依次覆盖交互记录的前缀")
+        return self
+
+    @model_validator(mode="after")
+    def _settled_within_interactions(self) -> TopicData:
+        """交互记录只追加，沉淀覆盖的交互数不会超过话题接收过的交互数。"""
+        if self.settled_interaction_count > len(self.interactions):
+            raise ValueError("沉淀覆盖的交互数不能超过交互记录的长度")
         return self
 
     @property
@@ -173,6 +187,11 @@ class TopicData(BaseModel):
         """Topic 是否真正为空：没有接收过任何交互。"""
         return not self.has_content
 
+    @property
+    def has_unsettled_interactions(self) -> bool:
+        """最近一次沉淀之后是否接收过新的交互；没有接收过交互的话题为假。"""
+        return len(self.interactions) > self.settled_interaction_count
+
     def recent_blocks(self, limit: int) -> tuple[LogicalBlock, ...]:
         if limit <= 0:
             return ()
@@ -200,6 +219,7 @@ class TopicData(BaseModel):
             block_count=self.block_count,
             model_used=self.model_used,
             last_update=self.last_update,
+            has_unsettled_interactions=self.has_unsettled_interactions,
         )
 
 
@@ -265,6 +285,15 @@ def fold_topic(topic: TopicData, folded: Sequence[LogicalBlock], summary: str) -
     )
 
 
+def mark_topic_settled(topic: TopicData, interaction_count: int) -> TopicData:
+    """记下最近一次被接纳的沉淀覆盖到第几个交互。
+
+    只改沉淀进度，不改内容与写入时间：沉淀不是一次写入，话题的空闲计时与展示的
+    最后写入时间都不因它变化。互斥由调用方持有的 lease 保证。
+    """
+    return TopicData.model_validate({**dict(topic), "settled_interaction_count": interaction_count})
+
+
 __all__ = [
     "LogicalBlock",
     "TopicData",
@@ -272,6 +301,7 @@ __all__ = [
     "TopicLastTurn",
     "TopicSnapshot",
     "fold_topic",
+    "mark_topic_settled",
     "merge_interaction_into_topic",
     "topic_state_summary",
     "topic_working_blocks",

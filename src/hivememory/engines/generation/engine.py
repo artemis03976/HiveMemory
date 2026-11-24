@@ -200,8 +200,9 @@ class MemoryGenerationEngine:
         模型判断无价值或输出无法解析时没有产出；提取器的提供商失败（含输出
         被截断）向上传播，由生成任务按失败收尾，不被记录为没有产出。
 
-        查重命中本话题主动写入结算到的记忆时丢弃草稿：被动提取会从同一份材料
-        里重新推导出 agent 已经写入的内容，并入后会以较新的被动草稿为骨架改写它。
+        查重命中本话题写入过的记忆时丢弃草稿：被动提取会从同一份材料里重新推导出
+        agent 已经写入的内容，并入后会以较新的被动草稿为骨架改写它；话题再次沉淀时
+        材料仍是全部交互，此前沉淀新建的记忆同样会被复述。
 
         每条草稿引用的段换算为事件区间，随新建的记忆交给提交。
         """
@@ -311,8 +312,8 @@ class MemoryGenerationEngine:
         带着错误重试一次；仍不能用、提供商失败或没有模型时直接从 WriteFocus 构建兜底草稿，
         明确的保存意图不因模型暂时失败而丢失；程序错误不降级。兜底草稿没有模型引用的段。
 
-        相似命中本话题其他主动写入结算到的记忆时照常新建、不提名合并：同一话题里
-        agent 分开写的记忆是有意分开的。
+        相似命中本话题写入过的记忆时照常新建、不提名合并：同一话题里 agent 分开写的
+        记忆是有意分开的。
         """
         logger.debug("[Mode B] WRITE 主动响应: content_length=%d", len(focus.content))
 
@@ -560,7 +561,7 @@ class MemoryGenerationEngine:
             and str(existing_memory.id) in dropped_on_hit
         ):
             logger.info(
-                "草稿命中本话题主动写入结算到的记忆，丢弃: memory_id=%s, decision=%s, score=%.3f",
+                "草稿命中本话题写入过的记忆，丢弃: memory_id=%s, decision=%s, score=%.3f",
                 existing_memory.id,
                 decision.value,
                 candidates[0]["score"],

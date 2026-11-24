@@ -4,6 +4,10 @@
 与 WorkingSet（驻留与 lease），负责话题路由、Interaction 原子写入、话题折叠、
 统一 settle 时序、LRU / idle / shutdown 维护，并把领域结果投影为公开报告。
 
+结算分成两件事：沉淀把话题新的交互交给生成，话题留在话题池；退役让话题离开话题池，
+退役前先沉淀还没有沉淀的交互。空闲只沉淀；LRU、手动结算与关闭退役。用户会断断续续地
+回到同一件事，空闲时退役会把连续的工作切成几个话题。
+
 折叠是话题自身的维护，不属于交互应用：应用在写入 block 后即完成，是否需要
 折叠由 ``needs_compact`` 判断，``compact_topic`` 作为独立用例执行。话题只经
 core 话题模型的两个写函数写入：写入一轮只追加交互记录，折叠只追加折叠记录并
@@ -12,8 +16,8 @@ core 话题模型的两个写函数写入：写入一轮只追加交互记录，
 占用权统一由 WorkingSet 的 lease 表达：所有写路径都是
 ``acquire → try/finally release``；Relay 摘要生成在 lease 持有期间进行，
 其他调用无法取得同一话题的占用权，因此无需旧的记录状态补偿校验。
-统一 settle 时序（``_settle_topic``）为所有来源共用；``reason`` 只作为
-材料的 provenance 标签，不驱动分支。
+统一 settle 时序（``_settle_topic``）为所有来源共用；是否退役由调用的用例决定，
+``reason`` 只作为材料的 provenance 标签，不驱动分支。
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from hivememory.core.models import (
     WorkspaceAssetRef,
     WorkspaceIdentity,
     fold_topic,
+    mark_topic_settled,
     merge_interaction_into_topic,
 )
 from hivememory.core.protocol.models import InteractionPayload
@@ -172,13 +177,17 @@ class PerceptionFamiliar:
         topic_id: str,
         *,
         reason: TriggerReason,
+        retire: bool,
         raise_on_admission_failure: bool,
     ) -> tuple[bool, MemoryGenerationTask | None]:
-        """统一 settle 时序：获取 lease → 冻结材料 → 锁外 admission → 删除话题。
+        """统一 settle 时序：获取 lease → 冻结材料 → 锁外 admission → 记下沉淀进度或退役。
 
-        所有 settle 来源（manual / idle / LRU / shutdown）共用。admission
-        失败时话题原样保留可重试，无需 abort——记录从未被改动。
-        返回 (生命周期是否结束, 已接纳 task 或 None)。
+        所有 settle 来源（manual / idle / LRU / shutdown）共用，只在接纳之后是否删除话题
+        上分开：沉淀（``retire=False``）把话题留在存储与驻留中，记下这次覆盖到的交互数，
+        不刷新访问时间；退役删除话题并移除驻留。最近一次沉淀之后没有新交互时不生成：
+        沉淀什么也不做，退役直接删除话题。admission 失败时话题与沉淀进度原样保留可重试，
+        无需 abort——记录从未被改动。
+        返回 (这次沉淀或退役是否完成, 已接纳 task 或 None)。
         """
         lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:
@@ -189,11 +198,17 @@ class PerceptionFamiliar:
                 self._working_set.remove(belong_to, topic_id)  # 清理陈旧驻留条目
                 return False, None
             # 冻结材料：字段转换与 no-material 判断收口在数据模型内。
-            task = TopicMaterializeTask.from_topic_data(topic, belong_to=belong_to, reason=reason)
-            if task is None:  # 无可保存材料：正常结束生命周期，不触发生成
+            task = TopicMaterializeTask.from_topic_data(
+                topic, belong_to=belong_to, reason=reason, retires_topic=retire
+            )
+            if task is None:  # 最近一次沉淀之后没有新交互，不触发生成
+                if not retire:
+                    return False, None
                 self._store.delete(belong_to, topic_id)
                 self._working_set.remove(belong_to, topic_id)
-                self._emit_topic_settled(belong_to, topic_id, reason, generation_submitted=False)
+                self._emit_topic_settled(
+                    belong_to, topic_id, reason, generation_submitted=False, retired=True
+                )
                 return True, None
 
             # admission：lease 持有期间等待 Generation queue 接纳。
@@ -212,9 +227,15 @@ class PerceptionFamiliar:
                 )
                 return False, None
 
-            self._store.delete(belong_to, topic_id)
-            self._working_set.remove(belong_to, topic_id)
-            self._emit_topic_settled(belong_to, topic_id, reason, generation_submitted=True)
+            if retire:
+                self._store.delete(belong_to, topic_id)
+                self._working_set.remove(belong_to, topic_id)
+            else:
+                # lease 持有期间交互记录不会变化，冻结的交互数就是这次沉淀覆盖到的位置。
+                self._store.put(mark_topic_settled(topic, len(task.interactions)))
+            self._emit_topic_settled(
+                belong_to, topic_id, reason, generation_submitted=True, retired=retire
+            )
             return True, generation_task
         finally:
             self._working_set.release(lease)
@@ -222,7 +243,8 @@ class PerceptionFamiliar:
     async def manual_settle_topic(
         self, belong_to: WorkspaceIdentity, topic_id: str
     ) -> TopicSettleResult:
-        """手动结算指定话题；话题不存在时抛出 :class:`ResourceNotFoundError`。
+        """手动结算指定话题：沉淀还没有沉淀的交互并退役；话题不存在时抛出
+        :class:`ResourceNotFoundError`。
 
         队列明确拒绝接纳时抛出 :class:`TopicSettleAdmissionError`（话题内容保留
         可重试）；目标正忙是瞬态冲突，保持 :class:`TopicBusyError` 语义。
@@ -234,6 +256,7 @@ class PerceptionFamiliar:
                 belong_to,
                 topic_id,
                 reason=TriggerReason.MANUAL_SETTLE,
+                retire=True,
                 raise_on_admission_failure=True,
             )
         except (WorkQueueCapacityError, WorkQueueStoppedError) as exc:
@@ -301,7 +324,7 @@ class PerceptionFamiliar:
     # ========== LRU / 驱逐 ==========
 
     async def _maybe_evict_lru(self, belong_to: WorkspaceIdentity, target_topic_id: str) -> None:
-        """需要创建新话题且池满时，驱逐 LRU 话题并提交结算任务。
+        """需要创建新话题且池满时，让 LRU 话题退役：先沉淀它还没有沉淀的交互。
 
         已有话题无需驱逐；未知目标必须直接拒绝。容量与候选由 WorkingSet
         决定；候选正被占用时改选其他话题。
@@ -324,6 +347,7 @@ class PerceptionFamiliar:
                     belong_to,
                     lru_topic_id,
                     reason=TriggerReason.LRU_EVICTION,
+                    retire=True,
                     raise_on_admission_failure=True,
                 )
             except TopicBusyError:  # 候选在选择后进入 busy，改选其他话题
@@ -351,7 +375,11 @@ class PerceptionFamiliar:
     # ========== 维护与 shutdown ==========
 
     async def scan_idle_buffers_once(self) -> list[str]:
-        """扫描并 settle 空闲超时话题；候选由 WorkingSet 提供。"""
+        """沉淀空闲超时话题中有新交互的，返回被沉淀的话题；候选由 WorkingSet 提供。
+
+        沉淀之后话题留在话题池、访问时间不变，没有新交互就不会再被沉淀，同一段空闲
+        因此不会反复沉淀；话题接收新交互后重新计时。
+        """
         flushed: list[str] = []
         for belong_to, topic_id in self._working_set.list_idle_candidates(
             self._config.idle_timeout_seconds
@@ -362,6 +390,7 @@ class PerceptionFamiliar:
                     belong_to,
                     topic_id,
                     reason=TriggerReason.IDLE_TIMEOUT,
+                    retire=False,
                     raise_on_admission_failure=False,
                 )
             except TopicBusyError:  # snapshot 后进入 busy，留给后续维护轮次
@@ -371,10 +400,10 @@ class PerceptionFamiliar:
         return flushed
 
     async def flush_all_for_shutdown(self) -> TopicShutdownFlushReport:
-        """服务关闭前逐话题执行统一 settle 协议。
+        """服务关闭前让全部驻留话题退役，退役前沉淀还没有沉淀的交互。
 
         单个话题的 busy 或 admission 异常被隔离记录到 ``failed_topic_ids``，
-        不阻止其余清理；无材料话题正常结束生命周期并计入 generation_skipped。
+        不阻止其余清理；没有新交互的话题直接退役并计入 generation_skipped。
         """
         candidates = self._working_set.list_shutdown_candidates()
         resident_block_count = 0
@@ -392,6 +421,7 @@ class PerceptionFamiliar:
                     belong_to,
                     topic_id,
                     reason=TriggerReason.SHUTDOWN,
+                    retire=True,
                     raise_on_admission_failure=True,
                 )
             except Exception:
@@ -460,11 +490,16 @@ class PerceptionFamiliar:
         reason: TriggerReason,
         *,
         generation_submitted: bool,
+        retired: bool,
     ) -> None:
-        """话题生命周期以结算结束；没有可保存材料时不提交生成。"""
+        """话题被沉淀或退役；``retired`` 表示话题是否随之离开话题池，没有新交互的退役不提交生成。"""
         self._topic_events(belong_to, topic_id).emit(
             RuntimeEventType.TOPIC_SETTLED,
-            data={"reason": reason.value, "generation_submitted": generation_submitted},
+            data={
+                "reason": reason.value,
+                "generation_submitted": generation_submitted,
+                "retired": retired,
+            },
         )
 
     def _refresh_residency(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:

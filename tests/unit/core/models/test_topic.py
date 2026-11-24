@@ -1,13 +1,14 @@
 """TopicData 原始数据、工作视图派生与写函数单元测试。
 
 被测对象：``TopicData`` 以交互记录与折叠记录为原始数据并派生工作视图；
-``merge_interaction_into_topic`` 与 ``fold_topic`` 是仅有的两个写函数。
+``merge_interaction_into_topic``、``fold_topic`` 与 ``mark_topic_settled`` 是仅有的写函数。
 保护的契约：
 - 工作视图是最后一次折叠之后的交互记录；state_summary 来自最后一次折叠，没有
   折叠时为空串；total_tokens 是工作视图之和；
 - 写入一轮只追加交互记录；折叠追加一条折叠记录，不移除交互记录；
-- 折叠记录依次拼接必须等于交互记录的前缀，否则构造失败；两个写函数都以完整
+- 折叠记录依次拼接必须等于交互记录的前缀，否则构造失败；写函数都以完整
   构造产生快照，这一校验不会被绕过；
+- 沉淀进度只记下覆盖到的交互数，不改内容与写入时间；之后写入的交互是未沉淀的；
 - 判空看是否接收过交互：全部折叠、工作视图为空后仍不为空。
 """
 
@@ -18,6 +19,7 @@ from hivememory.core.models import (
     TopicData,
     TopicFold,
     fold_topic,
+    mark_topic_settled,
     merge_interaction_into_topic,
 )
 from tests.helpers.sessions import make_logical_block
@@ -110,8 +112,9 @@ class TestWriteFunctions:
         [
             lambda topic, block: merge_interaction_into_topic(topic, block, (), None, None),
             lambda topic, block: fold_topic(topic, [block], "s"),
+            lambda topic, block: mark_topic_settled(topic, 1),
         ],
-        ids=["merge", "fold"],
+        ids=["merge", "fold", "mark_settled"],
     )
     def test_write_functions_validate_the_new_snapshot(self, write):
         """写函数以完整构造产生快照：写函数之外的错误构造在下一次写入时被挡住。"""
@@ -127,6 +130,26 @@ class TestWriteFunctions:
 
         with pytest.raises(ValidationError, match="前缀"):
             write(broken, b1)
+
+
+class TestSettlementProgress:
+    def test_interaction_after_settlement_is_unsettled(self):
+        """沉淀只记下覆盖到的交互数、不改写入时间；此后写入的交互又是未沉淀的。"""
+        b1, b2 = _block("q1"), _block("q2")
+        topic = _topic(interactions=(b1,))
+
+        settled = mark_topic_settled(topic, 1)
+        continued = merge_interaction_into_topic(settled, b2, (), None, None)
+
+        assert settled.interactions == (b1,)
+        assert settled.last_update == topic.last_update
+        assert settled.has_unsettled_interactions is False
+        assert continued.settled_interaction_count == 1
+        assert continued.has_unsettled_interactions is True
+
+    def test_settled_count_cannot_exceed_interactions(self):
+        with pytest.raises(ValidationError, match="沉淀覆盖的交互数"):
+            mark_topic_settled(_topic(interactions=(_block("q1"),)), 2)
 
 
 class TestContentEmptiness:

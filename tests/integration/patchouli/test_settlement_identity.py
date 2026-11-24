@@ -267,7 +267,6 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
         assert completed.status == MemoryGenerationTaskStatus.COMPLETED
         assert completed.from_actor == system_actor_for_workspace(belong_to)
         assert completed.belong_to == belong_to
-        assert store.get(belong_to, topic_id) is None
         stored_private = await mid_term.get(belong_to, private.id, from_actor=from_actor)
         assert stored_private.payload.content == "old private content"
         assert stored_private.meta.version == 1

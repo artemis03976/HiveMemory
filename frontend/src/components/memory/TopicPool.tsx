@@ -25,7 +25,7 @@ const POOL_SETTING_PATHS = {
   foldRetainBlocks: 'patchouli.perception.engine.fold_retain_recent_blocks',
 } as const;
 
-/** 剩余时间在这之内时，自动结算以警示色标出。 */
+/** 剩余时间在这之内时，自动沉淀以警示色标出。 */
 const SETTLE_SOON_MINUTES = 10;
 /** 容量格子最多画这么多，更大的容量只写数字。 */
 const MAX_SLOT_CELLS = 10;
@@ -100,7 +100,7 @@ function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
           {settleMinutes !== null && settleMinutes <= SETTLE_SOON_MINUTES && (
             <span className="inline-flex items-center gap-1.5 font-semibold text-magic-metal">
               <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-magic-metal" />
-              {settleMinutes > 0 ? `约 ${settleMinutes} 分钟后自动结算` : '即将自动结算'}
+              {settleMinutes > 0 ? `约 ${settleMinutes} 分钟后沉淀` : '即将沉淀'}
             </span>
           )}
         </span>
@@ -232,13 +232,13 @@ function TopicDetail({ topic, settings, settleMinutes, now, onReference, onSettl
             )}
           </SideCard>
           {settings && settleMinutes !== null && (
-            <SideCard title="自动结算" hint="按最近一次写入估算；话题再次写入后重新计时">
+            <SideCard title="自动沉淀" hint="按最近一次写入估算；话题再次写入后重新计时">
               <span className={`flex items-center gap-1.5 text-sm font-semibold ${soon ? 'text-magic-metal' : 'text-fg'}`}>
                 <span aria-hidden="true" className={`h-[7px] w-[7px] rounded-full ${soon ? 'bg-magic-metal' : 'bg-fg-3'}`} />
-                {settleMinutes > 0 ? `约 ${settleMinutes} 分钟后` : '即将结算'}
+                {settleMinutes > 0 ? `约 ${settleMinutes} 分钟后` : '即将沉淀'}
               </span>
               <span className="text-xs leading-relaxed text-fg-3">
-                空闲 {Math.round(settings.idleTimeoutSeconds / 60)} 分钟后结算；继续在这个话题里对话会重新计时
+                空闲 {Math.round(settings.idleTimeoutSeconds / 60)} 分钟后，新内容沉淀为长期记忆，话题仍留在池中；继续在这个话题里对话会重新计时
               </span>
             </SideCard>
           )}
@@ -272,12 +272,12 @@ export default function TopicPool({ tabs }: { tabs: ReactNode }) {
 
   const selected = topics.find((t) => t.id === selectedTopicId) ?? topics[0];
   const settleMinutes = (topic: Topic) =>
-    settings ? minutesUntilAutoSettle(topic.lastActive, settings.idleTimeoutSeconds, now) : null;
+    settings ? minutesUntilAutoSettle(topic, settings.idleTimeoutSeconds, now) : null;
 
   const settle = async (topic: Topic) => {
     try {
       await settleTopic(topic.id);
-      addToast(`已开始结算“${topicTitle(topic)}”，生成进度在对话页右栏的“记忆任务”中查看`, 'success');
+      addToast(`已结算“${topicTitle(topic)}”，有还没沉淀的内容时，生成进度在对话页右栏的“记忆任务”中查看`, 'success');
     } catch (e) {
       addToast(`结算失败：${e instanceof Error ? e.message : '未知错误'}`, 'error');
     }
@@ -321,7 +321,7 @@ export default function TopicPool({ tabs }: { tabs: ReactNode }) {
         <span className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-fg-3">
           <Info className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
           <span>
-            {settings ? `话题空闲 ${Math.round(settings.idleTimeoutSeconds / 60)} 分钟` : '话题空闲一段时间'}，或池满需要腾出位置时，会自动结算为长期记忆
+            {settings ? `话题空闲 ${Math.round(settings.idleTimeoutSeconds / 60)} 分钟时` : '话题空闲一段时间后'}，新内容会沉淀为长期记忆，话题仍留在池中；池满需要腾出位置时，最久没用的话题先沉淀再退出
           </span>
         </span>
         <button
@@ -348,7 +348,7 @@ export default function TopicPool({ tabs }: { tabs: ReactNode }) {
               </span>
               <h2 className="font-manrope text-[22px] font-extrabold text-fg">短期话题池是空的</h2>
               <p className="leading-7 text-fg-2">
-                对话开始后，相关的几轮会聚成一个话题暂存在这里。话题结算时，帕秋莉从中提炼长期记忆，话题随之离开话题池。
+                对话开始后，相关的几轮会聚成一个话题暂存在这里。话题空闲时，帕秋莉把新的内容沉淀为长期记忆，话题仍留在池中；池满或手动结算时，话题沉淀后离开话题池。
               </p>
               <button
                 onClick={() => setActiveNavTab('chat')}

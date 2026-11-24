@@ -91,7 +91,7 @@ class _TopicData:
         return self._blocks[:limit]
 
 
-def _settlement_task() -> TopicMaterializeTask:
+def _settlement_task(*, retires_topic: bool = True) -> TopicMaterializeTask:
     """折叠过一次的话题结算：工作视图只剩最近一轮，状态摘要来自折叠。"""
     folded = make_logical_block("earlier question", "earlier answer")
     return TopicMaterializeTask(
@@ -103,6 +103,7 @@ def _settlement_task() -> TopicMaterializeTask:
             TopicFold(folded_block_ids=(folded.block_id,), summary="state summary", folded_at=1.0),
         ),
         belong_to=_identity_scope().workspace_identity,
+        retires_topic=retires_topic,
     )
 
 
@@ -159,6 +160,7 @@ def _settlement_result(alias="draft_write") -> list[MemoryGenerationResult]:
     )
     return [
         MemoryGenerationResult(
+            action=GenerationAction.CREATE,
             canonical_alias="memory_alias",
             settlement=settlement,
         )
@@ -633,6 +635,7 @@ async def test_passive_settlement_records_the_cited_segment_of_the_captured_turn
             topic_title="topic title",
             interactions=(block,),
             belong_to=scope.workspace_identity,
+            retires_topic=True,
         )
     )
     await controller.wait_task(task.task_id)
@@ -699,6 +702,48 @@ async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
         from_actor=scope.actor_identity,
     )
     assert [hit["memory"].payload.content for hit in stored] == ["what the agent wrote"]
+
+
+@pytest.mark.asyncio
+async def test_second_settlement_drops_draft_restating_the_first_settlements_memory(
+    memory_library, artifact_engine
+):
+    """话题空闲时沉淀、之后再次沉淀：材料仍是全部交互，复述第一次沉淀所建记忆的草稿被丢弃，
+    不产生合并任务，库中只有第一次的那条。"""
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+    extractor = AsyncMock()
+    extractor.extract.side_effect = [
+        [_draft("deploy is manual", "deploys are now run by hand")],
+        [_draft("deploy is manual", "deploys are now run by hand, restated")],
+    ]
+    engine = MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=extractor,
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+    )
+    _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
+    scope = _identity_scope()
+
+    for retires_topic in (False, True):
+        settle_task = await coordinator.submit_settlement(
+            _settlement_task(retires_topic=retires_topic)
+        )
+        await controller.wait_task(settle_task.task_id)
+
+    assert [task.source for task in await controller.list_tasks()] == [
+        MemoryGenerationSource.SETTLE,
+        MemoryGenerationSource.SETTLE,
+    ]
+    stored = await memory_library.mid_term.search(
+        scope.workspace_identity,
+        query="any",
+        top_k=10,
+        mode="dense",
+        from_actor=scope.actor_identity,
+    )
+    assert [hit["memory"].payload.content for hit in stored] == ["deploys are now run by hand"]
 
 
 @pytest.mark.asyncio

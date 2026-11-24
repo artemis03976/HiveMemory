@@ -27,7 +27,7 @@ from hivememory.components.work_queue import (
     WorkQueueStoppedError,
     WorkState,
 )
-from hivememory.engines.generation.models import GenerationRequest
+from hivememory.engines.generation.models import GenerationAction, GenerationRequest
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmission
 from hivememory.patchouli.control.memory_generation.events import (
@@ -129,10 +129,11 @@ class MemoryGenerationTaskController:
         # 不能取消，也不参与接纳的幂等判重；同一任务 ID 以本进程的任务为准。
         self._history: OrderedDict[str, MemoryGenerationTask] = OrderedDict()
         self._submission_lock = asyncio.Lock()
-        # 话题 ID → 该话题的主动写入（WRITE/UPDATE，以及它们被合并后的保留对象）
-        # 已结算到的正式记忆 ID。只在进程内：话题结算时取出并清除；进程崩溃时随进程
-        # 丢失，生成退回不区分来源的查重。话题未经结算即被删除，或结算开始后才完成的
-        # 同话题写入，留下的记录保留到进程结束。
+        # 话题 ID → 本话题的写入：主动写入（WRITE/UPDATE）已结算到的正式记忆，话题
+        # 此前几次沉淀新建的记忆，以及吸收了其中某条的合并所保留的那条。只在进程内：
+        # 话题退役时的结算执行后清除；进程崩溃时随进程丢失，生成退回不区分来源的查重。
+        # 话题未经结算即被删除，或退役的结算开始后才完成的同话题写入，留下的记录保留到
+        # 进程结束。
         self._topic_write_memory_ids: dict[str, set[str]] = {}
 
     @property
@@ -296,12 +297,12 @@ class MemoryGenerationTaskController:
     ) -> list[MemoryGenerationResult]:
         """由队列 handler 调用现有的记忆生成数据面。
 
-        WRITE 与 SETTLE 执行时带上本话题主动写入已结算到的记忆，数据面返回后立即记下
-        本次结算到的记忆。在执行时而不是接纳时读取：同一话题先后派发的写入，前一条
-        完成后，后一条执行时才能看到它。生成 lane 不按话题排序：结算开始时仍在执行的
-        同话题写入不在记录中，它与被动草稿之间照旧按查重处理。话题结算之后不再接收
-        写入，SETTLE 成功后清除这个话题的记录；SETTLE 在关闭时被中止的，记录留给
-        保存文件中的这项结算。
+        WRITE 与 SETTLE 执行时带上本话题的写入，数据面返回后立即记下这次的写入。在执行
+        时而不是接纳时读取：同一话题先后派发的写入，前一条完成后，后一条执行时才能看到
+        它。生成 lane 不按话题排序：结算开始时仍在执行的同话题写入不在记录中，它与被动
+        草稿之间照旧按查重处理。话题退役之后不再接收写入，随退役执行的 SETTLE 成功后
+        清除这个话题的记录；空闲时的沉淀不退役，记录保留并加入这次新建的记忆。SETTLE
+        在关闭时被中止的，记录留给保存文件中的这项结算。
         """
 
         if spec.source in {MemoryGenerationSource.SETTLE, MemoryGenerationSource.WRITE}:
@@ -315,9 +316,9 @@ class MemoryGenerationTaskController:
             spec,
             on_commit_started=on_commit_started,
         )
-        if spec.source == MemoryGenerationSource.SETTLE:
+        if spec.source == MemoryGenerationSource.SETTLE and spec.retires_topic:
             self._topic_write_memory_ids.pop(spec.topic_id, None)
-        self._record_topic_writes(spec.topic_id, results)
+        self._record_topic_writes(spec, results)
         return results
 
     async def _finalize(self, entry: _MemoryTaskEntry) -> MemoryGenerationTask:
@@ -727,7 +728,7 @@ class MemoryGenerationTaskController:
             )
 
     def _spec_to_save(self, spec: MemoryGenerationTaskSpec) -> MemoryGenerationTaskSpec:
-        """结算任务带上本话题主动写入的记录：它只在内存中，执行时据此不改写这些记忆。"""
+        """结算任务带上本话题的写入记录：它只在内存中，执行时据此不改写这些记忆。"""
 
         written = self._topic_write_memory_ids.get(spec.topic_id)
         if spec.source != MemoryGenerationSource.SETTLE or not written:
@@ -814,18 +815,31 @@ class MemoryGenerationTaskController:
             error_class=failure.error_class if failure is not None else None,
         )
 
-    def _record_topic_writes(self, topic_id: str, results: list[MemoryGenerationResult]) -> None:
-        """记下主动写入结算到的正式记忆，供同一话题之后的 WRITE 与 SETTLE 查重使用。
+    def _record_topic_writes(
+        self, spec: MemoryGenerationTaskSpec, results: list[MemoryGenerationResult]
+    ) -> None:
+        """记下本话题的写入，供同一话题之后的 WRITE 与 SETTLE 使用。
 
-        带 settlement 的结果只来自主动写入链路：WRITE、UPDATE，以及吸收了写入新建
-        记忆的合并（结算改指保留的那条）。
+        - 带 settlement 的结果只来自主动写入链路：WRITE、UPDATE 的结算目标，以及吸收了
+          写入新建记忆的合并（结算改指保留的那条）；
+        - 不退役的沉淀新建的记忆：话题之后还会再次沉淀，材料仍是全部交互，复述它们的
+          草稿要按本话题的写入处理。触碰与修订的是已有记忆，不是这个话题写下的，不记；
+        - 合并吸收了记录中的记忆时，记录改为保留的那条，被吸收的已经删除。
         """
+        records_creations = spec.source == MemoryGenerationSource.SETTLE and not spec.retires_topic
         for result in results:
-            if result.settlement is None or result.settlement.canonical_uuid is None:
+            recorded = self._topic_write_memory_ids.get(spec.topic_id, set())
+            if result.absorbed_memory_uuid in recorded:
+                recorded.discard(result.absorbed_memory_uuid)
+                written = result.canonical_uuid
+            elif result.settlement is not None:
+                written = result.settlement.canonical_uuid
+            elif records_creations and result.action == GenerationAction.CREATE:
+                written = result.canonical_uuid
+            else:
                 continue
-            self._topic_write_memory_ids.setdefault(topic_id, set()).add(
-                result.settlement.canonical_uuid
-            )
+            if written is not None:
+                self._topic_write_memory_ids.setdefault(spec.topic_id, set()).add(written)
 
     async def _publish_settlements(
         self,
@@ -852,7 +866,7 @@ def _finished_at(task: MemoryGenerationTask) -> datetime:
 def _with_topic_writes(
     spec: MemoryGenerationTaskSpec, written: set[str]
 ) -> MemoryGenerationTaskSpec:
-    """把本话题主动写入结算到的记忆并入任务规范；读回的结算任务已带有关闭时的记录。"""
+    """把本话题的写入记录并入任务规范；读回的结算任务已带有关闭时的记录。"""
 
     ids = spec.request.topic_write_memory_ids | frozenset(written)
     request = spec.request.model_copy(update={"topic_write_memory_ids": ids})
