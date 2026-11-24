@@ -89,7 +89,7 @@ last_reviewed: 2026-11-24
 - 折叠只为材料服务，折叠摘要结构化。
 - 两个使用时点都由系统推送：另一个会话被路由回已有话题时推送工作状态，会话压缩之后只推送工作记录的索引。
 
-设计与开放问题见[短期记忆：话题的工作状态及其维护](./ideas/short-term-memory-and-context-compaction.md)；当前没有活动计划。
+设计与开放问题见[短期记忆：话题的工作状态及其维护](./ideas/short-term-memory-and-context-compaction.md)；第一份计划是[结算拆成沉淀与退役](./plans/v0.8.1-settle-and-retire.md)。
 
 ## 4. 版本之外的工作与候选方向
 
@@ -106,7 +106,7 @@ last_reviewed: 2026-11-24
 | 方向 | 状态 | 目标结果 | 入口 |
 |:---|:---:|:---|:---|
 | `v0.8.0` 生成核心的升级 | Completed（2026-11-21 收尾） | 类型的更迭、馆长 agent 与写入时的编辑集修订；被动生成与主动写入的版本未定 | 第 3 节 |
-| `v0.8.1` 短期记忆 | Current Development（设计中，没有活动计划） | 话题成为前台可读的工作记录：工作状态、沉淀与退役、折叠与推送 | 第 3.4 节；[短期记忆 Idea](./ideas/short-term-memory-and-context-compaction.md) |
+| `v0.8.1` 短期记忆 | Current Development（第一份计划 Planned） | 话题成为前台可读的工作记录：工作状态、沉淀与退役、折叠与推送 | 第 3.4 节；[短期记忆 Idea](./ideas/short-term-memory-and-context-compaction.md) |
 | 身份与访问体系 | Candidate / 单独主线 | 发布前打好地基：调用方证明、登记生效时点等仍未决定的项 | 第 4.3 节；[身份与访问体系 Idea](./ideas/identity-and-access-model.md) |
 | 观测与日志 | Unscheduled / 版本之外 | 存量日志收敛的剩余部分 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
 | 冷启动、历史导入与外源文档资产化 | Candidate | 冷启动种子、历史对话导入、文档解析与来源保全 | 第 4.4 节 |
