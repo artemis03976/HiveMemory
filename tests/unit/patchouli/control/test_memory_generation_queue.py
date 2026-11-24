@@ -443,6 +443,47 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
 
 
 @pytest.mark.asyncio
+async def test_settlements_of_one_topic_run_in_order_while_its_writes_do_not_wait() -> None:
+    """同一话题的结算依次执行：前一次还在执行时，后一次排在队列中，执行时才读得到前一次
+    记下的写入；同一话题的写入不受影响，照常并行。"""
+    write_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def execute(route, spec, on_commit_started):
+        if spec.source == MemoryGenerationSource.WRITE:
+            write_started.set()
+        else:
+            await release.wait()
+        return []
+
+    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    controller = _controller(bus, max_concurrency=3)
+    await controller.start()
+    settle = replace(_spec(), source=MemoryGenerationSource.SETTLE)
+
+    try:
+        await controller.submit_generation(replace(settle, label="idle"))
+        retire = await controller.submit_generation(
+            replace(settle, label="retire", retires_topic=True)
+        )
+        await controller.submit_generation(
+            _spec(label="write", intent_id="intent-w", pending_alias="draft-w")
+        )
+        # 写入排在第二次结算之后：它开始执行时，调度已经越过了第二次结算。
+        await asyncio.wait_for(write_started.wait(), timeout=1)
+
+        retire_work = await controller.queue.get(controller.queue.work_id_for(retire.task_id))
+        assert retire_work.state == WorkState.QUEUED
+
+        release.set()
+        completed = await controller.wait_all(timeout=2)
+        assert [task.status for task in completed] == [MemoryGenerationTaskStatus.COMPLETED] * 3
+    finally:
+        release.set()
+        await controller.stop()
+
+
+@pytest.mark.asyncio
 async def test_queued_cancel_never_calls_generation_handler() -> None:
     first_started = asyncio.Event()
     release = asyncio.Event()

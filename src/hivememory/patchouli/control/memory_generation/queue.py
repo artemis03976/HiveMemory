@@ -6,7 +6,7 @@ import asyncio
 import copy
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -130,11 +130,17 @@ class _MemoryGenerationWorkAdapter:
 
     @staticmethod
     def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
-        """从领域任务中派生稳定的队列标识和调度元数据。"""
+        """从领域任务中派生稳定的队列标识和调度元数据。
 
+        只有话题结算带顺序键：同一话题的几次沉淀与退役依次执行，后一次执行时才读得到
+        前一次新建、记作本话题写入的记忆，读回的保存工作也按保存顺序执行。其余来源不按
+        话题排序，同一话题的写入照常并行生成。
+        """
+
+        settles = work.spec.source == MemoryGenerationSource.SETTLE
         return QueueTaskIdentity(
             work_id=MemoryGenerationQueue.work_id_for(work.task_id),
-            ordering_key=work.topic_id,
+            ordering_key=work.topic_id if settles else None,
             correlation_id=work.intent_id or work.pending_alias or work.task_id,
             idempotency_key=work.task_id,
         )
@@ -510,17 +516,18 @@ class MemoryGenerationQueue:
             worker_poll_interval_seconds=0.02,
             shutdown_wait_seconds=2.0,
         )
+        policy = policy or QueuePolicy(
+            capacity=128,
+            max_concurrency=2,
+            timeout_seconds=300.0,
+            max_attempts=1,
+            terminal_retention=100,
+        )
+        # 同一话题的结算必须依次执行（见 identity），这不是可调的配置项。
         self._lane = self._runtime.register_lane(
             self.LANE,
             handler=self._handler,
-            policy=policy
-            or QueuePolicy(
-                capacity=128,
-                max_concurrency=2,
-                timeout_seconds=300.0,
-                max_attempts=1,
-                terminal_retention=100,
-            ),
+            policy=replace(policy, ordered_by_key=True),
         )
         self._start_lock = asyncio.Lock()
 
