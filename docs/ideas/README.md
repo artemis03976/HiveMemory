@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: unimplemented-design-rules-and-index
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-24
 ---
 
 # Ideas
@@ -21,6 +21,7 @@ last_reviewed: 2026-11-20
 | [记忆核心：库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | v0.8 | 中期库的形状、派生的时空图索引与记忆的保存形态 |
 | [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 记忆类型的用途、划分与回放检验 |
 | [记忆核心：评测集](./memory-evaluation-benchmarks.md) | v0.8 | 用公开评测集与 agent 工作流数据检验记忆核心 |
+| [短期记忆：话题的工作状态及其维护](./short-term-memory-and-context-compaction.md) | v0.8.1 | 话题作为前台可读的工作记录：工作状态、什么时候写一条、沉淀与退役、折叠与推送 |
 
 已实现、被替代或不再跟踪的 Idea 登记在 [Archived Ideas](../archive/ideas/README.md)。
 
@@ -29,7 +30,6 @@ last_reviewed: 2026-11-20
 | Idea | 简述 |
 |:---|:---|
 | [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | 从会话到话题再到 Artifact 的原始资料保存 |
-| [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 会话压缩与话题折叠的视图与摘要质量 |
 | [身份与访问体系](./identity-and-access-model.md) | 身份、认证与授权的单独主线 |
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | 长 turn 内的原子事件流、分段、封口与恢复 |
 | [轻量化：模型依赖、运行内存与包体](./lightweight-footprint.md) | 减少模型依赖、常驻内存与安装包体积 |

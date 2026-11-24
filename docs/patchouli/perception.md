@@ -214,4 +214,4 @@ Engine 不持有 Store / Queue，也不导入 `hivememory.patchouli.*`，可被�
 
 调整这些语义时必须同时检查 Generation、Artifacts、Import Bus 与 shutdown drain，因为“何时丢弃交互记录”本质上是数据耐久性边界，而不只是一个摘要算法参数。
 
-token-aware 保留、summary-only Topic 与 Relay 优化等议题见[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md)第 6 节；完整资料与来源保存见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)第 9 节；长 turn 与跨入口专项见[Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md)第 14 节。
+token-aware 保留、summary-only Topic 与 Relay 优化等议题见[短期记忆 Idea](../ideas/short-term-memory-and-context-compaction.md)第 6 节；完整资料与来源保存见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)第 9 节；长 turn 与跨入口专项见[Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md)第 14 节。

@@ -16,14 +16,14 @@ related_ideas:
   - docs/archive/ideas/pending-intent-migration.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-24
 ---
 
 # 长时间运行 Agent 的 Turn 内上下文折叠
 
 本文是面向生产级长时间运行 Agent 的候选设计，不描述当前行为，也不代表近期排期。当前短期话题、Agent runtime、Import Bus、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
 
-通用的执行工作记忆、Topic 记忆形成工作集、Alice compact 与 page folding 关系集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)；Session → Topic 完整资料 → Artifact 的原始数据保存链集中在[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。本文只讨论未结束 turn 的事件流接入、语义分段、独立覆盖进度、超大事件和封口恢复，不重复定义通用压缩算法或证据存储。
+话题的工作状态、一轮之内什么时候写工作记录的一条、在段的边界上折叠，以及会话压缩与话题的关系，集中在[短期记忆](./short-term-memory-and-context-compaction.md)：长 turn 下的短期记忆管理由那份设计一并承担；Session → Topic 完整资料 → Artifact 的原始数据保存链集中在[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。本文只讨论未结束 turn 的事件流接入、语义分段、独立覆盖进度、超大事件和封口恢复，不重复定义工作记录、通用压缩算法或证据存储。
 
 **前台与后台分开**：前台对话与后台的记忆 Topic 管理是两项独立的工作。前台的上下文压缩归 CPU，用户以 `/compact` 触发（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding。本文分别讨论 CPU 的 turn 内执行视图与 Patchouli 的未结束交互资料视图，两边各自推进，不能串成前一级 compact 完成后再交给后一级 folding 的流水线。
 
@@ -103,6 +103,8 @@ TurnSegment
 ├── created_at
 └── raw_evidence_refs[]
 ```
+
+代码中已有同名的 `TurnSegment`：一轮的事件按模型响应推出的段，供记忆引用原文（[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)）。它最多含 8 次响应，工具结果挂在调用事件上，一段不拆开调用与结果。这里的容量单元若沿用它，候选做法是几段合成一个单元；两者的名字需要分开。
 
 Segment 应按语义边界形成，而不是机械地每 N tokens 切分。以下内容原则上不能被拆开：
 
@@ -191,7 +193,7 @@ CPU compact callback -> update CPU execution checkpoint independently
 
 ## 4. Turn 内的容量管理专项约束
 
-完整请求预算、摘要边界、保留后缀、校验与失败后保留有效检查点等通用机制见[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。长 turn 还需要解决以下专项问题：
+完整请求预算、摘要边界、保留后缀、校验与失败后保留有效检查点等通用机制见[短期记忆](./short-term-memory-and-context-compaction.md)。长 turn 还需要解决以下专项问题：
 
 - 只有已经闭合的稳定事件前缀适合折叠；未返回的工具调用和未结束的子 frame 不能因 token 水位任意拆散；
 - CPU 与 Patchouli 分别计算各自消费者的完整请求预算，不能共用一个“当前上下文 token 数”；
@@ -235,7 +237,9 @@ Generation 或审计可以按需沿来源引用分块读取；记忆生成时再
 | continuation summary | 当前计划、未完成步骤、工具状态、下一步动作 | Agent runtime |
 | memory working summary | 用户偏好、确认事实、关键决策、来源和可复用经验 | Patchouli / Generation |
 
-两份视图由各自消费者决定何时生成、何时接受和何时失效，不要求同步生成，也不共用一个拥有双摘要字段的检查点。具体策略见[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。
+两份视图由各自消费者决定何时生成、何时接受和何时失效，不要求同步生成，也不共用一个拥有双摘要字段的检查点。具体策略见[短期记忆](./short-term-memory-and-context-compaction.md)。
+
+话题的工作状态是另一份视图：它回答“做到哪了”，读者是不在场的前台（另一个会话被路由回来，或会话压缩之后），含当前计划与工作记录，每一条指回原文；它与 continuation summary 各自生成、各自保存，见[短期记忆](./short-term-memory-and-context-compaction.md)第 3、7 节。
 
 Alice 的 continuation summary 不进入 Topic、InteractionPayload 或 Patchouli 的记忆生成材料。外部 harness 另行交付的 summary 若在未来被评估为有价值的辅助输入，需要显式声明来源、覆盖范围和有损性质；它不能替代未收到的事件或原始证据，也不能作为 Patchouli 摘要失败时自动接受的事实来源。
 
@@ -348,7 +352,7 @@ summary 面向任务继续执行且有损，不能替代 raw evidence、来源�
 
 ### 10.5 无限拼接 previous summary
 
-summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩策略，通用讨论见[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。同样不能因两边都生成摘要，就合并它们的状态或接受条件。
+summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩策略，通用讨论见[短期记忆](./short-term-memory-and-context-compaction.md)。同样不能因两边都生成摘要，就合并它们的状态或接受条件。
 
 ## 11. 候选验证工作
 
@@ -442,7 +446,7 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 
 ## 14. 跨入口上下文的已知缺口与专项范围
 
-本节维护跨入口 managed-context、未结束 turn 和原子事件流的专项问题。一般性的 CPU compact、Topic page folding 边界与优化由[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)维护，Session → Topic 资料 → Artifact 的保存由[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)维护；前台 compact 并不都属于长 turn。
+本节维护跨入口 managed-context、未结束 turn 和原子事件流的专项问题。一般性的 CPU compact、Topic page folding 边界与优化由[短期记忆](./short-term-memory-and-context-compaction.md)维护，Session → Topic 资料 → Artifact 的保存由[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)维护；前台 compact 并不都属于长 turn。
 
 ### 14.1 已知缺口
 
