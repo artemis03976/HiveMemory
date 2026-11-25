@@ -205,7 +205,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `actor.operation` 由操作入口在一次 actor 操作结束时发布，`subsystem=workspace`、`component=operation_entry`；`agent_id` 与 `workspace_id` 是工作 actor 的 Agent 与驻留 Workspace，只作标签，执行线程的提交另带 `process_id`，MCP 的请求级提交没有。`data` 带 `operation`（`WorkspaceOperation` 的值）、`entry`（`thread` 或 `request`）、`duration_ms` 与按操作的摘要：检索为 `result_count`；读取为 `requested_count` 与 `delivered_count`（解析为正式记忆或重定向的数量）；RUN 为 `resolution`（解析结果的 kind）；写入与更新为 `pending_alias`；CALL 为 `callee_agent_id`。`rejected` 的领域错误带受约束的 `details.reason` 时另带 `error_reason`（如同为 `workspace.operation_denied` 的 `operation_not_allowed` 与 `root_required`），`details` 的其余字段不进入事件；`failed` 另带 `error_class`。事件不带检索文本、记忆正文或请求参数。
 
-`topic.*` 由 Patchouli 感知层发布，`subsystem=patchouli`、`component=perception`，信封带 `topic_id` 与 `workspace_id`。`topic.created` 的 `data.created_by` 为 `interaction`（应用交互时建立）或 `prepare`（为写入预先确定话题时建立）；`topic.settled` 的 `data` 带 `reason`（结算原因：`idle_timeout`、`manual_settle`、`shutdown`、`lru_eviction` 等）、`generation_submitted`（最近一次沉淀之后没有新交互、不提交生成时为 false）与 `retired`（这次是否随之退役、离开话题池；空闲沉淀为 false，LRU、手动结算、关闭与空话题的空闲退役为 true）；`topic.deleted` 是不经结算的删除，`data` 为空。
+`topic.*` 由 Patchouli 感知层发布，`subsystem=patchouli`、`component=perception`，信封带 `topic_id` 与 `workspace_id`。`topic.created` 的 `data.created_by` 为 `interaction`（应用交互时建立）或 `prepare`（为写入预先确定话题时建立）；`topic.settled` 的 `data` 带 `reason`（结算原因：`idle_timeout`、`manual_settle`、`shutdown`、`lru_eviction` 等）、`generation_submitted`（最近一次沉淀之后没有新交互、不提交生成时为 false）与 `retired`（这次是否随之退役、离开话题池；空闲与关闭时的沉淀为 false，LRU、手动结算，以及空话题在空闲与关闭时的退役为 true）；`topic.deleted` 是不经结算的删除，`data` 为空。
 
 ### 4.1 投递语义
 
