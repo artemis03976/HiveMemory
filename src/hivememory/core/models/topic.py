@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from hivememory.core.models.interaction import TurnRecord, turn_reply_text, turn_user_message
 from hivememory.core.models.workspace import WorkspaceIdentity
@@ -116,10 +116,13 @@ class TopicData(BaseModel):
     ``settled_interaction_count`` 是最近一次被生成队列接纳的沉淀所覆盖的交互数：
     话题空闲时只沉淀、不结束，之后还会接收交互，下一次沉淀据此判断有没有新内容。
 
-    快照只经 ``merge_interaction_into_topic``、``fold_topic`` 与 ``mark_topic_settled``
-    写入，三者以完整构造产生新快照，构造时的校验不会被绕过。执行占用不建模为记录字段，跨 await
-    的占用权由 ``TopicWorkingSet`` 的 lease 表管理。不携带话题级 Agent 身份：
-    来源 provenance 由每个 block 的 ``turn.identity`` 记录，资源授权使用归属与
+    ``topic_write_memory_ids`` 是本话题写下的正式记忆，随话题保存、随话题退役而消失；
+    同一话题之后的写入与沉淀据此不改写、不复述它们。
+
+    快照只经 ``merge_interaction_into_topic``、``fold_topic``、``mark_topic_settled`` 与
+    ``record_topic_writes`` 写入，四者以完整构造产生新快照，构造时的校验不会被绕过。执行占用
+    不建模为记录字段，跨 await 的占用权由 ``TopicWorkingSet`` 的 lease 表管理。不携带话题级
+    Agent 身份：来源 provenance 由每个 block 的 ``turn.identity`` 记录，资源授权使用归属与
     本次操作的发起者。
     """
 
@@ -133,8 +136,20 @@ class TopicData(BaseModel):
     last_update: float
     model_used: str = ""
     settled_interaction_count: int = Field(default=0, ge=0)
+    topic_write_memory_ids: frozenset[str] = Field(
+        default_factory=frozenset,
+        description=(
+            "本话题写下的正式记忆 ID：主动写入（WRITE/UPDATE）已结算到的，以及话题此前几次"
+            "沉淀新建的；合并吸收了其中一条时改为保留的那条"
+        ),
+    )
 
     model_config = ConfigDict(frozen=True, use_enum_values=False, extra="forbid")
+
+    @field_serializer("topic_write_memory_ids")
+    def _serialize_topic_write_memory_ids(self, ids: frozenset[str]) -> list[str]:
+        # 排序输出：话题池快照在另一个进程读回，同一话题每次写出的内容相同。
+        return sorted(ids)
 
     @model_validator(mode="after")
     def _folds_cover_interaction_prefix(self) -> TopicData:
@@ -294,6 +309,25 @@ def mark_topic_settled(topic: TopicData, interaction_count: int) -> TopicData:
     return TopicData.model_validate({**dict(topic), "settled_interaction_count": interaction_count})
 
 
+def record_topic_writes(
+    topic: TopicData, written: Collection[str], absorbed_into: Mapping[str, str]
+) -> TopicData:
+    """记下本话题新写下的记忆，并按合并改指记录中的记忆。
+
+    ``written`` 无条件加入记录；``absorbed_into`` 是“被合并吸收的记忆 → 保留的记忆”，
+    只有被吸收的那条在话题当前的记录中时，记录才删去它、改为保留的那条：判断以写回时的
+    记录为准。只改这份记录，不改内容、沉淀进度与写入时间。它与交互、折叠和沉淀进度互不
+    相交，写入不需要 lease；其他写函数的调用方因此在写回前重新读取最新快照。
+    """
+    recorded = set(topic.topic_write_memory_ids)
+    for absorbed, retained in absorbed_into.items():
+        if absorbed in recorded:
+            recorded.discard(absorbed)
+            recorded.add(retained)
+    recorded.update(written)
+    return TopicData.model_validate({**dict(topic), "topic_write_memory_ids": frozenset(recorded)})
+
+
 __all__ = [
     "LogicalBlock",
     "TopicData",
@@ -303,6 +337,7 @@ __all__ = [
     "fold_topic",
     "mark_topic_settled",
     "merge_interaction_into_topic",
+    "record_topic_writes",
     "topic_state_summary",
     "topic_working_blocks",
 ]

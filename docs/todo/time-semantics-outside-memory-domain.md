@@ -45,7 +45,7 @@ Memory 领域的时间语义已在 v0.7.0 统一（[归档计划](../archive/pla
 
 ## 动手前要确认
 
-- 话题状态是否需要跨重启恢复：要恢复的话，idle 语义必须改为 UTC 业务时间加重算，monotonic 不能持久化；
+- 话题已经跨重启恢复（[感知与短期话题](../patchouli/perception.md#7-维护与关闭)第 7 节）：驻留的访问时间仍是单调时钟、不随快照保存，读回时空闲计时重新开始；随快照保存的 `last_update` 与块的 `created_at` 仍是 naive epoch 秒，改为 UTC 业务时间时要兼顾读回旧快照；
 - 限流器的桶语义改用 monotonic 之后，外部可见的行为是否变化；
 - `StreamMessage.timestamp` 删除还是迁到 UTC，这涉及公共模型；
 - 前端是否消费数值形态的后端时间字段。

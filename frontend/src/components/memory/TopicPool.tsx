@@ -390,7 +390,7 @@ export default function TopicPool({ tabs }: { tabs: ReactNode }) {
       <ConfirmDialog
         isOpen={discarding !== null}
         title={discarding ? `丢弃“${topicTitle(discarding)}”？` : ''}
-        message={discarding ? `话题中的 ${discarding.blockCount} 个片段会被删除，不会提炼长期记忆，无法恢复。对话中已经写入的记忆不受影响。` : ''}
+        message={discarding ? `话题中的 ${discarding.blockCount} 个片段会被删除，无法恢复，其中还没有沉淀的内容不会再提炼为长期记忆。已经沉淀的内容照常生成记忆，对话中已经写入的记忆也不受影响。` : ''}
         confirmText="丢弃话题"
         onConfirm={() => { if (discarding) void discard(discarding); }}
         onCancel={() => setDiscarding(null)}

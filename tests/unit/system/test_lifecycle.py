@@ -61,6 +61,7 @@ def _build_runtime_with_local_bus():
     runtime.retrieval_familiar.retrieve_by_aliases_async = AsyncMock()
     runtime.storage = MagicMock()
     runtime.ensure_storage_ready = AsyncMock()
+    runtime.restore_topic_pool = AsyncMock()
     runtime.start_memory_generation_queue = AsyncMock()
     runtime.restore_saved_generation = AsyncMock()
     runtime.stop_memory_generation_queue = AsyncMock()
@@ -85,6 +86,7 @@ def mock_patchouli():
     runtime.is_models_ready.return_value = True
     runtime.local_routes_registered = False
     runtime.ensure_storage_ready = AsyncMock()
+    runtime.restore_topic_pool = AsyncMock()
     runtime.start_memory_generation_queue = AsyncMock()
     runtime.restore_saved_generation = AsyncMock()
     runtime.stop_memory_generation_queue = AsyncMock()

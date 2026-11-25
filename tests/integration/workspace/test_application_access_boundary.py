@@ -149,6 +149,7 @@ class _FakeTopicData:
     topic_title = "boundary topic"
     topic_summary = "boundary topic summary"
     state_summary = "boundary state summary"
+    topic_write_memory_ids = frozenset()
 
     def recent_blocks(self, limit):
         return [make_logical_block("question", "answer")]
@@ -245,6 +246,7 @@ async def wired(tmp_path):
         PatchouliLocalRoutes.TOPIC_GET,
         AsyncMock(return_value=_FakeTopicData()),
     )
+    local_bus.register(PatchouliLocalRoutes.TOPIC_RECORD_WRITES, AsyncMock(return_value=None))
 
     async def _apply(
         payload,

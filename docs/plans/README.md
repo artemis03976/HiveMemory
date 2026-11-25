@@ -28,7 +28,7 @@ last_reviewed: 2026-11-24
 
 当前没有活动计划。
 
-- 结算拆成沉淀与退役：已完成，见 [Archived Plans](../archive/plans/README.md#v081)。
+- 结算拆成沉淀与退役、话题跨重启保存：已完成，见 [Archived Plans](../archive/plans/README.md#v081)。
 
 ## 已发布的版本
 

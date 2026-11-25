@@ -56,6 +56,11 @@ class TopicWorkingSet:
         # 只用于相对时长的可注入时钟；默认单调时钟，不受系统墙钟回拨影响。
         self._clock = clock or time.monotonic
 
+    @property
+    def max_resident(self) -> int:
+        """每个 Workspace 的驻留容量。"""
+        return self._max_resident
+
     # ========== 驻留追踪 ==========
 
     def touch(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:

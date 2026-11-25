@@ -109,7 +109,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 | 删除 | 保留 |
 |:---|:---|
-| 记忆库（Qdrant 存储）、Artifact、长期归档、关闭时写盘的生成工作、写入句柄与生成任务历史（各含读不回的 rejected 文件）、预设 Agent 的写入标记 | Agent Profile 文件、配置、Provider 密钥、harness 接入凭据、推理模型缓存、日志 |
+| 记忆库（Qdrant 存储）、Artifact、长期归档、关闭时写盘的生成工作、写入句柄、生成任务历史与短期话题池（各含读不回的 rejected 文件）、预设 Agent 的写入标记 | Agent Profile 文件、配置、Provider 密钥、harness 接入凭据、推理模型缓存、日志 |
 
 步骤：主进程正常关闭后端与 Qdrant，删除 Qdrant 存储目录，再以一次性模式 `python -m hivememory.server --delete-memory-data` 运行后端，按配置删除后端拥有的路径（相对路径按数据根解析），然后重启应用。重启后记忆库为空；预设 Agent 只写入缺少的文件，已有的 Profile 文件不变。只删除上面列出的路径，不删除数据根本身：数据根指向 checkout 时，仓库文件、随仓库发布的 `configs\` 文件与 `.hivememory\dev.env` 都不受影响。
 

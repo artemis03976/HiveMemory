@@ -135,6 +135,9 @@ def build_patchouli_route_bindings(
         ),
         RouteBinding.of(PatchouliLocalRoutes.TOPIC_GET, get_topic),
         RouteBinding.of(
+            PatchouliLocalRoutes.TOPIC_RECORD_WRITES, runtime.perception_familiar.record_writes
+        ),
+        RouteBinding.of(
             PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
             list_active_topics,
         ),

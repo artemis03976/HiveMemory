@@ -79,6 +79,7 @@ from .topic import (
     fold_topic,
     mark_topic_settled,
     merge_interaction_into_topic,
+    record_topic_writes,
     topic_state_summary,
     topic_working_blocks,
 )
@@ -157,6 +158,7 @@ __all__ = [
     "fold_topic",
     "mark_topic_settled",
     "merge_interaction_into_topic",
+    "record_topic_writes",
     "topic_state_summary",
     "topic_working_blocks",
     "FrozenDict",

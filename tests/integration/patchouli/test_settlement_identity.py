@@ -51,6 +51,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from tests.helpers.generation_bus import register_topic_routes
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_interaction_payload
 
@@ -241,6 +242,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, coordinator.submit_settlement)
     bus.register(PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION, controller.submit_generation)
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, generation.execute)
+    register_topic_routes(bus, store)
     clock = _Clock()
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(

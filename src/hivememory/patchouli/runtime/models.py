@@ -10,19 +10,19 @@ class TopicShutdownFlushReport:
     """shutdown 阶段 Topic flush 的运行时报告。
 
     该报告只供 Patchouli Runtime 的 shutdown drain 和可观测性使用，
-    不作为 Topic HTTP API 响应。block 计数表示结算前驻留的原始 block
-    数量，不等同于过滤后实际进入生成任务的材料数量。
+    不作为 Topic HTTP API 响应。block 计数表示处理前驻留的工作视图 block
+    数量，不等同于实际进入生成任务的材料数量。
 
-    ``generation_skipped_topic_ids`` 是 ``settled_topic_ids`` 的子集：这些
-    Topic 已正常结束生命周期，但没有建立 generation task。它不表示异常。
+    关闭时只沉淀、不退役：``settled_topic_ids`` 是这次沉淀了新交互的话题，它们留在
+    话题池里随快照保存；``retired_topic_ids`` 是从没接收过交互、直接退役的空话题。
+    接收过交互、已经全部沉淀的话题不出现在报告中。
 
-    ``failed_topic_ids`` 记录未能完成统一 settle 协议的 Topic（begin 时 busy、
-    admission 失败等）。这些 Topic 通过 abort 恢复 IDLE 并保留内容，不计入
-    ``settled_topic_ids``；单个 Topic 的失败不会阻止其余 Topic 的清理。
+    ``failed_topic_ids`` 记录没能沉淀的 Topic（正被占用、admission 失败等）：它们带着
+    未沉淀的交互照常保存，单个 Topic 的失败不会阻止其余 Topic 的处理。
     """
 
     settled_topic_ids: tuple[str, ...] = ()
-    generation_skipped_topic_ids: tuple[str, ...] = ()
+    retired_topic_ids: tuple[str, ...] = ()
     resident_block_count: int = 0
     failed_topic_ids: tuple[str, ...] = ()
 

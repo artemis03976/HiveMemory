@@ -74,6 +74,7 @@ from hivememory.workspace.contracts import (
 from hivememory.workspace.contracts.errors import PendingUpdateNotAllowedError
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.read_view import WorkspaceReadView
+from tests.helpers.generation_bus import register_topic_routes
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, CallbackLLMService
 from tests.helpers.memory import make_memory_metadata
@@ -366,11 +367,10 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
         extractor=LLMMemoryExtractor(ExtractorConfig(), llm, DEFAULT_LLM_PARAMS),
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
     )
+    short_term = ShortTermMemoryStore()
     familiar = MemoryGenerationFamiliar(
         generation_engine=engine,
-        memory_library=MemoryLibrary(
-            ShortTermMemoryStore(), chain.store, _UnusedPort(), chain.profile_store
-        ),
+        memory_library=MemoryLibrary(short_term, chain.store, _UnusedPort(), chain.profile_store),
         artifact_engine=ArtifactEngine.from_store(artifacts),
     )
     retained = await familiar.create_external_memory(
@@ -382,6 +382,7 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
         alias="fact_design",
     )
     chain.local_bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, familiar.execute)
+    register_topic_routes(chain.local_bus, short_term)
     controller = MemoryGenerationTaskController(bus=chain.local_bus)
     await controller.start()
     try:

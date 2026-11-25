@@ -42,7 +42,7 @@ MemoryLibrary
 
 ### 1.1 短期：话题工作台
 
-短期存储保存 Topic 记录，是纯 CRUD 的存储事实封装：adapter 直接存储 frozen `TopicData`，Store/Port 对外交接不可变快照；记录包含话题标题、展示摘要、全部交互记录（结构化 `LogicalBlock[]`）、折叠记录、资产绑定与最近模型名；`state_summary`、工作视图 blocks 与 token 估算由交互记录与折叠记录派生。记录不再携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序归 WorkingSet 的 LRU 索引（见[感知与短期话题](./perception.md)）。它保存记忆生成的接入材料，可混合多个会话的交互；对话连续性由 workspace 的 ConversationSession 提供。Topic 不再是 Alice 的历史源，两者当前均不提供跨重启恢复。
+短期存储保存 Topic 记录，是纯 CRUD 的存储事实封装：adapter 直接存储 frozen `TopicData`，Store/Port 对外交接不可变快照；记录包含话题标题、展示摘要、全部交互记录（结构化 `LogicalBlock[]`）、折叠记录、资产绑定、最近模型名、沉淀进度与本话题的写入记录；`state_summary`、工作视图 blocks 与 token 估算由交互记录与折叠记录派生。记录不再携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序归 WorkingSet 的 LRU 索引（见[感知与短期话题](./perception.md)）。它保存记忆生成的接入材料，可混合多个会话的交互；对话连续性由 workspace 的 ConversationSession 提供。Topic 不再是 Alice 的历史源。生产上只有内存 adapter；话题池在正常关闭时由 Patchouli runtime 写成快照、下次启动时读回（[感知与短期话题](./perception.md#7-维护与关闭)第 7 节），会话当前不提供跨重启恢复。
 
 `topic_id` 是领域上的全局唯一身份；内部调用方通过 `belong_to: WorkspaceIdentity + topic_id` 访问，`WorkspaceTopicKey` 只由短期 adapter 在内部构造，用于 Workspace 归属校验和物理索引，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。公共 owner 边界从授权 scope 拆出归属，短期 Store 不接收 actor 或 `IdentityScope`。写入同一 `topic_id` 到另一 Workspace 会被 adapter 以全局唯一性检查拒绝。Topic 的编排规则由 PerceptionFamiliar 负责，MemoryLibrary 只维护存储事实与归属检查。
 
@@ -165,7 +165,7 @@ Runtime 是唯一装配入口。Engine、Familiar 和应用服务不能自行重
 
 ## 5. 当前限制与一致性边界
 
-- 短期 store 只在内存中，异常退出不会自动恢复；
+- 短期 store 只在内存中，只在正常关闭时随话题池快照写盘，异常退出不会自动恢复；
 - archive/revive 是跨两个后端的顺序操作，没有事务、补偿日志或幂等 job；前一步成功而后一步失败时，可能暂时形成重复副本；
 - MidTerm secondary 写入虽有接口，但当前没有原子提交和回滚语义；
 - 合并的写回与删除是两次顺序提交，没有事务；两步之间检索可能同时看到 M 的新版本与 N；

@@ -38,7 +38,7 @@ class TriggerReason(str, Enum):
     TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
-    SHUTDOWN = "shutdown"  # 进程关闭时的全局强制结算
+    SHUTDOWN = "shutdown"  # 进程关闭时沉淀全部驻留话题（只有空话题退役）
     MANUAL_SETTLE = "manual_settle"  # 用户手动结算：结算为记忆资产并结束 Topic
     MANUAL_COMPACT = "manual_compact"  # 用户手动压缩：只压缩工作集，不结算、不驱逐
     MANUAL_DELETE = "manual_delete"  # 用户手动删除：丢弃 Topic，不写记忆
@@ -76,6 +76,12 @@ class TopicMaterializeTask(BaseModel):
     asset_bindings: tuple[TopicAssetBinding, ...] = Field(
         default_factory=tuple,
         description="settle 前冻结的 Topic 真实使用资产关系",
+    )
+
+    # 冻结时话题的写入记录：这次结算执行时话题可能已经退役，那时只有这一份。
+    topic_write_memory_ids: frozenset[str] = Field(
+        default_factory=frozenset,
+        description="冻结材料时话题的写入记录，结算的生成请求带着它",
     )
 
     reason: TriggerReason = Field(
@@ -133,6 +139,7 @@ class TopicMaterializeTask(BaseModel):
             interactions=topic_data.interactions,
             folds=topic_data.folds,
             asset_bindings=topic_data.bindings,
+            topic_write_memory_ids=topic_data.topic_write_memory_ids,
             reason=reason,
             retires_topic=retires_topic,
         )
