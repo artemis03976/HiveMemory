@@ -59,7 +59,7 @@ Alice 的 v0.7.0 会话压缩可以建立在已经广泛采用的工程模式上
 
 这些机制可以组合。Claude Code 官方说明先清理旧工具输出，再在需要时摘要；pi 将压缩结果追加为记录并重建模型投影；OpenCode V2 同时提供摘要与原生压缩模式。它们不能被合并成一个固定的“保留最后 N 条消息”算法。[Claude Code 运行机制][claude-how]、[pi 会话投影][pi-session]、[OpenCode V2 文档][oc-doc]
 
-还要区分**跨用户轮次压缩**与**同一轮工具循环中的压缩**。后者需要处理尚未结束的执行跨度、工具关联和恢复点。HiveMemory 当前候选范围仅覆盖根 frame 的历史轮次，不能由此推出任意长单轮任务都不会溢出。[现有候选范围](../ideas/short-term-memory-and-context-compaction.md#5-alice-会话-compact-的已完成范围)、[Turn 内折叠方向](../ideas/long-running-agent-intra-turn-context-folding.md)
+还要区分**跨用户轮次压缩**与**同一轮工具循环中的压缩**。后者需要处理尚未结束的执行跨度、工具关联和恢复点。HiveMemory 当前候选范围仅覆盖根 frame 的历史轮次，不能由此推出任意长单轮任务都不会溢出。[现有候选范围](../ideas/short-term-memory-and-context-compaction.md#81-已完成的范围)、[Turn 内折叠方向](../ideas/long-running-agent-intra-turn-context-folding.md)
 
 ## 3. Claude Code
 
@@ -141,7 +141,7 @@ Hermes 对 live transcript 制作深快照，在候选压缩之外设置提交�
 
 ### 5.4 借鉴边界
 
-Hermes 的压缩器含较多兼容、恢复和防止无效重复压缩的分支。Alice 应提取预算与失败处理原则，避免将整套策略参数一次性引入。特别是任何通过丢弃中间材料求生的路径，都应与 HiveMemory 当前候选的“超窗时结构化失败、不静默截断”逐项比较，不能当作无条件 fallback。[压缩器入口][hermes-compressor]、[Alice 候选失败策略](../ideas/short-term-memory-and-context-compaction.md#5-alice-会话-compact-的已完成范围)
+Hermes 的压缩器含较多兼容、恢复和防止无效重复压缩的分支。Alice 应提取预算与失败处理原则，避免将整套策略参数一次性引入。特别是任何通过丢弃中间材料求生的路径，都应与 HiveMemory 当前候选的“超窗时结构化失败、不静默截断”逐项比较，不能当作无条件 fallback。[压缩器入口][hermes-compressor]、[Alice 候选失败策略](../ideas/short-term-memory-and-context-compaction.md#81-已完成的范围)
 
 Hermes 另有默认关闭的轮后微压缩：周期性吸收最旧完整工具 exchange。它会改变缓存前缀，也必须同步持久化投影。Alice 当前没有必要同时引入轮前压缩、轮后微压缩与后台压缩三套触发机制。[微压缩实现][hermes-micro]
 
@@ -202,7 +202,7 @@ OpenCode 将摘要模式与 native 模式分开，原生检查点记录 Provider
 
 ## 9. 对 Alice v0.7.0 的候选建议
 
-本节是调研后的适配建议，具体设计由[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md)收敛并形成唯一 Plan。
+本节是调研后的适配建议，具体设计由[短期记忆 Idea](../ideas/short-term-memory-and-context-compaction.md)收敛并形成唯一 Plan。
 
 ### 9.1 保持现有所有权，增加可复用的派生检查点
 
@@ -270,7 +270,7 @@ flowchart LR
 | AC-1：检查点存放位置 | pi、Codex、OpenCode 都将检查点绑定会话历史；harness 自持会话的项目同时拥有清理生命周期 | 在 HiveMemory 现有边界下，可优先评估由会话携带 CPU 中立检查点、Alice 负责生成和消费的方案；若选择 Alice 自持，必须补会话标识、删除/关闭清理和一致性协议 |
 | AC-2：手动 `/compact` 范围 | 手动/自动入口可以共享算法，但命令接受、安全执行点与最终完成分开 | 先确定命令执行归属与 CPU 能力契约，再决定是否同批交付；不要为手动压缩复制一套算法 |
 
-这两项仍由 owner 决定。外部实现只能说明需要哪些语义，不能替代 HiveMemory 的所有权选择。详细选项继续由[短期记忆 Idea 的 AC-1/AC-2](../ideas/short-term-memory-and-context-compaction.md#8-会话压缩的两项设计)和[命令 Todo](../todo/conversation-compact-command.md)维护。（2026-10-16 补注：owner 已决定 AC-1 存入会话资源、AC-2 只做自动压缩，见链接处。）
+这两项仍由 owner 决定。外部实现只能说明需要哪些语义，不能替代 HiveMemory 的所有权选择。详细选项继续由[短期记忆 Idea 中会话压缩已完成的范围](../ideas/short-term-memory-and-context-compaction.md#81-已完成的范围)和[命令 Todo](../todo/conversation-compact-command.md)维护。（2026-10-16 补注：owner 已决定 AC-1 存入会话资源、AC-2 只做自动压缩，见链接处。）
 
 ## 10. 形成 Plan 前的验证重点
 

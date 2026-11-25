@@ -81,6 +81,12 @@ class TopicMaterializeTask(BaseModel):
     reason: TriggerReason = Field(
         default=TriggerReason.IDLE_TIMEOUT, description="话题结算触发原因"
     )
+    retires_topic: bool = Field(
+        description=(
+            "这次沉淀之后话题是否随即退役（离开话题池）；空闲时的沉淀为假，话题之后"
+            "还会接收交互、再次沉淀"
+        )
+    )
 
     # task 会跨越 queue admission 边界；禁止字段重新赋值，并使用 tuple 承载
     # interactions 与 folds，避免冻结模型内部仍可被原地 append。工作视图是派生
@@ -104,16 +110,19 @@ class TopicMaterializeTask(BaseModel):
         *,
         belong_to: WorkspaceIdentity,
         reason: TriggerReason,
+        retires_topic: bool,
     ) -> TopicMaterializeTask | None:
-        """从冻结 TopicData 构造生成交接任务；话题没有接收过交互时返回 None。
+        """从冻结 TopicData 构造生成交接任务；最近一次沉淀之后没有新交互时返回 None。
 
         ``belong_to`` 必须由调用方显式传入。字段映射和 no-material 判断集中在此，
         服务与调用方不得重复拼装。
         """
+        # 有新交互时冻结全部交互，不只是新增的部分：生成在完整材料上判断，此前沉淀
+        # 出的记忆由生成侧记作本话题的写入，复述它们的草稿在那里处理。
         # 全部交互都进入结算，不在入口按用户消息筛选：只看用户消息会把"请提交"
         # "继续"这类消息背后的整轮实现丢掉。一轮有没有长期价值，由生成阶段在完整
         # 材料上判断。
-        if not topic_data.interactions:
+        if not topic_data.has_unsettled_interactions:
             return None
 
         return cls(
@@ -125,6 +134,7 @@ class TopicMaterializeTask(BaseModel):
             folds=topic_data.folds,
             asset_bindings=topic_data.bindings,
             reason=reason,
+            retires_topic=retires_topic,
         )
 
 

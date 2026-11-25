@@ -41,6 +41,9 @@ class ActiveTopicResponse(BaseModel):
         description="最近 run 使用的模型展示名，空字符串表示尚未运行",
     )
     last_update: float = Field(description="话题最近一次写入的 Unix 时间戳（秒）")
+    has_unsettled_interactions: bool = Field(
+        description="话题是否有还没有沉淀为长期记忆的交互；没有时空闲不会再触发沉淀"
+    )
 
     @classmethod
     def from_domain(cls, snapshot: TopicSnapshot) -> ActiveTopicResponse:
@@ -56,6 +59,7 @@ class ActiveTopicResponse(BaseModel):
             total_tokens=snapshot.total_tokens,
             model_used=snapshot.model_used,
             last_update=snapshot.last_update,
+            has_unsettled_interactions=snapshot.has_unsettled_interactions,
         )
 
 

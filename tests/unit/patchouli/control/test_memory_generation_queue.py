@@ -249,6 +249,7 @@ def test_revision_saved_as_1_1_reads_back_with_the_base_version_it_was_built_on(
         pending_alias="rev_memory_alias_0001",
     )
     item = queue.encode_for_restart("active:intent-old", spec)
+    del item["payload"]["spec"]["retires_topic"]
     del item["payload"]["spec"]["request"]["update_focus"]["base_version"]
 
     restored = queue.decode_for_restart({**item, "schema_version": "1.1"})
@@ -275,6 +276,7 @@ def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -
     item = queue.encode_for_restart("settle:topic-old", spec)
     assert queue.decode_for_restart(item) == spec
 
+    del item["payload"]["spec"]["retires_topic"]
     for turn in item["payload"]["spec"]["request"]["context"]["turns"]:
         del turn["turn_id"], turn["segments"]
     for saved_block in item["payload"]["spec"]["interaction_input"]["blocks"]:
@@ -288,6 +290,24 @@ def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -
     assert restored.request.context.cited_segments(["1.1"]) == []
     [restored_block] = restored.interaction_input.blocks
     assert [event.response_index for event in restored_block.turn_events] == [None, None]
+
+
+def test_work_saved_as_1_3_reads_back_with_every_settlement_retiring() -> None:
+    """1.4 保存的空闲沉淀原样读回、不退役；升级前以 1.3 保存的工作不带 retires_topic：那时
+    每次结算都结束话题，结算读回为退役，其余来源读回为不退役。"""
+    queue = MemoryGenerationQueue(AsyncMock())
+    settlement = replace(_spec(topic_id="topic-old"), source=MemoryGenerationSource.SETTLE)
+    write = _spec(topic_id="topic-old", intent_id="intent-old", pending_alias="draft-old")
+    settlement_item = queue.encode_for_restart("settle:topic-old", settlement)
+    write_item = queue.encode_for_restart("active:intent-old", write)
+    assert queue.decode_for_restart(settlement_item) == settlement
+
+    restored = []
+    for item in (settlement_item, write_item):
+        del item["payload"]["spec"]["retires_topic"]
+        restored.append(queue.decode_for_restart({**item, "schema_version": "1.3"}))
+
+    assert restored == [replace(settlement, retires_topic=True), write]
 
 
 def test_codec_roundtrips_settlement_records_without_loss() -> None:
@@ -417,6 +437,47 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
         assert (
             await controller.get_task(second.task_id)
         ).status == MemoryGenerationTaskStatus.COMPLETED
+    finally:
+        release.set()
+        await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_settlements_of_one_topic_run_in_order_while_its_writes_do_not_wait() -> None:
+    """同一话题的结算依次执行：前一次还在执行时，后一次排在队列中，执行时才读得到前一次
+    记下的写入；同一话题的写入不受影响，照常并行。"""
+    write_started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def execute(route, spec, on_commit_started):
+        if spec.source == MemoryGenerationSource.WRITE:
+            write_started.set()
+        else:
+            await release.wait()
+        return []
+
+    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    controller = _controller(bus, max_concurrency=3)
+    await controller.start()
+    settle = replace(_spec(), source=MemoryGenerationSource.SETTLE)
+
+    try:
+        await controller.submit_generation(replace(settle, label="idle"))
+        retire = await controller.submit_generation(
+            replace(settle, label="retire", retires_topic=True)
+        )
+        await controller.submit_generation(
+            _spec(label="write", intent_id="intent-w", pending_alias="draft-w")
+        )
+        # 写入排在第二次结算之后：它开始执行时，调度已经越过了第二次结算。
+        await asyncio.wait_for(write_started.wait(), timeout=1)
+
+        retire_work = await controller.queue.get(controller.queue.work_id_for(retire.task_id))
+        assert retire_work.state == WorkState.QUEUED
+
+        release.set()
+        completed = await controller.wait_all(timeout=2)
+        assert [task.status for task in completed] == [MemoryGenerationTaskStatus.COMPLETED] * 3
     finally:
         release.set()
         await controller.stop()

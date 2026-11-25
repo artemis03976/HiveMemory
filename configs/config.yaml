@@ -99,11 +99,13 @@ patchouli:
     on_disk_payload: false
 
   perception:
+    # 话题空闲多少秒后沉淀：把上次沉淀之后的新交互交给记忆生成，话题仍留在话题池
     idle_timeout_seconds: 3600
     engine:
       enable: true
       fold_token_threshold: 131072
       fold_retain_recent_blocks: 2
+      # 每个 Workspace 同时驻留的话题数；建新话题时池满，最久没用的话题先沉淀再退出话题池
       max_resident_topics: 5
       relay:
         enable: true

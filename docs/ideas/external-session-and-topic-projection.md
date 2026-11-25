@@ -16,7 +16,7 @@ related_docs:
   - docs/todo/conversation-compact-command.md
   - docs/archive/ideas/unified-interaction-memory.md
   - docs/archive/plans/import-bus-authorization-in-capability-layer.md
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-24
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -31,9 +31,9 @@ last_reviewed: 2026-11-20
 - **共用的提交模型**：`InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案；外部输入要补的字段细节待定（第 8 节）。
 - 文中“A1”指访问边界：两阶段认证与两阶段授权（[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
 
-外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。压缩机制见[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)，完整资料保存见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，长 turn 的输入与封口见[专项 Idea](./long-running-agent-intra-turn-context-folding.md)。
+外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。压缩机制见[短期记忆](./short-term-memory-and-context-compaction.md)，完整资料保存见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，长 turn 的输入与封口见[专项 Idea](./long-running-agent-intra-turn-context-folding.md)。
 
-**Topic 与会话解耦**：Topic 不再承担上下文，只是记忆生成的历史材料组织方。实际使用的对话上下文由 ConversationSession 提供，原样积累，不受外界干涉；CPU 管理派生视图的预算与压缩。Patchouli 通过接收到的交互组织材料，不在生成时反向读取 Session 或 CPU 上下文。
+**Topic 与会话解耦**：Topic 不再承担上下文的控制，它组织记忆生成的材料，并以话题的工作状态向前台提供“做到哪了”：另一个会话被路由回已有话题、或会话压缩之后推送，只读出、不控制（[短期记忆](./short-term-memory-and-context-compaction.md)第 7 节）。实际使用的对话上下文由 ConversationSession 提供，原样积累，不受外界干涉；CPU 管理派生视图的预算与压缩。Patchouli 通过接收到的交互组织材料，不在生成时反向读取 Session 或 CPU 上下文。
 
 ### 0.1 会话模型与 Topic 池
 
@@ -49,7 +49,7 @@ last_reviewed: 2026-11-20
 
 | 事项 | 设计 |
 |:---|:---|
-| 会话操作 | 新建与恢复控制对外会话连续性；会话内 compact 的语义与“不设跨会话交接摘要”由[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md#2-已确认的方向与范围)维护 |
+| 会话操作 | 新建与恢复控制对外会话连续性；会话内 compact 的语义与“不设跨会话交接摘要”由[短期记忆](./short-term-memory-and-context-compaction.md#81-已完成的范围)维护 |
 | Topic 与 Session | Topic 不绑定 Session，workspace 共享一个 Topic 池；Gateway 的路由候选为整个 workspace 的 Topic。同一主题在不同会话中的讨论路由到同一个 Topic，记忆材料的语义保持连贯。Session 与 Topic 之间只有路由关联：会话包含若干进程，每个进程的交互记录路由到某个 Topic |
 | 跨会话连续性 | 用户有意分开的会话，靠中期与长期记忆接续；想回到原来的话题时恢复原会话 |
 | Gateway 的会话提示 | 由 Gateway 识别“本轮消息属于另一个会话的话题”，向用户提议恢复已有的会话或新开会话；放到后续版本，现在 Gateway 的话题路由只服务于后台的 Topic 路由 |
@@ -64,7 +64,7 @@ last_reviewed: 2026-11-20
 
 会话资源、Alice 与 Gateway 的会话上下文、有输出的取消与失败提交、前端会话模型已经实现，当前模型与失败语义以[会话资源](../workspace/sessions.md)为准。仍是候选的方向：
 
-- **会话压缩**：由[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)维护，本文只保留外部会话与 CPU 能力之间的关联。
+- **会话压缩**：由[短期记忆](./short-term-memory-and-context-compaction.md)维护，本文只保留外部会话与 CPU 能力之间的关联。
 - **执行环境与外部 harness**：外部会话的恢复和压缩依赖 harness 的能力；会话绑定执行环境的选择见[执行环境 Idea](./execution-environment.md) T-8a，同一 harness 会话切换 Agent 是尽力应用另一份 Profile（第五代架构 P-10a）。面向外部输入的模型演进留给 controller 模式。
 - **会话持久化**：会话只在进程内保存，跨后端重启恢复要另行立项。
 - **Gateway 会话提示**：最近 N 轮与每轮 Topic 关联可以为它提供输入，但提示判断还没有实现；会话 ID 不需要进入 Patchouli。不能用上一轮 Topic 强制偏置路由，否则不利于识别属于另一个会话的内容；提议本身不改变用户的上下文。
@@ -323,13 +323,13 @@ Topic 身份、路由关联和资料快照分别交接。主动意图不要求�
 
 ## 7. 外部上下文与输入资料的交接边界
 
-外部 harness 自主管理 prompt history；adapter 接收它实际提供的交互事件，不因接收记录就接管执行上下文。外部 summary/checkpoint 需携带可识别的来源，不能替代原始交互或直接覆盖 Topic 摘要；详细压缩关系由[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md#7-可共享的技术与专项边界)维护。
+外部 harness 自主管理 prompt history；adapter 接收它实际提供的交互事件，不因接收记录就接管执行上下文。外部 summary/checkpoint 需携带可识别的来源，不能替代原始交互或直接覆盖 Topic 摘要；详细压缩关系由[短期记忆](./short-term-memory-and-context-compaction.md#82-两边的关系与不变量)维护。
 
 本文只维护 Session、interaction 与 Topic 的关联及共同输入的来源表达。完整资料保存和 Artifact 来源链见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，未结束 turn 的摄入见[长 Turn 专项](./long-running-agent-intra-turn-context-folding.md)。
 
 ## 8. 开放问题
 
-本文的剩余事项属于外部输入、路由与资料交接，是候选方向；旧 Passive Ingress 会话键的映射与 Workspace 分区已由 Import Bus 实现（[Import Bus](../system/import-bus.md)第 4.3 节），Alice 的会话压缩由[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)维护。
+本文的剩余事项属于外部输入、路由与资料交接，是候选方向；旧 Passive Ingress 会话键的映射与 Workspace 分区已由 Import Bus 实现（[Import Bus](../system/import-bus.md)第 4.3 节），Alice 的会话压缩由[短期记忆](./short-term-memory-and-context-compaction.md)维护。
 
 ### 8.1 设计问题的归属
 

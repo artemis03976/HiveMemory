@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-rules-and-navigation-by-version
-last_reviewed: 2026-11-21
+last_reviewed: 2026-11-24
 ---
 
 # Plans
@@ -21,6 +21,14 @@ last_reviewed: 2026-11-21
 当前没有活动计划。
 
 - 记忆类型的收敛、AgentProfileStore、生成的记忆指向交互轮次、馆长 agent、试验场第一版与写入时的更新：已完成，见 [Archived Plans](../archive/plans/README.md#v080)。
+
+## v0.8.1
+
+版本目标：短期记忆，摘要见 [ROADMAP](../ROADMAP.md) 第 3.4 节；设计见[短期记忆：话题的工作状态及其维护](../ideas/short-term-memory-and-context-compaction.md)。
+
+当前没有活动计划。
+
+- 结算拆成沉淀与退役：已完成，见 [Archived Plans](../archive/plans/README.md#v081)。
 
 ## 已发布的版本
 

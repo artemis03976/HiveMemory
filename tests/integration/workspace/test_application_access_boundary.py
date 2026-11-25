@@ -49,6 +49,7 @@ from hivememory.core.models import (
     PendingAtomResolution,
     PendingAtomSettlement,
 )
+from hivememory.engines.generation.models import GenerationAction
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
@@ -388,6 +389,7 @@ def _settlement_results(pending_alias: str):
     )
     return [
         MemoryGenerationResult(
+            action=GenerationAction.CREATE,
             canonical_alias="memory_alias",
             settlement=settlement,
         )

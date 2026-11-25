@@ -1,3 +1,5 @@
+import type { Topic } from '@/types';
+
 /** 话题的 tokens 显示：千以下原样，十万以下保留一位小数，更大的取整。 */
 export function formatTokens(tokens: number): string {
   if (tokens < 1000) return String(tokens);
@@ -6,10 +8,16 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
- * 距离空闲自动结算还剩多少分钟（向上取整，已到期为 0）。按最近一次写入估算：
- * 后端以话题最近一次被确认或写入的时间计时，并由周期扫描结算，实际结算可能稍晚。
+ * 距离空闲沉淀还剩多少分钟（向上取整，已到期为 0）；话题没有还没沉淀的交互时为 null：
+ * 空闲只沉淀新的交互，沉淀之后话题留在池中，不再因空闲沉淀，直到再次写入。按最近一次
+ * 写入估算：后端以话题最近一次被确认或写入的时间计时，并由周期扫描沉淀，实际沉淀可能稍晚。
  */
-export function minutesUntilAutoSettle(lastActiveMs: number, idleTimeoutSeconds: number, nowMs: number): number {
-  const remainingMs = lastActiveMs + idleTimeoutSeconds * 1000 - nowMs;
+export function minutesUntilAutoSettle(
+  topic: Pick<Topic, 'lastActive' | 'hasUnsettledInteractions'>,
+  idleTimeoutSeconds: number,
+  nowMs: number,
+): number | null {
+  if (!topic.hasUnsettledInteractions) return null;
+  const remainingMs = topic.lastActive + idleTimeoutSeconds * 1000 - nowMs;
   return remainingMs <= 0 ? 0 : Math.ceil(remainingMs / 60_000);
 }

@@ -6,7 +6,7 @@ import asyncio
 import copy
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -118,23 +118,29 @@ def _require_exact_keys(
 
 
 class _MemoryGenerationWorkAdapter:
-    """Memory Generation 私有工作信封 1.3 的队列适配器。
+    """Memory Generation 私有工作信封 1.4 的队列适配器。
 
     适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
     重建独立的领域任务对象。1.3 起生成材料的轮次带轮次标识与段，交互记录的
-    事件带响应序号。
+    事件带响应序号；1.4 起任务带话题是否随这次结算退役。
     """
 
     kind = "patchouli.memory_generation"
-    schema_version = "1.3"
+    schema_version = "1.4"
 
     @staticmethod
     def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
-        """从领域任务中派生稳定的队列标识和调度元数据。"""
+        """从领域任务中派生稳定的队列标识和调度元数据。
 
+        只有话题结算带顺序键：同一话题的几次沉淀与退役依次执行，后一次执行时才读得到
+        前一次新建、记作本话题写入的记忆，读回的保存工作也按保存顺序执行。其余来源不按
+        话题排序，同一话题的写入照常并行生成。
+        """
+
+        settles = work.spec.source == MemoryGenerationSource.SETTLE
         return QueueTaskIdentity(
             work_id=MemoryGenerationQueue.work_id_for(work.task_id),
-            ordering_key=work.topic_id,
+            ordering_key=work.topic_id if settles else None,
             correlation_id=work.intent_id or work.pending_alias or work.task_id,
             idempotency_key=work.task_id,
         )
@@ -163,6 +169,7 @@ class _MemoryGenerationWorkAdapter:
                 "interaction_input": self._encode_interaction_input(spec.interaction_input),
                 "intent_id": spec.intent_id,
                 "pending_alias": spec.pending_alias,
+                "retires_topic": spec.retires_topic,
             },
         }
 
@@ -191,12 +198,16 @@ class _MemoryGenerationWorkAdapter:
                 "interaction_input",
                 "intent_id",
                 "pending_alias",
+                "retires_topic",
             },
             field_name="memory generation payload.spec",
         )
         raw_request = raw_spec.get("request")
         raw_scope = raw_spec.get("belong_to")
         raw_actor = raw_spec.get("from_actor")
+        retires_topic = raw_spec.get("retires_topic")
+        if not isinstance(retires_topic, bool):
+            raise TypeError("memory generation payload.spec.retires_topic must be a boolean")
         if not isinstance(raw_request, dict):
             raise TypeError("memory generation payload.spec.request must be an object")
         if not isinstance(raw_scope, dict):
@@ -234,6 +245,7 @@ class _MemoryGenerationWorkAdapter:
                     raw_spec.get("pending_alias"),
                     field_name="pending_alias",
                 ),
+                retires_topic=retires_topic,
             ),
         )
         # 重新编码并比较整个领域 DTO，拒绝嵌套模型为兼容旧入口而忽略的额外
@@ -328,13 +340,29 @@ class MemoryGenerationHandle(TaskHandle[MemoryGenerationResults]):
         self._commit_started = True
 
 
-class _SavedWorkV12Adapter(_MemoryGenerationWorkAdapter):
+class _SavedWorkV13Adapter(_MemoryGenerationWorkAdapter):
+    """只用于读回升级前以 1.3 保存的工作：那时任务还不带话题是否随结算退役。
+
+    那时每次话题结算都结束话题，结算任务因此补为退役，执行后照旧清除本话题的写入记录；
+    其余来源补为不退役。其余字段与 1.4 相同，补齐后按 1.4 的规则严格解码。
+    """
+
+    schema_version = "1.3"
+
+    def decode(self, payload: object) -> _MemoryGenerationWork:
+        upgraded = cast(dict[str, Any], copy.deepcopy(payload))
+        spec = upgraded["spec"]
+        spec["retires_topic"] = spec["source"] == MemoryGenerationSource.SETTLE.value
+        return super().decode(upgraded)
+
+
+class _SavedWorkV12Adapter(_SavedWorkV13Adapter):
     """只用于读回升级前以 1.2 保存的工作：那时生成材料的轮次没有轮次标识与段，交互记录的
     事件没有响应序号。
 
     补成空的轮次标识、空的段与空的响应序号：材料不印段标签，模型无从引用，工作照常执行，
-    生成的版本记录不带引用。其余字段与 1.3 相同，补齐后按 1.3 的规则严格解码；结构不对的
-    载荷在这里或严格解码时被拒绝，由读回方写进 rejected 文件。
+    生成的版本记录不带引用。其余字段与 1.3 相同，补齐后按 1.3 的读回规则继续补齐；结构不对
+    的载荷在这里或严格解码时被拒绝，由读回方写进 rejected 文件。
     """
 
     schema_version = "1.2"
@@ -472,7 +500,8 @@ class MemoryGenerationQueue:
         self._adapter = _MemoryGenerationWorkAdapter()
         self._codecs = WorkPayloadCodecRegistry()
         self._codecs.register(self._adapter)
-        # 升级前保存的工作仍按 1.1 与 1.2 读回；新工作只以当前版本编码。
+        # 升级前保存的工作仍按 1.1、1.2 与 1.3 读回；新工作只以当前版本编码。
+        self._codecs.register(_SavedWorkV13Adapter())
         self._codecs.register(_SavedWorkV12Adapter())
         self._codecs.register(_SavedWorkV11Adapter())
         self._handles: dict[str, MemoryGenerationHandle] = {}
@@ -487,17 +516,18 @@ class MemoryGenerationQueue:
             worker_poll_interval_seconds=0.02,
             shutdown_wait_seconds=2.0,
         )
+        policy = policy or QueuePolicy(
+            capacity=128,
+            max_concurrency=2,
+            timeout_seconds=300.0,
+            max_attempts=1,
+            terminal_retention=100,
+        )
+        # 同一话题的结算必须依次执行（见 identity），这不是可调的配置项。
         self._lane = self._runtime.register_lane(
             self.LANE,
             handler=self._handler,
-            policy=policy
-            or QueuePolicy(
-                capacity=128,
-                max_concurrency=2,
-                timeout_seconds=300.0,
-                max_attempts=1,
-                terminal_retention=100,
-            ),
+            policy=replace(policy, ordered_by_key=True),
         )
         self._start_lock = asyncio.Lock()
 

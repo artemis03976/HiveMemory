@@ -16,6 +16,7 @@ from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement, WriteFocus
 from hivememory.core.models.pending import PendingAtomStatus
+from hivememory.engines.generation.models import GenerationAction
 from hivememory.patchouli.application.memory_intent_submission_service import (
     MemoryIntentSubmissionService,
 )
@@ -63,11 +64,12 @@ async def chain():
         await finish.wait()
         return [
             MemoryGenerationResult(
+                action=GenerationAction.TOUCH,
                 settlement=PendingAtomSettlement(
                     pending_alias=spec.pending_alias,
                     intent_id=spec.intent_id,
                     resolution=PendingAtomResolution.DISCARDED,
-                )
+                ),
             )
         ]
 

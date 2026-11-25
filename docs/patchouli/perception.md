@@ -20,7 +20,7 @@ related_contracts:
   - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-19
+last_reviewed: 2026-11-24
 ---
 
 # 感知与短期话题
@@ -51,11 +51,11 @@ LogicalBlock = TurnRecord + perception metadata
 
 ### 1.3 话题：原始数据与工作视图
 
-Perception 以 `TopicData` 快照维护话题。快照只存两份原始数据：`interactions` 按接收顺序保存话题接收到的全部交互（`LogicalBlock`），只追加，话题结束前不移除；`folds` 按顺序保存每次折叠的 `TopicFold`，即这一次被折叠的块标识、折叠后的状态摘要与折叠时间。快照另含展示 title/summary、资产绑定与最近模型名。
+Perception 以 `TopicData` 快照维护话题。快照只存两份原始数据：`interactions` 按接收顺序保存话题接收到的全部交互（`LogicalBlock`），只追加，话题结束前不移除；`folds` 按顺序保存每次折叠的 `TopicFold`，即这一次被折叠的块标识、折叠后的状态摘要与折叠时间。快照另含展示 title/summary、资产绑定、最近模型名，以及 `settled_interaction_count`：最近一次被生成队列接纳的沉淀覆盖到第几个交互（第 4 节）。`has_unsettled_interactions` 由它派生，表示最近一次沉淀之后是否接收过新交互，没有接收过交互的话题为假。
 
 工作视图由两份原始数据派生，不单独存储：`blocks` 是最后一次折叠之后的交互记录，`state_summary` 是最后一次折叠的摘要（没有折叠时为空串），`total_tokens` 是 `blocks` 的 token 之和。读取话题内容的消费方（折叠选择、Gateway 查询分析、主动生成与话题快照）读的都是工作视图。工作视图不另存一份，是为了不让同一事实有两份表达：分开存储的副本需要在每次写入与折叠时维持“工作视图是交互记录的后缀”，派生则不会失去一致。构造时校验全部折叠记录依次拼接，必须等于交互记录开头同样数量的块标识；`TopicData` 拒绝未声明的字段，以 `blocks=` 等工作视图名构造时显式失败。
 
-话题只经 core 话题模型的两个写函数写入：`merge_interaction_into_topic` 只向交互记录追加一轮（以及首次资产绑定），`fold_topic` 只追加一条折叠记录。两者都以完整构造（`TopicData.model_validate`）产生新快照：Pydantic 的 `model_copy(update=...)` 不运行校验器，用它写回会绕过构造校验。
+话题只经 core 话题模型的三个写函数写入：`merge_interaction_into_topic` 只向交互记录追加一轮（以及首次资产绑定），`fold_topic` 只追加一条折叠记录，`mark_topic_settled` 只改沉淀进度、不改内容与最近写入时间。三者都以完整构造（`TopicData.model_validate`）产生新快照：Pydantic 的 `model_copy(update=...)` 不运行校验器，用它写回会绕过构造校验。
 
 快照只承载内容事实：执行占用不建模为记录字段（原 `BufferState` 状态机与 `last_accessed_at` 访问时间已删除），跨 await 的占用权由 `TopicWorkingSet` 的 lease 表达，访问顺序由 WorkingSet 的 LRU 索引维护。短期 adapter 直接存储 frozen `TopicData`，Store/Port 与 Perception 之间只交接不可变快照；生命周期写回由 PerceptionFamiliar 编排。
 
@@ -112,9 +112,9 @@ InteractionPayload（构造时已校验一轮的不变量）
 
 它服务于写入：写入需要一个已存在的话题作为派发话题，话题的状态摘要与最近 blocks 是生成材料。任务进程在 PREPARE 确认 Gateway 指向的已有话题并冻结为派发话题，在本轮第一次写入时建立 Gateway 指向的新话题；Import Bus 为外部 harness 写入时的一轮确定话题。交互本身不需要提前建立话题：Gateway 指向新话题而本轮没有写入时，以 `NEW_TOPIC` 提交，由 `apply_interaction()` 在应用时建立。两条路径共用同一套驱逐与建立（`_maybe_evict_lru` 与 `_ensure_topic`），新话题因此只在第一次写入或交互应用时进入话题池。
 
-当需要创建新话题且活跃池达到 `max_resident_topics` 时，`TopicWorkingSet.needs_eviction()` 判定容量、`select_lru_candidate()` 从驻留索引（OrderedDict，O(k)）选出最久未访问且未被占用（lease）的话题，按 `LRU_EVICTION` 结算并提交后台 generation task，然后从 Store 与驻留集合移除。已有话题命中不会为了“置顶”而误驱逐另一话题；候选被占用时改选其他话题，全部被占用时抛出 `TopicBusyError` 留待重试。容量与候选以 WorkingSet 驻留索引为准，Store 只表达内容事实。LRU 结算随建立话题发生：没有建立话题的轮次不触发结算；驱逐失败（候选都被占用、结算材料未被生成队列接纳）发生在第一次写入时，错误交回这次写入；发生在交互应用时，交互按提交队列的规则重试或应用失败。
+当需要创建新话题且活跃池达到 `max_resident_topics` 时，`TopicWorkingSet.needs_eviction()` 判定容量、`select_lru_candidate()` 从驻留索引（OrderedDict，O(k)）选出最久未访问且未被占用（lease）的话题让它退役：有未沉淀的交互时先按 `LRU_EVICTION` 沉淀并提交后台 generation task，然后从 Store 与驻留集合移除；没有时直接移除。已有话题命中不会为了“置顶”而误驱逐另一话题；候选被占用时改选其他话题，全部被占用时抛出 `TopicBusyError` 留待重试。容量与候选以 WorkingSet 驻留索引为准，Store 只表达内容事实。LRU 结算随建立话题发生：没有建立话题的轮次不触发结算；驱逐失败（候选都被占用、结算材料未被生成队列接纳）发生在第一次写入时，错误交回这次写入；发生在交互应用时，交互按提交队列的规则重试或应用失败。
 
-话题准备与应用都会确保话题存在：已有话题在两者之间可能被空闲结算或驱逐，应用时话题已不存在则以 `ResourceNotFoundError` 失败，交互没有写入任何话题。建立之后没有接收交互的话题（例如确定话题之后进程收到停止、写入后 CPU 没有输出、外部 harness 的这一轮没有回流）不另行补偿：它不是 Gateway 的候选话题，由空闲结算、LRU 或关闭结算按没有材料的话题结束生命周期，不触发生成。
+话题准备与应用都会确保话题存在：已有话题在两者之间可能已经退役或被删除，应用时话题已不存在则以 `ResourceNotFoundError` 失败，交互没有写入任何话题。建立之后没有接收交互的话题（例如确定话题之后进程收到停止、写入后 CPU 没有输出、外部 harness 的这一轮没有回流）不另行补偿：它不是 Gateway 的候选话题，空闲时直接退役，或由 LRU、关闭时退役，不触发生成。
 
 ## 4. 触发原因与具名用例
 
@@ -123,30 +123,30 @@ settle / compact / evict 是三个概念独立的具名用例，由 `PerceptionF
 | 原因（provenance） | 触达的用例 | 当前结果 |
 |:---|:---|:---|
 | `TOKEN_OVERFLOW` | compact | 折叠工作视图的旧前缀、追加折叠记录，话题继续存活 |
-| `IDLE_TIMEOUT` | settle | 维护扫描中提交候选材料并移出活跃池 |
-| `LRU_EVICTION` | settle | 为新话题腾出位置 |
-| `SHUTDOWN` | settle | 停机前结算并驱逐（含真正空 Topic） |
-| `MANUAL_SETTLE` | settle | 手动结算为记忆资产并结束 Topic 生命周期 |
+| `IDLE_TIMEOUT` | settle（沉淀） | 维护扫描中沉淀有未沉淀交互的话题，话题留在话题池；从没接收过交互的空话题直接退役 |
+| `LRU_EVICTION` | settle（退役） | 为新话题腾出位置，退役前沉淀未沉淀的交互 |
+| `SHUTDOWN` | settle（退役） | 停机前让全部驻留话题退役，退役前沉淀未沉淀的交互（含真正空 Topic） |
+| `MANUAL_SETTLE` | settle（退役） | 沉淀未沉淀的交互并结束 Topic 生命周期 |
 | `MANUAL_COMPACT` | compact | 历史触发原因；当前无公开手动 compact 入口，compact 仅在 token 溢出时自动触发 |
 | `MANUAL_DELETE` | evict | 历史触发原因；手动删除通过 `evict_topic` 用例表达，不写记忆 |
 
 三个用例的职责边界：
 
-- **settle**（`_settle_topic` 统一时序，所有来源共用）：获取 lease → 冻结全部交互记录与折叠记录，构建 `TopicMaterializeTask` → 锁外 generation admission → 删除话题并移除驻留。admission 失败时话题内容原样保留可重试，无需 abort——记录从未被改动。
+- **settle**（`_settle_topic` 统一时序，所有来源共用）：结算分成沉淀与退役。沉淀把话题新的交互交给生成，话题留在话题池；退役让话题离开话题池，退役前先沉淀还没有沉淀的交互。用户会断断续续地回到同一件事，空闲时退役会把连续的工作切成几个话题，所以空闲只沉淀，退役只由 LRU、手动结算与关闭触发；是否退役由调用的用例决定，不读触发原因。时序为：获取 lease → 话题有未沉淀的交互时冻结全部交互记录与折叠记录（不只是新增的部分），构建带 `retires_topic` 的 `TopicMaterializeTask` → 锁外 generation admission → 沉淀经 `mark_topic_settled` 记下这次覆盖到的交互数，话题留在存储与驻留中、不刷新访问时间；退役删除话题并移除驻留。没有未沉淀的交互时不生成：沉淀什么也不做，退役直接删除话题。admission 失败时话题与沉淀进度原样保留可重试，无需 abort——记录从未被改动。
 - **compact**（`compact_topic`，是否需要由 `needs_compact` 判断）：取得 lease 后，把工作视图中保留后缀之前的旧 blocks 交给 RelayController 生成新的状态摘要，再经 `fold_topic` 追加一条折叠记录写回。被折叠的块仍留在交互记录中，工作视图向后推进，token 统计随之只计入保留的块。话题已被结算或驱逐时直接结束，正被占用时以 `TopicBusyError` 留待重试；摘要返回后才一次写回，中途失败或取消都不改动话题。
 - **evict**（`evict_topic`）：从 Store 与驻留集合移除话题，不结算、不写记忆；话题被占用时报 `removed=False` 而不是阻塞。
 
-三个用例的结局各有一个运行时事件（[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)第 4 节）：新建话题发 `topic.created`（`created_by` 为 `interaction` 或 `prepare`），话题以 settle 结束发 `topic.settled`（带触发原因与是否提交了生成），evict 删除话题发 `topic.deleted`。admission 失败、话题保留时不发 `topic.settled`；compact 不发话题事件，以 Work Queue 的 `work.*` 出现。事件只是旁路观测，发布失败不影响话题的存储与结算。
+三个用例的结局各有一个运行时事件（[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)第 4 节）：新建话题发 `topic.created`（`created_by` 为 `interaction` 或 `prepare`），每次沉淀或退役发 `topic.settled`（带触发原因、是否提交了生成，以及是否随之退役），evict 删除话题发 `topic.deleted`。admission 失败、话题保留时不发 `topic.settled`；compact 不发话题事件，以 Work Queue 的 `work.*` 出现。事件只是旁路观测，发布失败不影响话题的存储与结算。
 
 历史上曾由 `TriggerManager`/`TRIGGER_PLANS` 决策矩阵与记录字段状态机（`BufferState`）承担这些流程，现已删除：占用权建模为 WorkingSet 的 lease，而不是记录状态，补偿校验随之消失。
 
-`TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照：携带话题的全部交互记录与折叠记录，工作视图用与 `TopicData` 相同的 core 派生函数得到；此外只携带 `belong_to` 与已确认的 `asset_bindings`，不携带触发结算的 actor 或 `IdentityScope`。生成材料是工作视图（`state_summary` 与未折叠的 blocks），来源 InteractionArtifact 覆盖全部交互记录并带折叠记录（[记忆生成](./generation.md)、[Artifacts](./artifacts.md)）。Coordinator 为 manual、idle、LRU、shutdown 统一构造所属 Workspace 的 `system` 发起者，实际参与 Agent 从 turn identity 聚合为贡献者；结算的查重（一次性生成）与馆长的读取都只能读到本 Workspace 的 PUBLIC 记忆。结算交给 Generation 之后，按 `patchouli.generation.settle_mode` 选择的方式生成（一次性生成或馆长，见[记忆生成](./generation.md#31-mode-a被动观察--archive)第 3.1 节）；感知侧的结算时序、冻结的交接事实与 admission 不随方式变化。进入队列后，后续处理使用冻结的交接事实，不能从当前进程状态重新推导 Workspace、读取权限或资产关系。
+`TopicMaterializeTask` 是 Perception 交给 Generation 的冻结快照：携带话题的全部交互记录与折叠记录，工作视图用与 `TopicData` 相同的 core 派生函数得到；此外只携带 `belong_to`、已确认的 `asset_bindings` 与 `retires_topic`。同一话题会被沉淀多次，每次都冻结全部交互，此前沉淀出的记忆由生成侧记作本话题的写入（[记忆生成](./generation.md#42-本话题的写入)第 4.2 节），不携带触发结算的 actor 或 `IdentityScope`。生成材料是工作视图（`state_summary` 与未折叠的 blocks），来源 InteractionArtifact 覆盖全部交互记录并带折叠记录（[记忆生成](./generation.md)、[Artifacts](./artifacts.md)）。Coordinator 为 manual、idle、LRU、shutdown 统一构造所属 Workspace 的 `system` 发起者，实际参与 Agent 从 turn identity 聚合为贡献者；结算的查重（一次性生成）与馆长的读取都只能读到本 Workspace 的 PUBLIC 记忆。结算交给 Generation 之后，按 `patchouli.generation.settle_mode` 选择的方式生成（一次性生成或馆长，见[记忆生成](./generation.md#31-mode-a被动观察--archive)第 3.1 节）；感知侧的结算时序、冻结的交接事实与 admission 不随方式变化。进入队列后，后续处理使用冻结的交接事实，不能从当前进程状态重新推导 Workspace、读取权限或资产关系。
 
-手动用例互不混杂：`manual_settle_topic` 只结算并在结算材料被可靠接纳后删除话题；token 溢出 compact 只压缩工作集，不结算、不驱逐（当前没有公开的手动 compact 入口，`MANUAL_COMPACT` 仅作为 provenance 保留）；`evict_topic` 只驱逐、不生成记忆。manual settle 的提交顺序固定为冻结 settlement payload → generation admission 成功 → 删除；admission 失败抛出受控错误且 Topic 的交互记录与折叠记录保持完整可重试。无任务（真正空 Topic）时 settle 仍按契约结束生命周期并返回成功，以 `generation_submitted` 表达是否建立后台任务。
+手动用例互不混杂：`manual_settle_topic` 沉淀未沉淀的交互、在材料被可靠接纳后让话题退役（没有未沉淀的交互时直接退役）；token 溢出 compact 只压缩工作集，不结算、不驱逐（当前没有公开的手动 compact 入口，`MANUAL_COMPACT` 仅作为 provenance 保留）；`evict_topic` 只驱逐、不生成记忆。manual settle 的提交顺序固定为冻结 settlement payload → generation admission 成功 → 删除；admission 失败抛出受控错误且 Topic 的交互记录与折叠记录保持完整可重试。无任务（真正空 Topic）时 settle 仍按契约结束生命周期并返回成功，以 `generation_submitted` 表达是否建立后台任务。
 
 ### 内容判空语义
 
-Topic 是否为空只看是否接收过交互：`has_content` 为交互记录非空，`is_empty` 为其否定。折叠不移除交互记录，有折叠摘要的话题一定有交互记录；话题列表（排除空话题时）与折叠判断都使用这一判断，接收过交互的话题不会被当作空话题。没有接收交互的话题可能已经承载过写入的派发，Perception 不据此删除它，只在结算时按没有材料结束其生命周期。真正空 Topic 没有可 settle/compact 的内容，但 settle 仍会正常结束其生命周期。compact 不支持“总结后清空全部 blocks”的 `retain_count=0` 语义：所有 compact 配置与内部入口都要求 `retain_recent_blocks >= 1`。
+Topic 是否为空只看是否接收过交互：`has_content` 为交互记录非空，`is_empty` 为其否定。折叠不移除交互记录，有折叠摘要的话题一定有交互记录；话题列表（排除空话题时）与折叠判断都使用这一判断，接收过交互的话题不会被当作空话题。没有接收交互的话题可能已经承载过写入的派发，Perception 不据此立即删除它，它在空闲超时时直接退役，或在 LRU、手动结算与关闭时退役，都不生成。真正空 Topic 没有可 settle/compact 的内容，但 settle 仍会正常结束其生命周期。compact 不支持“总结后清空全部 blocks”的 `retain_count=0` 语义：所有 compact 配置与内部入口都要求 `retain_recent_blocks >= 1`。
 
 这层返回值边界很重要：底层感知算法可以决定“应交出哪些材料”，但后台任务、事件和取消属于上层控制面。
 
@@ -192,14 +192,14 @@ Engine 不持有 Store / Queue，也不导入 `hivememory.patchouli.*`，可被�
 
 ## 7. 维护与关闭
 
-全局 scheduler 定期调用 `scan_idle_buffers_once()`；候选来自 WorkingSet 的 idle 查询（访问时间超时且未被 lease 占用），逐个执行统一 settle 时序，admission 失败记录警告并留待下一轮。关闭时 Patchouli 先关闭折叠——排队中的折叠项直接结束，进行中的折叠被取消，不改动话题——再排空提交队列（一并等待折叠项收尾，释放 lease），之后 `flush_all_for_shutdown()` 对全部驻留话题执行同一时序，结算带走话题的全部交互记录与折叠记录。生成队列此时已停止取新工作，结算产生的任务只入队、不执行，与队列中其他未执行的工作一起保存到磁盘，下次启动后继续（[记忆生成](./generation.md#62-提交阶段关闭时保存与启动时继续)）；真正空 Topic 没有可提交材料，但仍正常结束生命周期并计入 `generation_skipped_topic_ids`。单个话题的占用冲突或 admission 异常被隔离到报告的 `failed_topic_ids`，不阻止其余话题清理。
+全局 scheduler 定期调用 `scan_idle_buffers_once()`；候选来自 WorkingSet 的 idle 查询（访问时间超时且未被 lease 占用），有未沉淀交互的逐个沉淀，从没接收过交互的空话题直接退役，admission 失败记录警告并留待下一轮。沉淀之后话题留在池中、访问时间不变，没有新交互就不会再被沉淀，同一段空闲因此不会反复沉淀；话题接收新交互后重新计时。关闭时 Patchouli 先关闭折叠——排队中的折叠项直接结束，进行中的折叠被取消，不改动话题——再排空提交队列（一并等待折叠项收尾，释放 lease），之后 `flush_all_for_shutdown()` 让全部驻留话题退役，有未沉淀交互的先沉淀，带走话题的全部交互记录与折叠记录。生成队列此时已停止取新工作，结算产生的任务只入队、不执行，与队列中其他未执行的工作一起保存到磁盘，下次启动后继续（[记忆生成](./generation.md#62-提交阶段关闭时保存与启动时继续)）；没有未沉淀交互的话题（含真正空 Topic）不提交生成，仍正常退役并计入 `generation_skipped_topic_ids`。单个话题的占用冲突或 admission 异常被隔离到报告的 `failed_topic_ids`，不阻止其余话题清理。
 
 手动 settle 返回 `TopicSettleResult`，通过可选 `generation_task_id` 与派生的 `generation_submitted` 表达是否建立后台任务；无任务不等于生命周期失败。手动 evict（删除话题）返回 `TopicEvictionResult`，明确“不触发结算、不写记忆”，适合用户主动丢弃短期话题；manual compact 只压缩工作集，不结算、不驱逐。三种手动操作互不混用。Patchouli 业务结果不再放在 `services/perception.py`，server 层只在 HTTP 边界投影为响应模型。shutdown 批处理使用 `runtime.models.TopicShutdownFlushReport` 记录已结算 Topic、未建立 generation task 的正常 skip 子集，以及结算前驻留 block 数量；该运行时报告不进入 HTTP 链路，异常也不会被归入正常 skip。
 
 ## 8. 当前限制
 
-- 短期话题是进程内状态，异常退出可能丢失未结算的交互记录；
-- 话题在结算前保存全部交互记录，折叠不释放内存；进程内没有容量上限或背压，单个话题的内存占用与结算载荷随轮次增长；
+- 短期话题是进程内状态，异常退出可能丢失未结算的交互记录；正常关闭时全部话题沉淀并退役，重启后话题池为空，跨重启继续同一话题要重新建立；
+- 话题在退役前保存全部交互记录，折叠与沉淀都不释放内存；进程内没有容量上限以外的背压，话题在池中待得更久，单个话题的内存占用与结算载荷随轮次增长，每次沉淀都保存一份覆盖全部交互的来源 InteractionArtifact；
 - token 统计是对整轮材料（只截断工具结果）的估算，不是模型级精确 tokenizer 预算；
 - 块的 token 统计计入完整的思考、工具参数与截断后的工具结果，工具密集的轮次会更早触发折叠；单个轮次没有总量上限，LLM relay 的近期事件同样包含这些材料，输入越大越可能触及 `summary_timeout_seconds` 或超出模型窗口而回退为规则摘要，规则摘要只列工具名；
 - `fold_retain_recent_blocks` 只限制 block 数量，不保证保留后缀的 token 总量低于阈值；单个超大 block 也可能超过软水位线；
@@ -214,4 +214,4 @@ Engine 不持有 Store / Queue，也不导入 `hivememory.patchouli.*`，可被�
 
 调整这些语义时必须同时检查 Generation、Artifacts、Import Bus 与 shutdown drain，因为“何时丢弃交互记录”本质上是数据耐久性边界，而不只是一个摘要算法参数。
 
-token-aware 保留、summary-only Topic 与 Relay 优化等议题见[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md)第 6 节；完整资料与来源保存见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)第 9 节；长 turn 与跨入口专项见[Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md)第 14 节。
+token-aware 保留、summary-only Topic 与 Relay 优化等议题见[短期记忆 Idea](../ideas/short-term-memory-and-context-compaction.md)第 6 节；完整资料与来源保存见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)第 9 节；长 turn 与跨入口专项见[Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md)第 14 节。

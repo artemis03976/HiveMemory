@@ -61,7 +61,8 @@ class MemoryGenerationCoordinator:
         """将话题结算转为 SETTLE 任务，统一以归属对应的 system 为发起者。
 
         生成材料是话题的工作视图；来源记录冻结全部交互记录与折叠记录，覆盖
-        已折叠的轮次。
+        已折叠的轮次。任务带上话题是否随这次沉淀退役，控制面据此决定本话题的写入
+        记录是保留还是清除。
         """
         gen_context = self._transcript_builder.build_context(
             payload.blocks,
@@ -88,6 +89,7 @@ class MemoryGenerationCoordinator:
                 folds=payload.folds,
                 asset_bindings=payload.asset_bindings,
             ),
+            retires_topic=payload.retires_topic,
         )
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,

@@ -21,7 +21,7 @@ last_reviewed: 2026-10-20
 ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是两项各自独立的工作：
 
 - **compact 归属前台**：压缩的对象是 CPU 基于会话派生的上下文。用户发出的 `/compact` 指令，对外部 Actor 是触发其 harness 自带的压缩，对 Alice 则需要 Alice 自己实现压缩。
-- **后台的记忆 Topic 管理继续使用 page folding**：主要面向 Topic 累计消息过长时，保证输入 Patchouli 记忆生成的资料不会导致上下文爆炸。这是另一个问题，候选优化见[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md#6-patchouli-topic-page-folding-优化)，不在本 Todo 范围内。
+- **后台的记忆 Topic 管理继续使用 page folding**：主要面向 Topic 累计消息过长时，保证输入 Patchouli 记忆生成的资料不会导致上下文爆炸。这是另一个问题，候选优化见[短期记忆 Idea](../ideas/short-term-memory-and-context-compaction.md#6-折叠只为材料服务)，不在本 Todo 范围内。
 
 本 Todo 由原“Topic `/compact` 系统指令接入”（`docs/todo/topic-compact-command-ingress.md`，重写前最后版本见 commit `74b5056`）重写。原问题——用户能从聊天前端用 `/compact` 压缩上下文——仍然有效，但形式发生了变化：压缩对象从 Patchouli 的 Topic 工作集改为 CPU 的会话上下文。原设计中经 Gateway dispatcher 执行命令、由前端传播 `current_topic_id`、调用 Patchouli Topic manual compact 的路径不再成立：dispatcher 已删除，前端回归会话模型后已取消“当前 Topic”概念。
 
@@ -31,7 +31,7 @@ ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是�
 - ConversationSession 已落地；Alice 从输入清单取得完整会话原文与检查点，构建压缩后的执行视图，Session 原文不变。
 - CPU 端口（`workspace.contracts.CPUPort`）只有执行入口 `execute`，没有压缩操作，也没有声明是否支持压缩的方式（[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节）。
 - Alice 的自动会话压缩已经完成，当前算法见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)；手动命令尚未接线。对外部 harness 的触发仍取决于其驱动协议或 SDK。
-- 会话操作中的压缩已决定由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图，Session 记录保持原样（[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md#2-已确认的方向与范围)）。
+- 会话操作中的压缩已决定由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图，Session 记录保持原样（[短期记忆 Idea](../ideas/short-term-memory-and-context-compaction.md#81-已完成的范围)）。
 
 ## 影响
 

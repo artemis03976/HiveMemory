@@ -197,6 +197,7 @@ class TestMemoryGenerationCoordinator:
             interactions=blocks,
             folds=(fold,),
             belong_to=_identity_scope().workspace_identity,
+            retires_topic=True,
         )
 
         task = await coordinator.submit_settlement(payload)
@@ -217,6 +218,7 @@ class TestMemoryGenerationCoordinator:
         assert spec.interaction_input.topic_title == "title"
         assert spec.interaction_input.blocks == blocks
         assert spec.interaction_input.folds == (fold,)
+        assert spec.retires_topic is True
 
     @pytest.mark.asyncio
     async def test_submit_settlement_skips_empty_generation_context(self):
@@ -227,6 +229,7 @@ class TestMemoryGenerationCoordinator:
             topic_id="empty",
             topic_title="empty",
             belong_to=_identity_scope().workspace_identity,
+            retires_topic=True,
         )
 
         task = await coordinator.submit_settlement(payload)

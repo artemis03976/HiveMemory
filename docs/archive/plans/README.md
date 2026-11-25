@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-21
+last_reviewed: 2026-11-24
 ---
 
 # Archived Plans
@@ -11,6 +11,10 @@ last_reviewed: 2026-11-21
 本目录保存 2026-11-18 之前已经完成或被替代、且当前事实已经合并进规范文档的实施计划，它们保持冻结。每条登记一行：归档日期、实现所在的 PR（未合并时为提交）与替代它的当前文档；实施过程、验收与决定见各计划自身的状态行与实施记录。
 
 此后完成的计划在收尾时删除，不再存入本目录（[文档治理规范](../../DOCUMENTATION.md)第 10 节），只在对应版本下登记一行：标题、完成日期、PR，以及删除前最后版本所在的 commit。计划正文用 `git show <commit>:docs/plans/<文件名>` 取回（计划与实施在同一个 PR 中时经该 PR 的提交取回），验收结果与实施中的发现见该 PR 合并到主线的提交说明，仍约束当前设计的决定已写进当前事实文档或 ADR。
+
+## v0.8.1
+
+- 结算拆成沉淀与退役：空闲时只沉淀，话题留在话题池：2026-11-24，PR #240；删除前最后版本在 `e580a3b4`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[记忆生成](../../patchouli/generation.md#42-本话题的写入)
 
 ## v0.8.0
 
@@ -27,7 +31,7 @@ last_reviewed: 2026-11-21
 - [v0.7.3 版本收尾审计](./v0.7.3-release-closeout-audit.md)：2026-11-04，PR #179；[PROJECT](../../PROJECT.md)
 - [主动写入沿用 agent 的标题](./v0.7.3-write-title-kept.md)：2026-11-03，PR #178；[Patchouli 生成](../../patchouli/generation.md#32-mode-b主动-write)、[MCP 记忆访问](../../contracts/mcp.md#3-工具)
 - [生成任务失败带原因码](./v0.7.3-generation-failure-reason-codes.md)：2026-11-03，PR #177；[Patchouli 生成](../../patchouli/generation.md#61-失败原因码)、[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)
-- [话题内主动写入优先](./v0.7.3-topic-active-write-precedence.md)：2026-11-03，PR #176；[Patchouli 生成](../../patchouli/generation.md#42-本话题的主动写入)
+- [话题内主动写入优先](./v0.7.3-topic-active-write-precedence.md)：2026-11-03，PR #176；[Patchouli 生成](../../patchouli/generation.md#42-本话题的写入)
 
 ## 版本之外
 

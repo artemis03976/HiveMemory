@@ -1,150 +1,245 @@
 ---
-title: 短期记忆与上下文压缩
+title: 短期记忆：话题的工作状态及其维护
 status: idea
-horizon: candidate
-owner: alice-patchouli-workspace
-scope: execution-working-memory-and-topic-working-set-compaction
+horizon: current
+serves_version: v0.8.1
+owner: patchouli-workspace-system
+scope: v0.8.1-short-term-memory-topic-work-state-lifecycle-folding-and-push
+code_paths:
+  - src/hivememory/core/models/topic.py
+  - src/hivememory/patchouli/services/perception.py
+  - src/hivememory/engines/perception/
+  - src/hivememory/i18n/prompts.py
+  - src/hivememory/workspace/capability/root/topic.py
+  - src/hivememory/workspace/capability/actor/memory.py
+  - src/hivememory/engines/gateway/topic_router.py
+  - integrations/hivememory/
 related_current:
-  - docs/alice/agent-runtime.md
   - docs/patchouli/perception.md
   - docs/patchouli/generation.md
-  - docs/workspace/README.md
-  - docs/contracts/subsystem-contracts.md
+  - docs/alice/agent-runtime.md
+  - docs/workspace/sessions.md
+  - docs/workspace/capability.md
+  - docs/system/import-bus.md
+  - docs/contracts/mcp.md
 related_ideas:
+  - docs/ideas/memory-flow-short-to-mid-term.md
+  - docs/ideas/memory-flow-write-path.md
+  - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
-  - docs/ideas/long-running-agent-intra-turn-context-folding.md
 related_docs:
   - docs/research/agent-context-compaction-research.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-24
 ---
 
-# 短期记忆与上下文压缩
+# 短期记忆：话题的工作状态及其维护
 
-Alice compact 管理 Agent 继续执行所需的工作记忆；Patchouli page folding 管理话题理解与记忆生成所需的工作集。两者基于交互事实产生各自的有界视图，可以共享预算与摘要机制，但分别维护摘要、覆盖边界和生命周期。完整原始资料的保存由[全链路 Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md)维护。
+## 0. 文档性质
 
-正文是已定的设计，候选设计标“候选”。Alice 的会话自动压缩已经实现，当前事实见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)；本文剩余的 Topic folding 优化、质量评估与共享机制是候选，原始资料链与长 Turn 分属各自专项。
+本文是 v0.8.1 的设计：短期记忆以话题为载体，话题的工作状态回答“做到哪了”；包括它由什么组成、什么时候写、话题的生命周期、折叠，以及前台在什么时候用到它。正文是已定的设计，候选设计标“候选”；已经实现的部分以当前事实文档为准，本文只链接。
 
-## 1. 两种短期记忆的意义
+相邻的设计各在一处维护：一轮进行中的事件接收、封口与恢复见[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)；原始资料的保存见[全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md)；沉淀时写什么、主动写入能拿到什么材料，属于短期到中期的过渡，见[写入链路](./memory-flow-write-path.md)与 [v0.8 总纲](./memory-flow-short-to-mid-term.md)；会话与话题的交接与路由见[外部会话 Idea](./external-session-and-topic-projection.md)。
 
-“短期”描述材料正在参与什么工作，不直接决定是否落盘、保存期限或是否已经形成正式记忆。
+## 1. 目标与原则
 
-| 维度 | Agent 执行工作记忆 | Patchouli 记忆形成工作集 |
-|:---|:---|:---|
-| 回答的问题 | 下一次推理需要知道什么，才能继续当前任务 | 后续话题理解与记忆生成需要保留哪些材料 |
-| 组织范围 | 会话与执行环境；本次执行中再区分 frame | Workspace 内的 Topic，可以汇集多个会话和 Agent 的相关交互 |
-| 主要内容 | 当前目标、约束、进展、未完成事项与执行引用 | 事实、来源、纠正关系、发生顺序、结果与可复用经验 |
-| 消费者 | Alice 或外部 harness 的执行模型 | Gateway 辅助话题分析、Patchouli 主动生成背景与 settlement |
-| 容量依据 | 当前执行模型的完整请求预算 | 各次话题分析、摘要和生成请求的预算 |
-| 生命周期 | 执行视图与检查点推进，跨 run 的检查点存于会话资源（AC-1） | Topic 摄入、折叠、结算与驱逐 |
+### 1.1 要解决的问题
 
-Agent 工作记忆还包含程序持有的执行状态。compact 只改变模型可见材料，不能让自由文本摘要接管运行中的工具、执行线程、意图登记、ACK 含义或任务终态。检索得到的正式 Memory 可以进入当前工作上下文，其 canonical 所有权仍在 Patchouli。
+- 长上下文的遗忘与注意力衰减是短期记忆的问题。各 harness 用会话压缩应对，但压缩会丢细节、让注意力漂移。
+- 前台上下文不归 HiveMemory 管：plugin 模式下属于 harness，controller 模式下 Alice 有自己的会话压缩。两种模式共有的只有话题这一环，所以从话题入手。
+- 话题现在只写不读：交互从会话流进话题，只被 Patchouli 用来生成记忆，对前台没有直接用处。
+- 后台的话题反而比前台的会话更不连贯：空闲结算会把一段连续的对话切成几个话题。日常实例 11 天中，77 个空闲结算的话题有 32 个在 2 小时内被同一会话续上，续上的 65 次里有 48 次开了新话题。
 
-短期记忆在 v0.8 新流转中的定义仍未确定，在孵化中；主动写入缺少背景的"写入即同步点"候选见 [v0.8 写入链路 Idea](./memory-flow-write-path.md)第 2.2 节。
+### 1.2 定位
 
-Topic 也不等于“尚未写入 Memory 的队列”：主动 WRITE 可能已物化，相关交互仍留在 Topic 中。资料退出某个模型视图、原文是否继续保存、是否生成正式 Memory，是三个独立判断。
+- 短期记忆是一条机制链：前台上下文 → 会话压缩 → 话题 → 沉淀进中期。会话压缩属于 harness 与 Alice（第 8 节），本文设计的是话题这一环。
+- 与中期同构：中期由整理过的记忆和作为证据的原始交互组成；短期由话题的工作状态（整理过、随工作变化）和话题的交互记录（次级的完整记录）组成。
+- 话题的工作状态回答“做到哪了”。前台的上下文按会话组织、会被压缩；话题按工作组织、原文完整。所以“先讨论 A、做了十几轮 B、再回到 A”时，前台丢掉或混在一起的东西，可以从 A 的话题里拿回来。
+- 工作记录是索引：每一条指回原文，agent 可以照着它回查自己做过的事。
+- 话题提供信息，不控制前台上下文，与 plugin 模式下的被动地位相容。会话与话题不共享状态、不互相控制；话题向前台的流动只是读出（第 7 节）。
+- 话题的短期记忆不局限在轮次上：长 turn 下的短期记忆管理由本设计一并承担，写一条与折叠的切点都可以落在一轮之内。
 
-## 2. 已确认的方向与范围
+### 1.3 原则
 
-- 会话提供完整、原样积累的对话历史；CPU 自行压缩派生上下文，Session 记录保持原样。Topic 独立组织记忆生成资料，不承担前台会话上下文的控制。
-- 保留新建、恢复与会话内 compact，不设“新会话接续旧会话”的交接摘要：把旧会话完整历史带入新会话等同恢复；Topic 的 title、展示 summary 与 state_summary 都不作为会话交接摘要。
-- 用户 `/compact` 对外部 Actor 触发其 harness 的压缩，对 Alice 使用 Alice 自己的实现；后台 Topic page folding 独立运行。
-- 会话压缩的结果属于会话与执行环境，不属于 Agent；压缩检查点存入会话资源（AC-1，第 8 节）。
-- 对话不必流式同步到 Patchouli：时间线保留为顺序与身份的骨架，流式降级为按需追平（[v0.8 写入链路 Idea](./memory-flow-write-path.md)第 2.3 节）；未结束 turn 的输入与封口见[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)。
-- 原始资料沿 ConversationSession → Topic 完整资料 → 生成来源 Artifact 保全；原始会话的持久化另行计划，来源与保留语义见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)。
+- 资料退出某个模型视图、原文是否继续保存、是否生成正式 Memory，是三个独立判断。话题也不等于“尚未写入 Memory 的队列”：主动 WRITE 可能已物化，相关交互仍留在话题中。
+- 已整理的内容只往后追加，不被递推重写：多次整段重写会让细节漂移。
+- 触发先用简单规则，规则定义在事件序列上，与事件什么时候到达无关。
 
-会话和 Topic 的关联、外部输入与路由交接由[外部会话 Idea](./external-session-and-topic-projection.md)维护；本文不建立第二套交互提交协议。
+## 2. 组成与数据流
 
-## 3. 当前基础与缺口
-
-以代码为准。
-
-### 3.1 Alice
-
-工具结果减重、增量接力摘要、会话检查点、逐帧输入守卫与失败原因已经实现，原文保持完整；职责、接受与取消规则分别由 [Agent Runtime](../alice/agent-runtime.md)、[会话资源](../workspace/sessions.md)和[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)维护。固定样本与 HTTP 链路使用提供商替身，真实 LLM 下摘要的事实保留、继续执行的质量和成本还没有评估。
-
-命令只解析不执行，没有 `/compact` 入口；手动触发由[命令 Todo](../todo/conversation-compact-command.md)跟踪，轮内压缩由[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)跟踪。
-
-### 3.2 Patchouli
-
-- page folding 在工作视图的 token 之和超过 `fold_token_threshold` 时触发，保留最近 `fold_retain_recent_blocks` 个 block、折叠其余部分；保留数至少为 1，blocks 不足时无法继续折叠，单个超大 block 也不能据此得到严格的预算保证（[感知引擎](../../src/hivememory/engines/perception/memory_perception_engine.py)）。
-- 话题的 `total_tokens` 由工作视图派生，只是保留 blocks 的估算之和，不包含 `state_summary`（[话题模型](../../src/hivememory/core/models/topic.py)）。
-- 摘要有两种：代码默认的 SimpleRelay 把旧摘要与本批的统计拼接在一起，摘要自身没有有界重写；仓库随附的 `configs/config.yaml` 选用 LLMRelay，由模型参照旧摘要写出新摘要，缺少模型、提供商失败或超时的时候回退为规则摘要，接在旧摘要之后。SimpleRelay 主要记录请求数、工具名、token 数与最近问题片段；两者都以字符串返回，没有表达空、截断或拒绝等摘要终态（[Relay](../../src/hivememory/engines/perception/relay_controller.py)、[默认配置](../../src/hivememory/config/patchouli.py)）。
-- Generation 视图按出现顺序保留用户消息、助手正文、思考与子 Agent 消息；外部工具保留调用参数与结果，单条结果按 `max_result_chars`（默认 800 字符）保留首尾截断；SEARCH、READ、RUN 只有一行摘要，不渲染取回的记忆；WRITE、UPDATE、CALL 不进入材料。截断只依长度，还分不开可以去掉的日志和决定事实含义的关键证据（[材料渲染](../../src/hivememory/engines/perception/material.py)、[生成投影](../../src/hivememory/prompts/transcript/generation.py)、[Patchouli 生成](../patchouli/generation.md)）。
-- 折叠不丢弃原文：被折叠的块留在 Topic 的交互记录中，结算时冻结进来源 InteractionArtifact（[感知与短期话题](../patchouli/perception.md)）。交到 Topic 之前的原文交接与保存承诺归 Raw Evidence，不由摘要算法解决。
-
-## 4. 两边的关系与不变量（候选）
-
-图中从 Topic 完整资料到生成来源 Artifact 的部分已经实现（[感知与短期话题](../patchouli/perception.md)），Session 到 Topic 的交接是候选方向；持久化不属于本文范围。
-
-```mermaid
-flowchart LR
-    S[Session 原始交互] --> A[CPU 执行上下文视图]
-    S -->|交互交接| T[Topic 完整资料]
-    T --> P[Patchouli 有界工作视图]
-    T --> E[生成来源 Artifact]
-    A --> C[Alice compact]
-    P --> F[Topic page folding]
-    E --> M[Memory 来源引用]
+```text
+会话（前台上下文；harness 或 Alice 压缩，第 8 节）
+  │ 交互（plugin 模式在一轮结束后导入；一轮之内的接收见长 Turn Idea）
+  ▼
+话题
+  ├─ 交互记录：完整原文，次级的完整记录；材料变长时折叠（第 6 节）
+  └─ 工作记录：只增的条目，每一条指回原文；话题停下时写一条（第 3、4 节）
+  │
+  ├─ 推送：另一个会话被路由回来 → 话题的工作状态；会话压缩之后 → 工作记录的索引（第 7 节）
+  ├─ 拉取：按句柄回查原文（第 7 节）
+  └─ 生命周期：空闲 → 沉淀；容量满或明确结束 → 退役（第 5 节）
 ```
 
-外部输入沿其接入协议交给 Patchouli；图中的 Session 路径不要求所有被动来源都建立本地 Session。Topic 是记忆材料组织方，Patchouli 不在生成时反向读取 workspace 的 Session 内部存储或 CPU prompt。
+| 部分 | 所有者 | 本文位置 |
+|:---|:---|:---|
+| 交互记录、工作记录、折叠与话题生命周期 | Patchouli | 第 3～6 节 |
+| 前台读取（拉取）的授权与入口 | Workspace 能力层 | 第 7 节 |
+| 推送的时机与注入 | 连接器、Import Bus 与任务进程 | 第 7 节 |
+| 会话压缩与检查点 | harness、Alice 与会话资源 | 第 8 节 |
 
-- 两份摘要根据共同交互事实分别生成；Alice 接力摘要不写入 Topic、不进入 `InteractionPayload`，不作为记忆生成材料。
-- 两边独立触发。Alice compact 不缩减 Topic 的完整资料；Topic folding 不替 Alice 减少会话历史；外部 harness 的 compact 同样不能替代 Patchouli 内部 folding。
-- CPU checkpoint coverage、Patchouli 实际摄入位置和记忆任务终态分别推进。CPU 已压缩某段内容，不证明 Patchouli 已收到或已生成对应记忆。
-- 摘要范围与保留原文后缀不得重复覆盖；覆盖只能相对同一来源与顺序向前推进，不能用字符串大小比较 `interaction_id`。
-- compact 与 folding 均不改变授权、写入接纳或持久化事实；RuntimeEvent 只观测，不决定检查点提交成功。
-- 原始资料可保存、按需读取，不意味着每次模型请求无界重放全部资料。原文保留、引用有效期及删除按 Raw Evidence 的归属规则处理。
+## 3. 话题的工作状态
 
-## 5. Alice 会话 compact 的已完成范围
+**设计**：
 
-已经实现自动压缩与轮内守卫，算法以 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)为准，本节不维护第二份设计。Provider 原生压缩、辅助摘要模型、精确计数、后台压缩和会话持久化没有实现。
+话题的工作状态 = 已整理的部分 + 未整理的原始交互记录，读话题的 agent 看到的就是这两部分：
 
-## 6. Patchouli Topic page folding 优化
+- **已整理的部分**：工作记录，按时间排列的条目，每一条写自上一条以来推进了什么（像过去 WIP 记忆那样的总结性语句），可以跨几轮，也可以只是一轮之中的一部分。只往后追加，旧条目不改写；不整段重写。
+- **指回原文**：每一条用“轮次标识 + 事件序号区间”指回原文，与记忆引用是同一套坐标（[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)）；区间可以落在一轮之内。
+- **未整理的原始交互记录**：工作记录还没有覆盖到的交互原文。
 
-本节是未排期的候选优化，与第 5 节不绑定同一交付范围。Topic 的完整资料集合由 Raw Evidence 定义，page folding 只生成供各消费者处理的有界视图。
+合起来就是完整可用的短期记忆。还没写过一条的话题，工作状态就是它的原文，所以从未折叠的话题也能回答“做到哪了”。
 
-| 议题 | 候选优化与需要验证的边界 |
+写新的一条时，只增对应两种材料：旧工作状态 + 新交互，或只输入新交互。每次由全部材料重新生成的做法不采用：它只能产出一句始终翻新的总结；工作状态比折叠生成得更频繁，全量的成本高；前后两次没有约束，容易不一致、变成笼统概括。两种材料选哪种见第 9 节。
+
+todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与完成逻辑。
+
+**现状与差距**：
+
+- 话题只有两种摘要：`topic_summary` 在建话题时由 Gateway 写一次，之后不更新，话题路由一直用它；`state_summary` 只在折叠时产生，日常约 97% 的话题直到结算都没有它（[感知与短期话题](../patchouli/perception.md)）。没有工作记录。
+- 段与引用坐标已经实现：段由一轮的事件按模型响应推出，工具结果挂在调用事件上，一段不会拆开调用与结果；记忆的版本记录保存“轮次标识 + 事件序号区间”（[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)）。这些引用现在只有写入方。
+- 规模：只按轮与轮之间的停下计，日常话题的工作记录中位 1 条，90% 不超过 3 条，最长 14 条（85 轮的话题）。
+
+## 4. 什么时候写一条
+
+**设计**：
+
+- **轮与轮之间**：话题停下时写一条，即会话切到别的话题、话题停顿或空闲。连续工作时前台自己的上下文就够用，需要话题的工作状态的，是停下之后回来的人或另一个会话。
+- **一轮之内**：长 turn 可能一直不停，空闲只是一种触发方式；段用来指回原文，但不必每段都写一条。一轮之内什么时候写一条暂缓设计（第 9 节搁置项）。
+- 候选，有人读时补：新对话不多时，直接给“已整理的部分 + 未整理的原始交互记录”，不需要生成；新对话已经很长，才在读之前先写出新的一条。
+
+**现状与差距**：
+
+- 没有任何写工作记录的触发。plugin 模式在一轮结束后才导入：Claude Code 在 `Stop` 钩子同步，连接器按最后一条助手条目的 `stop_reason` 判断这一轮是否写完（[Import Bus](../system/import-bus.md)）。
+- 单个事件没有时间戳（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），“步与步之间长时间等待”无法从已存的事件算出。
+- 日常 121 个长轮次（每轮至少 72 个事件）中，83 个没有一次计划步骤完成；Claude 桌面端每轮都列自己的操作步骤，计划步骤完成在普通轮次里也频繁出现，不代表话题的工作单位。
+- 成本：日常 11 天导入 881 轮，同一会话切到别的话题 132 次、话题内停顿超过 30 分钟 41 次，轮与轮之间停下时写的次数约为每轮都写的四分之一。
+
+## 5. 生命周期：沉淀与退役
+
+**设计**：
+
+- 结算拆成两件事：沉淀（把话题整理进中期）与退役（话题离开话题池）。空闲只触发沉淀；退役只由容量（LRU）、明确的结束与进程关闭触发。
+- 理由：用户会断断续续地回来，空闲时退役会把连续的工作切开；别的话题又要尽早引用它的内容，所以沉淀要早。“一个话题什么时候结束”不可知，退役不需要知道：LRU 回答的是“池满了，哪个话题眼下最不需要”；停顿本身就是沉淀的时机。话题还在池里时，别的话题可以直接读它的工作状态，不必等它进入中期。
+- 话题跨重启保存在 v0.8.1 内解决（第 9 节）。
+
+**现状与差距**：
+
+- 沉淀与退役已经实现：触发、时序与空话题的处理见[感知与短期话题](../patchouli/perception.md#4-触发原因与具名用例)第 4 节；同一话题多次沉淀时，本话题经任何途径写下的记忆进入同一份“本话题的写入”记录，见[记忆生成](../patchouli/generation.md#42-本话题的写入)第 4.2 节。
+- 差距：话题只在进程内，正常关闭时全部话题沉淀并退役，重启仍会切开正在进行的工作。
+- 拆开之前的日常数据（11 天 89 次结算）：空闲 77、关闭 11、LRU 1。
+
+## 6. 折叠：只为材料服务
+
+**设计**：
+
+- 折叠是材料变长以后维护话题的一种手段，只为材料服务，不产出话题的工作状态。
+- 什么时候折叠只看材料长度：话题的材料超过上限时折叠，与话题是否停下、有没有工作状态无关。“什么时候折叠”与“用什么材料生成工作状态”互不决定。
+- 一旦折叠，就接受可能的细节丢失。一次折叠不隐式沉淀，不证明已经生成 Memory。
+- 折叠摘要需要结构化。话题多次折叠时，新的折叠摘要由旧的折叠摘要与新折叠的轮次写成，会递推；它又是被折叠的轮次在材料中唯一的留存，这里丢了，读材料的生成都看不到。
+- 折叠摘要是材料的一部分，读者是读材料的生成，不是前台。
+- 候选，可以核对的结构：一部分由规则抽取（标识符、工具结果、失败诊断），一部分是判断类的栏（已定的决定、被否掉的方案、纠正），再加一道覆盖校验，保不住就不提交这次折叠。
+- 候选：单轮超过上限时，在段的边界上折叠，不拆开调用与结果。
+
+| 议题 | 候选 |
 |:---|:---|
-| 预算 | 同时约束 previous summary、保留后缀和渲染开销；计数与 block 数联合使用，按实际摘要/分析/生成模型分别校验，不能把 topic 软水位当作最终请求上限 |
-| 保留边界 | 优先保留完整交互/工具关联，处理单个超大 block 和最近后缀自身超限；是否支持 retain zero、summary-only Topic 的结算/Artifact 语义仍需独立定义，当前 retain 至少为 1 |
-| 摘要目标 | 保留事实、来源、时间、否定与纠正、结果和可复用经验；更新仍有效的旧事实，清除过时结论，摘要自身保持有界。不要只用请求数/工具名统计代替语义材料 |
-| 工具证据 | 从实际工具结果选择关键返回值、错误原因和验证结论，并保留原文定位；保留范围由生成质量样本验证，不要求将所有日志重新内联 |
-| 接受与失败 | 候选摘要完整、有效且满足预算后才切换视图；失败保留上次有效摘要与尚未可靠交接的材料，重试有界并检查是否实际释放空间。原始资料保存失败的责任和阻塞/背压由 Raw Evidence 讨论，不以一条 warning 宣称已保全 |
-| 生成消费 | 先取得契约所选时点的全部可用资料及覆盖信息，再按请求预算编译；不按原文分块提取（[Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)第 0 节），生成继续读取话题的工作视图，避免恢复全量材料后一次塞进模型 |
-| 跨入口 | 根据实际 provenance 与能力处理材料；主动/被动或 connector 名称不直接决定是否跳过 folding。混合来源 Topic 仍保持相同资源归属边界 |
-| 观测 | 记录资料规模、内联规模、摘要规模、损失/恢复能力、耗时及失败原因；观测不替代领域提交结果 |
+| 预算 | 同时约束已有折叠摘要、保留后缀与渲染开销；计数与块数联合使用，按实际的读取请求分别校验，不能把话题的软水位当作最终请求上限 |
+| 接受与失败 | 候选摘要完整、有效且满足预算后才切换视图；失败保留上次有效的摘要与尚未可靠交接的材料，重试有界并检查是否实际释放空间 |
+| 工具证据 | 从实际工具结果选取关键返回值、错误原因与验证结论，保留原文定位，不要求把所有日志重新内联 |
+| 跨入口 | 按实际来源与能力处理材料；主动、被动或连接器名称不直接决定是否折叠 |
+| 观测 | 记录资料规模、内联规模、摘要规模、耗时与失败原因；观测不替代领域结果 |
 
-原文资料、摘要视图和正式 Memory 可分别存在。一次 folding 不隐式 settle，不证明已经生成 Memory，也不改变 Topic 的驱逐含义。生成不分块；去重与 canonical 更新归 Generation，Perception 不另建“每块是否已经生成记忆”的平行状态机。
+**现状与差距**：
 
-## 7. 可共享的技术与专项边界
+- 工作视图的 token 超过 `fold_token_threshold` 时折叠，保留最近 `fold_retain_recent_blocks` 块，其余折叠进 `state_summary`；随附配置为 131072 与 2，代码缺省阈值 32768；LLMRelay 参照旧摘要写新摘要，失败回退为规则摘要（[感知与短期话题](../patchouli/perception.md)）。
+- 结算时被折叠的轮次只以 `state_summary` 进入生成，原文冻结进来源 Artifact、不参与生成（[记忆生成](../patchouli/generation.md)）。
+- Relay 提示词用固定的四段标题（核心目标、系统状态与已完成、约束与避坑、当前焦点），写明供 Worker Agent 使用，与“读者是读材料的生成”不符。日常 17 份折叠摘要中 16 份按四段写，文件路径多只保住 5% 以下；一份规则回退摘要把约 79 万字符压成 120 字符；单轮超大时每来一轮就折一次，最后两次摘要逐字相同。
 
-适合共享的机制包括 token 估算、完整交互边界选择、有界摘要更新、完成状态校验、覆盖范围校验和有限重试。先复用已有低层工具与端口，不预设新增一个统一压缩子系统；跨 L3 子系统仍只消费公共 contracts。
+## 7. 什么时候用：推送与拉取
 
-分别维护的内容包括摘要策略、模型选择、预算、数据所有者、覆盖游标、接受条件及清理生命周期。Alice 的检查点和 Patchouli 的工作集不会因为使用同一算法而成为同一状态。
+**设计**：
 
-外部 harness 自行维护 prompt history、压缩与厂商缓存，HiveMemory 能否触发压缩取决于驱动协议或 SDK。外部传来的 summary/checkpoint 应保留 producer、来源和覆盖信息；未知覆盖范围不能驱动裁剪，也不能直接覆盖 Patchouli 的 `state_summary`。Alice 自己的接力摘要继续不进入记忆生成输入。
+- 短期记忆的目的是帮 agent 知道工作做到哪一步了。两个使用点：另一个会话发来的消息被路由回已有话题时；会话压缩完成后，agent 可能处于短暂的失忆窗口。其他时间，正在工作的 agent 大概率不会突然失忆。
+- 两个时点都由系统把短期记忆注入（推送）进前台的上下文。
+- 会话压缩之后只注入工作记录的索引（每一条一句话，加上指回原文的句柄）；“现在停在哪”交给 harness 自己的压缩摘要。大部分 harness 自带的压缩已经覆盖一部分工作状态；harness 的摘要按会话组织、没有句柄，索引补上的是按话题的进展与可以回查的原文。别的会话在同一话题上写下的条目也在索引中。
+- 会话压缩之后注入，是从话题到会话的单向读出，不共享状态、不互相控制。
+- 候选，第 1 个时点：plugin 模式下，在用户提交时先为这一轮确定话题（root API 的 `determine_topic`，导入时沿用、不再路由）；落在已有话题、且这个会话此前不在它上面时，注入它的工作状态，会话本来就在这个话题上则不注入。controller 模式下 Gateway 在 PREPARE 阶段先于 CPU 运行，可以直接注入。
+- 候选，拉取：agent 顺着索引回查原文需要按句柄读取的入口；话题作为 READ 的新对象，不新增 actor 操作。
+- 候选：注入放在请求尾部（用户提交时的注入随这条消息排在历史之后；压缩之后的注入发生在缓存本来已断的时候），并标明是历史资料、不是指令。
+- 长 turn 中压缩常发生在一轮中间，索引能否覆盖这一轮前面的部分，取决于一轮之内写一条（暂缓）与一轮进行中接收已完成的事件。
 
-一个未结束 turn 内的多次 compact、开放交互的事件接收和大对象处理见[长 Turn 专项](./long-running-agent-intra-turn-context-folding.md)。CPU 的覆盖点与 Patchouli 摄入水位分别推进，输入流不以 compact 发生作为接收或封口条件。保存与按需回读原文见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，不通过无限增长的活跃模型视图实现。
+**现状与差距**：
 
-## 8. 会话压缩的两项设计
+- 话题没有给 agent 的读出入口：actor API 的读取、检索、写入与更新都以中期记忆为对象（[能力层](../workspace/capability.md)），MCP 的四个工具同样（[MCP 记忆访问](../contracts/mcp.md)）；Import Bus 不返回任何上下文（[Import Bus](../system/import-bus.md)）。
+- Alice 的上下文不含话题的状态摘要与块（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）。
+- `determine_topic` 已供任务进程的线程表与 Import Bus 编排器使用，MCP 写入时以它在一轮结束前确定话题（[能力层](../workspace/capability.md)）。日常一次话题路由约 3 秒。
+- Claude Code：压缩之后以 `source: 'compact'` 触发 `SessionStart`，它与 `UserPromptSubmit` 都能返回 `additionalContext`；注入只保证交到模型手里，不保证模型会读。插件注册了 `SessionStart`，只用来同步会话记录，没有注册 `UserPromptSubmit`。Codex 的钩子是 `SessionStart`、`Stop`、`Interrupt` 与 `SessionEnd`；Codex、pi 与 DeepSeek Harness 能否注入内容没有核对。
 
-### AC-1 压缩检查点存入会话资源
+## 8. 会话压缩（前台一侧）
 
-压缩检查点属于会话资源，不属于 Agent 或 CPU 的进程内状态。已经实现，所有权理由与接受规则见[会话资源](../workspace/sessions.md)。
+### 8.1 已完成的范围
 
-### AC-2 自动压缩先行，手动 `/compact` 随命令系统接回
+- 会话提供完整、原样积累的对话历史；CPU 自行压缩派生上下文，会话记录保持原样。Alice 的自动压缩、工具结果减重、增量接力摘要与逐帧输入守卫已经实现，算法见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)。
+- 压缩检查点属于会话资源，不属于 Agent 或 CPU 的进程内状态（[会话资源](../workspace/sessions.md)）。
+- 用户的 `/compact` 对外部 Actor 触发其 harness 的压缩，对 Alice 使用 Alice 自己的实现；手动 `/compact` 要等命令系统接回（[命令 Todo](../todo/conversation-compact-command.md)）。
+- 保留新建、恢复与会话内 compact，不设“新会话接续旧会话”的交接摘要：把旧会话完整历史带入新会话等同恢复。话题的工作状态按话题推送（第 7 节），不是会话的交接摘要。
+- 真实 LLM 下接力摘要的事实保留、继续执行的质量与成本还没有评估。
 
-自动压缩已经实现；手动 `/compact` 要等命令系统接回，由[命令 Todo](../todo/conversation-compact-command.md)跟踪。
+### 8.2 两边的关系与不变量
 
-## 9. 其他开放问题与 Plan 门槛
+- 两边回答的问题不同：会话压缩回答“这个会话下一次推理需要知道什么”；话题的工作状态回答“不在场的人回来时，工作做到哪了”；折叠回答“读材料的生成需要保留哪些材料”。
+- 各自生成、各自保存：Alice 的接力摘要不写入话题、不进入 `InteractionPayload`、不作为记忆生成材料；话题的工作状态向前台只是读出。外部 harness 的 summary/checkpoint 应保留产生者、来源与覆盖信息，未知覆盖范围不能驱动裁剪，也不能直接充当话题的折叠摘要或工作状态。
+- 两边独立触发：会话压缩不缩减话题的完整资料，折叠不替前台减少会话历史；CPU 的检查点覆盖、话题实际接收的位置与记忆任务终态分别推进，CPU 已压缩某段内容，不证明话题已收到或已生成对应记忆。
+- 摘要范围与保留的原文后缀不重复覆盖；覆盖只能相对同一来源与顺序向前推进。
+- 压缩、折叠与写工作记录都不改变授权、写入接纳或持久化事实；RuntimeEvent 只观测，不决定提交成功。
 
-- 检索记忆在提示词中的位置与 KV cache：动态记忆与附件会影响前缀稳定性；摘要位置、刷新边界和缓存成本要一起评估，不把预期命中写成既定收益。
-- 摘要内容质量与预算参数，要用中文夹代码、需求纠正、工具密集、取消与失败、多 Agent 的会话验证；事实保留与继续执行能力分别评估，不能只检查摘要格式。
-- Topic 内完整资料与工作视图的边界已经实现（交互记录与折叠记录，工作视图由它们派生）；Topic 优化要先确定交到 Topic 之前的完整资料交接，再明确 Relay 语义、summary-only、生成证据与失败策略；不因复用 Alice 的估算或摘要机制而改变 Topic 的资料所有权。
-- 原始资料持久化、编辑/回退/分支后的来源版本与视图失效，由 Raw Evidence 及各自专项跟踪；不因本文引入摘要就承诺跨重启恢复。
+### 8.3 可共享的技术
 
-技术调研与固定源码证据见 [Agent Harness 会话压缩技术调研](../research/agent-context-compaction-research.md)。调研报告中的外部项目快照不在此复制，也不替代 owner 决定。
+可以共享 token 估算、完整交互边界、有界摘要更新、完成状态校验、覆盖范围校验与有限重试；先复用已有低层工具与端口，不预设统一的压缩子系统，跨 L3 子系统只消费公共 contracts。摘要策略、模型选择、预算、数据所有者、覆盖游标、接受条件与清理生命周期分别维护；使用同一算法不使两边成为同一状态。技术调研见 [Agent Harness 会话压缩技术调研](../research/agent-context-compaction-research.md)。
+
+## 9. 开放问题
+
+**工作记录的一条写什么、由什么生成**。压缩之后注入的索引（每一条一句话）也取自它。
+
+- 材料：旧工作状态 + 新交互，或只输入新交互。前者的候选做法是旧记录只作只读上下文，只写出新的一条：知道前面在做什么、这次推进了多少，又不与前面重复；后者没有上下文，被保留的常是“请修改后提交”这类依赖前文的短句。
+- 内容：只写推进了什么的一段总结，还是另带固定的栏（已定的决定、未结事项、失败的尝试）。
+- 影响：决定每次写一条的输入规模与索引的形式。
+
+**话题跨重启怎样保存**。空闲不再退役之后，话题在池里待得更久；现在进程每次关闭都把所有话题强制结算，日常 11 天关闭 11 次，话题的实际寿命上限就是进程重启。跨重启保存在 v0.8.1 内解决。
+
+- 选项：持久化整个话题（交互记录与工作记录）；只持久化工作记录。
+- 影响：前者让话题重启后照常续写与读取，需要话题存储的持久化与恢复；后者恢复后只能读工作记录，不能续写原文，原文要从来源 Artifact 取。
+
+**第 1 个时点在 plugin 模式下的轮前路由**。要在用户提交时推送，就得先为这一轮确定话题，每条消息多一次路由。
+
+- 选项：每条消息都先路由；只在会话的第一条消息、或会话停顿之后路由；异步路由，限时内没有结果就不注入。
+- 影响：前者延迟最大、覆盖最全；后两者减少延迟，但会漏掉会话进行中被路由回别的话题的情形。
+
+搁置：
+
+- 长话题的旧条目怎样处理（合并成阶段，或只给最近若干条）。
+- 折叠摘要的具体字段。
+- Codex、pi 与 DeepSeek Harness 能否注入内容。
+- 一轮进行中接收已完成的事件，由[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)维护。
+- 一轮之内写一条的触发：按量（自上一条以来新增内容超过阈值，只在单轮内生效）与计划完成一步，都暂缓设计；“步与步之间长时间等待”等事件有时间来源再看。
+- Alice 的 `turn_context`（每轮重新编译的检索记忆与附件）排在全部历史之前，检索结果一变，其后的历史都失去前缀缓存；实际命中率没有测过。
+- 代码中已实现的段类名 `TurnSegment`，与长 Turn Idea 第 2.3 节候选的 `TurnSegment`（容量单位）同名。
+
+## 10. 非目标
+
+- HiveMemory 不控制、不替代前台上下文与 harness 的压缩，不改写会话原文。
+- 会话与话题不共享状态；会话压缩与折叠、写工作记录之间没有机制联系。
+- 不为每段写一条工作记录，不整段重写工作记录。
+- 不在本文设计沉淀时写什么与主动写入的材料（过渡）。
+- 为轻量 bot 管理 prompt 的托管上下文，属于[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)第 8.3 节。

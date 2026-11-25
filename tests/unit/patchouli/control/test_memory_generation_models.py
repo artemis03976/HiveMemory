@@ -11,7 +11,12 @@ from hivememory.components.work_queue import (
     WorkRecord,
     WorkState,
 )
-from hivememory.engines.generation.models import GenerationContext, GenerationRequest, MergeFocus
+from hivememory.engines.generation.models import (
+    GenerationAction,
+    GenerationContext,
+    GenerationRequest,
+    MergeFocus,
+)
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationResult,
     MemoryGenerationSource,
@@ -186,6 +191,7 @@ def test_memory_generation_task_projects_result_and_cancel_metadata():
         created_at=datetime.now(UTC),
     )
     result = MemoryGenerationResult(
+        action=GenerationAction.CREATE,
         canonical_alias="fact-target",
     )
 

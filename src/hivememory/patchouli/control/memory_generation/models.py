@@ -23,7 +23,7 @@ from hivememory.core.models import (
     TopicFold,
     WorkspaceIdentity,
 )
-from hivememory.engines.generation.models import GenerationRequest, MergeFocus
+from hivememory.engines.generation.models import GenerationAction, GenerationRequest, MergeFocus
 from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -67,6 +67,9 @@ class MemoryGenerationTaskSpec:
 
     ``intent_id`` 与 ``pending_alias`` 只属于主动写入，二者同时出现：写入意图的
     终态事件携带两者，由 workspace 登记严格匹配；被动生成两者都缺省。
+
+    ``retires_topic`` 只属于话题结算：为真表示话题在这次沉淀之后退役，不再接收交互；
+    为假是空闲时的沉淀，话题之后还会再次沉淀。
     """
 
     belong_to: WorkspaceIdentity
@@ -78,10 +81,13 @@ class MemoryGenerationTaskSpec:
     interaction_input: InteractionArtifactInput | None = None
     intent_id: str | None = None
     pending_alias: str | None = None
+    retires_topic: bool = False
 
     def __post_init__(self) -> None:
         if (self.intent_id is None) != (self.pending_alias is None):
             raise ValueError("intent_id 与 pending_alias 必须同时提供或同时缺省")
+        if self.retires_topic and self.source != MemoryGenerationSource.SETTLE:
+            raise ValueError("只有话题结算可以携带 retires_topic")
         is_merge = self.source == MemoryGenerationSource.MERGE
         if is_merge != (self.request.merge_focus is not None):
             raise ValueError("MERGE 来源必须且只能携带 merge_focus")
@@ -102,10 +108,12 @@ class MemoryGenerationResult:
     """生成数据面完成持久化后返回给控制面的领域事实。
 
     Engine 的 ``GenerationOutcome`` 只在 Familiar 内参与 compute、artifact 与
-    persist 流水线；控制面只需要最终 canonical identity 和可选的
-    ``PendingAtom`` 结算事实。
+    persist 流水线；控制面只需要最终 canonical identity、提交动作和可选的
+    ``PendingAtom`` 结算事实。``action`` 让控制面区分这次新建的记忆与触碰、修订
+    的已有记忆：话题沉淀新建的记忆记作本话题的写入，触碰与修订的不记。
     """
 
+    action: GenerationAction
     canonical_alias: str | None = None
     canonical_uuid: str | None = None
     settlement: PendingAtomSettlement | None = None

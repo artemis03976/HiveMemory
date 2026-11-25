@@ -20,6 +20,7 @@ from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import MemoryMergeAbortedError
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
 from hivememory.engines.generation.models import (
+    GenerationAction,
     GenerationContext,
     GenerationRequest,
     MergeFocus,
@@ -66,6 +67,7 @@ def _spec(
     intent_id=None,
     pending_alias=None,
     request=None,
+    retires_topic=False,
 ):
     return MemoryGenerationTaskSpec(
         belong_to=make_memory_identity_scope().workspace_identity,
@@ -79,6 +81,7 @@ def _spec(
         ),
         intent_id=intent_id,
         pending_alias=pending_alias,
+        retires_topic=retires_topic,
     )
 
 
@@ -328,6 +331,7 @@ class TestMemoryGenerationTaskController:
         )
         results = [
             MemoryGenerationResult(
+                action=GenerationAction.CREATE,
                 canonical_alias="fact_matrix",
                 settlement=settlement,
             )
@@ -368,11 +372,16 @@ class TestMemoryGenerationTaskController:
     @pytest.mark.asyncio
     async def test_topic_write_memories_reach_later_write_and_settle_of_that_topic(self):
         """主动写入结算到的记忆记入任务话题：之后同一话题的 WRITE 执行时带上、不清除，
-        SETTLE 执行时带上并清除；其他话题与 UPDATE 不读取这个话题的记录。"""
+        随话题退役的 SETTLE 执行时带上并清除；其他话题与 UPDATE 不读取这个话题的记录。"""
 
         def written(label, memory_id, resolution=PendingAtomResolution.CREATED):
             return [
                 MemoryGenerationResult(
+                    action=(
+                        GenerationAction.CREATE
+                        if resolution == PendingAtomResolution.CREATED
+                        else GenerationAction.UPDATE
+                    ),
                     canonical_alias=f"fact_{label}",
                     settlement=PendingAtomSettlement(
                         pending_alias=label,
@@ -424,6 +433,7 @@ class TestMemoryGenerationTaskController:
                     source=source,
                     intent_id=intent[0],
                     pending_alias=intent[1],
+                    retires_topic=source == settle,
                 )
             )
             await controller.wait_task(memory_task.task_id)
@@ -437,6 +447,86 @@ class TestMemoryGenerationTaskController:
             ("settle_a_again", frozenset()),
             ("settle_b", frozenset({"mb"})),
         ]
+
+    @pytest.mark.asyncio
+    async def test_idle_settlement_keeps_topic_writes_and_records_only_its_creations(self):
+        """不退役的沉淀执行后保留本话题的写入记录，并加入这次新建的记忆；触碰与修订的
+        已有记忆不是这个话题写下的，不加入。之后再次沉淀与退役时都带上它们。"""
+        replies = {
+            "idle_1": [
+                MemoryGenerationResult(action=GenerationAction.CREATE, canonical_uuid="created"),
+                MemoryGenerationResult(action=GenerationAction.TOUCH, canonical_uuid="touched"),
+                MemoryGenerationResult(action=GenerationAction.UPDATE, canonical_uuid="revised"),
+            ],
+            "idle_2": [
+                MemoryGenerationResult(action=GenerationAction.CREATE, canonical_uuid="created_2")
+            ],
+        }
+        seen = []
+
+        async def request(route, spec, on_commit_started):
+            seen.append((spec.label, spec.request.topic_write_memory_ids))
+            return replies.get(spec.label, [])
+
+        controller = MemoryGenerationTaskController(
+            bus=Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
+        )
+        await controller.start()
+        try:
+            for label, retires_topic in [("idle_1", False), ("idle_2", False), ("retire", True)]:
+                memory_task = await controller.submit_generation(
+                    _spec(label=label, retires_topic=retires_topic)
+                )
+                await controller.wait_task(memory_task.task_id)
+        finally:
+            await controller.stop()
+
+        assert seen == [
+            ("idle_1", frozenset()),
+            ("idle_2", frozenset({"created"})),
+            ("retire", frozenset({"created", "created_2"})),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_merge_absorbing_a_recorded_memory_redirects_the_topic_record(self):
+        """合并吸收了本话题沉淀新建的记忆后，记录改为保留的那条，被吸收的已经删除。"""
+        nomination = MergeFocus(retained_memory_id="retained", absorbed_memory_id="absorbed")
+        seen = []
+
+        async def request(route, spec, on_commit_started):
+            seen.append((spec.source, spec.request.topic_write_memory_ids))
+            if spec.source == MemoryGenerationSource.MERGE:
+                return [
+                    MemoryGenerationResult(
+                        action=GenerationAction.UPDATE,
+                        canonical_uuid="retained",
+                        absorbed_memory_uuid="absorbed",
+                    )
+                ]
+            if spec.label == "idle":
+                return [
+                    MemoryGenerationResult(
+                        action=GenerationAction.CREATE,
+                        canonical_uuid="absorbed",
+                        merge_nomination=nomination,
+                    )
+                ]
+            return []
+
+        controller = MemoryGenerationTaskController(
+            bus=Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
+        )
+        await controller.start()
+        try:
+            idle = await controller.submit_generation(_spec(label="idle"))
+            await controller.wait_task(idle.task_id)
+            await controller.wait_all()
+            retire = await controller.submit_generation(_spec(label="retire", retires_topic=True))
+            await controller.wait_task(retire.task_id)
+        finally:
+            await controller.stop()
+
+        assert seen[-1] == (MemoryGenerationSource.SETTLE, frozenset({"retained"}))
 
     @pytest.mark.asyncio
     async def test_cancel_task_via_registry_cancels_background_task(self):
@@ -746,11 +836,17 @@ async def test_successful_nomination_settles_first_then_submits_and_redirects():
         if spec.source == MemoryGenerationSource.WRITE:
             return [
                 MemoryGenerationResult(
-                    settlement=created, merge_nomination=_merge_spec().request.merge_focus
+                    action=GenerationAction.CREATE,
+                    settlement=created,
+                    merge_nomination=_merge_spec().request.merge_focus,
                 )
             ]
         assert events == [(PatchouliLocalEvents.PENDING_ATOM_SETTLED, {"settlement": created})]
-        return [MemoryGenerationResult(settlement=merged, absorbed_memory_uuid="absorbed")]
+        return [
+            MemoryGenerationResult(
+                action=GenerationAction.UPDATE, settlement=merged, absorbed_memory_uuid="absorbed"
+            )
+        ]
 
     async def publish(event, **payload):
         events.append((event, payload))
@@ -810,7 +906,9 @@ async def test_merge_submission_rejection_keeps_original_success(error, monkeypa
         request=AsyncMock(
             return_value=[
                 MemoryGenerationResult(
-                    settlement=created, merge_nomination=_merge_spec().request.merge_focus
+                    action=GenerationAction.CREATE,
+                    settlement=created,
+                    merge_nomination=_merge_spec().request.merge_focus,
                 )
             ]
         ),
@@ -1011,7 +1109,11 @@ async def test_saved_settlement_keeps_topic_write_records_across_restart(tmp_pat
     )
     first = MemoryGenerationTaskController(
         bus=Mock(
-            request=AsyncMock(return_value=[MemoryGenerationResult(settlement=written)]),
+            request=AsyncMock(
+                return_value=[
+                    MemoryGenerationResult(action=GenerationAction.CREATE, settlement=written)
+                ]
+            ),
             publish=AsyncMock(),
         )
     )
@@ -1025,7 +1127,9 @@ async def test_saved_settlement_keeps_topic_write_records_across_restart(tmp_pat
         )
         await first.wait_task(write.task_id)
         await first.stop_dispatch()
-        await first.submit_generation(_spec(source=MemoryGenerationSource.SETTLE))
+        await first.submit_generation(
+            _spec(source=MemoryGenerationSource.SETTLE, retires_topic=True)
+        )
         await first.save_unfinished(path)
     finally:
         await first.stop()
@@ -1046,6 +1150,7 @@ async def test_saved_settlement_keeps_topic_write_records_across_restart(tmp_pat
 
         [settlement] = executed
         assert settlement.source == MemoryGenerationSource.SETTLE
+        assert settlement.retires_topic is True
         assert settlement.request.topic_write_memory_ids == frozenset({"memory-from-write"})
     finally:
         await second.stop()

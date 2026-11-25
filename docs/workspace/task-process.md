@@ -27,7 +27,7 @@ related_docs:
   - docs/system/application-services.md
   - docs/system/attachments.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-24
 ---
 
 # 任务进程
@@ -270,7 +270,7 @@ chat 路由订阅流式交付，不轮询断连，也不为每个事件创建 ta
 
 - 取消只检查请求方在进程的 Workspace 是 `system`：同一 Workspace 下的请求方可以停止其他请求方的进程；
 - 断连后的 SSE 响应可能早于进程关闭结束，其间对同一会话的重发按会话忙碌规则拒绝；断连后继续运行、重连与多订阅者没有实现，也不再跟踪（候选设计见已归档的 [Chat Run 生命周期 Idea](../archive/ideas/chat-run-lifecycle-follow-ups.md)）；
-- 已有话题只在 PREPARE 确认时刷新驻留；单轮运行超过空闲结算时限时，话题仍可能在提交之前被结算，交互应用随之失败，进程以 `patchouli.interaction.finalization_failed` 收口；
+- 已有话题只在 PREPARE 确认时刷新驻留，空闲时只沉淀、不离开话题池；单轮运行超过空闲时限时，本轮第一次写入时建立、还没有接收交互的话题仍可能在提交之前退役，交互应用随之失败，进程以 `patchouli.interaction.finalization_failed` 收口；
 - 唯一注册入口只接收主动 chat：命令只解析不执行，内置命令暂不可用；被动请求按[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) 2.6 节的决定暂不经注册入口；
 - 用户可见长期任务与后台 Agent workflow 当前未立项，需在真实负载和执行能力成立后独立设计。
 

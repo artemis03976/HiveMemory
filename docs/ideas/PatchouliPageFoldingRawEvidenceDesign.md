@@ -20,14 +20,14 @@ related_ideas:
 related_docs:
   - docs/archive/plans/v0.7.2-generation-material-and-raw-evidence.md
   - docs/archive/todo/generation-material-filtering-and-truncation.md
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-24
 ---
 
 # 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
 
 本文是原始资料保存的设计：**ConversationSession 保存完整对话，Topic 保存已交接的完整资料，记忆生成阶段冻结相应来源 Artifact，再由 Memory 引用。** 从 Topic 往后的部分已经实现（第 0 节），交到 Topic 之前的环节与保存承诺是候选设计；会话原始数据是否持久化另行计划，本文不以新增独立原始记录仓库为前提。
 
-当前能力以 [Workspace](../workspace/README.md)、[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。正文是已定的设计，候选设计标“候选”。
+当前能力以 [Workspace](../workspace/README.md)、[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。正文是已定的设计，候选设计标“候选”。
 
 ## 0. Topic 之后的原始证据保存与生成材料
 
@@ -174,7 +174,7 @@ Memory 关联来源 Artifact，不把原始对话嵌入每条知识正文。一�
 
 ### 9.1 范围的划分
 
-本文维护原文保存、跨入口 provenance、生成与删除的生命周期。token/block 联合预算、摘要增长、超大 block 与 summary-only Topic 等压缩问题由[短期记忆与上下文压缩 Idea](./short-term-memory-and-context-compaction.md)维护；前台的跨入口上下文缺口由[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)第 14 节维护。Alice 的对话历史来自 Session，Topic folding 面向 Patchouli 的分析与生成。
+本文维护原文保存、跨入口 provenance、生成与删除的生命周期。token/block 联合预算、摘要增长、超大 block 与 summary-only Topic 等压缩问题由[短期记忆 Idea](./short-term-memory-and-context-compaction.md)维护；前台的跨入口上下文缺口由[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)第 14 节维护。Alice 的对话历史来自 Session，Topic folding 面向 Patchouli 的分析与生成。
 
 ### 9.2 保留的资料链问题
 

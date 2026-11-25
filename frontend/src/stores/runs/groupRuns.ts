@@ -1,6 +1,6 @@
 import type { RuntimeEvent } from '@/types/workspace';
 import type { Run, RunKind, RunStatus } from '@/types/runs';
-import { GENERATION_SOURCE_LABEL, SETTLE_REASON_LABEL, shortId } from '@/stores/runs/labels';
+import { GENERATION_SOURCE_LABEL, SETTLE_REASON_LABEL, shortId, topicSettledLabel } from '@/stores/runs/labels';
 
 /** 超过这个时长仍没有终态的运行显示为"未见终态"：事件是 best-effort，可能丢失或超出缓冲。 */
 export const STALE_AFTER_MS = 10 * 60 * 1000;
@@ -205,7 +205,7 @@ function describeTitle(kind: RunKind, events: RuntimeEvent[]): { title: string; 
       const topic = `话题 ${shortId(first.topic_id)}`;
       if (first.event_type === 'topic.settled') {
         const reason = dataString(first, 'reason');
-        return { title: `话题结算 · ${reason ? (SETTLE_REASON_LABEL[reason] ?? reason) : '未知原因'}`, subtitle: topic };
+        return { title: `${topicSettledLabel(first.data)} · ${reason ? (SETTLE_REASON_LABEL[reason] ?? reason) : '未知原因'}`, subtitle: topic };
       }
       if (first.event_type === 'topic.deleted') return { title: '话题删除', subtitle: topic };
       if (first.event_type === 'topic.created') return { title: '话题建立', subtitle: topic };

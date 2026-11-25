@@ -22,7 +22,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-24
 ---
 
 # Patchouli
@@ -136,7 +136,7 @@ System Import Bus
   -> PerceptionFamiliar.apply_interaction
        -> MemoryPerceptionEngine.build_block（纯算法）
        -> TopicWorkingSet lease + ShortTermMemoryStore
-  -> idle | LRU | shutdown | manual settle（统一 settle 时序）
+  -> idle（沉淀，话题留在池中） | LRU | shutdown | manual settle（退役前沉淀）——统一 settle 时序
   -> TopicMaterializeTask
   -> background Generation task
 ```
@@ -184,7 +184,7 @@ RetrievalRequest
 
 Patchouli 向全局调度器注册三个维护任务：
 
-- `perception_idle_flush`：扫描空闲话题并提交结算任务，返回结算的话题 ID；
+- `perception_idle_flush`：扫描空闲话题，沉淀有新交互的、让从没接收过交互的空话题退役，返回被沉淀或退役的话题 ID；
 - `memory_gardening`：刷新生命力并归档低生命力中期记忆，返回归档数与耗时；
 - `model_idle_unload`：卸载空闲超过各自时限的 `idle_unload` 模型（第 4.1 节），返回本次卸载的模型名。
 
