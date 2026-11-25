@@ -62,7 +62,7 @@ Generation 不再消费拼接的 `context_messages`。`GenerationTranscriptBuild
 
 ```text
 GenerationContext
-  ├─ state_summary
+  ├─ fold_summary
   └─ GenerationTurn[]
        ├─ turn_id
        ├─ outcome（completed/cancelled/failed）
@@ -117,7 +117,7 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 段标签只出现在送给模型的生成材料中：渲染函数本身不带标签，token 估算、接力摘要与 Alice 的历史转写不受影响。升级前保存的生成任务（第 6 节）没有段，转写不印标签。
 
-模型输出中的 `source_segments` 是支撑这一条内容的段标签：被动提取与主动写入的格式说明由 `ExtractedMemoryDraft` 的 JSON Schema 自动带上这个字段（Schema 的说明文字随提示词语言，见[全局 i18n](../system/i18n.md)），修订（Mode C 与馆长的 `revise_memory`）的编辑集格式在中英文提示词中手写，带这个字段（`MemoryEditSet.source_segments`），馆长 `write_memory` 的参数同样在提示词中手写、带这个字段；合并没有交互材料，不引用段；四类提示词都说明段标签的写法，并要求只引用直接支撑这条内容的段，话题状态摘要中的内容没有段、不引用。引用的容错按“只丢弃这一处引用”处理：
+模型输出中的 `source_segments` 是支撑这一条内容的段标签：被动提取与主动写入的格式说明由 `ExtractedMemoryDraft` 的 JSON Schema 自动带上这个字段（Schema 的说明文字随提示词语言，见[全局 i18n](../system/i18n.md)），修订（Mode C 与馆长的 `revise_memory`）的编辑集格式在中英文提示词中手写，带这个字段（`MemoryEditSet.source_segments`），馆长 `write_memory` 的参数同样在提示词中手写、带这个字段；合并没有交互材料，不引用段；四类提示词都说明段标签的写法，并要求只引用直接支撑这条内容的段，折叠摘要中的内容没有段、不引用。引用的容错按“只丢弃这一处引用”处理：
 
 - 格式不对（不是形如 `2.3` 的字符串，或整个字段不是列表）的引用在解析时丢弃，不让草稿或整份被动输出作废；
 - 材料中不存在的标签丢弃，并记一条 INFO 日志（`count`）；
@@ -142,7 +142,7 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 ### 3.1 Mode A：被动观察 / ARCHIVE
 
-当 idle、LRU、shutdown 或 manual settle 形成 `TopicMaterializeTask` 时，Coordinator 用其中的工作视图（未折叠的 blocks 与 `state_summary`）构造 GenerationContext，被折叠的轮次只以摘要进入生成；同一任务的 `InteractionArtifactInput` 携带话题的全部交互记录与折叠记录，来源 InteractionArtifact 因此覆盖已折叠的轮次（第 5 节）。没有 turns 时跳过任务。
+当 idle、LRU、shutdown 或 manual settle 形成 `TopicMaterializeTask` 时，Coordinator 用其中的工作视图（未折叠的 blocks 与 `fold_summary`）构造 GenerationContext，被折叠的轮次只以摘要进入生成；同一任务的 `InteractionArtifactInput` 携带话题的全部交互记录与折叠记录，来源 InteractionArtifact 因此覆盖已折叠的轮次（第 5 节）。没有 turns 时跳过任务。
 
 话题结算有两种生成方式，由 `patchouli.generation.settle_mode` 选择，是用户选项：一次性生成（`one_shot`，默认）与馆长（`librarian`）。一次性生成只调用一次模型，但写之前看不到本话题已经写入的记忆，也看不到库，只能先尽量多地提取，再由查重、触碰、合并提名与命中本话题写入即丢弃这一串规则补救（第 4 节）；馆长先查看本话题主动写入过的记忆，再检索并阅读库中相关的记忆，只写两者都没有覆盖的内容，代价是一次结算要调用模型数次。两种方式并存，因为馆长明显更慢、开销更大（owner，2026-11-19）；一次性生成按现状冻结，它的重复问题不在这里修补。两者共用 `extractor.enabled` 开关（关闭时都不运行，结算不产生记忆）、结算的发起者与来源裁定（本节末尾）、材料与段引用（第 2 节）、别名分配（第 4.1 节末段）与提交管线（第 5 节）。组合根只在选馆长、提取开启且配置了模型时为引擎装配馆长，引擎有馆长就以馆长结算，否则走一次性生成；两项配置保存后重启生效，关闭时保存的结算任务在下次启动后按当时配置的方式执行。
 
@@ -201,7 +201,7 @@ Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记�
 
 WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。两种来源走同一条链路：Alice 的 MTP WRITE 经执行线程提交、以线程的工作 actor 授权，派发话题是进程这一轮的话题：Gateway 指向已有话题时是 PREPARE 确认的话题，指向新话题时由本轮第一次写入建立（[执行线程](../workspace/execution-threads.md#8-派发话题)）；外部 harness（plugin 模式）的 `memory_write` 经请求级提交、以每次调用认证得到的工作 actor 授权，派发话题是 Import Bus 在写入时为这一轮确定的话题，这一轮回流时落在同一话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
 
-Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus：任务进程第一次写入建立的新话题与 plugin 模式下写入时建立的新话题在派发时都为空，落到已有话题时背景是该话题此前的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
+Coordinator 使用话题的 `fold_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus：任务进程第一次写入建立的新话题与 plugin 模式下写入时建立的新话题在派发时都为空，落到已有话题时背景是该话题此前的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
 
 提取器把 agent 拟定的标题（`WriteFocus.title`，可以为空，空时提示词写"未提供"）连同正文与保存理由交给模型。提示词要求沿用这个标题、不改写措辞，只在它与草稿内容不符，或缺少让人检索到它的关键名词（项目、组件、工具名）时修改，修改时保留原标题的判断与表述。检索只比较标题、类型、标签与摘要，agent 斟酌过的标题是这条记忆能否被找到的主要依据；改写第一当事人拟定的标题属于越权到措辞。系统不比较模型输出与 agent 的标题，是否修改由模型按规则判断；摘要、标签与正文照常由生成整理，合并仍会重新综合两条记忆的标题（第 4.1 节）。
 
@@ -356,7 +356,7 @@ Agent Profile 不是记忆，不经过 Familiar：它是 AgentProfileStore 中�
 PENDING -> RUNNING -> COMPLETED | FAILED | CANCELLED
 ```
 
-私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.4"`，`spec` 独立编码归属与发起者；1.3 起生成材料的轮次带 `turn_id` 与段，交互记录的事件带响应序号；1.4 起任务带 `retires_topic`（这次结算之后话题是否退役，只有话题结算可以为真）。另注册三个读取器，只用于读回升级前保存的工作：`"1.3"` 没有 `retires_topic`，话题结算读回为退役（当时每次结算都结束话题），其余来源读回为不退役；`"1.2"` 的材料没有轮次标识与段、事件没有响应序号，读回时补成空串、空列表与空值，工作照常执行，材料不印段标签，生成的版本记录也就不带引用；`"1.1"` 的修订另外没有 `base_version`，读回时取任务构建时读到的基础记忆（`existing_memory`）的版本补上（只作记录，执行时以重读的版本为底），然后按 1.2 的读回规则继续补齐；1.2 与 1.1 补齐后再按 1.3 的读回规则补上 `retires_topic`。补齐后都按当前版本的规则严格解码。生成 lane 中只有话题结算带排序键（话题标识），同一话题的结算依次执行，前一次沉淀新建的记忆进入记录之后，后一次才开始；排队等待前一次的结算不占执行位，同一话题积压的结算依次等待前一次的模型调用。写入、更新与合并不按话题排序。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`，队列本身不持久化；版本化载荷用于进程内冻结和一致性校验，也是关闭时保存工作的格式（第 6.2 节）。保存的载荷在下次启动时由另一个进程解码并重新编码比对，因此载荷必须与进程无关：`GenerationRequest.topic_write_memory_ids` 按排序输出。改动信封格式时，同一改动必须让新版本读得回上一版本保存的工作，否则这些工作在升级后进入 rejected 文件。
+私有工作信封 codec 的 `schema_version` 当前为字符串 `"1.5"`，`spec` 独立编码归属与发起者；1.3 起生成材料的轮次带 `turn_id` 与段，交互记录的事件带响应序号；1.4 起任务带 `retires_topic`（这次结算之后话题是否退役，只有话题结算可以为真）；1.5 起生成材料的折叠摘要叫 `fold_summary`。另注册四个读取器，只用于读回升级前保存的工作：`"1.4"` 的折叠摘要叫 `state_summary`，读回时改名、值不变；`"1.3"` 没有 `retires_topic`，话题结算读回为退役（当时每次结算都结束话题），其余来源读回为不退役；`"1.2"` 的材料没有轮次标识与段、事件没有响应序号，读回时补成空串、空列表与空值，工作照常执行，材料不印段标签，生成的版本记录也就不带引用；`"1.1"` 的修订另外没有 `base_version`，读回时取任务构建时读到的基础记忆（`existing_memory`）的版本补上（只作记录，执行时以重读的版本为底），然后按 1.2 的读回规则继续补齐；1.2 与 1.1 补齐后再按 1.3 的读回规则补上 `retires_topic`，1.1～1.3 补齐后都再经 1.4 的改名。补齐后都按当前版本的规则严格解码。生成 lane 中只有话题结算带排序键（话题标识），同一话题的结算依次执行，前一次沉淀新建的记忆进入记录之后，后一次才开始；排队等待前一次的结算不占执行位，同一话题积压的结算依次等待前一次的模型调用。写入、更新与合并不按话题排序。解码校验完整字段集与嵌套对象的规范往返，拒绝旧 scope 布局、未知版本、额外字段与身份篡改。底层仍是 `InMemoryWorkStore`，队列本身不持久化；版本化载荷用于进程内冻结和一致性校验，也是关闭时保存工作的格式（第 6.2 节）。保存的载荷在下次启动时由另一个进程解码并重新编码比对，因此载荷必须与进程无关：`GenerationRequest.topic_write_memory_ids` 按排序输出。改动信封格式时，同一改动必须让新版本读得回上一版本保存的工作，否则这些工作在升级后进入 rejected 文件。
 
 `WorkRecord` 是执行状态的唯一真相源，Queue 的 `TaskHandle` 提供 snapshot/wait/cancel；
 TaskController 只在查询时映射非终态快照，并在 work 终止后执行一次 settlement 与终态事件。

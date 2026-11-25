@@ -190,7 +190,7 @@ class PatchouliSystem(SubsystemProtocol):
                 interval_seconds=tasks_config.perception_idle_flush_interval_seconds,
                 enabled=tasks_config.enable_perception_idle_flush,
             ),
-            self.runtime.perception_familiar.scan_idle_buffers_once,
+            self.runtime.perception_familiar.scan_idle_topics_once,
         )
         scheduler.register(
             MaintenanceTaskSpec(

@@ -251,8 +251,8 @@ def _clocked_registry(path, clock):
 
 
 @pytest.mark.asyncio
-async def test_saved_handles_load_unchanged_and_the_record_file_is_consumed(tmp_path):
-    """写盘后读回，句柄的状态、结算指向、失败原因与正文不变；读回后文件删除。"""
+async def test_saved_handles_load_unchanged(tmp_path):
+    """写盘后读回，句柄的状态、结算指向、失败原因与正文不变。"""
     path = tmp_path / "write_intents.json"
     clock = [T0]
     registry = _clocked_registry(path, clock)
@@ -284,7 +284,6 @@ async def test_saved_handles_load_unchanged_and_the_record_file_is_consumed(tmp_
         assert restored.get(atom.pending_alias, WORKSPACE) == registry.get(
             atom.pending_alias, WORKSPACE
         )
-    assert not path.exists()
 
 
 def test_handles_are_dropped_once_retention_ends(tmp_path):
@@ -328,8 +327,8 @@ def test_handles_past_retention_are_not_loaded(tmp_path):
     assert (restored.get(atom.pending_alias, WORKSPACE), restored.size) == (None, 0)
 
 
-def test_unreadable_record_file_is_kept_aside_and_registry_starts_empty(tmp_path):
-    """读不回的文件改名保留供排查，登记以空表开始，不中断启动。"""
+def test_unreadable_record_file_leaves_the_registry_empty(tmp_path):
+    """读不回的登记不中断启动，登记以空表开始。"""
     path = tmp_path / "write_intents.json"
     path.write_text("{not json", encoding="utf-8")
     registry = make_write_intent_registry(record_file=path)
@@ -337,7 +336,3 @@ def test_unreadable_record_file_is_kept_aside_and_registry_starts_empty(tmp_path
     registry.load()
 
     assert registry.size == 0
-    assert not path.exists()
-    assert [
-        file.read_text(encoding="utf-8") for file in tmp_path.glob("write_intents.rejected-*.json")
-    ] == ["{not json"]

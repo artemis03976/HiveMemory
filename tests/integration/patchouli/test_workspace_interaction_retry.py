@@ -17,7 +17,7 @@ from hivememory.components.work_queue import (
     QueuePolicy,
     WorkState,
 )
-from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import PerceptionEngineConfig
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.memory_library.stores import ShortTermMemoryStore
@@ -47,7 +47,7 @@ def _build_familiar(
     return PerceptionFamiliar(
         engine=engine
         or MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            config=PerceptionEngineConfig(fold_token_threshold=999999),
             relay_controller=Mock(),
         ),
         store=store,
@@ -165,7 +165,7 @@ async def test_compaction_runs_after_apply_and_next_same_topic_submission_follow
     relay = Mock()
     relay.generate_summary = AsyncMock(side_effect=slow_summary)
     engine = MemoryPerceptionEngine(
-        config=SemanticFlowPerceptionConfig(fold_token_threshold=1, fold_retain_recent_blocks=1),
+        config=PerceptionEngineConfig(fold_token_threshold=1, fold_retain_recent_blocks=1),
         relay_controller=relay,
     )
     familiar = _build_familiar(store, engine=engine)
@@ -205,5 +205,5 @@ async def test_compaction_runs_after_apply_and_next_same_topic_submission_follow
     assert second_outcome.state is WorkState.SUCCEEDED
     assert third_outcome.state is WorkState.SUCCEEDED
     topic = store.get(scope.workspace_identity, topic_id)
-    assert topic.state_summary == "folded-summary"
+    assert topic.fold_summary == "folded-summary"
     assert [block.user_message for block in topic.blocks] == ["second", "third"]

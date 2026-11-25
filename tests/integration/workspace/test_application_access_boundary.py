@@ -148,7 +148,7 @@ class _DeterministicEmbedding:
 class _FakeTopicData:
     topic_title = "boundary topic"
     topic_summary = "boundary topic summary"
-    state_summary = "boundary state summary"
+    fold_summary = "boundary state summary"
     topic_write_memory_ids = frozenset()
 
     def recent_blocks(self, limit):

@@ -1,4 +1,4 @@
-"""ShortTermMemoryStore 纯 CRUD 与快照边界契约测试。"""
+"""ShortTermMemoryStore 的 CRUD、原子写入与快照边界契约测试。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import inspect
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import IdentityScope, merge_interaction_into_topic
+from hivememory.core.models import IdentityScope, merge_interaction_into_topic, record_topic_writes
 from hivememory.memory_library.stores import ShortTermMemoryStore
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
@@ -20,7 +20,7 @@ def _topic_with_block(topic, scope: IdentityScope):
 
 
 @pytest.mark.unit
-def test_store_public_surface_is_crud_only_and_key_free():
+def test_store_public_surface_is_crud_and_update_only_and_key_free():
     public_methods = {
         name
         for name, member in inspect.getmembers(ShortTermMemoryStore, inspect.isfunction)
@@ -29,6 +29,7 @@ def test_store_public_surface_is_crud_only_and_key_free():
     assert public_methods == {
         "get",
         "put",
+        "update",
         "create",
         "delete",
         "list_by_workspace",
@@ -67,6 +68,35 @@ def test_get_returns_frozen_snapshot_and_put_supports_write_back():
 
     store.put(snapshot.model_copy(update={"topic_title": "updated"}))
     assert store.get(scope.workspace_identity, topic.topic_id).topic_title == "updated"
+
+
+@pytest.mark.unit
+def test_update_applies_the_write_to_the_latest_snapshot():
+    """写函数套用在写回时的最新快照上：读到旧快照之后发生的写入不会被覆盖。"""
+    store = ShortTermMemoryStore()
+    scope = make_identity_scope()
+    stale = store.create(scope.workspace_identity)
+    store.put(record_topic_writes(stale, frozenset({"m1"}), {}))
+
+    updated = store.update(
+        scope.workspace_identity,
+        stale.topic_id,
+        lambda topic: _topic_with_block(topic, scope),
+    )
+
+    assert updated == store.get(scope.workspace_identity, stale.topic_id)
+    assert (updated.block_count, updated.topic_write_memory_ids) == (1, frozenset({"m1"}))
+
+
+@pytest.mark.unit
+def test_update_of_a_missing_topic_returns_none_without_calling_the_write():
+    store = ShortTermMemoryStore()
+    scope = make_identity_scope()
+    calls = []
+
+    result = store.update(scope.workspace_identity, "missing", calls.append)
+
+    assert (result, calls, store.count(scope.workspace_identity)) == (None, [], 0)
 
 
 @pytest.mark.unit

@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -18,20 +17,18 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from hivememory.config.files import rejected_path, write_atomically
+from hivememory.config.files import (
+    UnreadableFileError,
+    rejected_path,
+    take_json_items,
+    write_json_items,
+)
 from hivememory.core.models import TopicData
 
 logger = logging.getLogger(__name__)
 
 TOPIC_POOL_FORMAT_VERSION = 1
-
-
-class TopicPoolFileError(Exception):
-    """话题池快照无法解析，或文件格式版本不认识；原文件已改名为 ``rejected_path``。"""
-
-    def __init__(self, rejected_path: Path) -> None:
-        super().__init__(f"话题池快照无法读回，已改存为 {rejected_path.name}")
-        self.rejected_path = rejected_path
+_ITEMS_KEY = "topics"
 
 
 @dataclass(frozen=True)
@@ -76,13 +73,14 @@ def restore_topic_pool(
 ) -> RestoredTopicPoolReport:
     """读回并删除话题池快照，把校验通过的话题交给 ``restore``。
 
-    ``restore`` 读回话题并返回超出容量、没有读回的话题。整份文件读不回时改名为 rejected
-    文件、话题池从空开始；单个话题校验失败或超出容量时，这些话题写进 rejected 文件，其余
-    照常读回。
+    ``restore`` 读回话题并返回超出容量、没有读回的话题。读回即删除快照：读回中途崩溃时这些
+    话题丢失，但下一次启动不会读回同一份快照、把已经沉淀的交互再沉淀一次。整份文件读不回
+    时改名为 rejected 文件、话题池从空开始；单个话题校验失败或超出容量时，这些话题写进
+    rejected 文件，其余照常读回。
     """
     try:
-        items = _take(path)
-    except TopicPoolFileError as error:
+        items = take_json_items(path, format_version=TOPIC_POOL_FORMAT_VERSION, key=_ITEMS_KEY)
+    except UnreadableFileError as error:
         logger.error(
             "读回话题池失败: reason=topic_pool_unreadable, rejected_file=%s",
             error.rejected_path,
@@ -121,35 +119,8 @@ def restore_topic_pool(
     )
 
 
-def _take(path: Path) -> list[object] | None:
-    """读出并删除话题池快照，返回其中的话题项；文件不存在时返回 ``None``。
-
-    先删除再交给调用方读回：读回中途崩溃时这些话题丢失，与其他崩溃相同，但下一次启动不会
-    读回同一份快照、把已经沉淀的交互再沉淀一次。文件无法解析或格式版本不认识时，整个文件
-    改名保留在原目录，抛出 :class:`TopicPoolFileError`。
-    """
-    if not path.exists():
-        return None
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(document, dict):
-            raise ValueError("topic pool document must be an object")
-        if document.get("format_version") != TOPIC_POOL_FORMAT_VERSION:
-            raise ValueError(f"unknown topic pool format: {document.get('format_version')!r}")
-        items = document.get("topics")
-        if not isinstance(items, list):
-            raise ValueError("topic pool document has no topics list")
-    except (OSError, UnicodeDecodeError, ValueError) as error:
-        rejected = rejected_path(path)
-        path.replace(rejected)
-        raise TopicPoolFileError(rejected) from error
-    path.unlink()
-    return items
-
-
 def _write(path: Path, items: list[object]) -> None:
-    document = {"format_version": TOPIC_POOL_FORMAT_VERSION, "topics": items}
-    write_atomically(path, json.dumps(document, ensure_ascii=False).encode("utf-8"))
+    write_json_items(path, format_version=TOPIC_POOL_FORMAT_VERSION, key=_ITEMS_KEY, items=items)
 
 
 __all__ = [

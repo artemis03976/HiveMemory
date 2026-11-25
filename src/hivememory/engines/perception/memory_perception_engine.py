@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.config.patchouli import GenerationTranscriptConfig, SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import GenerationTranscriptConfig, PerceptionEngineConfig
 from hivememory.core.models import ActorIdentity, LogicalBlock, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.material import render_turn_text
@@ -34,7 +34,7 @@ class MemoryPerceptionEngine:
 
     def __init__(
         self,
-        config: SemanticFlowPerceptionConfig,
+        config: PerceptionEngineConfig,
         relay_controller: BaseRelayController,
         transcript_config: GenerationTranscriptConfig | None = None,
     ) -> None:

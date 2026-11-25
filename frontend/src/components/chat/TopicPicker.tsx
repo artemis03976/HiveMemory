@@ -66,8 +66,8 @@ export default function TopicPicker({ onPick, onClose }: TopicPickerProps) {
               <Hash className="h-3 w-3 text-accent" aria-hidden="true" />
               {topic.title || '未命名话题'}
             </span>
-            {(topic.stateSummary || topic.topicSummary) && (
-              <span className="line-clamp-1 text-xs text-fg-3">{topic.stateSummary || topic.topicSummary}</span>
+            {(topic.foldSummary || topic.topicSummary) && (
+              <span className="line-clamp-1 text-xs text-fg-3">{topic.foldSummary || topic.topicSummary}</span>
             )}
           </button>
         ))}

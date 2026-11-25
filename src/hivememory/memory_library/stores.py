@@ -1,7 +1,7 @@
 """Storage facades for Patchouli memory layers.
 
-短期存储只暴露持久化事实（CRUD）。Topic 状态转换、compact、settle、驱逐与
-路由策略不属于本模块；占用权（lease）由 ``TopicWorkingSet`` 管理，编排由
+短期存储只暴露持久化事实（CRUD 与套用写函数的原子写入）。Topic 状态转换、compact、
+settle、驱逐与路由策略不属于本模块；占用权（lease）由 ``TopicWorkingSet`` 管理，编排由
 Perception Familiar 承担。
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -42,10 +42,11 @@ logger = logging.getLogger(__name__)
 
 
 class ShortTermMemoryStore:
-    """短期 Topic 持久化 facade（纯 CRUD）。
+    """短期 Topic 持久化 facade。
 
     职责：封装 Port（get/put/delete/list）、全局 ID 唯一性检查（Port 内执行）、
-    返回不可变 ``TopicData`` 业务快照。
+    返回不可变 ``TopicData`` 业务快照，以及在最新快照上套用写函数的原子写入
+    （``update``）。
 
     不职责：不持有驻留容量与访问时间（``TopicWorkingSet`` 的工作集索引）、
     不持有执行占用状态（lease 表）、不执行 compact/settle 等组合操作
@@ -68,6 +69,27 @@ class ShortTermMemoryStore:
             raise TypeError("short-term store accepts TopicData snapshots")
         with self._lock:
             self._port.put(topic)
+
+    def update(
+        self,
+        belong_to: WorkspaceIdentity,
+        topic_id: str,
+        write: Callable[[TopicData], TopicData],
+    ) -> TopicData | None:
+        """在话题的最新快照上套用 ``write`` 并写回，返回新快照。
+
+        读取、套用与写回在同一把锁内完成，其间不会有别的写回插入，因此调用方不必在
+        跨 await 之后重新读取话题：await 之前读到的快照不会被写回。话题不存在时不调用
+        ``write``、返回 ``None``。``write`` 是不做 I/O 的纯函数；它抛出的错误照常传播，
+        话题不变。
+        """
+        with self._lock:
+            topic = self._port.get(belong_to, topic_id)
+            if topic is None:
+                return None
+            updated = write(topic)
+            self.put(updated)
+            return updated
 
     def create(
         self,

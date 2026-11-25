@@ -80,7 +80,7 @@ class TopicRouterEngine:
         for snapshot in topic_snapshots:
             lines.append(
                 f"- {snapshot.topic_id}: {snapshot.topic_title} | "
-                f"{snapshot.topic_summary or snapshot.state_summary}"
+                f"{snapshot.topic_summary or snapshot.fold_summary}"
             )
         return "\n".join(lines)
 

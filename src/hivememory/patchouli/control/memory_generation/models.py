@@ -98,7 +98,7 @@ class MemoryGenerationTaskSpec:
             or self.request.update_focus is not None
             or self.request.existing_memory is not None
             or self.request.context.turns
-            or self.request.context.state_summary
+            or self.request.context.fold_summary
         ):
             raise ValueError("合并任务不能携带交互输入、修订输入或意图终态结算权")
 

@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from collections.abc import Callable
@@ -15,7 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from hivememory.components.bus.async_bus import AsyncSystemBus
-from hivememory.config.files import rejected_path, write_atomically
+from hivememory.config.files import UnreadableFileError, take_json_items, write_json_items
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.models.pending import (
@@ -35,6 +34,7 @@ logger = logging.getLogger(__name__)
 WRITE_INTENT_ALIAS_PREFIXES = ("draft_", "rev_")
 
 RECORD_FORMAT_VERSION = 1
+_RECORD_ITEMS_KEY = "intents"
 
 
 def _slugify(text: str, max_len: int = 30) -> str:
@@ -151,34 +151,25 @@ class WriteIntentRegistry:
         """读回上次正常关闭时写盘的登记并删除文件，必须在订阅结算事件之前调用。
 
         读回后立即删除文件：进程崩溃时这段时间的句柄随之丢失，与关闭时保存的生成工作
-        一同丢失，下次启动不会读回一份过时的登记。满保留期的句柄不读回。文件无法解析
-        或格式版本不认识时改名保留，登记以空表开始。
+        一同丢失，下次启动不会读回一份过时的登记。满保留期的句柄不读回。文件读不回或
+        任一句柄读不回时整份改名保留，登记以空表开始。
         """
-        path = self.record_file
-        if not path.exists():
-            return
         try:
-            document = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(document, dict):
-                raise ValueError("write intent record must be an object")
-            if document.get("format_version") != RECORD_FORMAT_VERSION:
-                raise ValueError(
-                    f"unknown write intent record format: {document.get('format_version')!r}"
-                )
-            items = document.get("intents")
-            if not isinstance(items, list):
-                raise ValueError("write intent record has no intents list")
-            atoms = [PendingAtom.model_validate(item) for item in items]
-        except (OSError, UnicodeDecodeError, ValueError):
-            rejected = rejected_path(path)
-            path.replace(rejected)
+            atoms = take_json_items(
+                self.record_file,
+                format_version=RECORD_FORMAT_VERSION,
+                key=_RECORD_ITEMS_KEY,
+                decode=PendingAtom.model_validate,
+            )
+        except UnreadableFileError as error:
             logger.error(
                 "读回写入句柄登记失败: reason=write_intents_unreadable, rejected_file=%s",
-                rejected,
+                error.rejected_path,
                 exc_info=True,
             )
             return
-        path.unlink()
+        if atoms is None:
+            return
         cutoff = self._cutoff()
         for atom in atoms:
             if atom.created_at > cutoff:
@@ -195,13 +186,12 @@ class WriteIntentRegistry:
         self._drop_expired()
         if not self._atoms:
             return
-        document = {
-            "format_version": RECORD_FORMAT_VERSION,
-            "intents": [atom.model_dump(mode="json") for atom in self._atoms.values()],
-        }
         try:
-            write_atomically(
-                self.record_file, json.dumps(document, ensure_ascii=False).encode("utf-8")
+            write_json_items(
+                self.record_file,
+                format_version=RECORD_FORMAT_VERSION,
+                key=_RECORD_ITEMS_KEY,
+                items=[atom.model_dump(mode="json") for atom in self._atoms.values()],
             )
         except OSError:
             logger.error(

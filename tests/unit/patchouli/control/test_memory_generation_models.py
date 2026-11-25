@@ -270,7 +270,7 @@ def test_merge_spec_rejects_wrong_source_or_terminal_ownership(mismatch):
         "intent": {"intent_id": "original", "pending_alias": "draft"},
         "interaction": {
             "request": GenerationRequest(
-                merge_focus=focus, context=GenerationContext(state_summary="context")
+                merge_focus=focus, context=GenerationContext(fold_summary="context")
             )
         },
     }

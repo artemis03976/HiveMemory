@@ -3,7 +3,7 @@ HiveMemory Token 溢出接力控制器 / Page Folding 摘要生成器
 
 无状态服务，职责：
     - 检测即将溢出的 Buffer (should_relay)
-    - 为 Page Folding 生成 state_summary (generate_summary)
+    - 为 Page Folding 生成 fold_summary (generate_summary)
     - 生成中间态摘要以维持跨 Block 的上下文连贯性
 """
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class BaseRelayController(ABC):
     """Token 溢出接力控制器基类。
 
-    无状态服务，职责：为 Page Folding 生成 ``state_summary``
+    无状态服务，职责：为 Page Folding 生成 ``fold_summary``
     （``generate_summary``）。由 PerceptionFamiliar 在 lease 持有期间调用，
     不感知 Store 与话题生命周期。
     """
@@ -39,10 +39,6 @@ class BaseRelayController(ABC):
         previous_summary: str | None = None,
     ) -> str:
         """生成摘要（抽象方法）"""
-
-    def create_relay_context(self, summary: str) -> str:
-        """创建接力上下文文本"""
-        return f"[接力摘要] {summary}" if summary else ""
 
 
 class SimpleRelayController(BaseRelayController):
@@ -64,7 +60,7 @@ class SimpleRelayController(BaseRelayController):
 
         Args:
             blocks_to_fold: 需要折叠的 LogicalBlock 列表
-            previous_summary: 之前的 state_summary（如果有）
+            previous_summary: 之前的 fold_summary（如果有）
 
         Returns:
             str: 合并后的摘要文本
@@ -168,7 +164,7 @@ class LLMRelayController(BaseRelayController):
 
         Args:
             blocks_to_fold: 需要折叠的 LogicalBlock 列表
-            previous_summary: 之前的 state_summary（如果有）
+            previous_summary: 之前的 fold_summary（如果有）
 
         Returns:
             str: 合并后的摘要文本
@@ -199,7 +195,7 @@ class LLMRelayController(BaseRelayController):
 
         Args:
             blocks: LogicalBlock 列表
-            previous_summary: 之前的 state_summary（供 LLM 合并）
+            previous_summary: 之前的 fold_summary（供 LLM 合并）
 
         Returns:
             str: 摘要文本

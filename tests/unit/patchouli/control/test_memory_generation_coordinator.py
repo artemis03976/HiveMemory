@@ -127,7 +127,7 @@ class TestMemoryGenerationCoordinator:
         """接纳结果由 Controller 分类并结算；协调层原样返回，不重复发布失败事件。"""
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]
-        topic_data.state_summary = "state"
+        topic_data.fold_summary = "state"
         topic_data.topic_title = "title"
         topic_data.topic_summary = "summary"
         bus = Mock()
@@ -157,7 +157,7 @@ class TestMemoryGenerationCoordinator:
     async def test_submit_active_keeps_ambiguous_admission_pending(self):
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]
-        topic_data.state_summary = "state"
+        topic_data.fold_summary = "state"
         topic_data.topic_title = "title"
         topic_data.topic_summary = "summary"
         bus = Mock()
@@ -213,7 +213,7 @@ class TestMemoryGenerationCoordinator:
         assert spec.from_actor == ActorIdentity(
             user_id="test_user", agent_id=SYSTEM_AGENT_ID, team_id=None
         )
-        assert spec.request.context.state_summary == "state"
+        assert spec.request.context.fold_summary == "state"
         assert [turn.user_message for turn in spec.request.context.turns] == ["q2"]
         assert spec.interaction_input.topic_title == "title"
         assert spec.interaction_input.blocks == blocks
@@ -241,7 +241,7 @@ class TestMemoryGenerationCoordinator:
     async def test_submit_active_builds_write_specs_from_topic_context(self):
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]
-        topic_data.state_summary = "state"
+        topic_data.fold_summary = "state"
         topic_data.topic_title = "title"
         topic_data.topic_summary = "summary"
         bus = Mock()
@@ -276,7 +276,7 @@ class TestMemoryGenerationCoordinator:
         existing = _memory_atom(memory_id)
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]
-        topic_data.state_summary = "state"
+        topic_data.fold_summary = "state"
         topic_data.topic_title = "title"
         topic_data.topic_summary = "summary"
         bus = Mock()
@@ -316,7 +316,7 @@ class TestMemoryGenerationCoordinator:
         memory_id = uuid4()
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]
-        topic_data.state_summary = "state"
+        topic_data.fold_summary = "state"
         topic_data.topic_title = "title"
         topic_data.topic_summary = "summary"
         bus = Mock()
@@ -354,7 +354,7 @@ class TestMemoryGenerationCoordinator:
         memory_id = uuid4()
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]
-        topic_data.state_summary = "state"
+        topic_data.fold_summary = "state"
         topic_data.topic_title = "title"
         topic_data.topic_summary = "summary"
         bus = Mock()
@@ -385,7 +385,7 @@ class TestMemoryGenerationCoordinator:
     async def test_submit_active_invalid_update_uuid_marks_pending_failed(self):
         topic_data = Mock()
         topic_data.recent_blocks.return_value = [_topic_block()]
-        topic_data.state_summary = "state"
+        topic_data.fold_summary = "state"
         topic_data.topic_title = "title"
         topic_data.topic_summary = "summary"
         bus = Mock()
@@ -418,7 +418,7 @@ class TestMemoryGenerationCoordinator:
 
     @pytest.mark.asyncio
     async def test_submit_active_uses_configured_number_of_recent_blocks(self):
-        """材料只取工作视图最近 recent_block_limit 个 block 并带上 state_summary，不带折叠记录。"""
+        """材料只取工作视图最近 recent_block_limit 个 block 并带上 fold_summary，不带折叠记录。"""
         interactions = tuple(_topic_block(f"q{index}") for index in range(6))
         topic = TopicData(
             topic_id="t1",
@@ -448,7 +448,7 @@ class TestMemoryGenerationCoordinator:
 
         spec = bus.request.await_args_list[-1].args[1]
         assert [turn.user_message for turn in spec.request.context.turns] == ["q4", "q5"]
-        assert spec.request.context.state_summary == "state"
+        assert spec.request.context.fold_summary == "state"
         assert [block.user_message for block in spec.interaction_input.blocks] == ["q4", "q5"]
         assert spec.interaction_input.folds == ()
 

@@ -67,7 +67,7 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
         workspace_identity=make_identity_scope(user_id="test_user").workspace_identity,
         topic_id=topic_id,
         topic_title=title,
-        state_summary="summary",
+        fold_summary="summary",
         last_turn=TopicLastTurn(user="hi", assistant="hello"),
         block_count=3,
         total_tokens=100,
@@ -95,7 +95,7 @@ class TestTopicsRouter:
         assert data["topics"][0]["topic_id"] == "t1"
         assert data["topics"][0]["topic_title"] == "Topic 1"
         assert data["topics"][0]["topic_summary"] == "topic summary"
-        assert data["topics"][0]["state_summary"] == "summary"
+        assert data["topics"][0]["fold_summary"] == "summary"
         assert data["topics"][0]["last_turn"] == {"user": "hi", "assistant": "hello"}
         assert data["topics"][0]["block_count"] == 3
         assert data["topics"][0]["total_tokens"] == 100

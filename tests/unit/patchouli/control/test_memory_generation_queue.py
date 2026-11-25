@@ -129,7 +129,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(me
         label="codec",
         source=MemoryGenerationSource.UPDATE,
         request=GenerationRequest(
-            context=GenerationContext(state_summary="original summary"),
+            context=GenerationContext(fold_summary="original summary"),
             existing_memory=atom,
         ),
         interaction_input=InteractionArtifactInput(
@@ -167,7 +167,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(me
         work,
     )
 
-    spec.request.context.state_summary = "external mutation"
+    spec.request.context.fold_summary = "external mutation"
     atom.payload.content = "external mutation"
     first = codecs.decode(
         _MemoryGenerationWorkAdapter.kind,
@@ -195,13 +195,13 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(me
         first.spec.request.merge_focus.retained_memory_id = "external change"
         assert second.spec.request.merge_focus.retained_memory_id == "retained"
         return
-    assert first.spec.request.context.state_summary == "original summary"
+    assert first.spec.request.context.fold_summary == "original summary"
     assert isinstance(first.spec.request.existing_memory, MemoryAtom)
     assert first.spec.request.existing_memory.payload.content == "original content"
     assert first.spec.interaction_input is not None
     assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
-    first.spec.request.context.state_summary = "attempt-local mutation"
-    assert second.spec.request.context.state_summary == "original summary"
+    first.spec.request.context.fold_summary = "attempt-local mutation"
+    assert second.spec.request.context.fold_summary == "original summary"
 
 
 @pytest.mark.parametrize("schema_version", [1, 2])
@@ -222,6 +222,30 @@ def test_registry_rejects_previous_memory_generation_versions(schema_version: in
         match=f"schema version {schema_version} is not registered",
     ):
         registry.decode(adapter.kind, schema_version, payload)
+
+
+def _with_state_summary(item: dict) -> dict:
+    """把当前版本保存的工作改回 1.5 之前的写法：那时生成材料的折叠摘要叫 state_summary。"""
+    context = item["payload"]["spec"]["request"]["context"]
+    context["state_summary"] = context.pop("fold_summary")
+    return item
+
+
+def test_work_saved_as_1_4_reads_back_with_its_fold_summary() -> None:
+    """升级前以 1.4 保存的工作里折叠摘要叫 state_summary：读回时改名，摘要不变，照常执行。"""
+    queue = MemoryGenerationQueue(AsyncMock())
+    spec = replace(
+        _spec(
+            topic_id="topic-old",
+            request=GenerationRequest(context=GenerationContext(fold_summary="较早内容的摘要")),
+        ),
+        source=MemoryGenerationSource.SETTLE,
+    )
+    item = _with_state_summary(queue.encode_for_restart("settle:topic-old", spec))
+
+    restored = queue.decode_for_restart({**item, "schema_version": "1.4"})
+
+    assert restored == spec
 
 
 def test_revision_saved_as_1_1_reads_back_with_the_base_version_it_was_built_on() -> None:
@@ -249,7 +273,7 @@ def test_revision_saved_as_1_1_reads_back_with_the_base_version_it_was_built_on(
         intent_id="intent-old",
         pending_alias="rev_memory_alias_0001",
     )
-    item = queue.encode_for_restart("active:intent-old", spec)
+    item = _with_state_summary(queue.encode_for_restart("active:intent-old", spec))
     del item["payload"]["spec"]["retires_topic"]
     del item["payload"]["spec"]["request"]["update_focus"]["base_version"]
 
@@ -259,8 +283,8 @@ def test_revision_saved_as_1_1_reads_back_with_the_base_version_it_was_built_on(
 
 
 def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -> None:
-    """1.3 保存的结算原样读回；升级前以 1.2 保存的结算没有轮次标识、段与响应序号，读回时补成
-    空值后照常执行，材料不印段标签，也就无从引用。"""
+    """当前版本保存的结算原样读回；升级前以 1.2 保存的结算没有轮次标识、段与响应序号，读回时
+    补成空值后照常执行，材料不印段标签，也就无从引用。"""
     queue = MemoryGenerationQueue(AsyncMock())
     block = make_logical_block(
         turn_events=[
@@ -277,6 +301,7 @@ def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -
     item = queue.encode_for_restart("settle:topic-old", spec)
     assert queue.decode_for_restart(item) == spec
 
+    _with_state_summary(item)
     del item["payload"]["spec"]["retires_topic"]
     for turn in item["payload"]["spec"]["request"]["context"]["turns"]:
         del turn["turn_id"], turn["segments"]
@@ -294,8 +319,8 @@ def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -
 
 
 def test_work_saved_as_1_3_reads_back_with_every_settlement_retiring() -> None:
-    """1.4 保存的空闲沉淀原样读回、不退役；升级前以 1.3 保存的工作不带 retires_topic：那时
-    每次结算都结束话题，结算读回为退役，其余来源读回为不退役。"""
+    """当前版本保存的空闲沉淀原样读回、不退役；升级前以 1.3 保存的工作不带 retires_topic：
+    那时每次结算都结束话题，结算读回为退役，其余来源读回为不退役。"""
     queue = MemoryGenerationQueue(AsyncMock())
     settlement = replace(_spec(topic_id="topic-old"), source=MemoryGenerationSource.SETTLE)
     write = _spec(topic_id="topic-old", intent_id="intent-old", pending_alias="draft-old")
@@ -305,6 +330,7 @@ def test_work_saved_as_1_3_reads_back_with_every_settlement_retiring() -> None:
 
     restored = []
     for item in (settlement_item, write_item):
+        _with_state_summary(item)
         del item["payload"]["spec"]["retires_topic"]
         restored.append(queue.decode_for_restart({**item, "schema_version": "1.3"}))
 

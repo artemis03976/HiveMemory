@@ -134,7 +134,7 @@ async def test_gateway_routes_and_rewrites_with_session_history_without_exportin
         last_update=1_700_000_000.0,
         topic_id="topic-1",
         topic_title="Docker",
-        state_summary="Topic 背景",
+        fold_summary="Topic 背景",
         workspace_identity=scope.workspace_identity,
     )
 

@@ -14,7 +14,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import PerceptionEngineConfig
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import system_actor_for_workspace
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
@@ -65,7 +65,7 @@ def _topic_boundary(*, max_resident_topics: int = 5, clock: _FakeClock | None = 
     store = ShortTermMemoryStore()
     relay = _DeterministicRelay()
     engine = MemoryPerceptionEngine(
-        config=SemanticFlowPerceptionConfig(
+        config=PerceptionEngineConfig(
             fold_token_threshold=999999,
             fold_retain_recent_blocks=1,
         ),
@@ -234,9 +234,9 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects():
     assert after_main.topic_id == main_topic_id
     assert after_isolated.topic_id == isolated_topic_id
     assert after_main.blocks == before_main.blocks
-    assert after_main.state_summary == before_main.state_summary
+    assert after_main.fold_summary == before_main.fold_summary
     assert after_isolated.blocks == before_isolated.blocks
-    assert after_isolated.state_summary == before_isolated.state_summary
+    assert after_isolated.fold_summary == before_isolated.fold_summary
 
 
 @pytest.mark.asyncio

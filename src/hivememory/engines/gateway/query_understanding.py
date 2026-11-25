@@ -85,8 +85,8 @@ class QueryUnderstandingEngine:
         lines: list[str] = [f"{topic_data.topic_title}"]
         if topic_data.topic_summary:
             lines.append(topic_data.topic_summary)
-        if topic_data.state_summary:
-            lines.append(topic_data.state_summary)
+        if topic_data.fold_summary:
+            lines.append(topic_data.fold_summary)
         text_limit = self._config.context_text_limit
         for block in topic_data.recent_blocks(self._config.context_block_limit):
             user_text = block.user_message[:text_limit]

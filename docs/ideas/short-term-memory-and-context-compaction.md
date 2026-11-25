@@ -107,7 +107,7 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 **现状与差距**：
 
-- 话题只有两种摘要：`topic_summary` 在建话题时由 Gateway 写一次，之后不更新，话题路由一直用它；`state_summary` 只在折叠时产生，日常约 97% 的话题直到结算都没有它（[感知与短期话题](../patchouli/perception.md)）。没有工作记录。
+- 话题只有两种摘要：`topic_summary` 在建话题时由 Gateway 写一次，之后不更新，话题路由一直用它；`fold_summary`（折叠摘要）只在折叠时产生，日常约 97% 的话题直到结算都没有它（[感知与短期话题](../patchouli/perception.md)）。没有工作记录。
 - 段与引用坐标已经实现：段由一轮的事件按模型响应推出，工具结果挂在调用事件上，一段不会拆开调用与结果；记忆的版本记录保存“轮次标识 + 事件序号区间”（[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)）。这些引用现在只有写入方。
 - 规模：只按轮与轮之间的停下计，日常话题的工作记录中位 1 条，90% 不超过 3 条，最长 14 条（85 轮的话题）。
 
@@ -123,6 +123,7 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 - 没有任何写工作记录的触发。plugin 模式在一轮结束后才导入：Claude Code 在 `Stop` 钩子同步，连接器按最后一条助手条目的 `stop_reason` 判断这一轮是否写完（[Import Bus](../system/import-bus.md)）。
 - 单个事件没有时间戳（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），“步与步之间长时间等待”无法从已存的事件算出。
+- 话题不记录每一轮来自哪个会话：话题中的一轮只有轮次标识、身份与事件，提交时的顺序键与关联信息不进入话题，Patchouli 自己判断不出“会话切到了别的话题”，要么每一轮记下来源会话，要么由知道会话的 Workspace 与 Import Bus 告知。
 - 日常 121 个长轮次（每轮至少 72 个事件）中，83 个没有一次计划步骤完成；Claude 桌面端每轮都列自己的操作步骤，计划步骤完成在普通轮次里也频繁出现，不代表话题的工作单位。
 - 成本：日常 11 天导入 881 轮，同一会话切到别的话题 132 次、话题内停顿超过 30 分钟 41 次，轮与轮之间停下时写的次数约为每轮都写的四分之一。
 
@@ -163,8 +164,9 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 **现状与差距**：
 
-- 工作视图的 token 超过 `fold_token_threshold` 时折叠，保留最近 `fold_retain_recent_blocks` 块，其余折叠进 `state_summary`；随附配置为 131072 与 2，代码缺省阈值 32768；LLMRelay 参照旧摘要写新摘要，失败回退为规则摘要（[感知与短期话题](../patchouli/perception.md)）。
-- 结算时被折叠的轮次只以 `state_summary` 进入生成，原文冻结进来源 Artifact、不参与生成（[记忆生成](../patchouli/generation.md)）。
+- 工作视图的 token 超过 `fold_token_threshold` 时折叠，保留最近 `fold_retain_recent_blocks` 块，其余折叠进 `fold_summary`；随附配置为 131072 与 2，代码缺省阈值 32768；LLMRelay 参照旧摘要写新摘要，失败回退为规则摘要（[感知与短期话题](../patchouli/perception.md)）。
+- 结算时被折叠的轮次只以 `fold_summary` 进入生成，原文冻结进来源 Artifact、不参与生成（[记忆生成](../patchouli/generation.md)）。
+- 折叠摘要的读者不只是生成：Gateway 的话题路由在没有 `topic_summary` 时用它、候选话题渲染为“状态”、查询理解读它；话题池详情把它标为“较早内容的摘要”，话题卡片与对话页的话题选择器把它当副标题；主动写入的材料、结算材料与下一次折叠读它。
 - Relay 提示词用固定的四段标题（核心目标、系统状态与已完成、约束与避坑、当前焦点），写明供 Worker Agent 使用，与“读者是读材料的生成”不符。日常 17 份折叠摘要中 16 份按四段写，文件路径多只保住 5% 以下；一份规则回退摘要把约 79 万字符压成 120 字符；单轮超大时每来一轮就折一次，最后两次摘要逐字相同。
 
 ## 7. 什么时候用：推送与拉取
@@ -183,7 +185,7 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 **现状与差距**：
 
 - 话题没有给 agent 的读出入口：actor API 的读取、检索、写入与更新都以中期记忆为对象（[能力层](../workspace/capability.md)），MCP 的四个工具同样（[MCP 记忆访问](../contracts/mcp.md)）；Import Bus 不返回任何上下文（[Import Bus](../system/import-bus.md)）。
-- Alice 的上下文不含话题的状态摘要与块（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）。
+- Alice 的上下文不含话题的折叠摘要与块（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）。
 - `determine_topic` 已供任务进程的线程表与 Import Bus 编排器使用，MCP 写入时以它在一轮结束前确定话题（[能力层](../workspace/capability.md)）。日常一次话题路由约 3 秒。
 - Claude Code：压缩之后以 `source: 'compact'` 触发 `SessionStart`，它与 `UserPromptSubmit` 都能返回 `additionalContext`；注入只保证交到模型手里，不保证模型会读。插件注册了 `SessionStart`，只用来同步会话记录，没有注册 `UserPromptSubmit`。Codex 的钩子是 `SessionStart`、`Stop`、`Interrupt` 与 `SessionEnd`；Codex、pi 与 DeepSeek Harness 能否注入内容没有核对。
 

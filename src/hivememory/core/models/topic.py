@@ -29,7 +29,7 @@ class TopicSnapshot(BaseModel):
     workspace_identity: WorkspaceIdentity
     topic_title: str
     topic_summary: str = ""
-    state_summary: str = ""
+    fold_summary: str = ""
     last_turn: TopicLastTurn | None = None
     total_tokens: int = 0
     block_count: int = 0
@@ -78,7 +78,7 @@ class TopicFold(BaseModel):
     """话题的一次折叠记录。
 
     ``folded_block_ids`` 是这一次被折叠的块，按接收顺序排列，总是折叠当时工作
-    视图的前缀；``summary`` 是折叠后的状态摘要，已经并入此前各次折叠的内容。
+    视图的前缀；``summary`` 是折叠后的摘要，已经并入此前各次折叠的内容。
     """
 
     folded_block_ids: tuple[str, ...] = Field(min_length=1)
@@ -100,8 +100,8 @@ def topic_working_blocks(
     return tuple(interactions[folded_count:])
 
 
-def topic_state_summary(folds: Sequence[TopicFold]) -> str:
-    """话题状态摘要：最后一次折叠的摘要，没有折叠时为空串。"""
+def topic_fold_summary(folds: Sequence[TopicFold]) -> str:
+    """折叠摘要：最后一次折叠的摘要，即被折叠的那部分交互的摘要；没有折叠时为空串。"""
     return folds[-1].summary if folds else ""
 
 
@@ -109,7 +109,7 @@ class TopicData(BaseModel):
     """短期话题的业务快照（不可变读取对象）。
 
     原始数据只有两份：``interactions`` 按接收顺序保存全部交互，只追加，话题结束
-    前不移除；``folds`` 每次折叠追加一条。工作视图（``blocks``、``state_summary``
+    前不移除；``folds`` 每次折叠追加一条。工作视图（``blocks``、``fold_summary``
     与 ``total_tokens``）由二者派生、不单独存储：分开存储的副本需要在每次写入与
     折叠时维持“工作视图是交互记录的后缀”，派生不会失去一致。
 
@@ -176,9 +176,9 @@ class TopicData(BaseModel):
         return topic_working_blocks(self.interactions, self.folds)
 
     @property
-    def state_summary(self) -> str:
+    def fold_summary(self) -> str:
         """最后一次折叠的摘要，没有折叠时为空串。"""
-        return topic_state_summary(self.folds)
+        return topic_fold_summary(self.folds)
 
     @property
     def total_tokens(self) -> int:
@@ -228,7 +228,7 @@ class TopicData(BaseModel):
             workspace_identity=self.workspace_identity,
             topic_title=self.topic_title,
             topic_summary=self.topic_summary,
-            state_summary=self.state_summary,
+            fold_summary=self.fold_summary,
             last_turn=last_turn,
             total_tokens=self.total_tokens,
             block_count=self.block_count,
@@ -248,7 +248,7 @@ def merge_interaction_into_topic(
     """把一次 Interaction 的 block、首次绑定与元数据并成新快照。
 
     block 追加到交互记录末尾，也就进入工作视图。binding 以 ``asset_id`` 幂等
-    去重；原子性由「frozen 快照 → 新快照 → ``Store.put`` 整条替换」承担，
+    去重；原子性由短期存储的 ``update`` 承担（在最新快照上套用、整条替换），
     互斥由调用方持有的 lease 保证。
     """
     bindings = list(topic.bindings)
@@ -317,7 +317,7 @@ def record_topic_writes(
     ``written`` 无条件加入记录；``absorbed_into`` 是“被合并吸收的记忆 → 保留的记忆”，
     只有被吸收的那条在话题当前的记录中时，记录才删去它、改为保留的那条：判断以写回时的
     记录为准。只改这份记录，不改内容、沉淀进度与写入时间。它与交互、折叠和沉淀进度互不
-    相交，写入不需要 lease；其他写函数的调用方因此在写回前重新读取最新快照。
+    相交，写入不需要 lease；全部写函数因此都经短期存储的 ``update`` 套用在最新快照上。
     """
     recorded = set(topic.topic_write_memory_ids)
     for absorbed, retained in absorbed_into.items():
@@ -338,6 +338,6 @@ __all__ = [
     "mark_topic_settled",
     "merge_interaction_into_topic",
     "record_topic_writes",
-    "topic_state_summary",
+    "topic_fold_summary",
     "topic_working_blocks",
 ]

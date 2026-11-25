@@ -2,7 +2,7 @@
 
 import pytest
 
-from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import PerceptionEngineConfig
 from hivememory.core.models import ActorIdentity
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.prompts.transcript.generation import GenerationTranscriptBuilder
@@ -14,7 +14,7 @@ from tests.helpers.sessions import make_conversation_turn
 def test_outcome_survives_perception_and_transcript_projection(outcome, note):
     """实际 block 与生成材料保留结局，下一轮历史也明确提示不完整。"""
     turn = make_conversation_turn(user_message="问题", reply="半截回答", outcome=outcome)
-    engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig(), relay_controller=None)
+    engine = MemoryPerceptionEngine(config=PerceptionEngineConfig(), relay_controller=None)
     block = engine.build_block(turn.payload, ActorIdentity(user_id="default", agent_id="default"))
     assert block.turn.outcome == outcome
     generation = GenerationTranscriptBuilder()

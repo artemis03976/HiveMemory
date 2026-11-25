@@ -1,6 +1,6 @@
 """感知层数据模型。
 
-- ``TriggerReason``：话题结算、折叠与驱逐的触发原因，只作结算材料的 provenance 标签；
+- ``TriggerReason``：话题结算的触发原因，只作结算材料的 provenance 标签；
 - ``TopicMaterializeTask``：感知层交给生成层的话题结算传输包。
 
 话题的交互记录、折叠记录与工作视图的派生定义在 core 话题模型中，感知层与生成层
@@ -19,7 +19,7 @@ from hivememory.core.models import (
     TopicData,
     TopicFold,
     WorkspaceIdentity,
-    topic_state_summary,
+    topic_fold_summary,
     topic_working_blocks,
 )
 
@@ -29,19 +29,15 @@ from hivememory.core.models import (
 class TriggerReason(str, Enum):
     """统一触发原因枚举。
 
-    七种原因对应 settle / compact / evict 三类具名用例，由
-    ``PerceptionFamiliar`` 编排；``reason`` 仅作为 ``TopicMaterializeTask``
-    的 provenance 标签，不驱动分支。历史命名 ``FlushReason`` 已删除；
-    枚举字符串值保持不变，既有任务与事件载荷不受影响。
+    具名用例由 ``PerceptionFamiliar`` 编排；``reason`` 仅作为 ``TopicMaterializeTask``
+    的 provenance 标签，记录这次结算为什么发生，不驱动分支。枚举字符串值是任务与事件
+    载荷的一部分。
     """
 
-    TOKEN_OVERFLOW = "token_overflow"  # Token 溢出
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
     SHUTDOWN = "shutdown"  # 进程关闭时沉淀全部驻留话题（只有空话题退役）
     MANUAL_SETTLE = "manual_settle"  # 用户手动结算：结算为记忆资产并结束 Topic
-    MANUAL_COMPACT = "manual_compact"  # 用户手动压缩：只压缩工作集，不结算、不驱逐
-    MANUAL_DELETE = "manual_delete"  # 用户手动删除：丢弃 Topic，不写记忆
 
 
 # ============ 话题结算载荷 (Perception -> Generation) ============
@@ -53,7 +49,7 @@ class TopicMaterializeTask(BaseModel):
 
     Topic 结算时冻结话题的全部交互记录与折叠记录，发送给 Generation 模块：
     来源 InteractionArtifact 覆盖全部轮次（包括已折叠的轮次）并带上折叠记录；
-    生成材料仍是工作视图（``state_summary`` 与未折叠的 blocks），与 ``TopicData``
+    生成材料仍是工作视图（``fold_summary`` 与未折叠的 blocks），与 ``TopicData``
     同一派生。字段转换统一由 :meth:`from_topic_data` 完成。
     """
 
@@ -96,7 +92,7 @@ class TopicMaterializeTask(BaseModel):
 
     # task 会跨越 queue admission 边界；禁止字段重新赋值，并使用 tuple 承载
     # interactions 与 folds，避免冻结模型内部仍可被原地 append。工作视图是派生
-    # 属性，以 blocks= 或 state_summary= 构造时显式失败。
+    # 属性，以 blocks= 或 fold_summary= 构造时显式失败。
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True, extra="forbid")
 
     @property
@@ -105,9 +101,9 @@ class TopicMaterializeTask(BaseModel):
         return topic_working_blocks(self.interactions, self.folds)
 
     @property
-    def state_summary(self) -> str:
+    def fold_summary(self) -> str:
         """最后一次折叠的摘要，没有折叠时为空串。"""
-        return topic_state_summary(self.folds)
+        return topic_fold_summary(self.folds)
 
     @classmethod
     def from_topic_data(

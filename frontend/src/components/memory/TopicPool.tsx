@@ -90,8 +90,8 @@ function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
       <TopicIcon size="sm" />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="truncate text-[15px] font-semibold text-fg">{topicTitle(topic)}</span>
-        {(topic.stateSummary || topic.topicSummary) && (
-          <span className="line-clamp-2 text-[13px] leading-normal text-fg-2">{topic.stateSummary || topic.topicSummary}</span>
+        {(topic.foldSummary || topic.topicSummary) && (
+          <span className="line-clamp-2 text-[13px] leading-normal text-fg-2">{topic.foldSummary || topic.topicSummary}</span>
         )}
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-fg-3">
           <span>{topic.blockCount} 个片段</span>
@@ -109,7 +109,7 @@ function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
   );
 }
 
-function TopicDetail({ topic, settings, settleMinutes, now, onReference, onSettle, onDiscard }: {
+export function TopicDetail({ topic, settings, settleMinutes, now, onReference, onSettle, onDiscard }: {
   topic: Topic;
   settings: PoolSettings | null;
   settleMinutes: number | null;
@@ -121,7 +121,7 @@ function TopicDetail({ topic, settings, settleMinutes, now, onReference, onSettl
   const addToast = useToastStore((s) => s.addToast);
   const shortId = topic.id.length > 12 ? `${topic.id.slice(0, 4)}…${topic.id.slice(-4)}` : topic.id;
   const soon = settleMinutes !== null && settleMinutes <= SETTLE_SOON_MINUTES;
-  const hasContent = topic.topicSummary || topic.stateSummary || topic.lastTurn;
+  const hasContent = topic.topicSummary || topic.foldSummary || topic.lastTurn;
 
   return (
     <section aria-label={topicTitle(topic)} className="flex min-w-0 flex-1 flex-col overflow-hidden wrap-break-word rounded-[18px] border border-line bg-surface-container shadow-pop">
@@ -184,10 +184,10 @@ function TopicDetail({ topic, settings, settleMinutes, now, onReference, onSettl
               <p className="text-[15px] leading-relaxed text-fg">{topic.topicSummary}</p>
             </div>
           )}
-          {topic.stateSummary && (
+          {topic.foldSummary && (
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-semibold text-fg-3">目前进展</span>
-              <p className="rounded-[14px] border border-line bg-surface-container-low px-4 py-3.5 text-sm leading-7 text-fg-2">{topic.stateSummary}</p>
+              <span className="text-xs font-semibold text-fg-3">较早内容的摘要</span>
+              <p className="rounded-[14px] border border-line bg-surface-container-low px-4 py-3.5 text-sm leading-7 text-fg-2">{topic.foldSummary}</p>
             </div>
           )}
           {topic.lastTurn && (

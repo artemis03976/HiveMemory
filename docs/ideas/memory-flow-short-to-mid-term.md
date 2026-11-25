@@ -96,7 +96,7 @@ last_reviewed: 2026-11-24
 
 **主动写入生成时的材料**
 
-- 主动写入生成时的材料是话题的状态摘要与最近若干个已完成的轮次；话题不存在时按空材料生成（[生成协调](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)）。
+- 主动写入生成时的材料是话题的折叠摘要与最近若干个已完成的轮次；话题不存在时按空材料生成（[生成协调](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)）。
 - 外部 harness 的交互在轮次结束后才经 Import Bus 导入，所以写入的那一刻，当前这一轮还不在话题中；“一句话直出”时话题是新的、空的，生成侧只有 agent 在 WRITE 中写下的内容、标题与理由。
 - 写入前的 hook 读取本地的会话记录，但只为工具参数补上当前一轮的用户消息与之前几轮的文本，用于确定话题，不带本轮的工具事件（[Claude Code hooks](../../integrations/hivememory/connector/claude_code/hooks.py)）。
 

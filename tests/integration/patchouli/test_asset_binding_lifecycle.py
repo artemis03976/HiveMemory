@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import PerceptionEngineConfig
 from hivememory.core.errors import AssetRemovedError
 from hivememory.core.models import (
     AssetRepresentationKind,
@@ -57,7 +57,7 @@ def _make_familiar_with_store():
     store = ShortTermMemoryStore()
     familiar = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            config=PerceptionEngineConfig(fold_token_threshold=999999),
             relay_controller=Mock(),
         ),
         store=store,

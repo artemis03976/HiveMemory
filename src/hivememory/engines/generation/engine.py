@@ -623,7 +623,7 @@ class MemoryGenerationEngine:
         Returns:
             str: 渲染后的 transcript 文本，无有效内容时返回 "(无背景对话)"
         """
-        if not request.context.turns and not request.context.state_summary:
+        if not request.context.turns and not request.context.fold_summary:
             return "(无背景对话)"
         # 延迟导入：prompts 在依赖层级上高于 engines，模块加载期 import 会形成
         # engines.generation ↔ prompts.transcript 循环。

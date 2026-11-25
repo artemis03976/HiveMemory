@@ -17,8 +17,8 @@ core 话题模型的写函数写入：写入一轮只追加交互记录，折叠
 占用权统一由 WorkingSet 的 lease 表达：交互、折叠与结算的写路径都是
 ``acquire → try/finally release``；Relay 摘要生成在 lease 持有期间进行，
 其他调用无法取得同一话题的占用权，因此无需旧的记录状态补偿校验。只有本话题的
-写入记录不取 lease：它与交互、折叠和沉淀进度互不相交。为此每次写回都在同一段没有
-await 的代码里读取最新快照、套用写函数、写回，跨 await 之前读到的快照不直接写回。
+写入记录不取 lease：它与交互、折叠和沉淀进度互不相交。全部写回都经短期存储的
+``update`` 套用在最新快照上，等待摘要或接纳期间记下的写入不会被覆盖。
 统一 settle 时序（``_settle_topic``）为所有来源共用；是否退役由调用的用例决定，
 ``reason`` 只作为材料的 provenance 标签，不驱动分支。
 
@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Literal
 
 from hivememory.components.events.bus import NullRuntimeEventSink
@@ -142,13 +142,12 @@ class PerceptionFamiliar:
         if lease is None:
             raise TopicBusyError(f"topic '{topic_id}' 正忙，无法原子摄入 interaction，可稍后重试")
         try:
-            topic = self._store.get(belong_to, topic_id)
-            if topic is None:
-                raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
-            self._store.put(
-                merge_interaction_into_topic(
+            self._update_leased_topic(
+                belong_to,
+                topic_id,
+                lambda topic: merge_interaction_into_topic(
                     topic, block, asset_refs, interaction_id, payload.model_used
-                )
+                ),
             )
         finally:
             self._working_set.release(lease)
@@ -241,10 +240,10 @@ class PerceptionFamiliar:
                 self._working_set.remove(belong_to, topic_id)
             else:
                 # lease 持有期间交互记录不会变化，冻结的交互数就是这次沉淀覆盖到的位置。
-                # 等待接纳期间写入记录可能已经更新，进度记在最新快照上；读取与写回之间
-                # 不能有 await。
-                latest = self._leased_topic(belong_to, topic_id)
-                self._store.put(mark_topic_settled(latest, len(task.interactions)))
+                settled_count = len(task.interactions)
+                self._update_leased_topic(
+                    belong_to, topic_id, lambda topic: mark_topic_settled(topic, settled_count)
+                )
             self._emit_topic_settled(
                 belong_to, topic_id, reason, generation_submitted=True, retired=retire
             )
@@ -330,11 +329,11 @@ class PerceptionFamiliar:
         if not blocks_to_fold:
             return
         logger.info("Token 溢出，触发 Page Folding: topic_id=%s", topic_id)
-        summary = await engine.generate_fold_summary(blocks_to_fold, topic.state_summary)
-        # 等待摘要期间写入记录可能已经更新，折叠追加到最新快照上；lease 保证交互记录与
-        # 折叠记录没变，折叠前缀照样成立。读取与写回之间不能有 await。
-        latest = self._leased_topic(belong_to, topic_id)
-        self._store.put(fold_topic(latest, blocks_to_fold, summary))
+        summary = await engine.generate_fold_summary(blocks_to_fold, topic.fold_summary)
+        # lease 保证等待摘要期间交互记录与折叠记录没变，折叠前缀照样成立。
+        self._update_leased_topic(
+            belong_to, topic_id, lambda latest: fold_topic(latest, blocks_to_fold, summary)
+        )
 
     # ========== 本话题的写入 ==========
 
@@ -348,14 +347,12 @@ class PerceptionFamiliar:
     ) -> None:
         """把一次生成执行后要记下的写入与合并改指记到话题上；话题已经退役时不记。
 
-        不取 lease：写入记录与交互、折叠和沉淀进度互不相交，持有 lease 的用例写回前会重新
-        读取最新快照。退役的话题不会再沉淀，它的记录没有读者。
+        不取 lease：写入记录与交互、折叠和沉淀进度互不相交，持有 lease 的用例同样把写函数
+        套用在最新快照上。退役的话题不会再沉淀，它的记录没有读者。
         """
-        # 读取与写回之间没有 await：其间不会有其他写回插入。
-        topic = self._store.get(belong_to, topic_id)
-        if topic is None:
-            return
-        self._store.put(record_topic_writes(topic, written, absorbed_into))
+        self._store.update(
+            belong_to, topic_id, lambda topic: record_topic_writes(topic, written, absorbed_into)
+        )
 
     # ========== LRU / 驱逐 ==========
 
@@ -410,7 +407,7 @@ class PerceptionFamiliar:
 
     # ========== 维护与 shutdown ==========
 
-    async def scan_idle_buffers_once(self) -> list[str]:
+    async def scan_idle_topics_once(self) -> list[str]:
         """沉淀空闲超时话题中有新交互的，让从没接收过交互的空话题退役；返回被沉淀或退役的
         话题。候选由 WorkingSet 提供。
 
@@ -546,15 +543,18 @@ class PerceptionFamiliar:
             raise ResourceNotFoundError(details={"resource": "topic", "topic_id": target_topic_id})
         return target_topic_id
 
-    def _leased_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> TopicData:
-        """持有 lease 时读取话题的最新快照。
+    def _update_leased_topic(
+        self,
+        belong_to: WorkspaceIdentity,
+        topic_id: str,
+        write: Callable[[TopicData], TopicData],
+    ) -> None:
+        """持有 lease 时把写函数套用在话题的最新快照上。
 
         话题只在持有 lease 时删除，调用方持有它期间话题一定存在；不存在说明占用被绕过。
         """
-        topic = self._store.get(belong_to, topic_id)
-        if topic is None:
+        if self._store.update(belong_to, topic_id, write) is None:
             raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
-        return topic
 
     def _topic_events(self, belong_to: WorkspaceIdentity, topic_id: str) -> RuntimeEventPublisher:
         return self._events.bind(topic_id=topic_id, workspace_id=belong_to.workspace_id)

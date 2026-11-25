@@ -1042,7 +1042,6 @@ async def test_restore_resubmits_saved_work_and_sets_aside_unreadable_items(tmp_
         await controller.wait_all()
 
         assert (report.read, report.resubmitted, report.rejected) == (2, 1, 1)
-        assert not path.exists()
         assert executed == [original]
         assert [task.task_id for task in await controller.list_tasks()] == ["active:intent-w"]
         rejected = json.loads(Path(report.rejected_file).read_text(encoding="utf-8"))["work"]
@@ -1060,7 +1059,6 @@ async def test_restore_sets_aside_unparseable_file_without_failing(tmp_path):
     try:
         report = await controller.restore_saved(path)
 
-        assert not path.exists()
         assert Path(report.rejected_file).read_text(encoding="utf-8") == "{not json"
         assert await controller.list_tasks() == []
     finally:
@@ -1143,7 +1141,6 @@ async def test_finished_tasks_survive_restart_but_work_saved_at_shutdown_does_no
         MemoryGenerationTaskStatus.COMPLETED,
         MemoryGenerationTaskStatus.FAILED,
     ]
-    assert not history.exists()
 
 
 def _finished_task(task_id: str, *, days_ago: float) -> MemoryGenerationTask:
