@@ -1,6 +1,6 @@
 import type { RuntimeEvent } from '@/types/workspace';
 import type { EventDescription, EventTone, GatewayStep } from '@/types/runs';
-import { GENERATION_SOURCE_LABEL, SETTLE_REASON_LABEL, shortId } from '@/stores/runs/labels';
+import { GENERATION_SOURCE_LABEL, SETTLE_REASON_LABEL, shortId, topicSettledLabel } from '@/stores/runs/labels';
 
 const CHAT_PHASE_LABEL: Record<string, string> = {
   created: '创建',
@@ -186,8 +186,8 @@ export function describeEvent(event: RuntimeEvent): EventDescription {
     case 'topic.settled': {
       const settleReason = str(event, 'reason');
       return describe(
-        `话题结算（${settleReason ? (SETTLE_REASON_LABEL[settleReason] ?? settleReason) : '未知原因'}）`,
-        event.data?.generation_submitted === false ? '没有可保存的材料' : '已提交生成',
+        `${topicSettledLabel(event.data)} · ${settleReason ? (SETTLE_REASON_LABEL[settleReason] ?? settleReason) : '未知原因'}`,
+        event.data?.generation_submitted === false ? '未提交生成' : '已提交生成',
         'key',
       );
     }

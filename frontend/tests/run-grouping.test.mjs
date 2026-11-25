@@ -149,6 +149,22 @@ test('只看异常筛出失败、推迟、拒绝与未见终态的运行', () =>
   assert.deepEqual(issues.map((run) => run.status).sort(), ['failed', 'rejected']);
 });
 
+test('话题结算事件按是否退役、是否提交生成区分沉淀与退役；没有 retired 的旧事件仍叫话题结算', () => {
+  const settled = (data) => ev('topic.settled', { topic_id: 'topic-a', data: { reason: 'idle_timeout', ...data } });
+
+  assert.deepEqual(
+    [
+      settled({ generation_submitted: true, retired: false }),
+      settled({ generation_submitted: true, retired: true }),
+      settled({ generation_submitted: false, retired: true }),
+      settled({ generation_submitted: false }),
+    ].map((event) => describeEvent(event).text),
+    ['话题沉淀 · 空闲超时', '话题沉淀并退役 · 空闲超时', '话题退役（没有新内容） · 空闲超时', '话题结算 · 空闲超时'],
+  );
+  const [run] = groupRuns([settled({ generation_submitted: true, retired: false })], BASE + 1000);
+  assert.equal(run.title, '话题沉淀 · 空闲超时');
+});
+
 test('事件描述只由字段拼出，不带事件 message；未知类型回退为类型名', () => {
   const failed = describeEvent(
     ev('chat.run.failed', { reason: 'task_process_failed', message: '用户消息正文', data: { error_class: 'RuntimeError' } }),

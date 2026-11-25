@@ -10,7 +10,8 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 - 折叠: 应用不在内部折叠、needs_compact 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
   失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已结算时直接结束、未超保留块数不折叠
 - manual_settle_topic / evict_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
-- scan_idle_buffers_once：空闲只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀
+- scan_idle_buffers_once：空闲只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
+  从没接收过交互的空话题空闲时直接退役
 - flush_all_for_shutdown 维护投影，含跨 Workspace 退役、折叠后结算携带被折叠的轮次、
   占用话题记为 failed 与生成跳过
 - 感知关闭时无副作用
@@ -815,6 +816,34 @@ class TestMaintenance:
         settlement = bus.request.await_args.args[1]
         assert [block.user_message for block in settlement.interactions] == ["1", "2"]
         assert store.get(scope.workspace_identity, topic_id).settled_interaction_count == 2
+
+    @pytest.mark.asyncio
+    async def test_scan_idle_retires_empty_topic_without_generation(self):
+        """为写入预先建立、从没接收过交互的空话题，空闲时直接退役，不生成。"""
+        events = RecordingRuntimeEventSink()
+        clock = _FakeClock()
+        familiar, store, working_set, bus = _make_familiar(
+            idle_timeout=30, clock=clock, events=events
+        )
+        scope = _identity_scope()
+        topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
+
+        clock.advance(100)
+        flushed = await familiar.scan_idle_buffers_once()
+
+        assert flushed == [topic_id]
+        bus.request.assert_not_awaited()
+        assert store.get(scope.workspace_identity, topic_id) is None
+        assert working_set.list_shutdown_candidates() == []
+        assert _topic_events(events)[-1] == (
+            "topic.settled",
+            topic_id,
+            {
+                "reason": TriggerReason.IDLE_TIMEOUT.value,
+                "generation_submitted": False,
+                "retired": True,
+            },
+        )
 
     @pytest.mark.asyncio
     async def test_shutdown_flush_settles_and_swaps_out_all_topics(self):

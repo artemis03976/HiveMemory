@@ -6,7 +6,8 @@
 
 结算分成两件事：沉淀把话题新的交互交给生成，话题留在话题池；退役让话题离开话题池，
 退役前先沉淀还没有沉淀的交互。空闲只沉淀；LRU、手动结算与关闭退役。用户会断断续续地
-回到同一件事，空闲时退役会把连续的工作切成几个话题。
+回到同一件事，空闲时退役会把连续的工作切成几个话题。从没接收过交互的空话题没有可以
+接续的工作，空闲时直接退役。
 
 折叠是话题自身的维护，不属于交互应用：应用在写入 block 后即完成，是否需要
 折叠由 ``needs_compact`` 判断，``compact_topic`` 作为独立用例执行。话题只经
@@ -375,22 +376,27 @@ class PerceptionFamiliar:
     # ========== 维护与 shutdown ==========
 
     async def scan_idle_buffers_once(self) -> list[str]:
-        """沉淀空闲超时话题中有新交互的，返回被沉淀的话题；候选由 WorkingSet 提供。
+        """沉淀空闲超时话题中有新交互的，让从没接收过交互的空话题退役；返回被沉淀或退役的
+        话题。候选由 WorkingSet 提供。
 
         沉淀之后话题留在话题池、访问时间不变，没有新交互就不会再被沉淀，同一段空闲
-        因此不会反复沉淀；话题接收新交互后重新计时。
+        因此不会反复沉淀；话题接收新交互后重新计时。空话题是为写入预先建立、这一轮却
+        没有交互的话题，留在池中只占位置，空闲时直接退役、不生成。
         """
         flushed: list[str] = []
         for belong_to, topic_id in self._working_set.list_idle_candidates(
             self._config.idle_timeout_seconds
         ):
             logger.debug("检测到空闲话题: topic_id=%s", topic_id)
+            topic = self._store.get(belong_to, topic_id)
+            # 读取与 _settle_topic 取得 lease 之间没有 await，判断时的空话题在 lease 内仍为空。
+            retire = topic is not None and topic.is_empty
             try:
                 completed, _ = await self._settle_topic(
                     belong_to,
                     topic_id,
                     reason=TriggerReason.IDLE_TIMEOUT,
-                    retire=False,
+                    retire=retire,
                     raise_on_admission_failure=False,
                 )
             except TopicBusyError:  # snapshot 后进入 busy，留给后续维护轮次
