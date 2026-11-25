@@ -221,6 +221,9 @@ class PatchouliSystem(SubsystemProtocol):
         if not self.runtime.local_routes_registered:
             self.runtime.mount_local_routes(self.service)
 
+        # 话题池先于公开路由与交互提交读回：交互与 Gateway 看到的是关闭前的话题池；读回的
+        # 结算执行时，它的话题已经在存储里。
+        await self.runtime.restore_topic_pool()
         self._bridge.mount()
         await self._interaction_submission_queue.start()
         # 已结束任务的历史先于保存的工作读回：任务列表合并两者时，同一 ID 以本进程的为准。
@@ -241,8 +244,9 @@ class PatchouliSystem(SubsystemProtocol):
         # interaction work 不可取消；先等待所有已接纳 work 完成，再进入
         # perception flush，避免 handler 晚于 shutdown settlement 写入。任务进程
         # 的提交由进程持有，系统关闭时进程服务先于 Patchouli 停止，等待已经在
-        # 那里完成。折叠先行关闭：排空时不再等待摘要模型，结算会带走话题的完整 blocks。
-        # 结算产生的生成任务不在关闭时执行，与排队中的工作一起保存，下次启动后继续。
+        # 那里完成。折叠先行关闭：排空时不再等待摘要模型，沉淀会带走话题的完整 blocks。
+        # 沉淀产生的生成任务不在关闭时执行，与排队中的工作一起保存，下次启动后继续；
+        # 话题池随后写成快照，下次启动时先于它们读回。
         self._interaction_submission_queue.close_compactions()
         await self._interaction_submission_queue.drain_all(timeout=None)
         await self._interaction_submission_queue.stop()

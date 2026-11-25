@@ -1,7 +1,8 @@
 """TopicData 原始数据、工作视图派生与写函数单元测试。
 
 被测对象：``TopicData`` 以交互记录与折叠记录为原始数据并派生工作视图；
-``merge_interaction_into_topic``、``fold_topic`` 与 ``mark_topic_settled`` 是仅有的写函数。
+``merge_interaction_into_topic``、``fold_topic``、``mark_topic_settled`` 与
+``record_topic_writes`` 是仅有的写函数。
 保护的契约：
 - 工作视图是最后一次折叠之后的交互记录；state_summary 来自最后一次折叠，没有
   折叠时为空串；total_tokens 是工作视图之和；
@@ -9,8 +10,12 @@
 - 折叠记录依次拼接必须等于交互记录的前缀，否则构造失败；写函数都以完整
   构造产生快照，这一校验不会被绕过；
 - 沉淀进度只记下覆盖到的交互数，不改内容与写入时间；之后写入的交互是未沉淀的；
+- 写入记录只改这份记录，合并改指按话题当前的记录判断；
+- 话题以 JSON 往返后与原快照相等，读回关闭时保存的话题池不另设序列化；
 - 判空看是否接收过交互：全部折叠、工作视图为空后仍不为空。
 """
+
+import json
 
 import pytest
 from pydantic import ValidationError
@@ -18,9 +23,11 @@ from pydantic import ValidationError
 from hivememory.core.models import (
     TopicData,
     TopicFold,
+    WorkspaceAssetRef,
     fold_topic,
     mark_topic_settled,
     merge_interaction_into_topic,
+    record_topic_writes,
 )
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
@@ -113,8 +120,9 @@ class TestWriteFunctions:
             lambda topic, block: merge_interaction_into_topic(topic, block, (), None, None),
             lambda topic, block: fold_topic(topic, [block], "s"),
             lambda topic, block: mark_topic_settled(topic, 1),
+            lambda topic, block: record_topic_writes(topic, frozenset({"m"}), {}),
         ],
-        ids=["merge", "fold", "mark_settled"],
+        ids=["merge", "fold", "mark_settled", "record_writes"],
     )
     def test_write_functions_validate_the_new_snapshot(self, write):
         """写函数以完整构造产生快照：写函数之外的错误构造在下一次写入时被挡住。"""
@@ -150,6 +158,43 @@ class TestSettlementProgress:
     def test_settled_count_cannot_exceed_interactions(self):
         with pytest.raises(ValidationError, match="沉淀覆盖的交互数"):
             mark_topic_settled(_topic(interactions=(_block("q1"),)), 2)
+
+
+class TestTopicWrites:
+    def test_record_writes_changes_only_the_record_and_redirects_recorded_merges(self):
+        """记下写入只改写入记录；合并改指只作用于话题当前记录中的记忆，不在记录中的被吸收
+        记忆不把保留的那条带进来。"""
+        b1 = _block("q1")
+        topic = mark_topic_settled(_topic(interactions=(b1,)), 1)
+        topic = record_topic_writes(topic, frozenset({"absorbed", "kept"}), {})
+
+        recorded = record_topic_writes(
+            topic,
+            frozenset({"new"}),
+            {"absorbed": "retained", "elsewhere": "retained_elsewhere"},
+        )
+
+        assert recorded.topic_write_memory_ids == {"kept", "retained", "new"}
+        assert recorded.model_dump(exclude={"topic_write_memory_ids"}) == topic.model_dump(
+            exclude={"topic_write_memory_ids"}
+        )
+
+    def test_topic_survives_a_json_round_trip(self):
+        """交互记录、折叠记录、资产绑定、沉淀进度与写入记录经 JSON 往返后与原快照相等。"""
+        b1, b2 = _block("q1"), _block("q2")
+        topic = merge_interaction_into_topic(
+            _topic(interactions=(b1,)),
+            b2,
+            (WorkspaceAssetRef(token="token-1", asset_id="asset-1"),),
+            "i-2",
+            "model-a",
+        )
+        topic = mark_topic_settled(fold_topic(topic, [b1], "s1"), 1)
+        topic = record_topic_writes(topic, frozenset({"m2", "m1"}), {})
+
+        restored = TopicData.model_validate(json.loads(topic.model_dump_json()))
+
+        assert restored == topic
 
 
 class TestContentEmptiness:

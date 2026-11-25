@@ -438,6 +438,13 @@ class PatchouliShutdownConfig(BaseModel):
         ge=1,
         description="已结束的记忆生成任务自结束起保留的天数；条数另受最近 100 条限制",
     )
+    topic_pool_file: str = Field(
+        default=".hivememory/topic_pool.json",
+        description=(
+            "关闭时保存整个短期话题池的文件，下次启动时读回，话题因此跨过重启；相对路径按"
+            "工作目录解析"
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 

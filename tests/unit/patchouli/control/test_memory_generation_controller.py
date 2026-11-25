@@ -18,7 +18,7 @@ from hivememory.components.work_queue import (
 )
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import MemoryMergeAbortedError
-from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
+from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement, TopicData
 from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationContext,
@@ -42,6 +42,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 )
 from hivememory.patchouli.control.memory_generation.saved_work import write_saved_work
 from hivememory.patchouli.control.memory_generation.task_history import write_task_history
+from tests.helpers.generation_bus import make_generation_bus
 from tests.helpers.memory import make_memory_identity_scope
 
 
@@ -85,6 +86,17 @@ def _spec(
     )
 
 
+def _topic(topic_id, written=()):
+    """控制器读取与记下写入的话题：只有写入记录与生成相关。"""
+    return TopicData(
+        topic_id=topic_id,
+        workspace_identity=make_memory_identity_scope().workspace_identity,
+        topic_title=topic_id,
+        last_update=1.0,
+        topic_write_memory_ids=frozenset(written),
+    )
+
+
 def _runtime_event_types_for_task(recorder, memory_task):
     return [event.event_type for event in recorder.events if event.task_id == memory_task.task_id]
 
@@ -112,9 +124,9 @@ class TestMemoryGenerationTaskController:
             await blocker.wait()
             return []
 
-        bus = Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
+        execute = AsyncMock(side_effect=request)
         controller = MemoryGenerationTaskController(
-            bus=bus, runtime_events=RuntimeEventPublisher(recorder)
+            bus=make_generation_bus(execute), runtime_events=RuntimeEventPublisher(recorder)
         )
         await controller.start()
         spec = _spec(
@@ -137,11 +149,11 @@ class TestMemoryGenerationTaskController:
 
         blocker.set()
         await controller.wait_task(first.task_id)
-        assert bus.request.await_count == 1
+        assert execute.await_count == 1
 
     @pytest.mark.asyncio
     async def test_active_intent_rejects_conflicting_spec(self):
-        bus = Mock(request=AsyncMock(return_value=[]), publish=AsyncMock())
+        bus = make_generation_bus()
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
         first_spec = _spec(
@@ -170,7 +182,7 @@ class TestMemoryGenerationTaskController:
     @pytest.mark.asyncio
     async def test_admit_generation_settles_deterministic_rejection_as_failed(self):
         """确定性拒绝结算关联的 PendingAtom 为失败，不伪造 FAILED 任务。"""
-        bus = Mock(request=AsyncMock(return_value=[]), publish=AsyncMock())
+        bus = make_generation_bus()
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
         try:
@@ -216,16 +228,13 @@ class TestMemoryGenerationTaskController:
     @pytest.mark.asyncio
     async def test_submit_generation_returns_before_background_generation_completes(self):
         blocker = asyncio.Event()
-        bus = Mock()
 
         async def request(route, spec, on_commit_started):
             assert route == PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC
             await blocker.wait()
             return []
 
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
-        controller = MemoryGenerationTaskController(bus=bus)
+        controller = MemoryGenerationTaskController(bus=make_generation_bus(request))
         await controller.start()
 
         memory_task = await controller.submit_generation(_spec())
@@ -239,9 +248,7 @@ class TestMemoryGenerationTaskController:
 
     @pytest.mark.asyncio
     async def test_completed_task_does_not_publish_local_status_event(self):
-        bus = Mock()
-        bus.request = AsyncMock(return_value=[])
-        bus.publish = AsyncMock()
+        bus = make_generation_bus()
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
 
@@ -254,9 +261,7 @@ class TestMemoryGenerationTaskController:
 
     @pytest.mark.asyncio
     async def test_failed_task_marked_failed(self):
-        bus = Mock()
-        bus.request = AsyncMock(side_effect=RuntimeError("generation error"))
-        bus.publish = AsyncMock()
+        bus = make_generation_bus(AsyncMock(side_effect=RuntimeError("generation error")))
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
 
@@ -272,13 +277,13 @@ class TestMemoryGenerationTaskController:
         """工作记录、work.failed、memory.task.failed 与写入意图的失败事件带同一个原因码，
         任务事件载荷带异常类名。"""
         recorder = RecordingRuntimeEventSink()
-        bus = Mock()
-        bus.request = AsyncMock(
-            side_effect=MemoryMergeAbortedError(
-                details={"reason": "version_changed", "memory_id": "m1"}
+        bus = make_generation_bus(
+            AsyncMock(
+                side_effect=MemoryMergeAbortedError(
+                    details={"reason": "version_changed", "memory_id": "m1"}
+                )
             )
         )
-        bus.publish = AsyncMock()
         controller = MemoryGenerationTaskController(
             bus=bus, runtime_events=RuntimeEventPublisher(recorder)
         )
@@ -336,9 +341,7 @@ class TestMemoryGenerationTaskController:
                 settlement=settlement,
             )
         ]
-        bus = Mock()
-        bus.request = AsyncMock(return_value=results)
-        bus.publish = AsyncMock()
+        bus = make_generation_bus(AsyncMock(return_value=results))
         controller = MemoryGenerationTaskController(
             bus=bus, runtime_events=RuntimeEventPublisher(recorder)
         )
@@ -370,9 +373,9 @@ class TestMemoryGenerationTaskController:
         _assert_runtime_event_task_payload(recorder.events[-1], completed)
 
     @pytest.mark.asyncio
-    async def test_topic_write_memories_reach_later_write_and_settle_of_that_topic(self):
-        """主动写入结算到的记忆记入任务话题：之后同一话题的 WRITE 执行时带上、不清除，
-        随话题退役的 SETTLE 执行时带上并清除；其他话题与 UPDATE 不读取这个话题的记录。"""
+    async def test_write_and_settle_read_the_topics_record_and_record_their_writes_back(self):
+        """WRITE 与 SETTLE 执行时带上话题当前的写入记录，结算另带着冻结的那份；主动写入结算到的
+        记忆执行之后记回任务话题，同一话题之后的执行读得到。UPDATE 不读取记录，其他话题不受影响。"""
 
         def written(label, memory_id, resolution=PendingAtomResolution.CREATED):
             return [
@@ -396,62 +399,60 @@ class TestMemoryGenerationTaskController:
         replies = {
             "w1": written("w1", "m1"),
             "u1": written("u1", "m2", PendingAtomResolution.UPDATED),
-            "wb": written("wb", "mb"),
             "w2": written("w2", "m3"),
         }
         seen = []
 
-        async def request(route, spec, on_commit_started):
+        async def execute(route, spec, on_commit_started):
             seen.append((spec.label, spec.request.topic_write_memory_ids))
             return replies.get(spec.label, [])
 
-        bus = Mock()
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
-        controller = MemoryGenerationTaskController(bus=bus)
+        topics = {
+            "topic_a": _topic("topic_a", {"earlier"}),
+            "topic_b": _topic("topic_b", {"other"}),
+        }
+        controller = MemoryGenerationTaskController(bus=make_generation_bus(execute, topics=topics))
         await controller.start()
-
-        write, update, settle = (
-            MemoryGenerationSource.WRITE,
-            MemoryGenerationSource.UPDATE,
-            MemoryGenerationSource.SETTLE,
-        )
-        for topic_id, label, source in [
-            ("topic_a", "w1", write),
-            ("topic_a", "u1", update),
-            ("topic_b", "wb", write),
-            ("topic_a", "w2", write),
-            ("topic_a", "settle_a", settle),
-            ("topic_a", "settle_a_again", settle),
-            ("topic_b", "settle_b", settle),
-        ]:
-            intent = (f"intent_{label}", label) if source != settle else (None, None)
-            memory_task = await controller.submit_generation(
+        write, update = MemoryGenerationSource.WRITE, MemoryGenerationSource.UPDATE
+        try:
+            for spec in [
                 _spec(
-                    topic_id=topic_id,
-                    label=label,
-                    source=source,
-                    intent_id=intent[0],
-                    pending_alias=intent[1],
-                    retires_topic=source == settle,
-                )
-            )
-            await controller.wait_task(memory_task.task_id)
+                    topic_id="topic_a", label="w1", source=write, intent_id="i1", pending_alias="w1"
+                ),
+                _spec(
+                    topic_id="topic_a",
+                    label="u1",
+                    source=update,
+                    intent_id="i2",
+                    pending_alias="u1",
+                ),
+                _spec(
+                    topic_id="topic_a", label="w2", source=write, intent_id="i3", pending_alias="w2"
+                ),
+                _spec(
+                    topic_id="topic_a",
+                    label="settle",
+                    request=GenerationRequest(topic_write_memory_ids=frozenset({"frozen"})),
+                ),
+            ]:
+                memory_task = await controller.submit_generation(spec)
+                await controller.wait_task(memory_task.task_id)
+        finally:
+            await controller.stop()
 
         assert seen == [
-            ("w1", frozenset()),
+            ("w1", frozenset({"earlier"})),
             ("u1", frozenset()),
-            ("wb", frozenset()),
-            ("w2", frozenset({"m1", "m2"})),
-            ("settle_a", frozenset({"m1", "m2", "m3"})),
-            ("settle_a_again", frozenset()),
-            ("settle_b", frozenset({"mb"})),
+            ("w2", frozenset({"earlier", "m1", "m2"})),
+            ("settle", frozenset({"frozen", "earlier", "m1", "m2", "m3"})),
         ]
+        assert topics["topic_a"].topic_write_memory_ids == {"earlier", "m1", "m2", "m3"}
+        assert topics["topic_b"].topic_write_memory_ids == {"other"}
 
     @pytest.mark.asyncio
-    async def test_idle_settlement_keeps_topic_writes_and_records_only_its_creations(self):
-        """不退役的沉淀执行后保留本话题的写入记录，并加入这次新建的记忆；触碰与修订的
-        已有记忆不是这个话题写下的，不加入。之后再次沉淀与退役时都带上它们。"""
+    async def test_idle_settlement_records_only_the_memories_it_created(self):
+        """不退役的沉淀执行后只把这次新建的记忆记回话题；触碰与修订的是已有记忆，不是这个话题
+        写下的，不记。同一话题的下一次沉淀读得到它们。"""
         replies = {
             "idle_1": [
                 MemoryGenerationResult(action=GenerationAction.CREATE, canonical_uuid="created"),
@@ -464,37 +465,29 @@ class TestMemoryGenerationTaskController:
         }
         seen = []
 
-        async def request(route, spec, on_commit_started):
+        async def execute(route, spec, on_commit_started):
             seen.append((spec.label, spec.request.topic_write_memory_ids))
-            return replies.get(spec.label, [])
+            return replies[spec.label]
 
-        controller = MemoryGenerationTaskController(
-            bus=Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
-        )
+        topics = {"t1": _topic("t1")}
+        controller = MemoryGenerationTaskController(bus=make_generation_bus(execute, topics=topics))
         await controller.start()
         try:
-            for label, retires_topic in [("idle_1", False), ("idle_2", False), ("retire", True)]:
-                memory_task = await controller.submit_generation(
-                    _spec(label=label, retires_topic=retires_topic)
-                )
+            for label in ("idle_1", "idle_2"):
+                memory_task = await controller.submit_generation(_spec(label=label))
                 await controller.wait_task(memory_task.task_id)
         finally:
             await controller.stop()
 
-        assert seen == [
-            ("idle_1", frozenset()),
-            ("idle_2", frozenset({"created"})),
-            ("retire", frozenset({"created", "created_2"})),
-        ]
+        assert seen == [("idle_1", frozenset()), ("idle_2", frozenset({"created"}))]
+        assert topics["t1"].topic_write_memory_ids == {"created", "created_2"}
 
     @pytest.mark.asyncio
     async def test_merge_absorbing_a_recorded_memory_redirects_the_topic_record(self):
-        """合并吸收了本话题沉淀新建的记忆后，记录改为保留的那条，被吸收的已经删除。"""
+        """合并吸收了本话题沉淀新建的记忆后，话题的记录改为保留的那条，被吸收的已经删除。"""
         nomination = MergeFocus(retained_memory_id="retained", absorbed_memory_id="absorbed")
-        seen = []
 
-        async def request(route, spec, on_commit_started):
-            seen.append((spec.source, spec.request.topic_write_memory_ids))
+        async def execute(route, spec, on_commit_started):
             if spec.source == MemoryGenerationSource.MERGE:
                 return [
                     MemoryGenerationResult(
@@ -503,30 +496,25 @@ class TestMemoryGenerationTaskController:
                         absorbed_memory_uuid="absorbed",
                     )
                 ]
-            if spec.label == "idle":
-                return [
-                    MemoryGenerationResult(
-                        action=GenerationAction.CREATE,
-                        canonical_uuid="absorbed",
-                        merge_nomination=nomination,
-                    )
-                ]
-            return []
+            return [
+                MemoryGenerationResult(
+                    action=GenerationAction.CREATE,
+                    canonical_uuid="absorbed",
+                    merge_nomination=nomination,
+                )
+            ]
 
-        controller = MemoryGenerationTaskController(
-            bus=Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
-        )
+        topics = {"t1": _topic("t1")}
+        controller = MemoryGenerationTaskController(bus=make_generation_bus(execute, topics=topics))
         await controller.start()
         try:
             idle = await controller.submit_generation(_spec(label="idle"))
             await controller.wait_task(idle.task_id)
             await controller.wait_all()
-            retire = await controller.submit_generation(_spec(label="retire", retires_topic=True))
-            await controller.wait_task(retire.task_id)
         finally:
             await controller.stop()
 
-        assert seen[-1] == (MemoryGenerationSource.SETTLE, frozenset({"retained"}))
+        assert topics["t1"].topic_write_memory_ids == {"retained"}
 
     @pytest.mark.asyncio
     async def test_cancel_task_via_registry_cancels_background_task(self):
@@ -540,9 +528,7 @@ class TestMemoryGenerationTaskController:
             finally:
                 released.set()
 
-        bus = Mock()
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
+        bus = make_generation_bus(request)
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
 
@@ -556,9 +542,7 @@ class TestMemoryGenerationTaskController:
 
     @pytest.mark.asyncio
     async def test_cancel_task_before_background_coroutine_starts_marks_cancelled(self):
-        bus = Mock()
-        bus.request = AsyncMock(return_value=[])
-        bus.publish = AsyncMock()
+        bus = make_generation_bus()
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
 
@@ -596,9 +580,7 @@ class TestMemoryGenerationTaskController:
             finally:
                 released.set()
 
-        bus = Mock()
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
+        bus = make_generation_bus(request)
         controller = MemoryGenerationTaskController(
             bus=bus,
             runtime_events=RuntimeEventPublisher(recorder),
@@ -628,9 +610,7 @@ class TestMemoryGenerationTaskController:
 
     @pytest.mark.asyncio
     async def test_terminal_snapshot_is_stable_across_repeated_waits(self):
-        bus = Mock()
-        bus.request = AsyncMock(return_value=[])
-        bus.publish = AsyncMock()
+        bus = make_generation_bus()
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
         memory_task = await controller.submit_generation(_spec())
@@ -650,7 +630,7 @@ class TestMemoryGenerationTaskController:
             await release.wait()
             return []
 
-        bus = Mock(request=AsyncMock(side_effect=request), publish=AsyncMock())
+        bus = make_generation_bus(request)
         controller = MemoryGenerationTaskController(
             bus=bus,
             runtime_events=RuntimeEventPublisher(recorder),
@@ -681,9 +661,7 @@ class TestMemoryGenerationTaskController:
             await blocker.wait()
             return []
 
-        bus = Mock()
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
+        bus = make_generation_bus(request)
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
 
@@ -706,9 +684,7 @@ class TestMemoryGenerationTaskController:
             await blocker.wait()
             return []
 
-        bus = Mock()
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
+        bus = make_generation_bus(request)
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
 
@@ -743,9 +719,7 @@ class TestMemoryGenerationTaskController:
             await blocker.wait()
             return []
 
-        bus = Mock()
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
+        bus = make_generation_bus(request)
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
 
@@ -775,9 +749,7 @@ class TestMemoryGenerationTaskController:
             await blocker.wait()
             return []
 
-        bus = Mock()
-        bus.request = AsyncMock(side_effect=request)
-        bus.publish = AsyncMock()
+        bus = make_generation_bus(request)
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
 
@@ -851,9 +823,9 @@ async def test_successful_nomination_settles_first_then_submits_and_redirects():
     async def publish(event, **payload):
         events.append((event, payload))
 
-    controller = MemoryGenerationTaskController(
-        bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock(side_effect=publish))
-    )
+    bus = make_generation_bus(execute)
+    bus.publish.side_effect = publish
+    controller = MemoryGenerationTaskController(bus=bus)
     await controller.start()
     try:
         original = _spec(
@@ -902,8 +874,8 @@ async def test_merge_submission_rejection_keeps_original_success(error, monkeypa
         resolution=PendingAtomResolution.CREATED,
         canonical_uuid="absorbed",
     )
-    bus = Mock(
-        request=AsyncMock(
+    bus = make_generation_bus(
+        AsyncMock(
             return_value=[
                 MemoryGenerationResult(
                     action=GenerationAction.CREATE,
@@ -911,8 +883,7 @@ async def test_merge_submission_rejection_keeps_original_success(error, monkeypa
                     merge_nomination=_merge_spec().request.merge_focus,
                 )
             ]
-        ),
-        publish=AsyncMock(),
+        )
     )
     controller = MemoryGenerationTaskController(bus=bus)
     submit = controller.queue.submit
@@ -950,7 +921,7 @@ async def test_merge_failure_or_cancel_never_settles_original_intent(cancel):
         await release.wait()
         raise RuntimeError("merge failed")
 
-    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    bus = make_generation_bus(execute)
     controller = MemoryGenerationTaskController(bus=bus)
     await controller.start()
     try:
@@ -993,7 +964,7 @@ async def test_shutdown_saves_unexecuted_work_and_waits_for_committing_task(tmp_
             commit_gate.set()
             raise
 
-    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    bus = make_generation_bus(execute)
     controller = MemoryGenerationTaskController(bus=bus)
     await controller.start()
     path = tmp_path / "pending_generation.json"
@@ -1064,9 +1035,7 @@ async def test_restore_resubmits_saved_work_and_sets_aside_unreadable_items(tmp_
     unknown_version = {**readable, "schema_version": "0.9"}
     write_saved_work(path, [readable, unknown_version])
 
-    controller = MemoryGenerationTaskController(
-        bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
-    )
+    controller = MemoryGenerationTaskController(bus=make_generation_bus(execute))
     await controller.start()
     try:
         report = await controller.restore_saved(path)
@@ -1099,36 +1068,19 @@ async def test_restore_sets_aside_unparseable_file_without_failing(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_saved_settlement_keeps_topic_write_records_across_restart(tmp_path):
-    """本话题主动写入的记录只在内存中：关闭时随结算任务保存，重启后执行时仍在。"""
-    written = PendingAtomSettlement(
-        pending_alias="draft-w",
-        intent_id="intent-w",
-        resolution=PendingAtomResolution.CREATED,
-        canonical_uuid="memory-from-write",
-    )
-    first = MemoryGenerationTaskController(
-        bus=Mock(
-            request=AsyncMock(
-                return_value=[
-                    MemoryGenerationResult(action=GenerationAction.CREATE, settlement=written)
-                ]
-            ),
-            publish=AsyncMock(),
-        )
-    )
-    await first.start()
+async def test_settlement_saved_with_its_retired_topic_runs_with_only_its_frozen_record(tmp_path):
+    """随退役保存的结算带着冻结材料时的写入记录跨过重启；重启后它的话题已经不在，执行时只用
+    这一份。"""
     path = tmp_path / "pending_generation.json"
+    first = MemoryGenerationTaskController(bus=make_generation_bus())
+    await first.start()
     try:
-        write = await first.submit_generation(
-            _spec(
-                source=MemoryGenerationSource.WRITE, intent_id="intent-w", pending_alias="draft-w"
-            )
-        )
-        await first.wait_task(write.task_id)
         await first.stop_dispatch()
         await first.submit_generation(
-            _spec(source=MemoryGenerationSource.SETTLE, retires_topic=True)
+            _spec(
+                retires_topic=True,
+                request=GenerationRequest(topic_write_memory_ids=frozenset({"frozen"})),
+            )
         )
         await first.save_unfinished(path)
     finally:
@@ -1140,20 +1092,19 @@ async def test_saved_settlement_keeps_topic_write_records_across_restart(tmp_pat
         executed.append(spec)
         return []
 
-    second = MemoryGenerationTaskController(
-        bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
-    )
+    second = MemoryGenerationTaskController(bus=make_generation_bus(execute, topics={}))
     await second.start()
     try:
         await second.restore_saved(path)
         await second.wait_all()
-
-        [settlement] = executed
-        assert settlement.source == MemoryGenerationSource.SETTLE
-        assert settlement.retires_topic is True
-        assert settlement.request.topic_write_memory_ids == frozenset({"memory-from-write"})
     finally:
         await second.stop()
+
+    [settlement] = executed
+    assert (settlement.retires_topic, settlement.request.topic_write_memory_ids) == (
+        True,
+        frozenset({"frozen"}),
+    )
 
 
 @pytest.mark.asyncio
@@ -1167,9 +1118,7 @@ async def test_finished_tasks_survive_restart_but_work_saved_at_shutdown_does_no
             raise RuntimeError("generation error")
         return []
 
-    first = MemoryGenerationTaskController(
-        bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
-    )
+    first = MemoryGenerationTaskController(bus=make_generation_bus(execute))
     await first.start()
     try:
         done = await first.submit_generation(_spec(topic_id="ta", label="done"))
@@ -1217,7 +1166,7 @@ async def test_restored_history_keeps_recent_tasks_within_the_terminal_cap(tmp_p
         ],
     )
     controller = MemoryGenerationTaskController(
-        bus=Mock(request=AsyncMock(return_value=[]), publish=AsyncMock()),
+        bus=make_generation_bus(),
         queue_policy=QueuePolicy(
             capacity=8, max_concurrency=1, timeout_seconds=5.0, max_attempts=1, terminal_retention=2
         ),

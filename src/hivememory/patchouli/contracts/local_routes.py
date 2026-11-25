@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from hivememory.core.contracts.route import route
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
     from typing import Any
     from uuid import UUID
 
@@ -256,6 +256,17 @@ class PatchouliLocalRoutes:
         """读取短期话题上下文（纯读，无访问追踪副作用）。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
+    @route("topic.record_writes")
+    async def TOPIC_RECORD_WRITES(
+        topic_id: str,
+        *,
+        belong_to: WorkspaceIdentity,
+        written: frozenset[str],
+        absorbed_into: Mapping[str, str],
+    ) -> None:
+        """把一次生成执行后要记下的写入与合并改指记到话题上；话题已经退役时不记。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
     @route("topic.list_active")
     async def TOPIC_LIST_ACTIVE(
         *, belong_to: WorkspaceIdentity, include_empty: bool = False, sort_by_recency: bool = True
@@ -326,6 +337,7 @@ class PatchouliLocalRoutes:
         GET_AGENT_PROFILE,
         TOPIC_PREPARE,
         TOPIC_GET,
+        TOPIC_RECORD_WRITES,
         TOPIC_LIST_ACTIVE,
         TOPIC_MANUAL_SETTLE,
         TOPIC_EVICT,

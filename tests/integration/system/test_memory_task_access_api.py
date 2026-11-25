@@ -45,6 +45,7 @@ from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.memory_tasks import router
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from tests.helpers.generation_bus import register_topic_routes
 from tests.helpers.workspace import make_server_access_overrides, make_workspace_identity
 
 MAIN = make_workspace_identity(owner_user_id="user-1")
@@ -141,6 +142,7 @@ def task_api_stack(tmp_path) -> Iterator[_TaskApiStack]:
     )
     controller = MemoryGenerationTaskController(bus=local_bus)
     local_bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, generation.execute)
+    register_topic_routes(local_bus, library.short_term)
     local_bus.register(PatchouliLocalRoutes.MEMORY_TASK_LIST, controller.list_tasks)
     local_bus.register(PatchouliLocalRoutes.MEMORY_TASK_GET, controller.get_task)
     local_bus.register(PatchouliLocalRoutes.MEMORY_TASK_CANCEL, controller.cancel_task)

@@ -46,7 +46,7 @@ def isolate_personal_config(monkeypatch, tmp_path_factory):
       指定了主配置的测试仍使用它旁边的覆盖文件。
     - 默认路径的模型注册表：改到每个测试自己的临时目录，从随仓库发布的模板生成。
     - Claude Code 的用户设置：插件服务代为安装时会改写它，改到每个测试自己的临时目录。
-    - 关闭时写盘的三份文件（保存的生成工作、生成任务历史、写入句柄登记）：默认路径相对
+    - 关闭时写盘的四份文件（保存的生成工作、生成任务历史、话题池快照、写入句柄登记）：默认路径相对
       工作目录，从仓库根运行测试时会写进本机的数据目录、被下一次真实启动读回；改到每个
       测试自己的临时目录，指定了路径的测试照旧。
     """
@@ -94,6 +94,11 @@ def isolate_personal_config(monkeypatch, tmp_path_factory):
         PatchouliRuntime,
         "task_history_path",
         isolated(PatchouliRuntime.task_history_path.fget, Path(shutdown_config.task_history_file)),
+    )
+    monkeypatch.setattr(
+        PatchouliRuntime,
+        "topic_pool_path",
+        isolated(PatchouliRuntime.topic_pool_path.fget, Path(shutdown_config.topic_pool_file)),
     )
     monkeypatch.setattr(
         WriteIntentRegistry,

@@ -53,6 +53,7 @@ from hivememory.patchouli.control.memory_generation.saved_work import (
 )
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
 from hivememory.patchouli.runtime.shutdown_drain import (
     restore_completed_severity,
@@ -62,6 +63,13 @@ from hivememory.patchouli.runtime.shutdown_drain import (
     summarize_restore_result,
     summarize_shutdown_drain_failure,
     summarize_shutdown_drain_result,
+    summarize_topic_pool_restore,
+)
+from hivememory.patchouli.runtime.topic_pool import (
+    RestoredTopicPoolReport,
+    SavedTopicPoolReport,
+    restore_topic_pool,
+    save_topic_pool,
 )
 
 if TYPE_CHECKING:
@@ -274,7 +282,7 @@ class PatchouliRuntime:
         return unloaded
 
     async def shutdown_drain(self) -> dict[str, Any]:
-        """服务关闭前结算全部活跃话题，把还没执行的记忆生成工作保存到磁盘。"""
+        """服务关闭前沉淀全部活跃话题，把还没执行的记忆生成工作与话题池保存到磁盘。"""
         observer = RuntimeOperationObserver(
             self._runtime_events,
             subsystem="patchouli",
@@ -297,38 +305,81 @@ class PatchouliRuntime:
             logger.info("shutdown drain 已执行，跳过重复调用")
             return {
                 "success": True,
-                "perception": {
-                    "settled_topic_ids": [],
-                    "generation_skipped_topic_ids": [],
-                    "resident_block_count": 0,
-                },
+                "perception": TopicShutdownFlushReport(),
                 "generation": SavedWorkReport(),
+                "topic_pool": SavedTopicPoolReport(),
                 "reentrant": True,
             }
 
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
 
-        # 先停止取新工作，结算产生的任务只入队、不执行，随后连同排队中的工作一起保存，
-        # 下次启动后继续：退出不等待提取与合并的模型调用。
+        # 先停止取新工作，沉淀产生的任务只入队、不执行，随后连同排队中的工作一起保存，
+        # 下次启动后继续：退出不等待提取与合并的模型调用。保存生成工作时会等已开始写入
+        # 记忆的任务写完，它们的写入先记回话题，话题池最后保存。
         await self._task_controller.stop_dispatch()
         perception_result = await self.perception_familiar.flush_all_for_shutdown()
         saved = await self._task_controller.save_unfinished(self.saved_generation_path)
+        topic_pool = save_topic_pool(
+            self.topic_pool_path, self.memory_library.short_term.list_all()
+        )
         result = {
-            "success": saved.saved == 0 or saved.file_written,
+            "success": (saved.saved == 0 or saved.file_written)
+            and (topic_pool.saved == 0 or topic_pool.file_written),
             "perception": perception_result,
             "generation": saved,
+            "topic_pool": topic_pool,
             "reentrant": False,
         }
         logger.info(
             "shutdown drain 完成: settled_topics=%d, saved_generation=%d, "
-            "waited_for_commit=%d, saved_file_written=%s",
+            "waited_for_commit=%d, saved_file_written=%s, saved_topics=%d, "
+            "topic_pool_written=%s",
             len(perception_result.settled_topic_ids),
             saved.saved,
             saved.waited_for_commit,
             saved.file_written,
+            topic_pool.saved,
+            topic_pool.file_written,
         )
         return result
+
+    @property
+    def topic_pool_path(self) -> Path:
+        """关闭时保存话题池快照的文件；相对路径按工作目录（数据根）解析。"""
+        return Path(self._patchouli_config.shutdown.topic_pool_file)
+
+    async def restore_topic_pool(self) -> RestoredTopicPoolReport:
+        """读回上次关闭时保存的话题池；在读回任务历史与保存的生成工作之前、接收交互之前调用。
+
+        读回的结算执行时，它的话题已经在存储里。
+        """
+        observer = RuntimeOperationObserver(
+            self._runtime_events,
+            subsystem="patchouli",
+            component="patchouli_runtime",
+            operation_key="patchouli.restore_topic_pool",
+            operation_name="restore_topic_pool",
+            operation_kind="startup",
+        )
+
+        async def restore() -> RestoredTopicPoolReport:
+            return restore_topic_pool(self.topic_pool_path, self.perception_familiar.restore_topics)
+
+        report: RestoredTopicPoolReport = await observer.observe(
+            restore,
+            summarize=summarize_topic_pool_restore,
+            completed_status=restore_completed_status,
+            completed_severity=restore_completed_severity,
+        )
+        if report.read:
+            logger.info(
+                "已读回上次关闭时保存的话题池: read=%d, restored=%d, rejected=%d",
+                report.read,
+                report.restored,
+                report.rejected,
+            )
+        return report
 
     @property
     def saved_generation_path(self) -> Path:

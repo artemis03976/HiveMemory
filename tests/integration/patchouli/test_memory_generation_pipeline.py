@@ -2,7 +2,7 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import UUID, uuid4
 
 import pytest
@@ -12,6 +12,8 @@ from hivememory.config.patchouli import (
     DeduplicatorConfig,
     ExtractorConfig,
     LibrarianConfig,
+    MemoryPerceptionConfig,
+    SemanticFlowPerceptionConfig,
 )
 from hivememory.core.models import (
     ArtifactType,
@@ -24,6 +26,7 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
+    TopicData,
     TopicFold,
     TurnEvent,
     WorkspaceMemoryKey,
@@ -39,6 +42,7 @@ from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationOutcome,
 )
+from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.memory_library.adapters.artifact import (
@@ -68,10 +72,14 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskStatus,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
+from hivememory.patchouli.runtime.topic_pool import restore_topic_pool, save_topic_pool
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
+from hivememory.patchouli.services.perception import PerceptionFamiliar
+from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from tests.helpers.generation_bus import register_topic_routes
 from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.sessions import make_logical_block
+from tests.helpers.sessions import make_interaction_payload, make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -79,16 +87,20 @@ def _identity_scope():
     return make_identity_scope(user_id="u1", agent_id="omni_doll")
 
 
-class _TopicData:
-    topic_title = "topic title"
-    topic_summary = "topic summary"
-    state_summary = "state summary"
-
-    def __init__(self) -> None:
-        self._blocks = [make_logical_block("question", "answer")]
-
-    def recent_blocks(self, limit: int):
-        return self._blocks[:limit]
+def _topic_store() -> ShortTermMemoryStore:
+    """生成读取材料与写入记录的话题池：``topic_1`` 接收过一轮交互。"""
+    store = ShortTermMemoryStore()
+    store.put(
+        TopicData(
+            topic_id="topic_1",
+            workspace_identity=_identity_scope().workspace_identity,
+            topic_title="topic title",
+            topic_summary="topic summary",
+            interactions=(make_logical_block("question", "answer"),),
+            last_update=1.0,
+        )
+    )
+    return store
 
 
 def _settlement_task(*, retires_topic: bool = True) -> TopicMaterializeTask:
@@ -168,10 +180,11 @@ def _settlement_result(alias="draft_write") -> list[MemoryGenerationResult]:
 
 
 def _wire_generation_pipeline(
-    bus: PatchouliBus,
+    bus: PatchouliBus, topics: ShortTermMemoryStore | None = None
 ) -> tuple[MemoryGenerationCoordinator, MemoryGenerationTaskController]:
     controller = MemoryGenerationTaskController(bus=bus)
     coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
+    register_topic_routes(bus, topics if topics is not None else _topic_store())
     bus.register(
         PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
         controller.submit_generation,
@@ -215,7 +228,6 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
     published = []
     execute_spec = AsyncMock(return_value=_settlement_result("draft_write"))
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
-    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     bus.subscribe(
         PatchouliLocalEvents.PENDING_ATOM_SETTLED,
         lambda **kwargs: _capture_event(published, **kwargs),
@@ -248,7 +260,6 @@ async def test_active_update_fetches_existing_memory_before_generation():
     memory_get = AsyncMock(return_value=existing)
     execute_spec = AsyncMock(return_value=_settlement_result("draft_update"))
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
-    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     bus.register(PatchouliLocalRoutes.MEMORY_GET, memory_get)
 
     admission = await coordinator.submit_active(
@@ -506,7 +517,6 @@ async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engi
     atom = _memory_atom()
     stub = _StubGenerationEngine([GenerationOutcome(atom=atom, action=GenerationAction.CREATE)])
     _wire_generation_familiar(bus, memory_library, stub, artifact_engine)
-    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     bus.subscribe(
         PatchouliLocalEvents.PENDING_ATOM_SETTLED,
         lambda **kwargs: _capture_event(published, **kwargs),
@@ -572,6 +582,88 @@ async def test_settlement_saved_at_shutdown_lands_after_restart(
         assert stored is not None
     finally:
         await restarted.stop()
+
+
+@pytest.mark.asyncio
+async def test_restored_topic_carries_on_and_its_next_settlement_drops_restated_memory(
+    memory_library, artifact_engine, tmp_path
+):
+    """关闭后用同一工作目录重新启动：话题池先于保存的生成工作读回，关闭时沉淀所建的记忆记回
+    读回的话题；新交互接着写进同一个话题，它再次沉淀时复述那条记忆的草稿被丢弃。"""
+    pool_path = tmp_path / "topic_pool.json"
+    work_path = tmp_path / "pending_generation.json"
+    scope = _identity_scope()
+    extractor = AsyncMock()
+    extractor.extract.side_effect = [
+        [_draft("deploy is manual", "deploys are now run by hand")],
+        [_draft("deploy is manual", "deploys are now run by hand, restated")],
+    ]
+    engine = MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=extractor,
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+    )
+
+    # 第一次运行：一轮交互之后正常关闭。关闭时的沉淀只入队，随生成工作与话题池一起保存。
+    controller, perception, store = _wire_process(memory_library, engine, artifact_engine)
+    await controller.start()
+    topic_id = await perception.apply_interaction(
+        make_interaction_payload("how do we deploy now", "deploys are run by hand"),
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+        interaction_id="i-1",
+    )
+    await controller.stop_dispatch()
+    await perception.flush_all_for_shutdown()
+    await controller.save_unfinished(work_path)
+    save_topic_pool(pool_path, store.list_all())
+    await controller.stop()
+
+    # 第二次运行：按启动顺序先读回话题池，再读回保存的生成工作。
+    controller, perception, _ = _wire_process(memory_library, engine, artifact_engine)
+    restore_topic_pool(pool_path, perception.restore_topics)
+    await controller.start()
+    try:
+        await controller.restore_saved(work_path)
+        await controller.wait_all()
+        await perception.apply_interaction(
+            make_interaction_payload("and staging?", "staging is run by hand too"),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            target_topic_id=topic_id,
+            interaction_id="i-2",
+        )
+        await perception.manual_settle_topic(scope.workspace_identity, topic_id)
+        await controller.wait_all()
+    finally:
+        await controller.stop()
+
+    assert extractor.extract.await_count == 2
+    assert [memory.payload.content for memory in await _stored(memory_library)] == [
+        "deploys are now run by hand"
+    ]
+
+
+def _wire_process(
+    memory_library: MemoryLibrary, engine: MemoryGenerationEngine, artifact_engine: ArtifactEngine
+) -> tuple[MemoryGenerationTaskController, PerceptionFamiliar, ShortTermMemoryStore]:
+    """一次运行的 Patchouli：真实感知、生成控制面与数据面；中期库跨运行共用，话题池各自为空。"""
+    bus = PatchouliBus()
+    store = ShortTermMemoryStore()
+    coordinator, controller = _wire_generation_pipeline(bus, store)
+    bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, coordinator.submit_settlement)
+    _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
+    perception = PerceptionFamiliar(
+        engine=MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            relay_controller=Mock(),
+        ),
+        store=store,
+        working_set=TopicWorkingSet(),
+        bus=bus,
+        config=MemoryPerceptionConfig(),
+    )
+    return controller, perception, store
 
 
 def _draft(title: str, content: str) -> ExtractedMemoryDraft:
@@ -680,7 +772,6 @@ async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
     )
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
-    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     scope = _identity_scope()
 
     admission = await coordinator.submit_active(
@@ -778,7 +869,6 @@ async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_
         ),
     )
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
-    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     scope = _identity_scope()
 
     admission = await coordinator.submit_active(
@@ -928,7 +1018,6 @@ async def test_active_update_of_a_value_in_the_title_is_found_by_the_new_title(
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
     )
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
-    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     scope = _identity_scope()
 
     async def memory_get(memory_id, *, belong_to, from_actor):

@@ -12,8 +12,10 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 - manual_settle_topic / evict_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
 - scan_idle_buffers_once：空闲只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
   从没接收过交互的空话题空闲时直接退役
-- flush_all_for_shutdown 维护投影，含跨 Workspace 退役、折叠后结算携带被折叠的轮次、
-  占用话题记为 failed 与生成跳过
+- flush_all_for_shutdown：只沉淀不退役、空话题退役、已全部沉淀的不处理、接纳失败与占用话题
+  记为 failed，跨 Workspace 沉淀，折叠后沉淀携带被折叠的轮次
+- 本话题的写入记录不取 lease：折叠等待摘要、沉淀等待接纳期间记下的写入在写回之后仍在；
+  话题退役之后记下的写入不落到任何地方
 - 感知关闭时无副作用
 """
 
@@ -30,6 +32,7 @@ from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     WorkspaceAssetRef,
+    mark_topic_settled,
     system_actor_for_workspace,
 )
 from hivememory.core.protocol.models import InteractionPayload
@@ -414,6 +417,38 @@ class TestCompact:
         bus.request.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_writes_recorded_while_summarizing_survive_the_fold(self):
+        """记下写入不取 lease：折叠等待摘要期间记下的写入，折叠写回之后仍在话题上。"""
+        summarizing = asyncio.Event()
+        release = asyncio.Event()
+
+        async def summarize(blocks_to_fold, previous_summary=None):
+            summarizing.set()
+            await release.wait()
+            return "summary"
+
+        relay = Mock()
+        relay.generate_summary = AsyncMock(side_effect=summarize)
+        familiar, store, _, _ = _make_familiar(
+            engine_config=_fold_every_block_config(), relay=relay
+        )
+        scope = _identity_scope()
+        workspace = scope.workspace_identity
+        store.create(workspace, topic_id="t1")
+        await _apply_to_topic(familiar, scope, "t1", "a", "b")
+
+        compaction = asyncio.create_task(familiar.compact_topic(workspace, "t1"))
+        await asyncio.wait_for(summarizing.wait(), timeout=1)
+        await familiar.record_writes(
+            "t1", belong_to=workspace, written=frozenset({"m"}), absorbed_into={}
+        )
+        release.set()
+        await compaction
+
+        topic = store.get(workspace, "t1")
+        assert (topic.state_summary, topic.topic_write_memory_ids) == ("summary", {"m"})
+
+    @pytest.mark.asyncio
     async def test_failed_compaction_leaves_topic_intact_and_can_compact_again(self):
         """摘要失败时话题原样保留并释放占用，之后的折叠照常完成。"""
         relay = Mock()
@@ -568,6 +603,27 @@ class TestNamedUseCases:
         )
 
     @pytest.mark.asyncio
+    async def test_writes_recorded_after_the_topic_retired_land_nowhere(self):
+        """话题退役之后记下的写入不落到任何话题上，也不重新建立话题：退役的话题不会再沉淀。"""
+        familiar, store, _, bus = _make_familiar()
+        scope = _identity_scope()
+        workspace = scope.workspace_identity
+        topic_id = await familiar.apply_interaction(
+            _payload(),
+            belong_to=workspace,
+            from_actor=scope.actor_identity,
+            interaction_id="i-1",
+        )
+        bus.request = AsyncMock(return_value=_generation_task("task-1", topic_id))
+        await familiar.manual_settle_topic(workspace, topic_id)
+
+        await familiar.record_writes(
+            topic_id, belong_to=workspace, written=frozenset({"m"}), absorbed_into={}
+        )
+
+        assert store.list_all() == []
+
+    @pytest.mark.asyncio
     async def test_manual_settle_busy_topic_raises_busy_error(self):
         familiar, store, working_set, _ = _make_familiar()
         scope = _identity_scope()
@@ -715,6 +771,41 @@ class TestMaintenance:
         )
 
     @pytest.mark.asyncio
+    async def test_writes_recorded_while_awaiting_admission_survive_the_settlement(self):
+        """沉淀等待生成队列接纳期间记下的写入，沉淀进度写回之后仍在话题上。"""
+        clock = _FakeClock()
+        familiar, store, _, bus = _make_familiar(idle_timeout=30, clock=clock)
+        scope = _identity_scope()
+        workspace = scope.workspace_identity
+        topic_id = await familiar.apply_interaction(
+            _payload("1"),
+            belong_to=workspace,
+            from_actor=scope.actor_identity,
+            interaction_id="i-1",
+        )
+        admitting = asyncio.Event()
+        release = asyncio.Event()
+
+        async def admit(route, payload):
+            admitting.set()
+            await release.wait()
+            return _accept_settlement_task(route, payload)
+
+        bus.request = AsyncMock(side_effect=admit)
+        clock.advance(100)
+
+        scan = asyncio.create_task(familiar.scan_idle_buffers_once())
+        await asyncio.wait_for(admitting.wait(), timeout=1)
+        await familiar.record_writes(
+            topic_id, belong_to=workspace, written=frozenset({"m"}), absorbed_into={}
+        )
+        release.set()
+
+        assert await scan == [topic_id]
+        topic = store.get(workspace, topic_id)
+        assert (topic.settled_interaction_count, topic.topic_write_memory_ids) == (1, {"m"})
+
+    @pytest.mark.asyncio
     async def test_scan_idle_skips_leased_topic(self):
         clock = _FakeClock()
         familiar, store, working_set, _ = _make_familiar(idle_timeout=30, clock=clock)
@@ -756,38 +847,50 @@ class TestMaintenance:
         assert await familiar.scan_idle_buffers_once() == [topic_id]
 
     @pytest.mark.asyncio
-    async def test_shutdown_flush_classifies_settled_skipped_and_failed(self):
+    async def test_shutdown_flush_settles_without_retiring_and_retires_only_empty_topics(self):
+        """关闭时有未沉淀交互的话题沉淀后留在存储中，空话题退役，接收过交互、已经全部沉淀的
+        不处理；接纳失败的话题带着未沉淀的交互留下，记为失败。"""
         familiar, store, _, bus = _make_familiar()
         scope = _identity_scope()
+        workspace = scope.workspace_identity
         ok_id = await familiar.apply_interaction(
             _payload("1"),
-            belong_to=scope.workspace_identity,
+            belong_to=workspace,
             from_actor=scope.actor_identity,
             interaction_id="i-1",
         )
-        empty_id = await familiar.prepare_topic(
-            "NEW_TOPIC", "标题", "摘要", scope.workspace_identity
-        )
+        empty_id = await familiar.prepare_topic("NEW_TOPIC", "标题", "摘要", workspace)
         bad_id = await familiar.apply_interaction(
             _payload("3"),
-            belong_to=scope.workspace_identity,
+            belong_to=workspace,
             from_actor=scope.actor_identity,
             interaction_id="i-3",
         )
+        settled_id = await familiar.apply_interaction(
+            _payload("4"),
+            belong_to=workspace,
+            from_actor=scope.actor_identity,
+            interaction_id="i-4",
+        )
+        store.put(mark_topic_settled(store.get(workspace, settled_id), 1))
         bus.request = AsyncMock(
             side_effect=[_generation_task("task-1", ok_id), RuntimeError("admission boom")]
         )
 
         report = await familiar.flush_all_for_shutdown()
 
-        assert report.settled_topic_ids == (ok_id, empty_id)
-        assert report.generation_skipped_topic_ids == (empty_id,)
+        assert report.settled_topic_ids == (ok_id,)
+        assert report.retired_topic_ids == (empty_id,)
         assert report.failed_topic_ids == (bad_id,)
-        assert report.resident_block_count == 2  # ok + bad 各 1 块
-        assert store.get(scope.workspace_identity, ok_id) is None
-        assert store.get(scope.workspace_identity, empty_id) is None
-        # admission 失败：话题内容保留（lease 释放后可重试），仅计入 failed
-        assert store.get(scope.workspace_identity, bad_id) is not None
+        assert report.resident_block_count == 3
+        assert store.get(workspace, ok_id).has_unsettled_interactions is False
+        assert store.get(workspace, empty_id) is None
+        assert store.get(workspace, bad_id).has_unsettled_interactions is True
+        assert store.get(workspace, settled_id).settled_interaction_count == 1
+        assert [call.args[1].retires_topic for call in bus.request.await_args_list] == [
+            False,
+            False,
+        ]
 
     @pytest.mark.asyncio
     async def test_scan_idle_settles_again_only_after_new_interactions(self):
@@ -846,7 +949,8 @@ class TestMaintenance:
         )
 
     @pytest.mark.asyncio
-    async def test_shutdown_flush_settles_and_swaps_out_all_topics(self):
+    async def test_shutdown_flush_settles_topics_of_every_workspace_and_keeps_them(self):
+        """关闭时各 Workspace 的话题都按关闭原因沉淀，沉淀之后留在存储中，随话题池快照保存。"""
         familiar, store, _, bus = _make_familiar(max_resident=4)
         first = _identity_scope(user_id="u1", agent_id="a1")
         second = _identity_scope(user_id="u2", agent_id="a2")
@@ -862,15 +966,14 @@ class TestMaintenance:
         result = await familiar.flush_all_for_shutdown()
 
         assert len(result.settled_topic_ids) == 2
-        assert result.generation_skipped_topic_ids == ()
-        assert result.resident_block_count == 2
-        assert store.list_by_workspace(first.workspace_identity) == []
-        assert store.list_by_workspace(second.workspace_identity) == []
-        assert bus.request.await_count == 2
+        assert result.retired_topic_ids == ()
+        for scope in (first, second):
+            [topic] = store.list_by_workspace(scope.workspace_identity)
+            assert topic.settled_interaction_count == 1
         for call in bus.request.await_args_list:
             assert call.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
             assert call.args[1].reason == TriggerReason.SHUTDOWN
-            assert call.args[1].retires_topic is True
+            assert call.args[1].retires_topic is False
 
     @pytest.mark.asyncio
     async def test_shutdown_reports_busy_topic_in_failed_ids_without_generation(self):
@@ -919,9 +1022,8 @@ class TestMaintenance:
         result = await familiar.flush_all_for_shutdown()
 
         assert result.settled_topic_ids == (topic_id,)
-        assert result.generation_skipped_topic_ids == ()
         assert result.resident_block_count == 1
-        assert store.get(scope.workspace_identity, topic_id) is None
+        assert store.get(scope.workspace_identity, topic_id).settled_interaction_count == 3
         bus.request.assert_awaited_once()
         route, settlement = bus.request.await_args.args
         assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
@@ -932,24 +1034,6 @@ class TestMaintenance:
         assert len(settlement.folds) == 2
         assert settlement.state_summary == "folded:1|folded:1"
         assert [block.user_message for block in settlement.blocks] == ["question-2-" * 80]
-
-    @pytest.mark.asyncio
-    async def test_shutdown_marks_generation_skip_when_submission_builds_no_task(self):
-        """下游正常返回无任务时，Topic 已结算但 generation 被跳过。"""
-        familiar, store, _, _ = _make_familiar()
-        scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
-            _payload("question", "answer"),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="NEW_TOPIC",
-        )
-
-        result = await familiar.flush_all_for_shutdown()
-
-        assert result.settled_topic_ids == (topic_id,)
-        assert result.generation_skipped_topic_ids == (topic_id,)
-        assert store.get(scope.workspace_identity, topic_id) is None
 
 
 # ========== 感知关闭（engine=None）==========

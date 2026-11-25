@@ -57,6 +57,7 @@ from hivememory.patchouli.control.memory_generation.queue import (
     memory_generation_failure_reason,
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
+from tests.helpers.generation_bus import make_generation_bus
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 from tests.helpers.sessions import make_logical_block
 
@@ -411,7 +412,7 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
             await release.wait()
         return []
 
-    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    bus = make_generation_bus(execute)
     controller = _controller(bus, max_concurrency=1)
     await controller.start()
 
@@ -456,7 +457,7 @@ async def test_settlements_of_one_topic_run_in_order_while_its_writes_do_not_wai
             await release.wait()
         return []
 
-    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    bus = make_generation_bus(execute)
     controller = _controller(bus, max_concurrency=3)
     await controller.start()
     settle = replace(_spec(), source=MemoryGenerationSource.SETTLE)
@@ -496,7 +497,7 @@ async def test_queued_cancel_never_calls_generation_handler() -> None:
             await release.wait()
         return []
 
-    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    bus = make_generation_bus(execute)
     controller = _controller(bus, max_concurrency=1)
     await controller.start()
 
@@ -529,7 +530,7 @@ async def test_running_cancel_interrupts_handler_and_projects_cancelled() -> Non
         finally:
             released.set()
 
-    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    bus = make_generation_bus(execute)
     controller = _controller(bus)
     await controller.start()
 
@@ -571,13 +572,10 @@ async def test_memory_generation_submit_requires_explicit_start() -> None:
 
 @pytest.mark.asyncio
 async def test_default_policy_does_not_retry_generation_side_effects() -> None:
-    bus = Mock(
-        request=AsyncMock(
-            side_effect=ConnectionError("generation may already have written partial results")
-        ),
-        publish=AsyncMock(),
+    execute = AsyncMock(
+        side_effect=ConnectionError("generation may already have written partial results")
     )
-    controller = MemoryGenerationTaskController(bus=bus)
+    controller = MemoryGenerationTaskController(bus=make_generation_bus(execute))
     await controller.start()
 
     try:
@@ -587,7 +585,7 @@ async def test_default_policy_does_not_retry_generation_side_effects() -> None:
         await controller.stop()
 
     assert result.status == MemoryGenerationTaskStatus.FAILED
-    assert bus.request.await_count == 1
+    assert execute.await_count == 1
     assert (
         await controller.get_task(memory_task.task_id)
     ).status == MemoryGenerationTaskStatus.FAILED
@@ -595,11 +593,8 @@ async def test_default_policy_does_not_retry_generation_side_effects() -> None:
 
 @pytest.mark.asyncio
 async def test_non_retryable_failure_fails_once() -> None:
-    bus = Mock(
-        request=AsyncMock(side_effect=ValueError("invalid generation spec")),
-        publish=AsyncMock(),
-    )
-    controller = _controller(bus)
+    execute = AsyncMock(side_effect=ValueError("invalid generation spec"))
+    controller = _controller(make_generation_bus(execute))
     await controller.start()
 
     try:
@@ -610,20 +605,17 @@ async def test_non_retryable_failure_fails_once() -> None:
 
     assert result.status == MemoryGenerationTaskStatus.FAILED
     assert result.error == "记忆生成失败，请检查服务状态"
-    assert bus.request.await_count == 1
+    assert execute.await_count == 1
 
 
 @pytest.mark.asyncio
 async def test_timeout_fails_without_retry() -> None:
-    async def execute(route, spec, on_commit_started):
+    async def never_returns(route, spec, on_commit_started):
         await asyncio.Event().wait()
 
-    bus = Mock(
-        request=AsyncMock(side_effect=execute),
-        publish=AsyncMock(),
-    )
+    execute = AsyncMock(side_effect=never_returns)
     controller = _controller(
-        bus,
+        make_generation_bus(execute),
         timeout_seconds=0.01,
     )
     await controller.start()
@@ -640,7 +632,7 @@ async def test_timeout_fails_without_retry() -> None:
     assert record is not None
     assert record.state == WorkState.FAILED
     assert record.last_error.message == "memory_generation_timed_out"
-    assert bus.request.await_count == 1
+    assert execute.await_count == 1
 
 
 def _merge_aborted() -> MemoryMergeAbortedError:

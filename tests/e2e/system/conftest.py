@@ -250,6 +250,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     for route, handler in (
         (PatchouliLocalRoutes.TOPIC_PREPARE, perception.prepare_topic),
         (PatchouliLocalRoutes.TOPIC_GET, retrieval.get_topic),
+        (PatchouliLocalRoutes.TOPIC_RECORD_WRITES, perception.record_writes),
         (PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, retrieval.list_active_topics),
         (PatchouliLocalRoutes.GET_AGENT_PROFILE, retrieval.get_agent_profile),
         (PatchouliLocalRoutes.MEMORY_RETRIEVE, retrieval.retrieve_async),
