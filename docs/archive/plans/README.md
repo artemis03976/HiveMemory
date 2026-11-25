@@ -16,7 +16,7 @@ last_reviewed: 2026-11-24
 
 - 结算拆成沉淀与退役：空闲时只沉淀，话题留在话题池：2026-11-24，PR #240；删除前最后版本在 `e580a3b4`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[记忆生成](../../patchouli/generation.md#42-本话题的写入)
 - 话题跨重启保存：关闭时保存话题池，本话题的写入记录交还给话题：2026-11-24，PR #241；删除前最后版本在 `bcd3f35f`；[感知与短期话题](../../patchouli/perception.md#7-维护与关闭)、[记忆生成](../../patchouli/generation.md#42-本话题的写入)
-- 短期记忆代码整理：写回由存储层保证，折叠摘要改名，清理遗留：2026-11-25，本分支 PR；删除前最后版本在 `fc3e7b57`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)
+- 短期记忆代码整理：写回由存储层保证，折叠摘要改名，清理遗留：2026-11-25，PR #242；删除前最后版本在 `fc3e7b57`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)
 
 ## v0.8.0
 
