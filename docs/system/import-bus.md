@@ -185,7 +185,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 
 ### 4.7 写入时确定话题
 
-外部 harness 经 MCP 写入与更新记忆（[MCP 记忆访问](../contracts/mcp.md)）时，写入发生在一轮进行之中，而导入要等这一轮结束才路由。写入意图需要一个派发话题：Patchouli 以它的状态摘要与最近几个 block 作为生成材料（[生成](../patchouli/generation.md)），写入的话题也应当就是这一轮最终所在的话题。MCP 入口因此给写入与更新一个确定话题的回调，actor API 授权通过（更新另需读到基础记忆）之后才调用它；回调以同一个工作 actor 调用 `ImportBusService.place_turn`，由系统为这一轮确定话题：
+外部 harness 经 MCP 写入与更新记忆（[MCP 记忆访问](../contracts/mcp.md)）时，写入发生在一轮进行之中，而导入要等这一轮结束才路由。写入意图需要一个派发话题：Patchouli 以它的折叠摘要与最近几个 block 作为生成材料（[生成](../patchouli/generation.md)），写入的话题也应当就是这一轮最终所在的话题。MCP 入口因此给写入与更新一个确定话题的回调，actor API 授权通过（更新另需读到基础记忆）之后才调用它；回调以同一个工作 actor 调用 `ImportBusService.place_turn`，由系统为这一轮确定话题：
 
 ```text
 关闭中？ -> 503 shutting_down

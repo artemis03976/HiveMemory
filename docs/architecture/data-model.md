@@ -107,7 +107,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 短期存储 adapter 直接存储冻结的 `TopicData`，Store 与 Port 只交换不可变 `TopicData` 或 `TopicSnapshot` 快照；执行占用不建模为记录字段，由 TopicWorkingSet 的 lease 表达。
 
-`TopicData` 只存两份原始数据：按接收顺序、只追加的交互记录 `interactions`（`LogicalBlock` tuple），与每次折叠追加一条的折叠记录 `folds`（`TopicFold`：被折叠的块标识、折叠后的状态摘要与折叠时间）。工作视图 `blocks`、`state_summary` 与 `total_tokens` 是由二者派生的只读属性，`TopicSnapshot` 的 `block_count`、`total_tokens` 同样指工作视图。构造时校验全部折叠记录依次拼接等于交互记录开头同样数量的块标识；模型拒绝未声明字段。语义与理由见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)。
+`TopicData` 只存两份原始数据：按接收顺序、只追加的交互记录 `interactions`（`LogicalBlock` tuple），与每次折叠追加一条的折叠记录 `folds`（`TopicFold`：被折叠的块标识、折叠后的摘要与折叠时间）。工作视图 `blocks`、`fold_summary` 与 `total_tokens` 是由二者派生的只读属性，`TopicSnapshot` 的 `block_count`、`total_tokens` 同样指工作视图。构造时校验全部折叠记录依次拼接等于交互记录开头同样数量的块标识；模型拒绝未声明字段。语义与理由见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)。
 
 “不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增 append、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 通过不可变 `TopicData` 快照完成领域更新：读取 → core 话题模型的写函数（`merge_interaction_into_topic` 追加交互，`fold_topic` 追加折叠记录）以完整构造产生新快照 → 整条替换写回；写函数不用 `model_copy`，构造校验因此不会被绕过，互斥由 TopicWorkingSet 的 lease 保证。
 

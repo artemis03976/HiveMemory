@@ -37,7 +37,7 @@ last_reviewed: 2026-11-24
 
 - **不截断一轮交互**：一轮交互的内容不被任何一个上限数字截断，最多只限制单次工具调用的结果（`max_result_chars`）。工具输出可能是整份文件或日志，其余内容是对话与推理本身，任何一个单轮或单条的上限数字都会截掉一轮的过程。
 - **价值不由入口判定**：结算不按入口的价值标记筛选材料，`worth_saving` 已移除；价值体系另行重新设计，不在现有信号上增补。
-- **R-1 不分片**：完整材料超出提取模型的窗口时，不按范围分片生成。话题本来就是用来聚合同一语义的片段，再按范围分片生成，相当于人为打散这一结构；按范围分片、再由后台异步 refinement 的做法同样不采用。单个超大轮次照常接收、照常触发话题折叠；生成继续读取话题的工作视图（`state_summary` 与未折叠的 blocks），完整资料只做保存。
+- **R-1 不分片**：完整材料超出提取模型的窗口时，不按范围分片生成。话题本来就是用来聚合同一语义的片段，再按范围分片生成，相当于人为打散这一结构；按范围分片、再由后台异步 refinement 的做法同样不采用。单个超大轮次照常接收、照常触发话题折叠；生成继续读取话题的工作视图（`fold_summary` 与未折叠的 blocks），完整资料只做保存。
 - **R-2 Topic 完整资料的保全**：Topic 在原始数据上按顺序保存全部接收到的交互记录，以及一份话题折叠的记录，作为之后来源 Artifact 的数据。折叠因此只推进工作视图，不丢弃原文。
 
 现状中的一个缺口：工作视图在单轮上百次工具调用这类情况下仍可能超出提取模型的窗口，任务以 `model_context_window_exceeded` 失败，原文留在来源 InteractionArtifact 中但没有记忆引用它（[记忆生成](../patchouli/generation.md#8-当前限制)第 8 节）；这类材料怎样消费，随[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)的分段一起考虑。
@@ -63,7 +63,7 @@ last_reviewed: 2026-11-24
 | Session | [ConversationSessionService](../../src/hivememory/workspace/sessions/service.py)按封口顺序保存 `ConversationTurn` 与 payload 深拷贝；有容量限制，同会话只允许一个进程认领；删除不级联 Topic/Memory，关闭时清空（[会话资源](../workspace/sessions.md)） | 进程内记录，没有编辑、回退、分支或会话持久化；保存范围受 payload 与生产者实际输出约束 |
 | 主动交接 | [交互封口](../../src/hivememory/core/protocol/sealing.py)组装 `InteractionPayload`；任务进程对有输出的 completed/cancelled/failed 封口、写入会话并提交交互 | 只在轮次封口时交接；Session 写入与 Patchouli 应用不是跨系统原子事务 |
 | Topic | [PerceptionFamiliar](../../src/hivememory/patchouli/services/perception.py)按顺序保存全部交互记录与折叠记录，工作视图由二者派生，折叠只推进工作视图 | 话题是进程内状态，异常退出可能丢失未结算的交互记录；结算前保存全部记录，没有容量上限或背压（[感知与短期话题](../patchouli/perception.md)） |
-| 结算与生成 | [TopicMaterializeTask](../../src/hivememory/engines/perception/models.py)冻结全部记录，不按入口价值标记筛选；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`；主动写入取话题的状态摘要与最近几个 block | 生成读取工作视图，不读取已折叠的原文；模型选择不能证明全部资料已保存 |
+| 结算与生成 | [TopicMaterializeTask](../../src/hivememory/engines/perception/models.py)冻结全部记录，不按入口价值标记筛选；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`；主动写入取话题的折叠摘要与最近几个 block | 生成读取工作视图，不读取已折叠的原文；模型选择不能证明全部资料已保存 |
 | 来源 Artifact | [InteractionArtifactBuilder](../../src/hivememory/engines/artifacts/interaction.py)冻结交到它的全部记录，覆盖已折叠的轮次；来源 InteractionArtifact 在生成之前捕获 | 捕获是 best-effort，不能据此宣称完整证据必然保存；强制写入的 Memory version artifact 是另一项承诺 |
 
 Session 与 Topic 都是进程内资源；Artifact 已有文件保存能力，这不等于前面两层具备重启恢复。
@@ -99,7 +99,7 @@ flowchart TD
 
 ## 4. 完整资料与有界工作视图
 
-Topic 完整资料保存“有哪些来源材料”；`state_summary + recent_blocks` 等派生视图回答“当前分析或生成看什么”。两者独立演进：page folding 只推进后者，既不决定原文是否值得保存，也不自动宣告该段材料已被物化为正式记忆。
+Topic 完整资料保存“有哪些来源材料”；`fold_summary + recent_blocks` 等派生视图回答“当前分析或生成看什么”。两者独立演进：page folding 只推进后者，既不决定原文是否值得保存，也不自动宣告该段材料已被物化为正式记忆。
 
 这不要求 active blocks 始终保留全部历史：把所有正文留在同一个活跃输入中，Perception 就要同时管理模型窗口和资料保全，settlement extractor 仍可能超出上下文窗口。在 Topic 所有权下分开完整资料与工作窗口已经实现：Topic 按顺序保存全部交互记录与折叠记录，工作视图由它们派生（[感知与短期话题](../patchouli/perception.md)）。
 

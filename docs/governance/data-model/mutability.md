@@ -82,7 +82,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 
 - 将 TurnEvent 的 sequence/status 变化收敛为领域方法或 reducer（2026-10-30：调用结局的补全已收敛为 `TurnEvent.with_outcome`，归约器删除）；
 - 明确 `ExecutionProgress` 是请求级 Builder，完成后只产出 `TurnRecord`；
-- 令 SemanticBuffer 的 append/touch/settle/evict/update 行为只由 Patchouli 所有者执行；
+- 令短期话题（`TopicData`）的 append/touch/settle/evict/update 行为只由 Patchouli 所有者执行；
 - 验证 `TopicData`/`TopicSnapshot` 与源 buffer 脱钩。
 
 交付物：稳定的 Turn 快照链、Topic 聚合写边界和无引用泄漏测试。

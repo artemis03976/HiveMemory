@@ -56,7 +56,7 @@ InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary
 
 事件集是本轮唯一的内容事实，快照不另存问答正文或由事件派生的动作与轨迹：用户消息与回复正文从事件读取，生成材料与供引用的段也由事件按当时的规则复现。事件以 dict 保存，运行时模型改变时不影响已写入记录的读取：加入响应序号之前写下的快照没有 `response_index` 键，读作整轮一段。
 
-每条折叠记录（`InteractionFoldSnapshot`）对应话题的一次折叠：这一次被折叠的块标识、折叠后的状态摘要与折叠时间（Unix 秒）。被折叠的块标识指向同一份 Artifact 中的 turn，读者因此能看出每段摘要概括了哪些原文。它与运行时的 `TopicFold` 分开建模，理由与事件以 dict 保存相同。`folds` 只追加、不改名，缺少该字段的旧文件读作空列表，`schema_version` 不变。
+每条折叠记录（`InteractionFoldSnapshot`）对应话题的一次折叠：这一次被折叠的块标识、折叠后的摘要与折叠时间（Unix 秒）。被折叠的块标识指向同一份 Artifact 中的 turn，读者因此能看出每段摘要概括了哪些原文。它与运行时的 `TopicFold` 分开建模，理由与事件以 dict 保存相同。`folds` 只追加、不改名，缺少该字段的旧文件读作空列表，`schema_version` 不变。
 
 它刻意不保存 memory id、alias、source intent、capture policy，也不设置顶层 Agent 来源字段：来源 provenance 由每个 block 冻结的 `actor_identity` 承载，因为同一 Workspace 话题内可以切换不同 Agent，话题级单值来源无法表达这一事实。原始交互先保持中立，哪条记忆由它派生则由 MemoryCreation/Version Artifact 表达。这样同一份证据不会因为生成出不同记忆而被重复解释为不同“原文”。
 
@@ -156,7 +156,7 @@ A2-P 起版本记录是内容提交的强制前置条件：memory 组件关闭�
 
 三者共享同一 `TurnRecord`，但不共享一段提前压扁的 `context_messages` 字符串。新增交互事实应先进入结构化事件或 turn 模型，再由各视图渲染，不能重新引入字符串反解析主路径。
 
-两份持久化记录的分工因此不同：思考与工具结果的原文随 InteractionArtifact（可选旁路）的 `turn_events` 快照保存；MemoryCreationArtifact 的 `generation_view` 记录的是 Generation 视图，即话题工作视图（被折叠的轮次只以状态摘要出现）且工具结果截断后的版本，用于回答“这条记忆生成时看到了什么”，不能替代原始证据。
+两份持久化记录的分工因此不同：思考与工具结果的原文随 InteractionArtifact（可选旁路）的 `turn_events` 快照保存；MemoryCreationArtifact 的 `generation_view` 记录的是 Generation 视图，即话题工作视图（被折叠的轮次只以折叠摘要出现）且工具结果截断后的版本，用于回答“这条记忆生成时看到了什么”，不能替代原始证据。
 
 ## 7. 当前限制
 
