@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt-rules-and-index
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-24
 ---
 
 # Todo
@@ -25,6 +25,7 @@ last_reviewed: 2026-11-20
 - [生成查重的决策信号](./generation-dedup-decision-signal.md)：dense top-1 余弦分不开同一工作与同项目的其他记忆；
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)：重排模型 int8 的质量与内存评估；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)：alias 占用查询的 payload index；
+- [丢弃话题前告知它已经生成的记忆](./topic-discard-shows-generated-memories.md)：丢弃确认写明话题已经生成的记忆，删除后不再生成后续记忆；
 - [会话 `/compact` 指令](./conversation-compact-command.md)：由 CPU 会话上下文承担的 compact 指令；
 - [Work Queue Runtime 多 lane 拓扑技术债](./work-queue-runtime-lane-topology.md)：每套业务队列各自一套 Runtime 与 Store 的拓扑；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)：健康检查只返回装配状态，不验证模型端点与运行中的 frame。
