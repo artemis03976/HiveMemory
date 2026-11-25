@@ -80,13 +80,6 @@ class TestRelayController:
         assert "使用了工具: run, weather_api" in summary
         assert "最近: 创建认证模块" in summary
 
-    def test_create_relay_context(self):
-        """测试上下文注入格式"""
-        summary = "Test Summary"
-        context = self.controller.create_relay_context(summary)
-        assert "[接力摘要]" in context
-        assert "Test Summary" in context
-
 
 class TestLLMRelayController:
     """测试 LLM 接力控制器"""

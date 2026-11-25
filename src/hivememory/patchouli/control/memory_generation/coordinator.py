@@ -51,7 +51,7 @@ class MemoryGenerationCoordinator:
         if recent_block_limit < 0:
             raise ValueError("recent_block_limit 不能为负数")
         self._bus = bus
-        # 主动生成只取话题最近的若干个 block 作为材料（含 state_summary）。
+        # 主动生成只取话题最近的若干个 block 作为材料（含 fold_summary）。
         self._recent_block_limit = recent_block_limit
         self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
         # 生成材料只有工具结果按配置的上限截断，感知的 token 统计使用同一个上限。
@@ -66,7 +66,7 @@ class MemoryGenerationCoordinator:
         """
         gen_context = self._transcript_builder.build_context(
             payload.blocks,
-            state_summary=payload.state_summary,
+            fold_summary=payload.fold_summary,
         )
         if not gen_context.turns:
             logger.debug("Empty conversation turn, skipping passive generation")
@@ -106,7 +106,7 @@ class MemoryGenerationCoordinator:
     ) -> MemoryGenerationAdmission:
         """将一个 WRITE/UPDATE 意图转为主动生成任务，返回它的接纳结果。
 
-        材料是话题的 ``state_summary`` 与最近 ``recent_block_limit`` 个 block；
+        材料是话题的 ``fold_summary`` 与最近 ``recent_block_limit`` 个 block；
         话题不存在时按空材料生成。来源记录由 Patchouli 生成链内部维护；任务
         独立携带归属与发起者。
         """
@@ -133,10 +133,10 @@ class MemoryGenerationCoordinator:
         blocks = (
             topic_data.recent_blocks(self._recent_block_limit) if topic_data is not None else ()
         )
-        state_summary = topic_data.state_summary if topic_data is not None else ""
+        fold_summary = topic_data.fold_summary if topic_data is not None else ""
         gen_context = self._transcript_builder.build_context(
             blocks,
-            state_summary=state_summary,
+            fold_summary=fold_summary,
         )
         interaction_input = self._build_interaction_input(
             topic_id=topic_id,

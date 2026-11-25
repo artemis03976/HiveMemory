@@ -64,12 +64,12 @@ builder = GenerationTranscriptBuilder()
 
 class TestBuildContext:
     def test_empty_blocks_produces_empty_turns(self):
-        ctx = builder.build_context([], state_summary="")
+        ctx = builder.build_context([], fold_summary="")
         assert ctx.turns == []
 
-    def test_state_summary_propagated(self):
-        ctx = builder.build_context([], state_summary="话题摘要")
-        assert ctx.state_summary == "话题摘要"
+    def test_fold_summary_propagated(self):
+        ctx = builder.build_context([], fold_summary="话题摘要")
+        assert ctx.fold_summary == "话题摘要"
 
     def test_block_becomes_turn_with_ordered_material_entries(self):
         """用户消息单独成字段，其后的材料按出现顺序排列，助手正文穿插其中；
@@ -197,7 +197,7 @@ class TestBuildTranscript:
         """话题状态在最前；结局不是 completed 的轮次在轮首标注；升级前保存的生成任务
         没有段，材料不印段标签。"""
         ctx = GenerationContext(
-            state_summary="重构进行中",
+            fold_summary="重构进行中",
             turns=[
                 _turn("问题1", "[Assistant]: 答案1"),
                 _turn("问题2", "[Assistant]: 半截", outcome="cancelled"),
@@ -271,7 +271,7 @@ class TestEngineWithGenerationContext:
         """context 存在时调用 extractor.extract"""
         engine, extractor, _ = self._make_engine()
         ctx = GenerationContext(
-            state_summary="摘要",
+            fold_summary="摘要",
             turns=[_turn("q", "[Assistant]: a")],
         )
         req = _request(context=ctx)

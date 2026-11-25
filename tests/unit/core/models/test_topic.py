@@ -4,7 +4,7 @@
 ``merge_interaction_into_topic``、``fold_topic``、``mark_topic_settled`` 与
 ``record_topic_writes`` 是仅有的写函数。
 保护的契约：
-- 工作视图是最后一次折叠之后的交互记录；state_summary 来自最后一次折叠，没有
+- 工作视图是最后一次折叠之后的交互记录；fold_summary 来自最后一次折叠，没有
   折叠时为空串；total_tokens 是工作视图之和；
 - 写入一轮只追加交互记录；折叠追加一条折叠记录，不移除交互记录；
 - 折叠记录依次拼接必须等于交互记录的前缀，否则构造失败；写函数都以完整
@@ -67,7 +67,7 @@ class TestWorkingView:
         )
 
         assert topic.blocks == (b3, b4)
-        assert topic.state_summary == "s2"
+        assert topic.fold_summary == "s2"
         assert topic.total_tokens == 70
 
     def test_topic_without_folds_works_on_every_interaction(self):
@@ -76,7 +76,7 @@ class TestWorkingView:
         topic = _topic(interactions=(b1, b2))
 
         assert topic.blocks == (b1, b2)
-        assert topic.state_summary == ""
+        assert topic.fold_summary == ""
         assert topic.total_tokens == 12
 
 
@@ -105,7 +105,7 @@ class TestWriteFunctions:
             (b2.block_id, b3.block_id),
         ]
         assert folded.blocks == (b4,)
-        assert folded.state_summary == "s2"
+        assert folded.fold_summary == "s2"
 
     def test_folds_must_cover_a_prefix_of_interactions(self):
         """跳过工作视图开头的块去折叠，折叠记录就不再是交互记录的前缀。"""

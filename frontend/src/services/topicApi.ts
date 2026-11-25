@@ -17,7 +17,7 @@ export interface ApiTopicSnapshot {
   topic_id: string;
   topic_title?: string;
   topic_summary?: string;
-  state_summary?: string;
+  fold_summary?: string;
   last_turn?: { user: string; assistant: string } | null;
   block_count?: number;
   /** 话题最近一次写入的 Unix 时间戳（秒）。 */
@@ -37,7 +37,7 @@ export function mapTopic(raw: ApiTopicSnapshot): Topic {
     id: raw.topic_id,
     title: raw.topic_title ?? '',
     topicSummary: raw.topic_summary || undefined,
-    stateSummary: raw.state_summary || undefined,
+    foldSummary: raw.fold_summary || undefined,
     lastTurn: raw.last_turn ?? undefined,
     model: raw.model_used || undefined,
     lastActive: raw.last_update * 1000,

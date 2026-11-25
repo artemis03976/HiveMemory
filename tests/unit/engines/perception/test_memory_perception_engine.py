@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from pydantic import ValidationError
 
-from hivememory.config.patchouli import GenerationTranscriptConfig, SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import GenerationTranscriptConfig, PerceptionEngineConfig
 from hivememory.core.models import ActorIdentity, LogicalBlock, TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.material import render_turn_text
@@ -48,7 +48,7 @@ def _mock_relay():
 
 def _engine(**transcript_limits) -> MemoryPerceptionEngine:
     return MemoryPerceptionEngine(
-        config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
+        config=PerceptionEngineConfig(fold_token_threshold=100),
         relay_controller=_mock_relay(),
         transcript_config=GenerationTranscriptConfig(**transcript_limits),
     )
@@ -151,7 +151,7 @@ class TestRenderedMaterialTokens:
 class TestShouldCompact:
     def test_not_triggered_below_threshold(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
+            config=PerceptionEngineConfig(fold_token_threshold=100),
             relay_controller=_mock_relay(),
         )
 
@@ -159,7 +159,7 @@ class TestShouldCompact:
 
     def test_not_triggered_at_exact_threshold(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
+            config=PerceptionEngineConfig(fold_token_threshold=100),
             relay_controller=_mock_relay(),
         )
 
@@ -168,7 +168,7 @@ class TestShouldCompact:
 
     def test_triggered_above_threshold(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
+            config=PerceptionEngineConfig(fold_token_threshold=100),
             relay_controller=_mock_relay(),
         )
 
@@ -181,7 +181,7 @@ class TestShouldCompact:
 class TestSelectBlocksToFold:
     def test_selects_oldest_prefix_and_retains_recent(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
+            config=PerceptionEngineConfig(), relay_controller=_mock_relay()
         )
         blocks = tuple(_block(total_tokens=i) for i in range(3))
 
@@ -191,7 +191,7 @@ class TestSelectBlocksToFold:
 
     def test_defers_folding_when_retain_covers_all_blocks(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
+            config=PerceptionEngineConfig(), relay_controller=_mock_relay()
         )
         blocks = tuple(_block() for _ in range(3))
 
@@ -199,7 +199,7 @@ class TestSelectBlocksToFold:
 
     def test_rejects_retain_below_one(self):
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
+            config=PerceptionEngineConfig(), relay_controller=_mock_relay()
         )
 
         with pytest.raises(ValueError, match="retain_recent must be >= 1"):
@@ -215,7 +215,7 @@ class TestGenerateFoldSummary:
         mock_relay = _mock_relay()
         mock_relay.generate_summary.return_value = "summarized content"
         engine = MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(), relay_controller=mock_relay
+            config=PerceptionEngineConfig(), relay_controller=mock_relay
         )
         blocks = [_block(), _block()]
 
@@ -232,4 +232,4 @@ class TestEngineConfig:
     @pytest.mark.parametrize("retain_count", [0, -1])
     def test_public_config_rejects_non_positive_retain_count(self, retain_count):
         with pytest.raises(ValidationError):
-            SemanticFlowPerceptionConfig(fold_retain_recent_blocks=retain_count)
+            PerceptionEngineConfig(fold_retain_recent_blocks=retain_count)

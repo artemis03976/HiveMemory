@@ -17,8 +17,8 @@ def render_topic_snapshots(snapshots: Sequence[TopicSnapshot]) -> str:
     for idx, snapshot in enumerate(snapshots, 1):
         lines.append(f"{idx}. [{snapshot.topic_id}: {snapshot.topic_title}]")
 
-        if snapshot.state_summary:
-            lines.append(f"   状态: {snapshot.state_summary}")
+        if snapshot.fold_summary:
+            lines.append(f"   状态: {snapshot.fold_summary}")
 
         if snapshot.last_turn:
             lines.append("   最后对话:")

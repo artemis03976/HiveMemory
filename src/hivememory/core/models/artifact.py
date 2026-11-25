@@ -216,7 +216,7 @@ class InteractionTurnSnapshot(BaseModel):
 
 
 class InteractionFoldSnapshot(BaseModel):
-    """一次话题折叠的冻结视图：被折叠的块标识、折叠后的状态摘要与折叠时间。
+    """一次话题折叠的冻结视图：被折叠的块标识、折叠后的摘要与折叠时间。
 
     与 ``InteractionTurnSnapshot`` 一样独立于运行时的话题模型，运行时模型变更
     不破坏已有 Artifact 的读取。

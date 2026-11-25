@@ -60,7 +60,7 @@ class TestFromTopicData:
         assert task.belong_to == scope.workspace_identity
         assert task.topic_title == "标题"
         assert task.topic_summary == "展示摘要"
-        assert task.state_summary == ""
+        assert task.fold_summary == ""
         assert task.reason is TriggerReason.MANUAL_SETTLE
         assert task.retires_topic is True
         assert [b.user_message for b in task.blocks] == ["q1"]
@@ -131,7 +131,7 @@ class TestFromTopicData:
         assert task.interactions == (b1, b2, b3)
         assert task.folds == (fold,)
         assert task.blocks == (b3,)
-        assert task.state_summary == "折叠历史"
+        assert task.fold_summary == "折叠历史"
 
     def test_bindings_are_frozen_as_snapshot(self):
         from datetime import UTC, datetime

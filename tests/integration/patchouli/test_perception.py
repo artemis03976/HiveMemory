@@ -10,7 +10,7 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 - 折叠: 应用不在内部折叠、needs_compact 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
   失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已结算时直接结束、未超保留块数不折叠
 - manual_settle_topic / evict_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
-- scan_idle_buffers_once：空闲只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
+- scan_idle_topics_once：空闲只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
   从没接收过交互的空话题空闲时直接退役
 - flush_all_for_shutdown：只沉淀不退役、空话题退役、已全部沉淀的不处理、接纳失败与占用话题
   记为 failed，跨 Workspace 沉淀，折叠后沉淀携带被折叠的轮次
@@ -28,7 +28,7 @@ import pytest
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
-from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import PerceptionEngineConfig
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     WorkspaceAssetRef,
@@ -134,7 +134,7 @@ def _make_familiar(
     bus.request = AsyncMock(return_value=None)
     if engine == "default":
         engine = MemoryPerceptionEngine(
-            config=engine_config or SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            config=engine_config or PerceptionEngineConfig(fold_token_threshold=999999),
             relay_controller=relay,
         )
     familiar = PerceptionFamiliar(
@@ -355,9 +355,9 @@ class TestLruEviction:
 # ========== 折叠（compact） ==========
 
 
-def _fold_every_block_config() -> SemanticFlowPerceptionConfig:
+def _fold_every_block_config() -> PerceptionEngineConfig:
     """每个 block 都超过阈值、只保留最近 1 块：第二块写入后即有可折叠前缀。"""
-    return SemanticFlowPerceptionConfig(fold_token_threshold=1, fold_retain_recent_blocks=1)
+    return PerceptionEngineConfig(fold_token_threshold=1, fold_retain_recent_blocks=1)
 
 
 async def _apply_to_topic(familiar, scope, topic_id: str, *messages: str) -> None:
@@ -385,7 +385,7 @@ class TestCompact:
 
         topic = store.get(scope.workspace_identity, "t1")
         assert [block.user_message for block in topic.blocks] == ["a", "b"]
-        assert topic.state_summary == ""
+        assert topic.fold_summary == ""
         assert familiar.needs_compact(scope.workspace_identity, "t1") is True
 
     @pytest.mark.asyncio
@@ -410,7 +410,7 @@ class TestCompact:
         ]
         assert [block.user_message for block in topic.blocks] == ["c"]
         # 第二次折叠收到第一次的摘要作为 previous_summary，累积成链
-        assert topic.state_summary == "folded:1|folded:1"
+        assert topic.fold_summary == "folded:1|folded:1"
         assert topic.total_tokens == third.total_tokens
         assert familiar.needs_compact(scope.workspace_identity, "t1") is False
         # 折叠只压缩上下文，不触发记忆生成，也不驱逐话题
@@ -446,7 +446,7 @@ class TestCompact:
         await compaction
 
         topic = store.get(workspace, "t1")
-        assert (topic.state_summary, topic.topic_write_memory_ids) == ("summary", {"m"})
+        assert (topic.fold_summary, topic.topic_write_memory_ids) == ("summary", {"m"})
 
     @pytest.mark.asyncio
     async def test_failed_compaction_leaves_topic_intact_and_can_compact_again(self):
@@ -470,7 +470,7 @@ class TestCompact:
         await familiar.compact_topic(scope.workspace_identity, "t1")
         topic = store.get(scope.workspace_identity, "t1")
         assert [block.user_message for block in topic.blocks] == ["b"]
-        assert topic.state_summary == "folded-summary"
+        assert topic.fold_summary == "folded-summary"
 
     @pytest.mark.asyncio
     async def test_compact_topic_rejects_topic_held_by_another_use_case(self):
@@ -488,7 +488,7 @@ class TestCompact:
             await familiar.compact_topic(scope.workspace_identity, "t1")
 
         working_set.release(lease)
-        assert store.get(scope.workspace_identity, "t1").state_summary == ""
+        assert store.get(scope.workspace_identity, "t1").fold_summary == ""
 
     @pytest.mark.asyncio
     async def test_compact_topic_ends_without_reviving_settled_topic(self):
@@ -511,7 +511,7 @@ class TestCompact:
     async def test_blocks_within_retain_count_need_no_compaction(self):
         """超过阈值但块数不多于保留数时没有可折叠前缀：不需要折叠，折叠也不改动话题。"""
         familiar, store, _, _ = _make_familiar(
-            engine_config=SemanticFlowPerceptionConfig(
+            engine_config=PerceptionEngineConfig(
                 fold_token_threshold=1, fold_retain_recent_blocks=5
             )
         )
@@ -526,7 +526,7 @@ class TestCompact:
         assert familiar.needs_compact(scope.workspace_identity, topic_id) is False
         await familiar.compact_topic(scope.workspace_identity, topic_id)
         data = store.get(scope.workspace_identity, topic_id)
-        assert data.state_summary == ""
+        assert data.fold_summary == ""
         assert len(data.blocks) == 1
 
 
@@ -584,7 +584,7 @@ class TestNamedUseCases:
             interaction_id="i-1",
         )
         clock.advance(100)
-        assert await familiar.scan_idle_buffers_once() == [topic_id]
+        assert await familiar.scan_idle_topics_once() == [topic_id]
 
         result = await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
 
@@ -712,7 +712,7 @@ class TestNamedUseCases:
         after = store.get(scope.workspace_identity, topic_id)
         assert after is not None
         assert [b.user_message for b in after.blocks] == [b.user_message for b in before.blocks]
-        assert after.state_summary == before.state_summary
+        assert after.fold_summary == before.fold_summary
         assert "topic.settled" not in [event_type for event_type, _, _ in _topic_events(events)]
 
         # 修复 admission 后可再次重试并成功结束生命周期
@@ -749,7 +749,7 @@ class TestMaintenance:
             interaction_id="i-2",
         )
 
-        flushed = await familiar.scan_idle_buffers_once()
+        flushed = await familiar.scan_idle_topics_once()
 
         assert flushed == [stale_id]
         assert store.get(scope.workspace_identity, stale_id).settled_interaction_count == 1
@@ -794,7 +794,7 @@ class TestMaintenance:
         bus.request = AsyncMock(side_effect=admit)
         clock.advance(100)
 
-        scan = asyncio.create_task(familiar.scan_idle_buffers_once())
+        scan = asyncio.create_task(familiar.scan_idle_topics_once())
         await asyncio.wait_for(admitting.wait(), timeout=1)
         await familiar.record_writes(
             topic_id, belong_to=workspace, written=frozenset({"m"}), absorbed_into={}
@@ -819,7 +819,7 @@ class TestMaintenance:
         clock.advance(100)
         working_set.acquire(scope.workspace_identity, topic_id)
 
-        flushed = await familiar.scan_idle_buffers_once()
+        flushed = await familiar.scan_idle_topics_once()
 
         assert flushed == []
         assert store.get(scope.workspace_identity, topic_id) is not None
@@ -838,13 +838,13 @@ class TestMaintenance:
         clock.advance(100)
         bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
 
-        flushed = await familiar.scan_idle_buffers_once()
+        flushed = await familiar.scan_idle_topics_once()
 
         # idle 维护不向上传播；话题与沉淀进度不变，下一轮重试
         assert flushed == []
         assert store.get(scope.workspace_identity, topic_id).has_unsettled_interactions is True
         bus.request = AsyncMock(return_value=None)
-        assert await familiar.scan_idle_buffers_once() == [topic_id]
+        assert await familiar.scan_idle_topics_once() == [topic_id]
 
     @pytest.mark.asyncio
     async def test_shutdown_flush_settles_without_retiring_and_retires_only_empty_topics(self):
@@ -905,15 +905,15 @@ class TestMaintenance:
             interaction_id="i-1",
         )
         clock.advance(100)
-        assert await familiar.scan_idle_buffers_once() == [topic_id]
+        assert await familiar.scan_idle_topics_once() == [topic_id]
 
         clock.advance(100)
-        assert await familiar.scan_idle_buffers_once() == []
+        assert await familiar.scan_idle_topics_once() == []
         assert bus.request.await_count == 1
 
         await _apply_to_topic(familiar, scope, topic_id, "2")
         clock.advance(100)
-        assert await familiar.scan_idle_buffers_once() == [topic_id]
+        assert await familiar.scan_idle_topics_once() == [topic_id]
 
         assert bus.request.await_count == 2
         settlement = bus.request.await_args.args[1]
@@ -932,7 +932,7 @@ class TestMaintenance:
         topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
 
         clock.advance(100)
-        flushed = await familiar.scan_idle_buffers_once()
+        flushed = await familiar.scan_idle_topics_once()
 
         assert flushed == [topic_id]
         bus.request.assert_not_awaited()
@@ -995,7 +995,7 @@ class TestMaintenance:
         """折叠过的话题结算时，任务携带全部交互与折叠记录，生成材料仍是工作视图。"""
         familiar, store, _, bus = _make_familiar(
             max_resident=2,
-            engine_config=SemanticFlowPerceptionConfig(
+            engine_config=PerceptionEngineConfig(
                 fold_token_threshold=10, fold_retain_recent_blocks=1
             ),
             relay=_folding_relay(),
@@ -1014,7 +1014,7 @@ class TestMaintenance:
 
         before_shutdown = store.get(scope.workspace_identity, topic_id)
         assert before_shutdown is not None
-        assert before_shutdown.state_summary == "folded:1|folded:1"
+        assert before_shutdown.fold_summary == "folded:1|folded:1"
         assert [block.user_message for block in before_shutdown.blocks] == ["question-2-" * 80]
         assert bus.request.await_count == 0
         bus.request.side_effect = _accept_settlement_task
@@ -1032,7 +1032,7 @@ class TestMaintenance:
             f"question-{i}-" * 80 for i in range(3)
         ]
         assert len(settlement.folds) == 2
-        assert settlement.state_summary == "folded:1|folded:1"
+        assert settlement.fold_summary == "folded:1|folded:1"
         assert [block.user_message for block in settlement.blocks] == ["question-2-" * 80]
 
 

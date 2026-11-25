@@ -20,8 +20,8 @@ from hivememory.config.patchouli import (
     GarbageCollectorConfig,
     MemoryPerceptionConfig,
     MemoryRetrievalConfig,
+    PerceptionEngineConfig,
     ReinforcementEngineConfig,
-    SemanticFlowPerceptionConfig,
     VitalityCalculatorConfig,
 )
 from hivememory.core.models import MemoryAtom, MemoryLifecycleState
@@ -209,7 +209,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     )
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
-            SemanticFlowPerceptionConfig(fold_token_threshold=999999), _Relay()
+            PerceptionEngineConfig(fold_token_threshold=999999), _Relay()
         ),
         store=short_term,
         # 为多轮会话样本预留话题容量；LRU 结算由资源归属层单独验证。

@@ -48,7 +48,7 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
             last_update=1_700_000_000.0,
             topic_id="topic-1",
             topic_title="Gateway",
-            state_summary="正在实现 Phase 3D",
+            fold_summary="正在实现 Phase 3D",
             last_turn=TopicLastTurn(user="继续", assistant="处理中"),
             workspace_identity=identity_scope.workspace_identity,
         ),

@@ -281,11 +281,11 @@ class GenerationContext(BaseModel):
     作为 GenerationEngine 的主输入。
 
     Attributes:
-        state_summary: 话题状态摘要（page folding 后的语义快照）
+        fold_summary: 折叠摘要（被折叠的那部分交互的摘要，page folding 产生）
         turns: 本次 flush 包含的对话轮次列表
     """
 
-    state_summary: str = ""
+    fold_summary: str = ""
     turns: list[GenerationTurn] = Field(default_factory=list)
 
     def cited_segments(self, labels: Sequence[str]) -> list[CitedSegment]:

@@ -8,12 +8,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
 
-from hivememory.config.files import rejected_path, write_atomically
+from hivememory.config.files import UnreadableFileError, take_json_items, write_json_items
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationSource,
@@ -24,42 +23,36 @@ from hivememory.patchouli.contracts.memory_tasks import (
 logger = logging.getLogger(__name__)
 
 TASK_HISTORY_FORMAT_VERSION = 1
+_ITEMS_KEY = "tasks"
 
 
 def write_task_history(path: Path, tasks: list[MemoryGenerationTask]) -> None:
     """把已结束的任务快照原子写入 ``path``；调用方保证 ``tasks`` 非空。"""
-    document = {
-        "format_version": TASK_HISTORY_FORMAT_VERSION,
-        "tasks": [_encode(task) for task in tasks],
-    }
-    write_atomically(path, json.dumps(document, ensure_ascii=False).encode("utf-8"))
+    write_json_items(
+        path,
+        format_version=TASK_HISTORY_FORMAT_VERSION,
+        key=_ITEMS_KEY,
+        items=[_encode(task) for task in tasks],
+    )
 
 
 def take_task_history(path: Path) -> list[MemoryGenerationTask]:
-    """读出并删除历史文件，返回其中的任务快照；文件不存在或读不回时返回空表。"""
-    if not path.exists():
-        return []
+    """读出并删除历史文件，返回其中的任务快照；文件不存在或读不回时返回空表。
+
+    任一任务读不回时整份历史改存 rejected 文件，历史以空表开始。
+    """
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(document, dict):
-            raise ValueError("task history document must be an object")
-        if document.get("format_version") != TASK_HISTORY_FORMAT_VERSION:
-            raise ValueError(f"unknown task history format: {document.get('format_version')!r}")
-        items = document.get("tasks")
-        if not isinstance(items, list):
-            raise ValueError("task history document has no tasks list")
-        tasks = [_decode(item) for item in items]
-    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
-        rejected = rejected_path(path)
-        path.replace(rejected)
+        tasks = take_json_items(
+            path, format_version=TASK_HISTORY_FORMAT_VERSION, key=_ITEMS_KEY, decode=_decode
+        )
+    except UnreadableFileError as error:
         logger.error(
             "读回记忆生成任务历史失败: reason=task_history_unreadable, rejected_file=%s",
-            rejected,
+            error.rejected_path,
             exc_info=True,
         )
         return []
-    path.unlink()
-    return tasks
+    return tasks or []
 
 
 def _encode(task: MemoryGenerationTask) -> dict[str, object]:

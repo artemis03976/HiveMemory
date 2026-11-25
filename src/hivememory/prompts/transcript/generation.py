@@ -14,7 +14,7 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
 外部工具的结果按上限截断。每轮按感知层的切段规则分段
 （``engines.perception.segments``），材料在每段之前印出段标签，供模型引用；
 段标签只出现在送给模型的生成材料中，token 估算、接力摘要与历史转写都不带。
-这里只负责组装话题状态与各轮次。
+这里只负责组装折叠摘要与各轮次。
 """
 
 from collections.abc import Sequence
@@ -35,7 +35,7 @@ class GenerationTranscriptBuilder:
     """
     记忆生成视图构建器
 
-    无状态。将 LogicalBlock 列表 + state_summary 转换为 GenerationContext，
+    无状态。将 LogicalBlock 列表 + fold_summary 转换为 GenerationContext，
     工具结果按 ``config`` 的上限截断；同时提供 build_transcript() 将
     GenerationContext 渲染为 LLM 可用的文本（渲染不再截断）。
     """
@@ -46,20 +46,20 @@ class GenerationTranscriptBuilder:
     def build_context(
         self,
         blocks: Sequence[LogicalBlock],
-        state_summary: str = "",
+        fold_summary: str = "",
     ) -> GenerationContext:
         """
         从 LogicalBlock 列表构建 GenerationContext。
 
         Args:
             blocks: LogicalBlock 列表（按时间正序）
-            state_summary: 话题状态摘要
+            fold_summary: 折叠摘要
 
         Returns:
             GenerationContext: 结构化的记忆生成视图
         """
         return GenerationContext(
-            state_summary=state_summary,
+            fold_summary=fold_summary,
             turns=[self._block_to_turn(block) for block in blocks],
         )
 
@@ -69,7 +69,7 @@ class GenerationTranscriptBuilder:
 
         格式:
             [Topic State]
-            {state_summary}
+            {fold_summary}
 
             [Turn 1]
             [Segment 1.1]
@@ -90,8 +90,8 @@ class GenerationTranscriptBuilder:
             str: 渲染后的 transcript 文本
         """
         sections: list[str] = []
-        if context.state_summary:
-            sections.append(f"[Topic State]\n{context.state_summary}")
+        if context.fold_summary:
+            sections.append(f"[Topic State]\n{context.fold_summary}")
         for idx, turn in enumerate(context.turns, 1):
             sections.append(self._format_turn(idx, turn))
         return "\n\n".join(sections)

@@ -27,6 +27,7 @@ from hivememory.components.work_queue import (
     WorkQueueStoppedError,
     WorkState,
 )
+from hivememory.config.files import UnreadableFileError
 from hivememory.engines.generation.models import GenerationAction, GenerationRequest
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmission
@@ -49,7 +50,6 @@ from hivememory.patchouli.control.memory_generation.queue import (
 )
 from hivememory.patchouli.control.memory_generation.saved_work import (
     RestoredWorkReport,
-    SavedWorkFileError,
     SavedWorkReport,
     take_saved_work,
     write_rejected_work,
@@ -649,7 +649,7 @@ class MemoryGenerationTaskController:
         """
         try:
             items = take_saved_work(path)
-        except SavedWorkFileError as error:
+        except UnreadableFileError as error:
             logger.error(
                 "读回保存的记忆生成工作失败: reason=saved_work_unreadable, rejected_file=%s",
                 error.rejected_path,

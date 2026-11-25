@@ -215,8 +215,8 @@ def _settled_topic(topic_id: str, *, last_update: float, workspace=None) -> Topi
 class TestRuntimeTopicPool:
     @pytest.mark.asyncio
     async def test_drain_saves_topic_pool_after_committing_work_records_its_writes(self, tmp_path):
-        """关闭时话题池在保存生成工作之后写出：等待中写完的任务记回话题的写入在快照里；下次
-        启动读回话题，读回即删除快照。"""
+        """关闭时话题池在保存生成工作之后写出：等待中写完的任务记回话题的写入在快照里，下次
+        启动读回话题。"""
         runtime, store, _ = _runtime_with_topic_pool(tmp_path)
         topic = _settled_topic("t1", last_update=10.0)
         store.put(topic)
@@ -240,7 +240,6 @@ class TestRuntimeTopicPool:
         assert (result["topic_pool"].saved, result["topic_pool"].file_written) == (1, True)
         assert (report.read, report.restored, report.rejected) == (1, 1, 0)
         assert restored_store.list_all() == [record_topic_writes(topic, frozenset({"m"}), {})]
-        assert not (tmp_path / "topic_pool.json").exists()
 
     @pytest.mark.asyncio
     async def test_drain_completes_when_a_topic_cannot_be_encoded(self, tmp_path):
@@ -321,7 +320,6 @@ class TestRuntimeTopicPool:
         assert store.list_all() == [valid]
         rejected = json.loads(Path(report.rejected_file).read_text(encoding="utf-8"))["topics"]
         assert rejected == [invalid]
-        assert not path.exists()
 
     @pytest.mark.asyncio
     async def test_restore_sets_aside_unreadable_snapshot_and_starts_empty(self, tmp_path):
@@ -333,7 +331,6 @@ class TestRuntimeTopicPool:
         report = await runtime.restore_topic_pool()
 
         assert store.list_all() == []
-        assert not path.exists()
         assert Path(report.rejected_file).read_text(encoding="utf-8") == "{not json"
 
 

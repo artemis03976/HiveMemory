@@ -118,15 +118,16 @@ def _require_exact_keys(
 
 
 class _MemoryGenerationWorkAdapter:
-    """Memory Generation 私有工作信封 1.4 的队列适配器。
+    """Memory Generation 私有工作信封 1.5 的队列适配器。
 
     适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
     重建独立的领域任务对象。1.3 起生成材料的轮次带轮次标识与段，交互记录的
-    事件带响应序号；1.4 起任务带话题是否随这次结算退役。
+    事件带响应序号；1.4 起任务带话题是否随这次结算退役；1.5 起生成材料的折叠摘要
+    叫 ``fold_summary``。
     """
 
     kind = "patchouli.memory_generation"
-    schema_version = "1.4"
+    schema_version = "1.5"
 
     @staticmethod
     def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
@@ -340,11 +341,26 @@ class MemoryGenerationHandle(TaskHandle[MemoryGenerationResults]):
         self._commit_started = True
 
 
-class _SavedWorkV13Adapter(_MemoryGenerationWorkAdapter):
+class _SavedWorkV14Adapter(_MemoryGenerationWorkAdapter):
+    """只用于读回升级前以 1.4 保存的工作：那时生成材料的折叠摘要叫 ``state_summary``。
+
+    改名为 ``fold_summary``，值不变。其余字段与 1.5 相同，改名后按 1.5 的规则严格解码。
+    """
+
+    schema_version = "1.4"
+
+    def decode(self, payload: object) -> _MemoryGenerationWork:
+        upgraded = cast(dict[str, Any], copy.deepcopy(payload))
+        context = upgraded["spec"]["request"]["context"]
+        context["fold_summary"] = context.pop("state_summary")
+        return super().decode(upgraded)
+
+
+class _SavedWorkV13Adapter(_SavedWorkV14Adapter):
     """只用于读回升级前以 1.3 保存的工作：那时任务还不带话题是否随结算退役。
 
     那时每次话题结算都结束话题，结算任务因此补为退役，执行后照旧清除本话题的写入记录；
-    其余来源补为不退役。其余字段与 1.4 相同，补齐后按 1.4 的规则严格解码。
+    其余来源补为不退役。其余字段与 1.4 相同，补齐后按 1.4 的读回规则继续升级。
     """
 
     schema_version = "1.3"
@@ -500,7 +516,8 @@ class MemoryGenerationQueue:
         self._adapter = _MemoryGenerationWorkAdapter()
         self._codecs = WorkPayloadCodecRegistry()
         self._codecs.register(self._adapter)
-        # 升级前保存的工作仍按 1.1、1.2 与 1.3 读回；新工作只以当前版本编码。
+        # 升级前保存的工作仍按 1.1～1.4 读回；新工作只以当前版本编码。
+        self._codecs.register(_SavedWorkV14Adapter())
         self._codecs.register(_SavedWorkV13Adapter())
         self._codecs.register(_SavedWorkV12Adapter())
         self._codecs.register(_SavedWorkV11Adapter())

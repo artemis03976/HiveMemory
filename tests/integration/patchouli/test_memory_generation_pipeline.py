@@ -13,7 +13,7 @@ from hivememory.config.patchouli import (
     ExtractorConfig,
     LibrarianConfig,
     MemoryPerceptionConfig,
-    SemanticFlowPerceptionConfig,
+    PerceptionEngineConfig,
 )
 from hivememory.core.models import (
     ArtifactType,
@@ -217,7 +217,7 @@ async def test_passive_settlement_routes_settle_spec_through_task_controller():
     assert spec.source == MemoryGenerationSource.SETTLE
     assert spec.source.creation_artifact_intent == "SYSTEM"
     assert spec.interaction_input.topic_id == "topic_1"
-    assert spec.request.context.state_summary == "state summary"
+    assert spec.request.context.fold_summary == "state summary"
 
 
 @pytest.mark.asyncio
@@ -573,7 +573,7 @@ async def test_settlement_saved_at_shutdown_lands_after_restart(
 
         assert (restored.resubmitted, task.status) == (1, MemoryGenerationTaskStatus.COMPLETED)
         [request] = stub.requests
-        assert request.context.state_summary == "state summary"
+        assert request.context.fold_summary == "state summary"
         stored = await memory_library.mid_term.get(
             _identity_scope().workspace_identity,
             atom.id,
@@ -655,7 +655,7 @@ def _wire_process(
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            config=PerceptionEngineConfig(fold_token_threshold=999999),
             relay_controller=Mock(),
         ),
         store=store,

@@ -7,7 +7,7 @@ import pytest
 from hivememory.config.patchouli import (
     ArtifactConfig,
     DeduplicatorConfig,
-    SemanticFlowPerceptionConfig,
+    PerceptionEngineConfig,
 )
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
@@ -246,7 +246,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
     clock = _Clock()
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
-            SemanticFlowPerceptionConfig(fold_token_threshold=999999), _Relay()
+            PerceptionEngineConfig(fold_token_threshold=999999), _Relay()
         ),
         store=store,
         working_set=TopicWorkingSet(clock=clock),
@@ -262,7 +262,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
             interaction_id="idle-interaction",
         )
         clock.value = 6
-        assert await perception.scan_idle_buffers_once() == [topic_id]
+        assert await perception.scan_idle_topics_once() == [topic_id]
         (task,) = await controller.list_tasks()
         completed = await controller.wait_task(task.task_id, timeout=2)
 
