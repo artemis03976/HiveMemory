@@ -32,7 +32,7 @@ last_reviewed: 2026-11-24
 | Deferred | 已明确后置，不属于近期承诺 |
 
 - **最近已发布**：`v0.7.3`（Git tag，2026-11-04），主动写入与被动提取的收敛，作为过渡措施。
-- **当前内容基线**：`v0.8.0`，生成核心的升级，2026-11-21 收尾（第 3 节，[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md)），发布标签 `v0.8.0` 在合并后创建；下一个版本 `v0.8.1` 围绕短期记忆，设计中（第 3.4 节）。
+- **当前内容基线**：`v0.8.0`，生成核心的升级，2026-11-21 收尾（第 3 节，[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md)），发布标签 `v0.8.0` 在合并后创建；下一个版本 `v0.8.1` 围绕短期记忆，开发中（第 3.4 节）。
 - **规范代码版本**：`0.8.0`，由 `src/hivememory/_version.py` 唯一声明，Python 包、前端清单与锁文件保持一致。
 - **v1.0 已确定的范围**：桌面客户端，以及 Claude Code、DeepSeek Harness、Codex 与 pi 四个 harness 的 plugin 模式接入。从 v1.0 起，每个版本的 GitHub Release 附上本机打的桌面安装包；此前的版本照常只发布工作流生成的 Python 包与前端产物（owner，2026-11-21）。
 
@@ -51,12 +51,12 @@ last_reviewed: 2026-11-24
 | `v0.7.0` | Workspace 网络与任务进程：唯一注册入口、两阶段认证与授权、能力层、执行线程、会话资源、写入意图实时派发、记忆内容版本 | [Workspace](./workspace/README.md)、[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md) |
 | `v0.7.1` | plugin 模式接入 Claude Code：Import Bus 对话回流与 MCP 记忆访问 | [Import Bus](./system/import-bus.md)、[MCP 记忆访问](./contracts/mcp.md)、[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md) |
 | `v0.7.2` | 生成质量：生成材料不再按单轮截断、一个话题提取多条记忆、查重命中后先落库再合并、Claude Code 经 MCP 写入与更新记忆 | [记忆生成](./patchouli/generation.md)、[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md) |
-| `v0.7.3` | 主动写入与被动提取的收敛（过渡措施）：话题内主动写入优先、生成失败带原因码、主动写入沿用 agent 的标题 | [记忆生成](./patchouli/generation.md#42-本话题的主动写入)、[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
+| `v0.7.3` | 主动写入与被动提取的收敛（过渡措施）：话题内主动写入优先、生成失败带原因码、主动写入沿用 agent 的标题 | [记忆生成](./patchouli/generation.md#42-本话题的写入)、[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
 | `v0.8.0` | 生成核心的升级：记忆类型的收敛、AgentProfileStore、生成的记忆指向交互轮次、馆长 agent 与写入时的编辑集修订；试验场与第一次 HaluMem 评测 | [记忆生成](./patchouli/generation.md)、[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md) |
 
 各版本的计划见 [Archived Plans](./archive/plans/README.md)。过去文档中的 `v0.5.1` 至 `v0.5.3` 是 v0.5 开发期的内部批次，不是发布标签；旧文档中出现的、后来撤销或改排的版本号（例如 `v0.7.2` Deep Research、`v0.8.x` 产品化窗口）以本文为准，不重写历史。
 
-## 3. v0.8：记忆核心（v0.8.0 已收尾，v0.8.1 设计中）
+## 3. v0.8：记忆核心（v0.8.0 已收尾，v0.8.1 开发中）
 
 ### 3.1 v0.8.0 的版本目标
 
@@ -80,7 +80,7 @@ last_reviewed: 2026-11-24
 - 未纳入 v0.8.0 的事项见[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md)第 4 节：被动生成写什么与短期记忆的定义仍在孵化，主动写入的生成材料、时空图索引与读的一侧没有开始；各设计领域的开放问题见 [v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.1 节。
 - 验收方式仍是候选：单轮不交记忆税，长程看演化质量与人工介入（[v0.8 总纲](./ideas/memory-flow-short-to-mid-term.md)第 4.2 节）；留存率与人工介入量没有在新机制上复测。
 
-### 3.4 v0.8.1：短期记忆（设计中）
+### 3.4 v0.8.1：短期记忆（开发中）
 
 版本目标：短期记忆以话题为载体，话题的工作状态回答“做到哪了”。现在话题只写不读，只被 Patchouli 用来生成记忆；空闲结算又把连续的对话切成几个话题，后台的话题反而比前台的会话更不连贯。设计要点：
 
@@ -89,7 +89,7 @@ last_reviewed: 2026-11-24
 - 折叠只为材料服务，折叠摘要结构化。
 - 两个使用时点都由系统推送：另一个会话被路由回已有话题时推送工作状态，会话压缩之后只推送工作记录的索引。
 
-设计与开放问题见[短期记忆：话题的工作状态及其维护](./ideas/short-term-memory-and-context-compaction.md)；第一份计划是[结算拆成沉淀与退役](./plans/v0.8.1-settle-and-retire.md)。
+设计与开放问题见[短期记忆：话题的工作状态及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役已完成（[感知与短期话题](./patchouli/perception.md#4-触发原因与具名用例)，计划见 [Archived Plans](./archive/plans/README.md#v081)），其余部分还没有计划。
 
 ## 4. 版本之外的工作与候选方向
 
@@ -106,7 +106,7 @@ last_reviewed: 2026-11-24
 | 方向 | 状态 | 目标结果 | 入口 |
 |:---|:---:|:---|:---|
 | `v0.8.0` 生成核心的升级 | Completed（2026-11-21 收尾） | 类型的更迭、馆长 agent 与写入时的编辑集修订；被动生成与主动写入的版本未定 | 第 3 节 |
-| `v0.8.1` 短期记忆 | Current Development（第一份计划 Planned） | 话题成为前台可读的工作记录：工作状态、沉淀与退役、折叠与推送 | 第 3.4 节；[短期记忆 Idea](./ideas/short-term-memory-and-context-compaction.md) |
+| `v0.8.1` 短期记忆 | Current Development（结算拆成沉淀与退役已完成） | 话题成为前台可读的工作记录：工作状态、沉淀与退役、折叠与推送 | 第 3.4 节；[短期记忆 Idea](./ideas/short-term-memory-and-context-compaction.md) |
 | 身份与访问体系 | Candidate / 单独主线 | 发布前打好地基：调用方证明、登记生效时点等仍未决定的项 | 第 4.3 节；[身份与访问体系 Idea](./ideas/identity-and-access-model.md) |
 | 观测与日志 | Unscheduled / 版本之外 | 存量日志收敛的剩余部分 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
 | 冷启动、历史导入与外源文档资产化 | Candidate | 冷启动种子、历史对话导入、文档解析与来源保全 | 第 4.4 节 |
@@ -153,7 +153,7 @@ owner 重新设计价值体系，不在现有信号上增补。现状：入口�
 v0.7.3（已发布）
    |
    +-> v0.8.0（已收尾）生成核心的升级：类型 / AgentProfileStore / 轮次指向 / 馆长 / 编辑集修订；试验场第一版承载评测
-          -> v0.8.1（设计中）短期记忆：话题的工作状态 / 沉淀与退役 / 折叠 / 推送
+          -> v0.8.1（开发中）短期记忆：话题的工作状态 / 沉淀与退役 / 折叠 / 推送
           -> 被动生成 -> 主动写入（版本未定）
 
 候选方向之间的依赖（判断一份计划能否立即执行，不表示排期）：

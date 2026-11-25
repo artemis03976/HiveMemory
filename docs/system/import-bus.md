@@ -45,7 +45,7 @@ related_plans:
   - docs/archive/plans/codex-plugin-integration.md
   - docs/archive/plans/pi-plugin-integration.md
   - docs/archive/plans/claude-code-wake-turns.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-24
 ---
 
 # Import Bus
@@ -207,7 +207,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 - **回流沿用**：导入一轮时查到它已确定的话题，以该话题提交，不调用 Gateway；root 提交调用返回之后（交互已被接纳）才取走登记。接纳被拒等调用异常时登记保留，重发仍然沿用；应用失败后（例如该话题在本轮进行中超过空闲时限被结算，或被 LRU 驱逐，应用以话题不存在失败），重发时已没有登记，按现行规则重新路由。写入的材料在派发时已经读取，不受影响。`import.turn.accepted` 的 `is_new_topic` 取已确定的话题是否新建。
 - **迟到的写入**：后台运行的子代理可能在这一轮结束、回流之后才写入。root API 确定话题前先查这一轮的提交进度：已经应用时直接返回它实际所在的话题，不再路由；已经提交、等待应用超时仍在应用时不返回话题，Import Bus 以 503 `apply_pending` 交回，写入方重试时它已应用，避免重新路由让写入与这一轮落在不同的话题。
 - **失败**：这次 root 调用整体抛出的可恢复异常（来自 Gateway 或话题准备的只读依赖）转为 `import_bus.unavailable`（`gateway_unavailable`），关闭中为 `shutting_down`；写入正等待这个结果，失败直接交给调用方，不发出 `import.turn.deferred`（推迟事件表示连接器保留这一轮稍后重发）。其他异常（例如活跃池已满且 LRU 候选都被占用的 `TopicBusyError`）原样传播。失败时不登记，下一次写入重新确定。
-- **没有回流的轮次**：这一轮始终没有回流时，写入时建立的话题没有接收交互，不是 Gateway 的候选话题，由空闲结算按没有材料的话题结束生命周期，不另设清理；登记留到进程重启。
+- **没有回流的轮次**：这一轮始终没有回流时，写入时建立的话题没有接收交互，不是 Gateway 的候选话题，空闲时直接退役、不生成，不另设清理；登记留到进程重启。
 - 确定话题只读取候选话题与交互进度，不读取记忆，也不返回记忆上下文；Import Bus 只向网络输入的前提不变。没有写入的轮次只有回流，与没有这一步时完全相同。
 
 ## 5. 失败分类与 HTTP 映射
