@@ -17,7 +17,7 @@ import pytest
 
 from hivememory.config import app as config_app
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.config.patchouli import PatchouliShutdownConfig
+from hivememory.config.patchouli import MemoryPerceptionConfig, PatchouliShutdownConfig
 from hivememory.config.workspace import WorkspaceWriteIntentsConfig
 from hivememory.i18n import set_language
 from hivememory.patchouli.runtime.core import PatchouliRuntime
@@ -46,9 +46,9 @@ def isolate_personal_config(monkeypatch, tmp_path_factory):
       指定了主配置的测试仍使用它旁边的覆盖文件。
     - 默认路径的模型注册表：改到每个测试自己的临时目录，从随仓库发布的模板生成。
     - Claude Code 的用户设置：插件服务代为安装时会改写它，改到每个测试自己的临时目录。
-    - 关闭时写盘的四份文件（保存的生成工作、生成任务历史、话题池快照、写入句柄登记）：默认路径相对
-      工作目录，从仓库根运行测试时会写进本机的数据目录、被下一次真实启动读回；改到每个
-      测试自己的临时目录，指定了路径的测试照旧。
+    - 关闭时写盘的三份文件（保存的生成工作、生成任务历史、写入句柄登记）与话题日志的目录：
+      默认路径相对工作目录，从仓库根运行测试时会写进本机的数据目录、被下一次真实启动读回；
+      改到每个测试自己的临时目录，指定了路径的测试照旧。
     """
     absent_overrides = tmp_path_factory.getbasetemp() / "no-personal-config" / "config.local.yaml"
     resolve_overrides = config_app.get_local_config_file_path
@@ -97,8 +97,8 @@ def isolate_personal_config(monkeypatch, tmp_path_factory):
     )
     monkeypatch.setattr(
         PatchouliRuntime,
-        "topic_pool_path",
-        isolated(PatchouliRuntime.topic_pool_path.fget, Path(shutdown_config.topic_pool_file)),
+        "topic_dir",
+        isolated(PatchouliRuntime.topic_dir.fget, Path(MemoryPerceptionConfig().topic_dir)),
     )
     monkeypatch.setattr(
         WriteIntentRegistry,

@@ -29,10 +29,12 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmissionStatus
 from hivememory.patchouli.control.memory_generation.controller import (
+    SHUTDOWN_DISCARDED_REASON,
     SHUTDOWN_PERSISTED_REASON,
     MemoryGenerationTaskController,
 )
 from hivememory.patchouli.control.memory_generation.models import (
+    InteractionArtifactInput,
     MemoryGenerationResult,
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -44,6 +46,7 @@ from hivememory.patchouli.control.memory_generation.saved_work import write_save
 from hivememory.patchouli.control.memory_generation.task_history import write_task_history
 from tests.helpers.generation_bus import make_generation_bus
 from tests.helpers.memory import make_memory_identity_scope
+from tests.helpers.sessions import make_logical_block
 
 
 def _task_handle(
@@ -69,7 +72,9 @@ def _spec(
     pending_alias=None,
     request=None,
     retires_topic=False,
+    interactions=(),
 ):
+    """生成任务规范；话题结算与生产中一样带着冻结材料时话题的全部交互。"""
     return MemoryGenerationTaskSpec(
         belong_to=make_memory_identity_scope().workspace_identity,
         from_actor=make_memory_identity_scope().actor_identity,
@@ -80,20 +85,26 @@ def _spec(
         or GenerationRequest(
             context=GenerationContext(),
         ),
+        interaction_input=(
+            InteractionArtifactInput(topic_id=topic_id, blocks=tuple(interactions))
+            if source == MemoryGenerationSource.SETTLE
+            else None
+        ),
         intent_id=intent_id,
         pending_alias=pending_alias,
         retires_topic=retires_topic,
     )
 
 
-def _topic(topic_id, written=()):
-    """控制器读取与记下写入的话题：只有写入记录与生成相关。"""
+def _topic(topic_id, generated=(), interactions=()):
+    """控制器读取与记下生成的记忆、记下沉淀完成的话题：只有本话题生成的记忆与交互数与生成相关。"""
     return TopicData(
         topic_id=topic_id,
         workspace_identity=make_memory_identity_scope().workspace_identity,
         topic_title=topic_id,
+        interactions=tuple(interactions),
         last_update=1.0,
-        topic_write_memory_ids=frozenset(written),
+        topic_generated_memory_ids=frozenset(generated),
     )
 
 
@@ -374,7 +385,7 @@ class TestMemoryGenerationTaskController:
 
     @pytest.mark.asyncio
     async def test_write_and_settle_read_the_topics_record_and_record_their_writes_back(self):
-        """WRITE 与 SETTLE 执行时带上话题当前的写入记录，结算另带着冻结的那份；主动写入结算到的
+        """WRITE 与 SETTLE 执行时带上本话题当前生成的记忆，结算另带着冻结的那份；主动写入结算到的
         记忆执行之后记回任务话题，同一话题之后的执行读得到。UPDATE 不读取记录，其他话题不受影响。"""
 
         def written(label, memory_id, resolution=PendingAtomResolution.CREATED):
@@ -404,7 +415,7 @@ class TestMemoryGenerationTaskController:
         seen = []
 
         async def execute(route, spec, on_commit_started):
-            seen.append((spec.label, spec.request.topic_write_memory_ids))
+            seen.append((spec.label, spec.request.topic_generated_memory_ids))
             return replies.get(spec.label, [])
 
         topics = {
@@ -432,7 +443,7 @@ class TestMemoryGenerationTaskController:
                 _spec(
                     topic_id="topic_a",
                     label="settle",
-                    request=GenerationRequest(topic_write_memory_ids=frozenset({"frozen"})),
+                    request=GenerationRequest(topic_generated_memory_ids=frozenset({"frozen"})),
                 ),
             ]:
                 memory_task = await controller.submit_generation(spec)
@@ -446,8 +457,8 @@ class TestMemoryGenerationTaskController:
             ("w2", frozenset({"earlier", "m1", "m2"})),
             ("settle", frozenset({"frozen", "earlier", "m1", "m2", "m3"})),
         ]
-        assert topics["topic_a"].topic_write_memory_ids == {"earlier", "m1", "m2", "m3"}
-        assert topics["topic_b"].topic_write_memory_ids == {"other"}
+        assert topics["topic_a"].topic_generated_memory_ids == {"earlier", "m1", "m2", "m3"}
+        assert topics["topic_b"].topic_generated_memory_ids == {"other"}
 
     @pytest.mark.asyncio
     async def test_idle_settlement_records_only_the_memories_it_created(self):
@@ -466,7 +477,7 @@ class TestMemoryGenerationTaskController:
         seen = []
 
         async def execute(route, spec, on_commit_started):
-            seen.append((spec.label, spec.request.topic_write_memory_ids))
+            seen.append((spec.label, spec.request.topic_generated_memory_ids))
             return replies[spec.label]
 
         topics = {"t1": _topic("t1")}
@@ -480,7 +491,7 @@ class TestMemoryGenerationTaskController:
             await controller.stop()
 
         assert seen == [("idle_1", frozenset()), ("idle_2", frozenset({"created"}))]
-        assert topics["t1"].topic_write_memory_ids == {"created", "created_2"}
+        assert topics["t1"].topic_generated_memory_ids == {"created", "created_2"}
 
     @pytest.mark.asyncio
     async def test_merge_absorbing_a_recorded_memory_redirects_the_topic_record(self):
@@ -514,7 +525,7 @@ class TestMemoryGenerationTaskController:
         finally:
             await controller.stop()
 
-        assert topics["t1"].topic_write_memory_ids == {"retained"}
+        assert topics["t1"].topic_generated_memory_ids == {"retained"}
 
     @pytest.mark.asyncio
     async def test_cancel_task_via_registry_cancels_background_task(self):
@@ -943,8 +954,9 @@ async def test_merge_failure_or_cancel_never_settles_original_intent(cancel):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_saves_unexecuted_work_and_waits_for_committing_task(tmp_path):
-    """关闭时排队中的工作与提交之前被中止的任务写进保存文件，已开始写入的任务写完再结束。"""
+async def test_shutdown_saves_unexecuted_work_but_not_settlements(tmp_path):
+    """关闭时排队中的写入与合并写进保存文件，已开始写入的结算写完并记下进度；还没写入的结算
+    （在跑或排队）不保存、以关闭为原因取消，话题的进度停在上一次完成的位置。"""
     executed = []
     commit_gate = asyncio.Event()
     both_running = asyncio.Event()
@@ -964,13 +976,19 @@ async def test_shutdown_saves_unexecuted_work_and_waits_for_committing_task(tmp_
             commit_gate.set()
             raise
 
-    bus = make_generation_bus(execute)
+    block = make_logical_block("question", "answer")
+    topics = {topic_id: _topic(topic_id, interactions=(block,)) for topic_id in ("ta", "tb", "td")}
+    bus = make_generation_bus(execute, topics=topics)
     controller = MemoryGenerationTaskController(bus=bus)
     await controller.start()
     path = tmp_path / "pending_generation.json"
     try:
-        committing = await controller.submit_generation(_spec(topic_id="ta", label="committing"))
-        interrupted = await controller.submit_generation(_spec(topic_id="tb", label="computing"))
+        committing = await controller.submit_generation(
+            _spec(topic_id="ta", label="committing", interactions=(block,))
+        )
+        interrupted = await controller.submit_generation(
+            _spec(topic_id="tb", label="computing", interactions=(block,))
+        )
         async with asyncio.timeout(5):
             await both_running.wait()
         write = await controller.submit_generation(
@@ -983,6 +1001,9 @@ async def test_shutdown_saves_unexecuted_work_and_waits_for_committing_task(tmp_
             )
         )
         merge = await controller.submit_generation(_merge_spec())
+        queued_settle = await controller.submit_generation(
+            _spec(topic_id="td", label="queued", interactions=(block,))
+        )
 
         await controller.stop_dispatch()
         async with asyncio.timeout(5):
@@ -990,32 +1011,73 @@ async def test_shutdown_saves_unexecuted_work_and_waits_for_committing_task(tmp_
 
         assert executed == ["committing", "computing"]
         assert (report.saved_by_source, report.waited_for_commit, report.file_written) == (
-            {"SETTLE": 1, "WRITE": 1, "MERGE": 1},
+            {"WRITE": 1, "MERGE": 1},
             1,
             True,
         )
         saved = json.loads(path.read_text(encoding="utf-8"))["work"]
         assert [controller.queue.decode_for_restart(item).label for item in saved] == [
-            "computing",
             "write",
             "t1",
         ]
         finished = {
-            task.task_id: task
+            task.task_id: (task.status, task.cancel_reason)
             for task in await controller.wait_many(
-                [committing.task_id, interrupted.task_id, write.task_id, merge.task_id]
+                [
+                    committing.task_id,
+                    interrupted.task_id,
+                    write.task_id,
+                    merge.task_id,
+                    queued_settle.task_id,
+                ]
             )
         }
-        assert finished[committing.task_id].status == MemoryGenerationTaskStatus.COMPLETED
-        assert {
-            (finished[task_id].status, finished[task_id].cancel_reason)
-            for task_id in (interrupted.task_id, write.task_id, merge.task_id)
-        } == {(MemoryGenerationTaskStatus.CANCELLED, SHUTDOWN_PERSISTED_REASON)}
+        cancelled = MemoryGenerationTaskStatus.CANCELLED
+        assert finished == {
+            committing.task_id: (MemoryGenerationTaskStatus.COMPLETED, None),
+            interrupted.task_id: (cancelled, SHUTDOWN_DISCARDED_REASON),
+            write.task_id: (cancelled, SHUTDOWN_PERSISTED_REASON),
+            merge.task_id: (cancelled, SHUTDOWN_PERSISTED_REASON),
+            queued_settle.task_id: (cancelled, SHUTDOWN_DISCARDED_REASON),
+        }
+        settled = {topic_id: topic.settled_interaction_count for topic_id, topic in topics.items()}
+        assert settled == {"ta": 1, "tb": 0, "td": 0}
         # 保存的写入下次启动后还会结算，不发布写入意图的取消。
         bus.publish.assert_not_awaited()
     finally:
         commit_gate.set()
         await controller.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", ["succeeded", "failed", "user_cancelled"])
+async def test_settlement_reaching_a_terminal_state_records_its_progress(ending):
+    """沉淀成功、失败与被用户取消都算完成：话题记下冻结材料时的交互数，失败的不重试、取消的
+    不重做。"""
+    started = asyncio.Event()
+
+    async def execute(route, spec, on_commit_started):
+        started.set()
+        if ending == "failed":
+            raise RuntimeError("generation error")
+        if ending == "user_cancelled":
+            await asyncio.Event().wait()
+        return []
+
+    blocks = (make_logical_block("q1", "a1"), make_logical_block("q2", "a2"))
+    topics = {"t1": _topic("t1", interactions=blocks)}
+    controller = MemoryGenerationTaskController(bus=make_generation_bus(execute, topics=topics))
+    await controller.start()
+    try:
+        memory_task = await controller.submit_generation(_spec(interactions=blocks))
+        if ending == "user_cancelled":
+            await asyncio.wait_for(started.wait(), timeout=1)
+            await controller.cancel_task(memory_task.task_id)
+        await controller.wait_task(memory_task.task_id)
+    finally:
+        await controller.stop()
+
+    assert topics["t1"].settled_interaction_count == 2
 
 
 @pytest.mark.asyncio
@@ -1066,43 +1128,38 @@ async def test_restore_sets_aside_unparseable_file_without_failing(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_settlement_saved_with_its_retired_topic_runs_with_only_its_frozen_record(tmp_path):
-    """随退役保存的结算带着冻结材料时的写入记录跨过重启；重启后它的话题已经不在，执行时只用
-    这一份。"""
+async def test_settlement_saved_by_an_earlier_version_runs_with_only_its_frozen_record(tmp_path):
+    """升级前关闭时保存的结算照常读回执行：它的话题不在新的话题池里，执行时只用冻结材料时
+    本话题生成的记忆，完成时没有话题可记进度。"""
     path = tmp_path / "pending_generation.json"
-    first = MemoryGenerationTaskController(bus=make_generation_bus())
-    await first.start()
-    try:
-        await first.stop_dispatch()
-        await first.submit_generation(
-            _spec(
-                retires_topic=True,
-                request=GenerationRequest(topic_write_memory_ids=frozenset({"frozen"})),
-            )
-        )
-        await first.save_unfinished(path)
-    finally:
-        await first.stop()
-
+    writer = MemoryGenerationTaskController(bus=Mock())
+    saved = _spec(
+        retires_topic=True,
+        request=GenerationRequest(topic_generated_memory_ids=frozenset({"frozen"})),
+        interactions=(make_logical_block("question", "answer"),),
+    )
+    write_saved_work(path, [writer.queue.encode_for_restart("old", saved)])
     executed = []
 
     async def execute(route, spec, on_commit_started):
         executed.append(spec)
         return []
 
-    second = MemoryGenerationTaskController(bus=make_generation_bus(execute, topics={}))
-    await second.start()
+    topics: dict[str, TopicData] = {}
+    controller = MemoryGenerationTaskController(bus=make_generation_bus(execute, topics=topics))
+    await controller.start()
     try:
-        await second.restore_saved(path)
-        await second.wait_all()
+        await controller.restore_saved(path)
+        await controller.wait_all()
     finally:
-        await second.stop()
+        await controller.stop()
 
     [settlement] = executed
-    assert (settlement.retires_topic, settlement.request.topic_write_memory_ids) == (
+    assert (settlement.retires_topic, settlement.request.topic_generated_memory_ids) == (
         True,
         frozenset({"frozen"}),
     )
+    assert topics == {}
 
 
 @pytest.mark.asyncio
@@ -1123,7 +1180,15 @@ async def test_finished_tasks_survive_restart_but_work_saved_at_shutdown_does_no
         broken = await first.submit_generation(_spec(topic_id="tb", label="broken"))
         await first.wait_many([done.task_id, broken.task_id])
         await first.stop_dispatch()
-        await first.submit_generation(_spec(topic_id="tc", label="saved"))
+        await first.submit_generation(
+            _spec(
+                topic_id="tc",
+                label="saved",
+                source=MemoryGenerationSource.WRITE,
+                intent_id="intent-saved",
+                pending_alias="draft-saved",
+            )
+        )
         await first.save_unfinished(tmp_path / "pending_generation.json")
     finally:
         await first.stop()

@@ -3,9 +3,10 @@
 测试覆盖:
 - LRU 顺序: touch 刷新排序、候选按最久未访问选择、Workspace 隔离
 - 占用权: acquire 互斥（含同 Workspace 不同执行者）、过期令牌释放被忽略
-- 候选查询: idle 超时过滤、占用过滤、显式 now、shutdown 全量返回
+- 候选查询: idle 超时过滤、占用过滤、显式 now
 - 容量: needs_eviction 的上限判断与 Workspace 隔离
-- 移除: remove 仅清除驻留、不清理 lease
+- 在途沉淀: 只记最远的位置，较早的沉淀完成时不清除更远的在途
+- 移除: remove 清除驻留与在途沉淀、不清理 lease
 """
 
 import pytest
@@ -185,7 +186,7 @@ class TestCapacity:
             TopicWorkingSet(max_resident=0)
 
 
-# ========== idle / shutdown 候选查询 ==========
+# ========== idle 候选查询 ==========
 
 
 class TestCandidateQueries:
@@ -265,47 +266,53 @@ class TestCandidateQueries:
         assert ws.list_idle_candidates(timeout_seconds=5) == [
             (scope_agent_a.workspace_identity, "topic-1")
         ]
-        assert ws.list_shutdown_candidates() == [(scope_agent_a.workspace_identity, "topic-1")]
 
     def test_idle_candidates_on_empty_working_set(self):
         ws, _ = _make_working_set()
 
         assert ws.list_idle_candidates(timeout_seconds=0) == []
 
-    def test_shutdown_candidates_include_all_resident_topics(self):
+
+# ========== 在途沉淀 ==========
+
+
+class TestSettling:
+    def test_earlier_completion_keeps_the_furthest_settling_position(self):
+        """同一话题先后接纳两次沉淀：较早的完成时更远的仍在途，更远的完成后才清除。"""
         ws, _ = _make_working_set()
-        scope_a = _identity_scope(user_id="u1", workspace_id="ws_a")
-        scope_b = _identity_scope(user_id="u2", workspace_id="ws_b")
+        belong_to = _identity_scope().workspace_identity
+        ws.mark_settling(belong_to, "topic-1", 2)
+        ws.mark_settling(belong_to, "topic-1", 5)
 
-        ws.touch(scope_a.workspace_identity, "topic-a1")
-        ws.touch(scope_b.workspace_identity, "topic-b1")
-        ws.acquire(scope_a.workspace_identity, "topic-a1")  # 被占用的话题同样在 shutdown 清理范围内
+        ws.clear_settling(belong_to, "topic-1", up_to=2)
+        still_settling = ws.settling_count(belong_to, "topic-1")
+        ws.clear_settling(belong_to, "topic-1", up_to=5)
 
-        candidates = ws.list_shutdown_candidates()
-        assert {(belong_to.workspace_id, topic_id) for belong_to, topic_id in candidates} == {
-            ("ws_a", "topic-a1"),
-            ("ws_b", "topic-b1"),
-        }
+        assert (still_settling, ws.settling_count(belong_to, "topic-1")) == (5, 0)
 
 
 # ========== 驻留移除 ==========
 
 
 class TestRemoval:
-    def test_remove_drops_residency_but_keeps_lease(self):
-        ws, _ = _make_working_set()
+    def test_remove_drops_residency_and_settling_but_keeps_lease(self):
+        ws, _ = _make_working_set(max_resident=1)
         scope = _identity_scope()
 
         ws.touch(scope.workspace_identity, "topic-1")
+        ws.mark_settling(scope.workspace_identity, "topic-1", 3)
         ws.acquire(scope.workspace_identity, "topic-1")
         ws.remove(scope.workspace_identity, "topic-1")
 
-        assert ws.list_shutdown_candidates() == []  # 驻留已移除
+        assert ws.needs_eviction(scope.workspace_identity) is False  # 驻留已移除
+        assert ws.settling_count(scope.workspace_identity, "topic-1") == 0
         assert ws.acquire(scope.workspace_identity, "topic-1") is None  # lease 不随 remove 清理
 
     def test_remove_unknown_topic_is_silent(self):
-        ws, _ = _make_working_set()
+        ws, _ = _make_working_set(max_resident=1)
+        scope = _identity_scope()
+        ws.touch(scope.workspace_identity, "topic-1")
 
-        ws.remove(_identity_scope().workspace_identity, "missing")
+        ws.remove(scope.workspace_identity, "missing")
 
-        assert ws.list_shutdown_candidates() == []
+        assert ws.select_lru_candidate(scope.workspace_identity) == "topic-1"

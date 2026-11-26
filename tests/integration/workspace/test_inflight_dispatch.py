@@ -58,6 +58,9 @@ async def chain():
         await admit.wait()
         return None
 
+    async def generated_memories(*_args, **_kwargs):
+        return None
+
     async def execute(spec, on_commit_started):
         specs.append(spec)
         generating.set()
@@ -79,6 +82,7 @@ async def chain():
 
     harness.bus.register(PatchouliRoutes.MEMORY_INTENT_SUBMIT, dispatch)
     bus.register(PatchouliLocalRoutes.TOPIC_GET, topic)
+    bus.register(PatchouliLocalRoutes.TOPIC_GET_GENERATED_MEMORIES, generated_memories)
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, coordinator.submit_active)
     bus.register(PatchouliLocalRoutes.MEMORY_TASK_ADMIT_GENERATION, controller.admit_generation)
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute)

@@ -110,7 +110,7 @@ class MemoryGenerationResult:
     Engine 的 ``GenerationOutcome`` 只在 Familiar 内参与 compute、artifact 与
     persist 流水线；控制面只需要最终 canonical identity、提交动作和可选的
     ``PendingAtom`` 结算事实。``action`` 让控制面区分这次新建的记忆与触碰、修订
-    的已有记忆：话题沉淀新建的记忆记作本话题的写入，触碰与修订的不记。
+    的已有记忆：话题沉淀新建的记忆记作本话题生成的记忆，触碰与修订的不记。
     """
 
     action: GenerationAction

@@ -145,9 +145,9 @@ def test_desktop_mode_without_credential_exits_before_serving(monkeypatch, deskt
 
 
 def test_delete_memory_data_removes_only_memory_paths(tmp_path):
-    """只删 Artifact、长期归档、关闭时写盘的四份文件（保存的生成工作、写入句柄、生成任务历史、
-    话题池快照，各含 rejected 文件）与预设 Agent 标记；Agent Profile 文件、配置、模型缓存与
-    其他文件保留。"""
+    """只删 Artifact、长期归档、短期话题的日志目录（含 rejected 文件）、关闭时写盘的三份文件
+    （保存的生成工作、写入句柄、生成任务历史，各含 rejected 文件）与预设 Agent 标记；Agent
+    Profile 文件、配置、模型缓存与其他文件保留。"""
     data = tmp_path / ".hivememory"
     config = HiveMemoryConfig(
         system={"preset_agent_profiles_marker": str(data / "seeded")},
@@ -156,10 +156,10 @@ def test_delete_memory_data_removes_only_memory_paths(tmp_path):
             "artifacts": {"root_dir": str(data / "artifacts")},
             "agent_profiles": {"root_dir": str(data / "agent_profiles")},
             "lifecycle": {"archiver": {"archive_dir": str(tmp_path / "data" / "archived")}},
+            "perception": {"topic_dir": str(data / "topics")},
             "shutdown": {
                 "pending_work_file": str(data / "pending_generation.json"),
                 "task_history_file": str(data / "memory_tasks.json"),
-                "topic_pool_file": str(data / "topic_pool.json"),
             },
         },
     )
@@ -172,8 +172,8 @@ def test_delete_memory_data_removes_only_memory_paths(tmp_path):
         data / "write_intents.rejected-20261112T000000Z.json",
         data / "memory_tasks.json",
         data / "memory_tasks.rejected-20261112T000000Z.json",
-        data / "topic_pool.json",
-        data / "topic_pool.rejected-20261124T000000Z.json",
+        data / "topics" / "topic-1.jsonl",
+        data / "topics" / "topic-2.rejected-20261125T000000Z.jsonl",
         data / "seeded",
     ]
     kept_files = [

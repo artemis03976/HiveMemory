@@ -1,3 +1,5 @@
+import asyncio
+import itertools
 import json
 from collections.abc import Mapping
 from datetime import datetime
@@ -26,7 +28,6 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
-    TopicData,
     TopicFold,
     TurnEvent,
     WorkspaceMemoryKey,
@@ -49,6 +50,7 @@ from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
 )
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.ports import MidTermStoragePort
@@ -72,7 +74,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskStatus,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.runtime.topic_pool import restore_topic_pool, save_topic_pool
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
@@ -87,19 +88,15 @@ def _identity_scope():
     return make_identity_scope(user_id="u1", agent_id="omni_doll")
 
 
-def _topic_store() -> ShortTermMemoryStore:
-    """生成读取材料与写入记录的话题池：``topic_1`` 接收过一轮交互。"""
-    store = ShortTermMemoryStore()
-    store.put(
-        TopicData(
-            topic_id="topic_1",
-            workspace_identity=_identity_scope().workspace_identity,
-            topic_title="topic title",
-            topic_summary="topic summary",
-            interactions=(make_logical_block("question", "answer"),),
-            last_update=1.0,
-        )
-    )
+@pytest.fixture
+def topic_store(tmp_path) -> ShortTermMemoryStore:
+    """生成读取材料、记下生成的记忆与沉淀进度的话题池：``topic_1`` 接收过两轮交互，与结算冻结的
+    交互数相同。"""
+    workspace = _identity_scope().workspace_identity
+    store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
+    store.create(workspace, "topic title", "topic summary", topic_id="topic_1")
+    for message in ("earlier question", "question"):
+        store.append_interaction(workspace, "topic_1", block=make_logical_block(message, "answer"))
     return store
 
 
@@ -180,11 +177,11 @@ def _settlement_result(alias="draft_write") -> list[MemoryGenerationResult]:
 
 
 def _wire_generation_pipeline(
-    bus: PatchouliBus, topics: ShortTermMemoryStore | None = None
+    bus: PatchouliBus, topics: ShortTermMemoryStore
 ) -> tuple[MemoryGenerationCoordinator, MemoryGenerationTaskController]:
     controller = MemoryGenerationTaskController(bus=bus)
     coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
-    register_topic_routes(bus, topics if topics is not None else _topic_store())
+    register_topic_routes(bus, topics)
     bus.register(
         PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
         controller.submit_generation,
@@ -201,9 +198,9 @@ async def _capture_event(target: list, **kwargs) -> None:
 
 
 @pytest.mark.asyncio
-async def test_passive_settlement_routes_settle_spec_through_task_controller():
+async def test_passive_settlement_routes_settle_spec_through_task_controller(topic_store):
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     execute_spec = AsyncMock(return_value=[])
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
@@ -221,9 +218,9 @@ async def test_passive_settlement_routes_settle_spec_through_task_controller():
 
 
 @pytest.mark.asyncio
-async def test_active_write_routes_to_generation_and_publishes_settlement():
+async def test_active_write_routes_to_generation_and_publishes_settlement(topic_store):
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     published = []
     execute_spec = AsyncMock(return_value=_settlement_result("draft_write"))
@@ -252,9 +249,9 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
 
 
 @pytest.mark.asyncio
-async def test_active_update_fetches_existing_memory_before_generation():
+async def test_active_update_fetches_existing_memory_before_generation(topic_store):
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     existing = _memory_atom()
     memory_get = AsyncMock(return_value=existing)
@@ -450,7 +447,7 @@ def artifact_engine(tmp_path) -> ArtifactEngine:
 def memory_library(tmp_path) -> MemoryLibrary:
     """真实 MemoryLibrary：真实 MidTermMemoryStore + 内存后端，长期存储用临时目录。"""
     mid_term = MidTermMemoryStore(primary=_InMemoryMidTermPort())
-    short_term = ShortTermMemoryStore()
+    short_term = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "library-topics"))
     long_term = LongTermMemoryStore(
         FileBasedStorageAdapter(
             archive_dir=str(tmp_path / "archive"),
@@ -481,10 +478,12 @@ def _wire_generation_familiar(
 
 
 @pytest.mark.asyncio
-async def test_passive_settlement_lands_in_real_mid_term(memory_library, artifact_engine):
+async def test_passive_settlement_lands_in_real_mid_term(
+    memory_library, artifact_engine, topic_store
+):
     """被动 SETTLEMENT：真实 Familiar 把生成结果写入真实 mid_term。"""
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
 
     atom = _memory_atom()
@@ -507,10 +506,10 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library, artifac
 
 
 @pytest.mark.asyncio
-async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engine):
+async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engine, topic_store):
     """主动 WRITE：真实 Familiar 执行后落库 mid_term 并发布 settlement。"""
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     published = []
 
@@ -543,113 +542,19 @@ async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engi
     assert published[0]["settlement"].canonical_alias == "memory_alias"
 
 
-@pytest.mark.asyncio
-async def test_settlement_saved_at_shutdown_lands_after_restart(
-    memory_library, artifact_engine, tmp_path
-):
-    """关闭时结算产生的任务不调用提取、写进保存文件；新进程读回后由真实数据面落库。"""
-    path = tmp_path / "pending_generation.json"
-    atom = _memory_atom()
-    stub = _StubGenerationEngine([GenerationOutcome(atom=atom, action=GenerationAction.CREATE)])
-
-    bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
-    _wire_generation_familiar(bus, memory_library, stub, artifact_engine)
-    await controller.start()
-    await controller.stop_dispatch()
-    await coordinator.submit_settlement(_settlement_task())
-    saved = await controller.save_unfinished(path)
-    await controller.stop()
-
-    assert (saved.saved, stub.requests) == (1, [])
-
-    restarted_bus = PatchouliBus()
-    _, restarted = _wire_generation_pipeline(restarted_bus)
-    _wire_generation_familiar(restarted_bus, memory_library, stub, artifact_engine)
-    await restarted.start()
-    try:
-        restored = await restarted.restore_saved(path)
-        [task] = await restarted.wait_all()
-
-        assert (restored.resubmitted, task.status) == (1, MemoryGenerationTaskStatus.COMPLETED)
-        [request] = stub.requests
-        assert request.context.fold_summary == "state summary"
-        stored = await memory_library.mid_term.get(
-            _identity_scope().workspace_identity,
-            atom.id,
-            from_actor=_identity_scope().actor_identity,
-        )
-        assert stored is not None
-    finally:
-        await restarted.stop()
-
-
-@pytest.mark.asyncio
-async def test_restored_topic_carries_on_and_its_next_settlement_drops_restated_memory(
-    memory_library, artifact_engine, tmp_path
-):
-    """关闭后用同一工作目录重新启动：话题池先于保存的生成工作读回，关闭时沉淀所建的记忆记回
-    读回的话题；新交互接着写进同一个话题，它再次沉淀时复述那条记忆的草稿被丢弃。"""
-    pool_path = tmp_path / "topic_pool.json"
-    work_path = tmp_path / "pending_generation.json"
-    scope = _identity_scope()
-    extractor = AsyncMock()
-    extractor.extract.side_effect = [
-        [_draft("deploy is manual", "deploys are now run by hand")],
-        [_draft("deploy is manual", "deploys are now run by hand, restated")],
-    ]
-    engine = MemoryGenerationEngine(
-        mid_term=memory_library.mid_term,
-        extractor=extractor,
-        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
-    )
-
-    # 第一次运行：一轮交互之后正常关闭。关闭时的沉淀只入队，随生成工作与话题池一起保存。
-    controller, perception, store = _wire_process(memory_library, engine, artifact_engine)
-    await controller.start()
-    topic_id = await perception.apply_interaction(
-        make_interaction_payload("how do we deploy now", "deploys are run by hand"),
-        belong_to=scope.workspace_identity,
-        from_actor=scope.actor_identity,
-        interaction_id="i-1",
-    )
-    await controller.stop_dispatch()
-    await perception.flush_all_for_shutdown()
-    await controller.save_unfinished(work_path)
-    save_topic_pool(pool_path, store.list_all())
-    await controller.stop()
-
-    # 第二次运行：按启动顺序先读回话题池，再读回保存的生成工作。
-    controller, perception, _ = _wire_process(memory_library, engine, artifact_engine)
-    restore_topic_pool(pool_path, perception.restore_topics)
-    await controller.start()
-    try:
-        await controller.restore_saved(work_path)
-        await controller.wait_all()
-        await perception.apply_interaction(
-            make_interaction_payload("and staging?", "staging is run by hand too"),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id=topic_id,
-            interaction_id="i-2",
-        )
-        await perception.manual_settle_topic(scope.workspace_identity, topic_id)
-        await controller.wait_all()
-    finally:
-        await controller.stop()
-
-    assert extractor.extract.await_count == 2
-    assert [memory.payload.content for memory in await _stored(memory_library)] == [
-        "deploys are now run by hand"
-    ]
-
-
 def _wire_process(
-    memory_library: MemoryLibrary, engine: MemoryGenerationEngine, artifact_engine: ArtifactEngine
+    memory_library: MemoryLibrary,
+    engine: MemoryGenerationEngine,
+    artifact_engine: ArtifactEngine,
+    topic_dir,
 ) -> tuple[MemoryGenerationTaskController, PerceptionFamiliar, ShortTermMemoryStore]:
-    """一次运行的 Patchouli：真实感知、生成控制面与数据面；中期库跨运行共用，话题池各自为空。"""
+    """一次运行的 Patchouli：真实感知、生成控制面与数据面，话题日志写在 ``topic_dir``。
+
+    中期库跨运行共用；话题池按启动顺序从同一目录的日志读回。驻留时钟每读一次前进 1000 秒，
+    话题在下一次空闲扫描时总是空闲。
+    """
     bus = PatchouliBus()
-    store = ShortTermMemoryStore()
+    store = ShortTermMemoryStore(JsonlShortTermStorage(topic_dir))
     coordinator, controller = _wire_generation_pipeline(bus, store)
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, coordinator.submit_settlement)
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
@@ -659,11 +564,248 @@ def _wire_process(
             relay_controller=Mock(),
         ),
         store=store,
-        working_set=TopicWorkingSet(),
+        working_set=TopicWorkingSet(clock=itertools.count(step=1000).__next__),
         bus=bus,
         config=MemoryPerceptionConfig(),
     )
     return controller, perception, store
+
+
+async def _start_process(
+    memory_library: MemoryLibrary,
+    engine: MemoryGenerationEngine,
+    artifact_engine: ArtifactEngine,
+    topic_dir,
+) -> tuple[MemoryGenerationTaskController, PerceptionFamiliar, ShortTermMemoryStore]:
+    """按启动顺序启动一次运行：读回话题日志、登记驻留，生成队列启动后重新发起退役话题没有完成
+    的最后一次沉淀。"""
+    controller, perception, store = _wire_process(
+        memory_library, engine, artifact_engine, topic_dir
+    )
+    loaded = store.load()
+    perception.restore_topics(loaded.topics)
+    await controller.start()
+    await perception.resettle_retired_topics(loaded.retired)
+    return controller, perception, store
+
+
+def _extraction_engine(memory_library: MemoryLibrary, extractor) -> MemoryGenerationEngine:
+    return MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=extractor,
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+    )
+
+
+async def _apply(perception: PerceptionFamiliar, message: str, topic_id="NEW_TOPIC") -> str:
+    scope = _identity_scope()
+    return await perception.apply_interaction(
+        make_interaction_payload(message, f"answer to {message}"),
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+        target_topic_id=topic_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_restart_reads_topics_back_and_resettles_what_shutdown_dropped(
+    memory_library, artifact_engine, tmp_path
+):
+    """正常关闭后用同一目录重启：话题连同本话题生成的记忆与沉淀进度读回，新交互写进同一个话题；关闭时
+    排队中的沉淀没有保存，重启后的空闲扫描重新沉淀它，复述第一次沉淀所建记忆的草稿被丢弃。"""
+    topic_dir = tmp_path / "topics"
+    work_path = tmp_path / "pending_generation.json"
+    extractor = AsyncMock()
+    extractor.extract.side_effect = [
+        [_draft("deploy is manual", "deploys are now run by hand")],
+        [_draft("deploy is manual", "deploys are now run by hand, restated")],
+    ]
+    engine = _extraction_engine(memory_library, extractor)
+
+    # 第一次运行：第一轮空闲时沉淀完成；第二轮之后关闭，这次沉淀被接纳时生成队列已停止取工作。
+    controller, perception, _ = _wire_process(memory_library, engine, artifact_engine, topic_dir)
+    await controller.start()
+    topic_id = await _apply(perception, "how do we deploy now")
+    await perception.scan_idle_topics_once()
+    await controller.wait_all()
+    await _apply(perception, "and staging?", topic_id)
+    await controller.stop_dispatch()
+    await perception.scan_idle_topics_once()
+    saved = await controller.save_unfinished(work_path)
+    await controller.stop()
+
+    controller, perception, store = await _start_process(
+        memory_library, engine, artifact_engine, topic_dir
+    )
+    try:
+        restored = store.get(_identity_scope().workspace_identity, topic_id)
+        await _apply(perception, "and production?", topic_id)
+        await perception.scan_idle_topics_once()
+        await controller.wait_all()
+    finally:
+        await controller.stop()
+
+    assert saved.saved == 0
+    assert (restored.settled_interaction_count, len(restored.interactions)) == (1, 2)
+    assert len(restored.topic_generated_memory_ids) == 1
+    assert extractor.extract.await_count == 2
+    assert [memory.payload.content for memory in await _stored(memory_library)] == [
+        "deploys are now run by hand"
+    ]
+    assert store.get(_identity_scope().workspace_identity, topic_id).settled_interaction_count == 3
+
+
+def _gated_extractor(release: asyncio.Event, started: asyncio.Event) -> AsyncMock:
+    """第一次提取等 ``release`` 才交出一条记忆，之后的提取复述它。"""
+    calls = []
+
+    async def extract(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            started.set()
+            await release.wait()
+            return [_draft("deploy is manual", "deploys are now run by hand")]
+        return [_draft("deploy is manual", "deploys are now run by hand, restated")]
+
+    extractor = AsyncMock()
+    extractor.extract.side_effect = extract
+    return extractor
+
+
+@pytest.mark.asyncio
+async def test_last_settlement_of_a_retired_topic_knows_what_earlier_settlements_wrote(
+    memory_library, artifact_engine, tmp_path
+):
+    """空闲时的沉淀还在生成，话题随即被手动结算退役：前一次沉淀写下的记忆记到退役话题上，随
+    退役执行的最后一次沉淀认得它们，复述它们的草稿按本话题生成的记忆丢弃，不新建、不提名合并。"""
+    topic_dir = tmp_path / "topics"
+    release, started = asyncio.Event(), asyncio.Event()
+    extractor = _gated_extractor(release, started)
+    engine = _extraction_engine(memory_library, extractor)
+    controller, perception, _ = _wire_process(memory_library, engine, artifact_engine, topic_dir)
+    await controller.start()
+    try:
+        topic_id = await _apply(perception, "how do we deploy now")
+        await perception.scan_idle_topics_once()
+        await _apply(perception, "and staging?", topic_id)
+        await perception.manual_settle_topic(_identity_scope().workspace_identity, topic_id)
+        release.set()
+        await controller.wait_all()
+        tasks = await controller.list_tasks()
+    finally:
+        await controller.stop()
+
+    assert [(task.source, task.status) for task in tasks] == [
+        (MemoryGenerationSource.SETTLE, MemoryGenerationTaskStatus.COMPLETED)
+    ] * 2
+    assert extractor.extract.await_count == 2
+    assert [memory.payload.content for memory in await _stored(memory_library)] == [
+        "deploys are now run by hand"
+    ]
+    assert not (topic_dir / f"{topic_id}.jsonl").exists()
+
+
+@pytest.mark.asyncio
+async def test_retired_topic_last_settlement_is_resubmitted_after_restart(
+    memory_library, artifact_engine, tmp_path
+):
+    """空闲时的沉淀还在生成，话题被手动结算退役，前一次沉淀写完之后关闭，最后一次沉淀没有完成：
+    重启后话题不回到话题池，它的最后一次沉淀重新发起，认得前一次沉淀写下、记在退役话题日志上
+    的记忆，完成后日志删除。"""
+    topic_dir = tmp_path / "topics"
+    release, started = asyncio.Event(), asyncio.Event()
+    extractor = _gated_extractor(release, started)
+    engine = _extraction_engine(memory_library, extractor)
+
+    controller, perception, _ = _wire_process(memory_library, engine, artifact_engine, topic_dir)
+    await controller.start()
+    topic_id = await _apply(perception, "how do we deploy now")
+    await perception.scan_idle_topics_once()
+    [earlier] = await controller.list_tasks()
+    await asyncio.wait_for(started.wait(), timeout=5)
+    await _apply(perception, "and staging?", topic_id)
+    await perception.manual_settle_topic(_identity_scope().workspace_identity, topic_id)
+    await controller.stop_dispatch()
+    release.set()
+    await controller.wait_task(earlier.task_id)
+    await controller.save_unfinished(tmp_path / "pending_generation.json")
+    await controller.stop()
+    kept = (topic_dir / f"{topic_id}.jsonl").exists()
+
+    controller, _, store = await _start_process(memory_library, engine, artifact_engine, topic_dir)
+    try:
+        [task] = await controller.wait_all()
+    finally:
+        await controller.stop()
+
+    assert (kept, extractor.extract.await_count) == (True, 2)
+    assert task.status == MemoryGenerationTaskStatus.COMPLETED
+    assert store.list_all() == []
+    assert not (topic_dir / f"{topic_id}.jsonl").exists()
+    assert [memory.payload.content for memory in await _stored(memory_library)] == [
+        "deploys are now run by hand"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_crash_keeps_completed_progress_and_redoes_the_settlement_in_flight(
+    memory_library, artifact_engine, tmp_path
+):
+    """不经关闭、直接用同一目录新建一次运行（进程崩溃）：话题与已经完成的沉淀进度读回，崩溃时
+    还在生成的沉淀重新沉淀，材料覆盖全部交互。"""
+    topic_dir = tmp_path / "topics"
+    in_flight = asyncio.Event()
+    first_run_calls = []
+
+    async def first_run_extract(*args, **kwargs):
+        first_run_calls.append(args)
+        if len(first_run_calls) == 1:
+            return [_draft("deploy is manual", "deploys are now run by hand")]
+        in_flight.set()
+        await asyncio.Event().wait()
+
+    first_run = AsyncMock()
+    first_run.extract.side_effect = first_run_extract
+    crashed, perception, _ = _wire_process(
+        memory_library, _extraction_engine(memory_library, first_run), artifact_engine, topic_dir
+    )
+    await crashed.start()
+    second_run = AsyncMock()
+    second_run.extract.return_value = []
+    try:
+        topic_id = await _apply(perception, "how do we deploy now")
+        await perception.scan_idle_topics_once()
+        await crashed.wait_all()
+        await _apply(perception, "and staging?", topic_id)
+        await perception.scan_idle_topics_once()
+        await asyncio.wait_for(in_flight.wait(), timeout=5)
+
+        controller, perception, store = await _start_process(
+            memory_library,
+            _extraction_engine(memory_library, second_run),
+            artifact_engine,
+            topic_dir,
+        )
+        try:
+            restored = store.get(_identity_scope().workspace_identity, topic_id)
+            await perception.scan_idle_topics_once()
+            await controller.wait_all()
+        finally:
+            await controller.stop()
+    finally:
+        # 崩溃的那次运行随进程消失：在途的沉淀以关闭原因结束，不记下进度。
+        running = [
+            task.task_id
+            for task in await crashed.list_tasks()
+            if task.status == MemoryGenerationTaskStatus.RUNNING
+        ]
+        await crashed.cancel_many(running, reason="shutdown_timeout")
+        await crashed.stop()
+
+    assert (restored.settled_interaction_count, len(restored.interactions)) == (1, 2)
+    assert second_run.extract.await_count == 1
+    assert "and staging?" in second_run.extract.call_args.args[0]
+    assert store.get(_identity_scope().workspace_identity, topic_id).settled_interaction_count == 2
 
 
 def _draft(title: str, content: str) -> ExtractedMemoryDraft:
@@ -681,13 +823,13 @@ def _draft(title: str, content: str) -> ExtractedMemoryDraft:
 
 @pytest.mark.asyncio
 async def test_passive_settlement_records_the_cited_segment_of_the_captured_turn(
-    memory_library, tmp_path
+    memory_library, tmp_path, topic_store
 ):
     """被动结算的材料按响应切段并印出标签；模型引用的段换算为轮次标识加事件区间，写进
     新记忆的版本记录，被引用的轮次就在同一份版本记录指向的交互快照中。"""
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     block = make_logical_block(
         turn_events=[
@@ -755,11 +897,11 @@ async def test_passive_settlement_records_the_cited_segment_of_the_captured_turn
 
 @pytest.mark.asyncio
 async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
-    memory_library, artifact_engine
+    memory_library, artifact_engine, topic_store
 ):
     """同一话题先写入、后结算：复述写入的被动草稿被丢弃，不产生合并任务，库中只有写入的那条。"""
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     extractor = AsyncMock()
     extractor.extract_write.return_value = _draft(
@@ -797,12 +939,12 @@ async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
 
 @pytest.mark.asyncio
 async def test_second_settlement_drops_draft_restating_the_first_settlements_memory(
-    memory_library, artifact_engine
+    memory_library, artifact_engine, topic_store
 ):
     """话题空闲时沉淀、之后再次沉淀：材料仍是全部交互，复述第一次沉淀所建记忆的草稿被丢弃，
     不产生合并任务，库中只有第一次的那条。"""
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     extractor = AsyncMock()
     extractor.extract.side_effect = [
@@ -839,12 +981,12 @@ async def test_second_settlement_drops_draft_restating_the_first_settlements_mem
 
 @pytest.mark.asyncio
 async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_missing(
-    memory_library, artifact_engine
+    memory_library, artifact_engine, topic_store
 ):
     """同一话题先写入、后由馆长结算：馆长列出了写入、检索了库，写下的记忆按新建入库，
     写入的那条保持原样。"""
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     extractor = AsyncMock()
     extractor.extract_write.return_value = _draft(
@@ -852,7 +994,7 @@ async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_
     ).model_dump_json()
     new_fact = _draft("deploy is manual", "deploys are now run by hand")
     llm = ScriptedLLMService(
-        json.dumps({"tool": "list_topic_writes", "args": {}}),
+        json.dumps({"tool": "list_generated_memories", "args": {}}),
         json.dumps({"tool": "search_memories", "args": {"query": "deploy"}}),
         json.dumps({"tool": "write_memory", "args": new_fact.model_dump(exclude={"has_value"})}),
         json.dumps({"tool": "finish", "args": {}}),
@@ -914,11 +1056,11 @@ async def _stored(memory_library: MemoryLibrary) -> list[MemoryAtom]:
 
 @pytest.mark.asyncio
 async def test_librarian_settlement_revises_an_existing_memory_instead_of_adding_one(
-    memory_library, artifact_engine
+    memory_library, artifact_engine, topic_store
 ):
     """馆长读到一条被话题改变的记忆并修订它：库中是这条记忆的新版本，没有多出一条重复。"""
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     existing = _memory_atom()
     existing.payload.content = "deploys run from CI"
@@ -986,13 +1128,13 @@ class _TitleSearchPort(_InMemoryMidTermPort):
 
 @pytest.mark.asyncio
 async def test_active_update_of_a_value_in_the_title_is_found_by_the_new_title(
-    tmp_path, artifact_engine
+    tmp_path, artifact_engine, topic_store
 ):
     """主动 UPDATE 改了标题中的一个值：标题随修订更新、向量重算，检索按新标题命中。"""
     port = _TitleSearchPort()
     memory_library = MemoryLibrary(
         agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
-        short_term=ShortTermMemoryStore(),
+        short_term=ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "library-topics")),
         mid_term=MidTermMemoryStore(primary=port),
         long_term=LongTermMemoryStore(
             FileBasedStorageAdapter(archive_dir=str(tmp_path / "archive"), compress=False)
@@ -1003,7 +1145,7 @@ async def test_active_update_of_a_value_in_the_title_is_found_by_the_new_title(
     existing.payload.content = "The service listens on port 3000."
     await memory_library.mid_term.upsert(existing, recompute_vectors=True)
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     llm = ScriptedLLMService(
         _edit_set_json(
@@ -1050,11 +1192,11 @@ async def test_active_update_of_a_value_in_the_title_is_found_by_the_new_title(
 
 @pytest.mark.asyncio
 async def test_two_drafts_of_one_settlement_both_merge_into_the_memory_they_hit(
-    memory_library, artifact_engine
+    memory_library, artifact_engine, topic_store
 ):
     """同一次结算的两条草稿命中同一条记忆：先各自新建，两次合并都落在这条记忆上，没有中止。"""
     bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
+    coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()
     existing = _memory_atom()
     await memory_library.mid_term.upsert(existing, recompute_vectors=True)

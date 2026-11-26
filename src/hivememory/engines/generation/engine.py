@@ -200,7 +200,7 @@ class MemoryGenerationEngine:
         模型判断无价值或输出无法解析时没有产出；提取器的提供商失败（含输出
         被截断）向上传播，由生成任务按失败收尾，不被记录为没有产出。
 
-        查重命中本话题写入过的记忆时丢弃草稿：被动提取会从同一份材料里重新推导出
+        查重命中本话题生成的记忆时丢弃草稿：被动提取会从同一份材料里重新推导出
         agent 已经写入的内容，并入后会以较新的被动草稿为骨架改写它；话题再次沉淀时
         材料仍是全部交互，此前沉淀新建的记忆同样会被复述。
 
@@ -231,7 +231,7 @@ class MemoryGenerationEngine:
                 now=now,
                 cited_segments=_cite(request.context, draft.source_segments),
                 taken_aliases=taken_aliases,
-                dropped_on_hit=request.topic_write_memory_ids,
+                dropped_on_hit=request.topic_generated_memory_ids,
             )
             outcomes.extend(resolved)
             taken_aliases.update(
@@ -250,7 +250,7 @@ class MemoryGenerationEngine:
         from_actor: ActorIdentity,
         now: datetime,
     ) -> list[GenerationOutcome]:
-        """话题结算的馆长方式：馆长先看本话题的写入与库中相关记忆，再暂存草稿与修订。
+        """话题结算的馆长方式：馆长先看本话题生成的记忆与库中相关记忆，再暂存草稿与修订。
 
         馆长在写之前已经查看过两者，暂存的草稿全部按新建提交，不查重、不触碰、
         不提名合并；残余的重叠接受。来源裁定、别名分配与段引用与 Mode A 相同。
@@ -258,7 +258,7 @@ class MemoryGenerationEngine:
         """
         result = await librarian.settle(
             self._render_transcript(request),
-            topic_write_memory_ids=request.topic_write_memory_ids,
+            topic_generated_memory_ids=request.topic_generated_memory_ids,
             belong_to=belong_to,
             from_actor=from_actor,
         )
@@ -312,7 +312,7 @@ class MemoryGenerationEngine:
         带着错误重试一次；仍不能用、提供商失败或没有模型时直接从 WriteFocus 构建兜底草稿，
         明确的保存意图不因模型暂时失败而丢失；程序错误不降级。兜底草稿没有模型引用的段。
 
-        相似命中本话题写入过的记忆时照常新建、不提名合并：同一话题里 agent 分开写的
+        相似命中本话题生成的记忆时照常新建、不提名合并：同一话题里 agent 分开写的
         记忆是有意分开的。
         """
         logger.debug("[Mode B] WRITE 主动响应: content_length=%d", len(focus.content))
@@ -329,7 +329,7 @@ class MemoryGenerationEngine:
             from_actor=from_actor,
             now=now,
             cited_segments=_cite(request.context, draft.source_segments),
-            kept_apart_from=request.topic_write_memory_ids,
+            kept_apart_from=request.topic_generated_memory_ids,
         )
 
     async def _write_draft(
@@ -561,7 +561,7 @@ class MemoryGenerationEngine:
             and str(existing_memory.id) in dropped_on_hit
         ):
             logger.info(
-                "草稿命中本话题写入过的记忆，丢弃: memory_id=%s, decision=%s, score=%.3f",
+                "草稿命中本话题生成的记忆，丢弃: memory_id=%s, decision=%s, score=%.3f",
                 existing_memory.id,
                 decision.value,
                 candidates[0]["score"],

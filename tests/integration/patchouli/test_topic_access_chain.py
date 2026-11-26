@@ -18,6 +18,7 @@ from hivememory.config.patchouli import PerceptionEngineConfig
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import system_actor_for_workspace
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.application import TopicManagementService
@@ -60,9 +61,9 @@ def _payload(user_message: str, assistant_message: str):
     return make_interaction_payload(user_message, assistant_message)
 
 
-def _topic_boundary(*, max_resident_topics: int = 5, clock: _FakeClock | None = None):
+def _topic_boundary(tmp_path, *, max_resident_topics: int = 5, clock: _FakeClock | None = None):
     """组装 Topic 管理所需的真实内部组件（含真实 bus 路由分发）。"""
-    store = ShortTermMemoryStore()
+    store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     relay = _DeterministicRelay()
     engine = MemoryPerceptionEngine(
         config=PerceptionEngineConfig(
@@ -117,8 +118,8 @@ def _topic_boundary(*, max_resident_topics: int = 5, clock: _FakeClock | None = 
 
 
 @pytest.mark.asyncio
-async def test_get_topic_data_is_pure_read():
-    service, familiar, working_set, store = _topic_boundary()
+async def test_get_topic_data_is_pure_read(tmp_path):
+    service, familiar, working_set, store = _topic_boundary(tmp_path)
     identity_scope = make_identity_scope(user_id="u1")
     topic_id = await familiar.apply_interaction(
         _payload("question", "answer"),
@@ -132,14 +133,16 @@ async def test_get_topic_data_is_pure_read():
     assert result is not None
     assert result.topic_id == topic_id
     # 纯读：不改变驻留集合，返回与 Store 一致的不可变快照
-    assert {tid for _, tid in working_set.list_shutdown_candidates()} == {topic_id}
+    assert working_set.select_lru_candidate(identity_scope.workspace_identity) == topic_id
     assert result == store.get(identity_scope.workspace_identity, topic_id)
 
 
 @pytest.mark.asyncio
-async def test_same_title_topics_get_distinct_global_ids_and_cross_workspace_reads_are_hidden():
+async def test_same_title_topics_get_distinct_global_ids_and_cross_workspace_reads_are_hidden(
+    tmp_path,
+):
     """捕获 Topic ID 被错误建模为 Workspace-local、进而允许跨域读写的缺陷。"""
-    service, _, _, store = _topic_boundary()
+    service, _, _, store = _topic_boundary(tmp_path)
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     isolated = make_identity_scope(
         user_id="u1",
@@ -194,9 +197,9 @@ async def test_same_title_topics_get_distinct_global_ids_and_cross_workspace_rea
 
 
 @pytest.mark.asyncio
-async def test_cross_workspace_topic_management_rejects_without_side_effects():
+async def test_cross_workspace_topic_management_rejects_without_side_effects(tmp_path):
     """捕获 settle/delete 只按裸 topic_id 操作而跨越 Workspace 的缺陷。"""
-    service, familiar, _, store = _topic_boundary()
+    service, familiar, _, store = _topic_boundary(tmp_path)
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     isolated = make_identity_scope(
         user_id="u1",
@@ -240,9 +243,9 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects():
 
 
 @pytest.mark.asyncio
-async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
+async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic(tmp_path):
     """捕获未知异域 Topic ID 被静默回退为本域新 Topic 的缺陷。"""
-    service, familiar, _, store = _topic_boundary()
+    service, familiar, _, store = _topic_boundary(tmp_path)
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     isolated = make_identity_scope(
         user_id="u1",
@@ -279,9 +282,9 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
 
 
 @pytest.mark.asyncio
-async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rejection():
+async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rejection(tmp_path):
     """捕获话题池已满时先驱逐本域 LRU、再把异域 ID 回退成新话题的缺陷。"""
-    service, familiar, _, store = _topic_boundary(max_resident_topics=1)
+    service, familiar, _, store = _topic_boundary(tmp_path, max_resident_topics=1)
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     isolated = make_identity_scope(
         user_id="u1",
@@ -315,9 +318,9 @@ async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rej
 
 
 @pytest.mark.asyncio
-async def test_prepare_new_topic_creates_titled_topic_in_scope_workspace():
+async def test_prepare_new_topic_creates_titled_topic_in_scope_workspace(tmp_path):
     """捕获建立新话题时归属取错 Workspace，或标题与摘要错位、丢失的缺陷。"""
-    service, _, working_set, store = _topic_boundary()
+    service, _, working_set, store = _topic_boundary(tmp_path)
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
 
     topic_id = await service.prepare_topic(
@@ -329,17 +332,17 @@ async def test_prepare_new_topic_creates_titled_topic_in_scope_workspace():
 
     topic = store.get(main.workspace_identity, topic_id)
     assert (topic.topic_title, topic.topic_summary) == ("部署贪吃蛇", "讨论贪吃蛇游戏的部署步骤")
-    assert working_set.list_shutdown_candidates() == [(main.workspace_identity, topic_id)]
+    assert working_set.select_lru_candidate(main.workspace_identity) == topic_id
 
 
 @pytest.mark.asyncio
-async def test_prepare_new_topic_on_full_pool_evicts_topic_least_recently_prepared():
+async def test_prepare_new_topic_on_full_pool_evicts_topic_least_recently_prepared(tmp_path):
     """池满时建立新话题先驱逐最久未用的话题；确认已有话题算一次使用，不新建话题。
 
     捕获确认已有话题时不刷新驻留、导致本轮要写入的话题被 LRU 驱逐的缺陷。
     """
     clock = _FakeClock()
-    service, _, _, store = _topic_boundary(max_resident_topics=2, clock=clock)
+    service, _, _, store = _topic_boundary(tmp_path, max_resident_topics=2, clock=clock)
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     first = await service.prepare_topic(identity_scope=main, target_topic_id="NEW_TOPIC")
     clock.advance(10)

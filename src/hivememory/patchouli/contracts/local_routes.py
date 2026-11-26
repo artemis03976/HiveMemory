@@ -256,15 +256,29 @@ class PatchouliLocalRoutes:
         """读取短期话题上下文（纯读，无访问追踪副作用）。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("topic.record_writes")
-    async def TOPIC_RECORD_WRITES(
+    @route("topic.get_generated_memories")
+    async def TOPIC_GET_GENERATED_MEMORIES(
+        topic_id: str, *, belong_to: WorkspaceIdentity
+    ) -> frozenset[str] | None:
+        """读取本话题生成的记忆；退役话题的日志删除之前同样交出，话题不存在时为空值。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("topic.record_generated_memories")
+    async def TOPIC_RECORD_GENERATED_MEMORIES(
         topic_id: str,
         *,
         belong_to: WorkspaceIdentity,
-        written: frozenset[str],
+        generated: frozenset[str],
         absorbed_into: Mapping[str, str],
     ) -> None:
-        """把一次生成执行后要记下的写入与合并改指记到话题上；话题已经退役时不记。"""
+        """把一次生成执行后本话题新生成的记忆与合并改指记到话题上；退役话题的日志删除之前照样记。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("topic.record_settled")
+    async def TOPIC_RECORD_SETTLED(
+        topic_id: str, *, belong_to: WorkspaceIdentity, interaction_count: int
+    ) -> None:
+        """一次沉淀完成，在话题的日志中记下它覆盖到的交互数；话题已被删除时不记。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("topic.list_active")
@@ -337,7 +351,9 @@ class PatchouliLocalRoutes:
         GET_AGENT_PROFILE,
         TOPIC_PREPARE,
         TOPIC_GET,
-        TOPIC_RECORD_WRITES,
+        TOPIC_GET_GENERATED_MEMORIES,
+        TOPIC_RECORD_GENERATED_MEMORIES,
+        TOPIC_RECORD_SETTLED,
         TOPIC_LIST_ACTIVE,
         TOPIC_MANUAL_SETTLE,
         TOPIC_EVICT,

@@ -367,18 +367,18 @@ class GenerationRequest(BaseModel):
     update_focus: UpdateFocus | None = None
     merge_focus: MergeFocus | None = None
     existing_memory: Any | None = None
-    topic_write_memory_ids: frozenset[str] = Field(
+    topic_generated_memory_ids: frozenset[str] = Field(
         default_factory=frozenset,
         description=(
-            "本话题写入过的正式记忆 ID：主动写入（WRITE/UPDATE）已结算到的，以及话题此前几次"
+            "本话题生成的正式记忆 ID：主动写入（WRITE/UPDATE）已结算到的，以及话题此前几次"
             "沉淀新建的。结算接纳时带上冻结材料时话题的记录，控制面在执行时再并入话题当前的"
             "记录。Mode A 草稿查重命中其中一条时丢弃；Mode B 草稿相似命中其中一条时照常新建、"
             "不提名合并"
         ),
     )
 
-    @field_serializer("topic_write_memory_ids")
-    def _serialize_topic_write_memory_ids(self, ids: frozenset[str]) -> list[str]:
+    @field_serializer("topic_generated_memory_ids")
+    def _serialize_topic_generated_memory_ids(self, ids: frozenset[str]) -> list[str]:
         # 排序输出：生成任务的载荷要求规范编码，关闭时保存、下次启动读回的载荷
         # 在另一个进程中重新编码时必须得到同样的顺序。
         return sorted(ids)

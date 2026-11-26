@@ -61,8 +61,8 @@ class MemoryGenerationCoordinator:
         """将话题结算转为 SETTLE 任务，统一以归属对应的 system 为发起者。
 
         生成材料是话题的工作视图；来源记录冻结全部交互记录与折叠记录，覆盖
-        已折叠的轮次。生成请求带着冻结时话题的写入记录：随退役执行的结算执行时话题
-        已经不在，只有这一份。
+        已折叠的轮次。生成请求带着冻结时本话题生成的记忆，执行时再并入话题当时的记录；
+        升级之前的版本保存的结算的话题不在话题池里，执行时只有这一份。
         """
         gen_context = self._transcript_builder.build_context(
             payload.blocks,
@@ -80,7 +80,7 @@ class MemoryGenerationCoordinator:
             source=MemoryGenerationSource.SETTLE,
             request=GenerationRequest(
                 context=gen_context,
-                topic_write_memory_ids=payload.topic_write_memory_ids,
+                topic_generated_memory_ids=payload.topic_generated_memory_ids,
             ),
             interaction_input=self._build_interaction_input(
                 topic_id=payload.topic_id,

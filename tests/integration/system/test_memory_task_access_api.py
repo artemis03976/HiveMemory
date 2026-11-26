@@ -20,6 +20,7 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import ExtractedMemoryDraft, GenerationRequest
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import (
@@ -126,7 +127,7 @@ def task_api_stack(tmp_path) -> Iterator[_TaskApiStack]:
     mid_term = MidTermMemoryStore(QdrantStorageAdapter(vector))
     library = MemoryLibrary(
         agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
-        short_term=ShortTermMemoryStore(),
+        short_term=ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics")),
         mid_term=mid_term,
         long_term=LongTermMemoryStore(
             FileBasedStorageAdapter(archive_dir=str(tmp_path / "archive"))

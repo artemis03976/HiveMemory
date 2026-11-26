@@ -3,7 +3,7 @@ HiveMemory - 馆长 (Librarian)
 
 话题结算的另一种生成方式。一次性生成看不到本话题已经写入的记忆，也看不到库，只能先尽量多地
 提取，再靠查重与合并的规则补救；馆长改为先探索再写：模型每一步输出一个 JSON 动作，调用
-Patchouli 定义的工具，先看本话题写入过的记忆，再检索并阅读库中相关的记忆，然后只写两者
+Patchouli 定义的工具，先看本话题生成的记忆，再检索并阅读库中相关的记忆，然后只写两者
 都没有覆盖的内容。
 
 工具只读写 Patchouli 自己的数据：读取以结算的发起者（Workspace 的 system actor）直接访问
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 # 提示词中列出的工具；日志只按这些名字计数，模型编造的名字记为 unknown。
 _TOOLS = (
-    "list_topic_writes",
+    "list_generated_memories",
     "search_memories",
     "read_memory",
     "write_memory",
@@ -96,11 +96,11 @@ class LibrarianResult:
 
 @dataclass
 class _Run:
-    """一次结算的工具上下文：读取的归属与发起者、本话题的写入、读过的记忆与已暂存的内容。"""
+    """一次结算的工具上下文：读取的归属与发起者、本话题生成的记忆、读过的记忆与已暂存的内容。"""
 
     belong_to: WorkspaceIdentity
     from_actor: ActorIdentity
-    topic_write_memory_ids: list[str]
+    topic_generated_memory_ids: list[str]
     staged: list[ExtractedMemoryDraft] = field(default_factory=list)
     # read_memory 读到的版本，按 alias；同一条读了几次时取最后一次。
     read: dict[str, MemoryAtom] = field(default_factory=dict)
@@ -161,7 +161,7 @@ class Librarian:
         self,
         transcript: str,
         *,
-        topic_write_memory_ids: Collection[str],
+        topic_generated_memory_ids: Collection[str],
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
     ) -> LibrarianResult:
@@ -169,8 +169,8 @@ class Librarian:
 
         Args:
             transcript: 带段标签的话题材料，放在第一条消息中
-            topic_write_memory_ids: 本话题写入过的记忆 ID（主动写入结算到的，以及本话题此前
-                沉淀新建的），由 list_topic_writes 列出
+            topic_generated_memory_ids: 本话题生成的记忆 ID（主动写入结算到的，以及本话题此前
+                沉淀新建的），由 list_generated_memories 列出
             belong_to: 读取的 Workspace 归属
             from_actor: 读取的发起者；结算时是 Workspace 的 system actor
 
@@ -181,7 +181,7 @@ class Librarian:
         run = _Run(
             belong_to=belong_to,
             from_actor=from_actor,
-            topic_write_memory_ids=sorted(topic_write_memory_ids),
+            topic_generated_memory_ids=sorted(topic_generated_memory_ids),
         )
         messages = [
             {"role": "system", "content": self._system_prompt},
@@ -238,8 +238,8 @@ class Librarian:
         """执行一个工具，返回交回模型的结果；参数不合格或读不到记忆时返回错误。"""
         try:
             match action.tool:
-                case "list_topic_writes":
-                    return {"result": await self._list_topic_writes(run)}
+                case "list_generated_memories":
+                    return {"result": await self._list_generated_memories(run)}
                 case "search_memories":
                     args = _SearchArgs.model_validate(action.args)
                     hits = await self._mid_term.search(
@@ -305,10 +305,10 @@ class Librarian:
         run.revisions.append(StagedRevision(base=base, edit_set=edit_set, revised=revised))
         return {"result": {"revised": args.alias}}
 
-    async def _list_topic_writes(self, run: _Run) -> list[dict[str, Any]]:
-        """本话题写入过的记忆；发起者读不到的（PRIVATE、TEAM 或已删除）跳过。"""
+    async def _list_generated_memories(self, run: _Run) -> list[dict[str, Any]]:
+        """本话题生成的记忆；发起者读不到的（PRIVATE、TEAM 或已删除）跳过。"""
         views = []
-        for memory_id in run.topic_write_memory_ids:
+        for memory_id in run.topic_generated_memory_ids:
             memory = await self._mid_term.get(
                 run.belong_to, UUID(memory_id), from_actor=run.from_actor
             )

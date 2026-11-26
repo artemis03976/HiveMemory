@@ -61,6 +61,13 @@ class PerceptionEngineConfig(BaseModel):
 
 class MemoryPerceptionConfig(BaseModel):
     idle_timeout_seconds: int = Field(default=900)
+    topic_dir: str = Field(
+        default=".hivememory/topics",
+        description=(
+            "短期话题日志所在的目录，每个话题一个只追加的文件，话题因此跨过重启与崩溃；"
+            "相对路径按工作目录解析"
+        ),
+    )
     engine: PerceptionEngineConfig = Field(default_factory=PerceptionEngineConfig)
 
     model_config = ConfigDict(extra="forbid")
@@ -113,7 +120,7 @@ class LibrarianConfig(BaseModel):
 class MemoryGenerationConfig(BaseModel):
     extractor: ExtractorConfig = Field(default_factory=ExtractorConfig)
     deduplicator: DeduplicatorConfig = Field(default_factory=DeduplicatorConfig)
-    # 话题结算的生成方式：一次性生成更快，但写之前看不到本话题的写入与库；
+    # 话题结算的生成方式：一次性生成更快，但写之前看不到本话题生成的记忆与库；
     # 馆长先查看两者再写，模型调用次数是一次性生成的数倍。
     settle_mode: Literal["one_shot", "librarian"] = Field(default="one_shot")
     librarian: LibrarianConfig = Field(default_factory=LibrarianConfig)
@@ -437,13 +444,6 @@ class PatchouliShutdownConfig(BaseModel):
         default=7,
         ge=1,
         description="已结束的记忆生成任务自结束起保留的天数；条数另受最近 100 条限制",
-    )
-    topic_pool_file: str = Field(
-        default=".hivememory/topic_pool.json",
-        description=(
-            "关闭时保存整个短期话题池的文件，下次启动时读回，话题因此跨过重启；相对路径按"
-            "工作目录解析"
-        ),
     )
 
     model_config = ConfigDict(extra="forbid")

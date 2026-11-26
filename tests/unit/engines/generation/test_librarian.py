@@ -126,10 +126,12 @@ def _librarian(
     )
 
 
-async def _settle(librarian: Librarian, *topic_writes: MemoryAtom, extra_ids: tuple[str, ...] = ()):
+async def _settle(
+    librarian: Librarian, *generated_memories: MemoryAtom, extra_ids: tuple[str, ...] = ()
+):
     return await librarian.settle(
         "[Turn 1]\n[Segment 1.1]\n[User]: 以后怎么部署",
-        topic_write_memory_ids=[*(str(memory.id) for memory in topic_writes), *extra_ids],
+        topic_generated_memory_ids=[*(str(memory.id) for memory in generated_memories), *extra_ids],
         belong_to=WORKSPACE,
         from_actor=SYSTEM,
     )
@@ -149,13 +151,13 @@ class TestLibrarianLoop:
     async def test_actions_run_and_their_results_return_to_the_model(self):
         """每个动作被执行，结果连同剩余步数交回模型；写入的草稿在结束后返回。"""
         written = _memory("agent_write")
-        llm = ScriptedLLMService(_action("list_topic_writes"), _write(), FINISH)
+        llm = ScriptedLLMService(_action("list_generated_memories"), _write(), FINISH)
 
         result = await _settle(_librarian(llm, written), written)
 
         assert [draft.title for draft in result.drafts] == ["新的结论"]
         assert _replies(llm)[0] == {
-            "tool": "list_topic_writes",
+            "tool": "list_generated_memories",
             "result": [
                 {
                     "alias": "agent_write",
@@ -232,11 +234,11 @@ class TestLibrarianLoop:
 
 class TestLibrarianTools:
     @pytest.mark.asyncio
-    async def test_list_topic_writes_skips_writes_the_system_actor_cannot_read(self):
+    async def test_list_generated_memories_skips_memories_the_system_actor_cannot_read(self):
         """PRIVATE 写入与已删除的写入不列出：结算的发起者只读得到 PUBLIC 记忆。"""
         public = _memory("public_write")
         private = _memory("private_write", visibility="PRIVATE")
-        llm = ScriptedLLMService(_action("list_topic_writes"), FINISH)
+        llm = ScriptedLLMService(_action("list_generated_memories"), FINISH)
 
         await _settle(_librarian(llm, public, private), public, private, extra_ids=(str(uuid4()),))
 
