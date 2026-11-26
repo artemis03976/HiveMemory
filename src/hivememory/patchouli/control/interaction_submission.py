@@ -497,7 +497,7 @@ class InteractionSubmissionQueue:
         """停止话题维护：不再排入维护项，排队中的直接结束，进行中的被取消。
 
         系统停止前调用，使排空队列时不再等待模型；折叠与写一条进展记录都在模型返回后才
-        写回，取消不改动话题，随后的沉淀带走话题的完整 blocks。
+        写回，取消不改动话题：话题停在最后一次写入的样子，下次启动从日志读回。
         """
         self._maintenance_closed.set()
 
@@ -770,8 +770,8 @@ class InteractionSubmissionQueue:
     async def drain_all(self, *, timeout: float | None = 5.0) -> int:
         """等待已知交互与已排入的维护项进入终态，返回成功的交互数量。
 
-        系统停止时先关闭维护再排空，进行中的折叠在这里收尾并释放话题的 lease，
-        之后的沉淀不会遇到占用。
+        系统停止时先关闭维护再排空，进行中的维护在这里收尾并释放话题的 lease，
+        排空返回时没有维护项还占着话题。
         """
         entries = list(self._submissions.values())
         maintenance_ids = list(self._maintenance_items.values())

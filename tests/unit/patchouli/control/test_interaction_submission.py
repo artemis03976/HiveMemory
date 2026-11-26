@@ -815,7 +815,7 @@ async def test_closing_maintenance_cancels_the_running_item_and_releases_the_top
 
 @pytest.mark.asyncio
 async def test_drain_all_returns_after_closed_maintenance_finishes_its_cleanup() -> None:
-    """停止时先关闭维护再排空：排空要等进行中的折叠收尾，之后的沉淀才不会遇到占用。"""
+    """停止时先关闭维护再排空：排空要等进行中的折叠收尾，返回时折叠已经释放话题的 lease。"""
     events: list[str] = []
     cleanup_started = asyncio.Event()
     allow_cleanup = asyncio.Event()
