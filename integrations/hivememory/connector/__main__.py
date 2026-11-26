@@ -9,9 +9,10 @@
 
 harness 决定来源标识、principal、默认 Agent、凭据变量、会话记录读取器与 hook
 处理。hook 入口无论成败都以 0 退出：连接器的任何失败都只进日志，不能打断
-harness。只有 ``PreToolUse`` 在读到当前一轮时向标准输出写一个 JSON 对象（ASCII
-转义，Windows 上标准输出按本地代码页编码），其他事件与任何失败都不写标准
-输出。后台同步在独立的会话中运行，harness 退出不会终止它。
+harness。只有 ``PreToolUse`` 在读到当前一轮时、Claude Code 的 ``SessionStart`` 在压缩
+之后读到话题的索引时向标准输出写一个 JSON 对象（ASCII 转义，Windows 上标准输出按本地
+代码页编码），其他事件与任何失败都不写标准输出。后台同步在独立的会话中运行，harness
+退出不会终止它。
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from connector.claude_code.reader import ClaudeCodeReader
 from connector.codex import hooks as codex_hooks
 from connector.codex.reader import HARNESS as CODEX
 from connector.codex.reader import CodexReader
-from connector.core.client import ImportClient
+from connector.core.client import ImportClient, read_memory
 from connector.core.config import ConnectorConfig
 from connector.core.log import ConnectorLog
 from connector.core.state import StateStore
@@ -74,6 +75,16 @@ def main(arguments: list[str]) -> int:
                 claude_code_hooks.handle_hook(
                     command[1], payload, sync=sync, reader=reader, store=store, spawn=spawn, log=log
                 )
+                if command[1] == "SessionStart":
+                    # 登记与唤醒同步之后再读：读取要等网络，失败也不影响前两步。
+                    output = claude_code_hooks.session_start_context(
+                        payload,
+                        store=store,
+                        read_memory=lambda aliases: read_memory(config, aliases),
+                        log=log,
+                    )
+                    if output is not None:
+                        sys.stdout.write(json.dumps(output))
         elif command[:2] == ["sync", "--transcript"] and len(command) == 3:
             sync.sync(command[2])
         elif command == ["sync", "--all"]:

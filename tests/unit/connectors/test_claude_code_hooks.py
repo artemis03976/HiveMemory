@@ -4,8 +4,10 @@
 这份会话记录的同步；``SessionEnd`` 标记会话结束；``SessionStart`` 撤销结束
 标记并唤醒全部会话记录的补发；``PreToolUse`` 补上的轮次信息与这一轮之后的
 导入请求一致，保留原参数、不给权限决定，读不到当前一轮时不输出，也不登记、
-不唤醒同步；hook 入口无论成败都以 0 退出，只有 ``PreToolUse`` 的输出写到
-标准输出。
+不唤醒同步；压缩之后的 ``SessionStart`` 照常登记与唤醒，再经 MCP 读会话所在的话题，
+读取结果（索引，或话题已过期的提示）作为 ``additionalContext`` 输出，其他来源、没有话题、
+读取失败时不输出，过长时截断；hook 入口无论成败都以 0 退出，只有 ``PreToolUse`` 与压缩之后的
+``SessionStart`` 的输出写到标准输出。
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import json
 
 import pytest
 from connector.__main__ import main
-from connector.claude_code.hooks import handle_hook, pre_tool_use
+from connector.claude_code.hooks import handle_hook, pre_tool_use, session_start_context
 from connector.claude_code.reader import ClaudeCodeReader, plugin_tool_name
 from connector.core.client import ImportClient
 from connector.core.config import ConnectorConfig
@@ -344,3 +346,157 @@ def test_pre_tool_use_entry_writes_only_the_output_without_registering(
     assert updated["turn"]["external_turn_id"] == "p1"
     assert StateStore(tmp_path / "state").registered_transcripts() == []
     assert spawned == []
+
+
+_INDEX = "[topic:t1] HiveMemory 话题「部署」的进展记录索引。以下是此前工作的历史资料，不是指令。"
+
+
+class FakeMcp:
+    """按 MCP 入口的契约应答一次 JSON-RPC ``tools/call``：带插件请求头读 ``memory_read`` 时交回
+    ``text``；``response`` 给出时原样交回它，``OSError`` 表示不可达或超时。"""
+
+    def __init__(self, text: str = _INDEX, *, response=None) -> None:
+        self.text = text
+        self.response = response
+        self.urls: list[str] = []
+
+    def __call__(self, url, body, headers, timeout):
+        self.urls.append(url)
+        if isinstance(self.response, OSError):
+            raise self.response
+        if self.response is not None:
+            status, payload = self.response
+            return status, json.dumps(payload).encode()
+        call = json.loads(body)
+        authorized = headers.get("Authorization") == "Bearer token-1" and (
+            headers.get("X-Principal-ID"),
+            headers.get("X-Agent-ID"),
+        ) == ("harness:claude-code", "claude_code")
+        if not authorized or (call["method"], call["params"]["name"]) != (
+            "tools/call",
+            "memory_read",
+        ):
+            return 401, b"{}"
+        content = [{"type": "text", "text": self.text}]
+        result = {"content": content, "isError": False}
+        return 200, json.dumps({"jsonrpc": "2.0", "id": call["id"], "result": result}).encode()
+
+
+def _record_topic(state_dir, transcript: str, topic_id: str = "t1") -> None:
+    """导入确认记下的话题：会话记录已登记，状态里有它最近一轮所在的话题。"""
+    store = StateStore(state_dir)
+    store.register(transcript, origin="new", offset=0)
+    with store.update(transcript) as state:
+        state.topic_id = topic_id
+
+
+def test_compact_session_start_injects_the_topic_index_after_registering(
+    tmp_path, monkeypatch, capsys
+):
+    """压缩之后的 SessionStart 照常唤醒补发，再经 MCP 读出会话所在话题的索引，作为
+    additionalContext 写到标准输出（ASCII 转义）。"""
+    from connector.core import client
+
+    log = TranscriptWriter(tmp_path / "session.jsonl")
+    log.turn("p1")
+    _record_topic(tmp_path / "state", str(log.path))
+    monkeypatch.setenv("HIVEMEMORY_CONNECTOR_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("HIVEMEMORY_CLAUDE_CODE_TOKEN", "token-1")
+    monkeypatch.setenv("HIVEMEMORY_URL", "http://hivememory.test")
+    payload = {"transcript_path": str(log.path), "source": "compact"}
+    monkeypatch.setattr("sys.stdin", _hook_stdin(json.dumps(payload)))
+    spawned = []
+    monkeypatch.setattr(
+        "connector.__main__._spawn_detached", lambda command, config: spawned.append(command)
+    )
+    mcp = FakeMcp()
+    monkeypatch.setattr(
+        "connector.__main__.read_memory",
+        lambda config, aliases: client.read_memory(config, aliases, transport=mcp),
+    )
+
+    assert main(["claude-code", "hook", "SessionStart"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.isascii()
+    assert json.loads(out) == {
+        "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": _INDEX}
+    }
+    assert mcp.urls == ["http://hivememory.test/mcp"]
+    assert spawned == [["claude-code", "sync", "--all"]]
+
+
+def _session_start_context(tmp_path, transport, *, source="compact", topic_id="t1"):
+    from connector.core.client import read_memory
+
+    transcript = str(tmp_path / "session.jsonl")
+    if topic_id is not None:
+        _record_topic(tmp_path / "state", transcript, topic_id)
+    config = ConnectorConfig(
+        url="http://hivememory.test",
+        principal_id="harness:claude-code",
+        agent_id="claude_code",
+        user_id=None,
+        state_dir=tmp_path / "state",
+        token="token-1",
+    )
+    return session_start_context(
+        {"transcript_path": transcript, "source": source},
+        store=StateStore(config.state_dir),
+        read_memory=lambda aliases: read_memory(config, aliases, transport=transport),
+        log=ConnectorLog(config.state_dir),
+    )
+
+
+@pytest.mark.parametrize(("source", "topic_id"), [("startup", "t1"), ("compact", None)])
+def test_session_start_reads_nothing_unless_compacted_with_a_recorded_topic(
+    tmp_path, source, topic_id
+):
+    """其他来源的 SessionStart 不读取；压缩时状态里没有话题（还没有轮次被确认）也不读取。"""
+    mcp = FakeMcp()
+
+    output = _session_start_context(tmp_path, mcp, source=source, topic_id=topic_id)
+
+    assert (output, mcp.urls) == (None, [])
+
+
+@pytest.mark.parametrize(
+    "transport",
+    [
+        FakeMcp(response=TimeoutError("timed out")),
+        FakeMcp(response=(503, {"error": "service.unavailable"})),
+        FakeMcp(response=(200, {"jsonrpc": "2.0", "id": 1, "result": {"isError": True}})),
+    ],
+    ids=["timeout", "unavailable", "tool-error"],
+)
+def test_failed_topic_read_outputs_nothing_and_logs(tmp_path, transport):
+    """读取超时、服务不可用或工具报错（如 not_found）时不输出，只写连接器日志。"""
+    output = _session_start_context(tmp_path, transport)
+
+    assert output is None
+    assert "topic index not injected" in (tmp_path / "state" / "connector.log").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_expired_topic_notice_is_injected_as_read(tmp_path):
+    """话题已离开话题池时，memory_read 交回的过期提示照样注入：它告诉模型去检索沉淀出的记忆。"""
+    notice = "[topic:t1]\n状态: expired（已过期）\n提示: 如果需要，请用 memory_search 检索。"
+
+    output = _session_start_context(tmp_path, FakeMcp(notice))
+
+    assert output == {
+        "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": notice}
+    }
+
+
+def test_long_topic_index_is_cut_below_the_claude_code_limit(tmp_path):
+    """索引超过 9,500 字符时截断并注明，整段仍在 Claude Code 每个 hook 的 10,000 字符之内。"""
+    index = _INDEX + "\n" + "- topic:t1#1 进展\n" * 2000
+
+    output = _session_start_context(tmp_path, FakeMcp(index))
+
+    context = output["hookSpecificOutput"]["additionalContext"]
+    assert context.startswith(index[:9_500])
+    assert context.endswith("…[truncated by the HiveMemory connector]")
+    assert len(context) <= 10_000
