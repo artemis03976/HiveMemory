@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import uuid4
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_valid
 
 from hivememory.core.models.interaction import TurnRecord, turn_reply_text, turn_user_message
 from hivememory.core.models.workspace import WorkspaceIdentity
-from hivememory.core.models.workspace_asset import TopicAssetBinding, WorkspaceAssetRef
+from hivememory.core.models.workspace_asset import TopicAssetBinding
 
 
 class TopicLastTurn(BaseModel):
@@ -106,56 +106,62 @@ def topic_fold_summary(folds: Sequence[TopicFold]) -> str:
 
 
 class TopicData(BaseModel):
-    """短期话题的业务快照（不可变读取对象）。
+    """短期话题的读取值（不可变），由话题的日志依次套用每条记录组装而成。
 
     原始数据只有两份：``interactions`` 按接收顺序保存全部交互，只追加，话题结束
     前不移除；``folds`` 每次折叠追加一条。工作视图（``blocks``、``fold_summary``
     与 ``total_tokens``）由二者派生、不单独存储：分开存储的副本需要在每次写入与
     折叠时维持“工作视图是交互记录的后缀”，派生不会失去一致。
 
-    ``settled_interaction_count`` 是最近一次被生成队列接纳的沉淀所覆盖的交互数：
-    话题空闲时只沉淀、不结束，之后还会接收交互，下一次沉淀据此判断有没有新内容。
+    ``settled_interaction_count`` 是已经完成的沉淀覆盖到的交互数：话题空闲时只沉淀、不结束，
+    之后还会接收交互，下一次沉淀据此判断有没有新内容。
 
-    ``topic_write_memory_ids`` 是本话题写下的正式记忆，随话题保存、随话题退役而消失；
-    同一话题之后的写入与沉淀据此不改写、不复述它们。
+    ``topic_generated_memory_ids`` 是本话题生成的正式记忆，随话题的日志保存，话题退役后保留到
+    日志删除；同一话题之后的写入与沉淀据此不改写、不复述它们。
 
-    快照只经 ``merge_interaction_into_topic``、``fold_topic``、``mark_topic_settled`` 与
-    ``record_topic_writes`` 写入，四者以完整构造产生新快照，构造时的校验不会被绕过。执行占用
-    不建模为记录字段，跨 await 的占用权由 ``TopicWorkingSet`` 的 lease 表管理。不携带话题级
-    Agent 身份：来源 provenance 由每个 block 的 ``turn.identity`` 记录，资源授权使用归属与
-    本次操作的发起者。
+    话题经短期存储的写入方法写入：每条记录以完整构造产生新的读取值，构造时的校验不会被绕过。执行
+    占用不建模为记录字段，跨 await 的占用权由 ``TopicWorkingSet`` 的 lease 表管理。不携带
+    话题级 Agent 身份：来源 provenance 由每个 block 的 ``turn.identity`` 记录，资源授权使用
+    归属与本次操作的发起者。
     """
 
     topic_id: str
     workspace_identity: WorkspaceIdentity
+
     topic_title: str
     topic_summary: str = ""
+
     interactions: tuple[LogicalBlock, ...] = Field(default_factory=tuple)
+
     folds: tuple[TopicFold, ...] = Field(default_factory=tuple)
+
     bindings: tuple[TopicAssetBinding, ...] = Field(default_factory=tuple)
+
     last_update: float
     model_used: str = ""
+
     settled_interaction_count: int = Field(default=0, ge=0)
-    topic_write_memory_ids: frozenset[str] = Field(
+    topic_generated_memory_ids: frozenset[str] = Field(
         default_factory=frozenset,
         description=(
-            "本话题写下的正式记忆 ID：主动写入（WRITE/UPDATE）已结算到的，以及话题此前几次"
+            "本话题生成的正式记忆 ID：主动写入（WRITE/UPDATE）已结算到的，以及话题此前几次"
             "沉淀新建的；合并吸收了其中一条时改为保留的那条"
         ),
     )
 
     model_config = ConfigDict(frozen=True, use_enum_values=False, extra="forbid")
 
-    @field_serializer("topic_write_memory_ids")
-    def _serialize_topic_write_memory_ids(self, ids: frozenset[str]) -> list[str]:
-        # 排序输出：话题池快照在另一个进程读回，同一话题每次写出的内容相同。
+    @field_serializer("topic_generated_memory_ids")
+    def _serialize_topic_generated_memory_ids(self, ids: frozenset[str]) -> list[str]:
+        # 排序输出：同一话题每次序列化的内容相同。
         return sorted(ids)
 
     @model_validator(mode="after")
     def _folds_cover_interaction_prefix(self) -> TopicData:
         """折叠记录依次拼接，必须等于交互记录开头同样数量的块标识。
 
-        选择规则保证每次折叠的都是工作视图的前缀；校验挡住写函数之外的错误构造。
+        选择规则保证每次折叠的都是工作视图的前缀；校验挡住错误的折叠记录，例如读回的日志里
+        被改动过的折叠。
         """
         folded_ids = [block_id for fold in self.folds for block_id in fold.folded_block_ids]
         prefix_ids = [block.block_id for block in self.interactions[: len(folded_ids)]]
@@ -238,106 +244,12 @@ class TopicData(BaseModel):
         )
 
 
-def merge_interaction_into_topic(
-    topic: TopicData,
-    block: LogicalBlock,
-    asset_refs: tuple[WorkspaceAssetRef, ...],
-    interaction_id: str | None,
-    model_used: str | None,
-) -> TopicData:
-    """把一次 Interaction 的 block、首次绑定与元数据并成新快照。
-
-    block 追加到交互记录末尾，也就进入工作视图。binding 以 ``asset_id`` 幂等
-    去重；原子性由短期存储的 ``update`` 承担（在最新快照上套用、整条替换），
-    互斥由调用方持有的 lease 保证。
-    """
-    bindings = list(topic.bindings)
-    now = datetime.now()
-    if asset_refs:
-        if not interaction_id:
-            raise ValueError("建立 asset binding 必须携带 interaction_id")
-        existing_ids = {binding.asset_id for binding in bindings}
-        for asset_ref in asset_refs:
-            if not isinstance(asset_ref, WorkspaceAssetRef):
-                raise TypeError("asset_ref 必须是 WorkspaceAssetRef")
-            asset_id = asset_ref.asset_id
-            if asset_id in existing_ids:
-                continue
-            bindings.append(
-                TopicAssetBinding(
-                    asset_ref=asset_ref,
-                    first_bound_interaction_id=interaction_id,
-                    bound_at=now,
-                )
-            )
-            existing_ids.add(asset_id)
-    # 以完整构造产生新快照：model_copy(update=...) 不运行校验器。
-    return TopicData.model_validate(
-        {
-            **dict(topic),
-            "interactions": (*topic.interactions, block),
-            "bindings": tuple(bindings),
-            "last_update": now.timestamp(),
-            "model_used": model_used or topic.model_used,
-        }
-    )
-
-
-def fold_topic(topic: TopicData, folded: Sequence[LogicalBlock], summary: str) -> TopicData:
-    """把工作视图开头的 ``folded`` 折叠为 ``summary``，追加一条折叠记录。
-
-    不移除任何交互记录，只推进工作视图；``folded`` 不是当前工作视图的前缀时
-    构造校验失败。互斥由调用方持有的 lease 保证。
-    """
-    now = datetime.now().timestamp()
-    fold = TopicFold(
-        folded_block_ids=tuple(block.block_id for block in folded),
-        summary=summary,
-        folded_at=now,
-    )
-    return TopicData.model_validate(
-        {**dict(topic), "folds": (*topic.folds, fold), "last_update": now}
-    )
-
-
-def mark_topic_settled(topic: TopicData, interaction_count: int) -> TopicData:
-    """记下最近一次被接纳的沉淀覆盖到第几个交互。
-
-    只改沉淀进度，不改内容与写入时间：沉淀不是一次写入，话题的空闲计时与展示的
-    最后写入时间都不因它变化。互斥由调用方持有的 lease 保证。
-    """
-    return TopicData.model_validate({**dict(topic), "settled_interaction_count": interaction_count})
-
-
-def record_topic_writes(
-    topic: TopicData, written: Collection[str], absorbed_into: Mapping[str, str]
-) -> TopicData:
-    """记下本话题新写下的记忆，并按合并改指记录中的记忆。
-
-    ``written`` 无条件加入记录；``absorbed_into`` 是“被合并吸收的记忆 → 保留的记忆”，
-    只有被吸收的那条在话题当前的记录中时，记录才删去它、改为保留的那条：判断以写回时的
-    记录为准。只改这份记录，不改内容、沉淀进度与写入时间。它与交互、折叠和沉淀进度互不
-    相交，写入不需要 lease；全部写函数因此都经短期存储的 ``update`` 套用在最新快照上。
-    """
-    recorded = set(topic.topic_write_memory_ids)
-    for absorbed, retained in absorbed_into.items():
-        if absorbed in recorded:
-            recorded.discard(absorbed)
-            recorded.add(retained)
-    recorded.update(written)
-    return TopicData.model_validate({**dict(topic), "topic_write_memory_ids": frozenset(recorded)})
-
-
 __all__ = [
     "LogicalBlock",
     "TopicData",
     "TopicFold",
     "TopicLastTurn",
     "TopicSnapshot",
-    "fold_topic",
-    "mark_topic_settled",
-    "merge_interaction_into_topic",
-    "record_topic_writes",
     "topic_fold_summary",
     "topic_working_blocks",
 ]

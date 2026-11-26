@@ -1,96 +1,95 @@
-"""短期存储端口的内存适配器。
+"""短期存储端口的文件实现：每个话题一个 JSON Lines 文件。
 
-该适配器是唯一知晓 ``WorkspaceTopicKey`` 的短期组件。端口与 store 交换不可变
-的 ``TopicData`` 快照，适配器直接存储这些冻结对象——读取原样返回已存快照
-（调用方无法修改），因此无需防御性深拷贝。topic ID 全局唯一：把同一 ID 写入
-另一个 Workspace 会被拒绝，而不是静默创建第二个局部命名空间。
+文件是 ``<topic_dir>/<topic_id>.jsonl``，一行一条记录，只在末尾追加。目录不按 Workspace
+分层：Workspace 归属写在第一条记录里，数据根的路径长度有限制，文件路径越短越好。
 """
 
 from __future__ import annotations
 
-import threading
+import logging
+import os
+from pathlib import Path
 
-from hivememory.core.models import TopicData, WorkspaceIdentity, WorkspaceTopicKey
+from hivememory.config.files import rejected_path
 from hivememory.memory_library.models import StorageHealthComponent
 from hivememory.memory_library.ports import ShortTermStoragePort
 
+logger = logging.getLogger(__name__)
 
-class InMemoryShortTermStorage(ShortTermStoragePort):
-    """:class:`ShortTermStoragePort` 的线程安全内存实现。
+_LOG_SUFFIX = ".jsonl"
+# rejected 文件与日志同目录、同后缀，读回时按文件名中的这一段跳过。
+_REJECTED_MARKER = ".rejected-"
 
-    ``WorkspaceTopicKey`` 在此仅为实现细节。适配器从不修改已存的
-    ``TopicData``：写入方必须提交新的冻结快照才能变更话题内容，新快照由 core
-    话题模型的写函数以完整构造产生。
+
+class JsonlShortTermStorage(ShortTermStoragePort):
+    """:class:`ShortTermStoragePort` 的文件实现。
+
+    追加不经 Python 的缓冲，写入返回时数据已经交给操作系统：进程崩溃不丢，断电可能丢失
+    最后几行（不 fsync）。追加失败时把文件截回追加之前的长度，日志里不留半行。
     """
 
-    def __init__(self) -> None:
-        # 直接存储 frozen 的 TopicData 快照；读取原样返回，无需防御性深拷贝。
-        self._topics: dict[WorkspaceTopicKey, TopicData] = {}
-        self._workspace_index: dict[tuple[str, str], set[WorkspaceTopicKey]] = {}
-        self._topic_scopes: dict[str, tuple[str, str]] = {}
-        self._lock = threading.RLock()
+    def __init__(self, topic_dir: str | Path) -> None:
+        self._dir = Path(topic_dir)
+        self._dir.mkdir(parents=True, exist_ok=True)
 
-    @staticmethod
-    def _key(workspace: WorkspaceIdentity, topic_id: str) -> WorkspaceTopicKey:
-        return WorkspaceTopicKey(
-            owner_user_id=workspace.owner_user_id,
-            workspace_id=workspace.workspace_id,
-            topic_id=topic_id,
-        )
+    def _path(self, topic_id: str) -> Path:
+        return self._dir / f"{topic_id}{_LOG_SUFFIX}"
 
-    @staticmethod
-    def _scope(workspace: WorkspaceIdentity) -> tuple[str, str]:
-        return workspace.owner_user_id, workspace.workspace_id
+    def append(self, topic_id: str, line: bytes) -> None:
+        data = line + b"\n"
+        with open(self._path(topic_id), "ab", buffering=0) as file:
+            start = file.seek(0, os.SEEK_END)
+            try:
+                written = 0
+                while written < len(data):
+                    written += file.write(data[written:])
+            except BaseException:
+                file.truncate(start)
+                raise
 
-    def get(self, workspace: WorkspaceIdentity, topic_id: str) -> TopicData | None:
-        key = self._key(workspace, topic_id)
-        with self._lock:
-            return self._topics.get(key)
+    def read_all(self) -> dict[str, list[bytes]]:
+        logs: dict[str, list[bytes]] = {}
+        for path in sorted(self._dir.glob(f"*{_LOG_SUFFIX}")):
+            if _REJECTED_MARKER in path.name:
+                continue
+            data = path.read_bytes()
+            complete = data.rfind(b"\n") + 1
+            if complete < len(data):
+                # 最后一行没有换行：写入中途进程退出，这条记录没有写完，之后的追加不能接在它后面。
+                logger.warning(
+                    "丢弃话题日志中不完整的最后一行: reason=topic_log_partial_line, "
+                    "topic_id=%s, dropped_bytes=%d",
+                    path.stem,
+                    len(data) - complete,
+                )
+                with path.open("r+b") as file:
+                    file.truncate(complete)
+            logs[path.stem] = data[:complete].split(b"\n")[:-1]
+        return logs
 
-    def put(self, topic: TopicData) -> None:
-        if not isinstance(topic, TopicData):
-            raise TypeError("short-term storage accepts TopicData snapshots")
-        key = self._key(topic.workspace_identity, topic.topic_id)
-        scope = self._scope(topic.workspace_identity)
-        with self._lock:
-            previous_scope = self._topic_scopes.get(topic.topic_id)
-            if previous_scope is not None and previous_scope != scope:
-                raise ValueError(f"topic '{topic.topic_id}' already belongs to another Workspace")
-            self._topics[key] = topic
-            self._workspace_index.setdefault(scope, set()).add(key)
-            self._topic_scopes[topic.topic_id] = scope
+    def reject(self, topic_id: str) -> str:
+        path = self._path(topic_id)
+        rejected = rejected_path(path)
+        path.replace(rejected)
+        return str(rejected)
 
-    def delete(self, workspace: WorkspaceIdentity, topic_id: str) -> bool:
-        key = self._key(workspace, topic_id)
-        scope = self._scope(workspace)
-        with self._lock:
-            removed = self._topics.pop(key, None)
-            if removed is None:
-                return False
-            topics = self._workspace_index.get(scope)
-            if topics is not None:
-                topics.discard(key)
-                if not topics:
-                    self._workspace_index.pop(scope, None)
-            self._topic_scopes.pop(topic_id, None)
-            return True
-
-    def list_by_workspace(self, workspace: WorkspaceIdentity) -> list[TopicData]:
-        scope = self._scope(workspace)
-        with self._lock:
-            keys = tuple(self._workspace_index.get(scope, ()))
-            return [self._topics[key] for key in keys if key in self._topics]
-
-    def list_all(self) -> list[TopicData]:
-        with self._lock:
-            return list(self._topics.values())
-
-    def count(self, workspace: WorkspaceIdentity) -> int:
-        with self._lock:
-            return len(self._workspace_index.get(self._scope(workspace), ()))
+    def delete(self, topic_id: str) -> bool:
+        try:
+            self._path(topic_id).unlink()
+        except FileNotFoundError:
+            return False
+        return True
 
     async def check_health(self) -> StorageHealthComponent:
-        return StorageHealthComponent(name="short_term", healthy=True, detail="in-memory")
+        """报告话题目录是否可写：在目录中写入并删除一个探测文件。"""
+        try:
+            self._dir.mkdir(parents=True, exist_ok=True)
+            probe = self._dir / ".healthcheck"
+            probe.write_bytes(b"")
+            probe.unlink(missing_ok=True)
+        except OSError as exc:
+            return StorageHealthComponent(name="short_term", healthy=False, detail=str(exc))
+        return StorageHealthComponent(name="short_term", healthy=True)
 
 
-__all__ = ["InMemoryShortTermStorage"]
+__all__ = ["JsonlShortTermStorage"]
