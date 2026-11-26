@@ -21,7 +21,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-11-24
+last_reviewed: 2026-11-26
 ---
 
 # HiveMemory 配置指南
@@ -130,7 +130,7 @@ Gateway 与 Librarian 的模型在 `configs/config.yaml` 的 `gateway.llm` 与 `
 1. 把提交中的 `api_key` 一律换成当前的运行时值：原样提交读到的打码值不会覆盖真实密钥，提交新值也不会改变密钥；
 2. 用 `HiveMemoryConfig` 校验提交内容；
 3. 把与默认值（代码默认值、`config.yaml`、`.env` 与环境变量）不同的字段写进 `config.local.yaml`，写入的内容不含 `api_key`；`config.yaml` 不被写；
-4. 把其中立即生效的字段写入运行中的服务，例如检索条数上限、相关度阈值、话题空闲沉淀时间、会话与附件上限（完整清单见 [System 配置](../system/configuration.md#21-个人覆盖与保存)）；
+4. 把其中立即生效的字段写入运行中的服务，例如检索条数上限、相关度阈值、话题停下多久后沉淀、会话与附件上限（完整清单见 [System 配置](../system/configuration.md#21-个人覆盖与保存)）；
 5. 返回与 `GET` 相同的结构。
 
 其余字段（模型选择与采样参数、存储连接、嵌入与重排模型、调度任务、日志、语言等）在启动时就交给了长期存活的组件，保存后出现在 `pending_restart` 中，重启服务后生效。重启后再用 readiness 和实际请求确认。

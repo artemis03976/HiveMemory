@@ -10,7 +10,7 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import (
-    TopicEvictionResult,
+    TopicDeleteResult,
     TopicSettleResult,
 )
 
@@ -65,30 +65,30 @@ class TopicManagementService:
             return None
         return topic_data
 
-    async def settle_topic(
+    async def settle_and_retire_topic(
         self,
         *,
         identity_scope: IdentityScope,
         topic_id: str,
     ) -> TopicSettleResult:
-        """通过本地总线结算 Topic（生命周期变更授权在能力层），返回稳定业务结果。"""
+        """通过本地总线沉淀并退役话题（生命周期变更授权在能力层），返回稳定业务结果。"""
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
-            PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
+            PatchouliLocalRoutes.TOPIC_SETTLE_AND_RETIRE,
             scope.workspace_identity,
             topic_id,
         )
 
-    async def evict_topic(
+    async def delete_topic(
         self,
         *,
         identity_scope: IdentityScope,
         topic_id: str,
-    ) -> TopicEvictionResult:
-        """通过本地总线驱逐 Topic（生命周期变更授权在能力层），不触发记忆结算。"""
+    ) -> TopicDeleteResult:
+        """通过本地总线删除话题（生命周期变更授权在能力层），不沉淀。"""
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
-            PatchouliLocalRoutes.TOPIC_EVICT,
+            PatchouliLocalRoutes.TOPIC_DELETE,
             scope.workspace_identity,
             topic_id,
         )
@@ -101,7 +101,7 @@ class TopicManagementService:
         new_topic_title: str | None = None,
         new_topic_summary: str | None = None,
     ) -> str:
-        """确认或建立目标话题（必要时先按 LRU 驱逐），返回真实话题标识。
+        """确认或建立目标话题（建新话题时池满，先让最久没用的话题退役），返回真实话题标识。
 
         ``target_topic_id`` 为已有话题时确认它存在并刷新驻留；为 ``NEW_TOPIC``
         时以给出的标题与摘要建立新话题。归属取 scope 的 Workspace。

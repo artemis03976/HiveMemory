@@ -65,7 +65,7 @@ DEFAULTS = GenerationTranscriptConfig()
 def test_assistant_text_is_interleaved_between_actions_in_order():
     """助手正文与动作按出现顺序穿插，不再把全部动作排在回复之前。
 
-    带响应序号的轮次同样不印段标签：token 估算与接力摘要使用这里的渲染，段标签只出现在
+    带响应序号的轮次同样不印段标签：token 估算与折叠摘要使用这里的渲染，段标签只出现在
     送给生成模型的材料中。
     """
     events = _turn(

@@ -1,4 +1,4 @@
-"""记忆生成的来源 Artifact：结算时的交互原文与话题附件的文档快照。
+"""记忆生成的来源 Artifact：沉淀时的交互原文与话题附件的文档快照。
 
 两者都在生成任务里写下，但写的是交互与文档 Artifact，不写记忆；记忆的唯一写入者仍是
 ``MemoryGenerationFamiliar``。
@@ -44,21 +44,21 @@ class SourceArtifactRecorder:
         belong_to: WorkspaceIdentity,
     ) -> ArtifactRef | None:
         """
-        构建原始交互 artifact：结算时覆盖话题的全部轮次与折叠记录。
+        构建原始交互 artifact：沉淀时覆盖话题的全部轮次与折叠记录。
 
         在生成之前捕获，失败只记录 warning、生成照常进行；提取失败、没有产出
         或结果为 TOUCH 时，原文仍保存在 Artifact 中，只是没有记忆引用它。
         """
         if interaction_input is None:
             return None
-        if not interaction_input.blocks:
+        if not interaction_input.interactions:
             return None
         try:
             return await self._artifact_engine.interaction.build_and_store(
                 topic_id=interaction_input.topic_id,
                 topic_title=interaction_input.topic_title,
                 topic_summary=interaction_input.topic_summary,
-                blocks=interaction_input.blocks,
+                blocks=interaction_input.interactions,
                 folds=interaction_input.folds,
                 belong_to=belong_to,
             )

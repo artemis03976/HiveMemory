@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/components/observability.md
-last_reviewed: 2026-11-24
+last_reviewed: 2026-11-26
 ---
 
 # 全局运行页
@@ -43,7 +43,7 @@ last_reviewed: 2026-11-24
 | 话题 | 不在运行内的单条 `topic.*`；话题折叠的 work | `话题沉淀 · {原因}`、`话题沉淀并退役 · {原因}`、`话题退役（没有新内容） · {原因}`（按 `topic.settled` 的 `retired` 与 `generation_submitted`；没有 `retired` 的旧事件仍为 `话题结算 · {原因}`）、`话题建立`、`话题删除`、`话题折叠` | 自身 |
 | 系统 | 相邻的 `system.*` 及其间的 `subsystem.operation.*`；挂不上的 work | `系统启动`、`系统关闭`、`队列任务 · {lane}` | `ready`、`start_failed`、`stopped`、`stop_failed`；work 的终态 |
 
-- **work 的挂接**：`work.*` 不单独归组。work id 为 `memory_generation:{task_id}` 的挂到同一 task 的生成运行；`interaction:{interaction_id}` 的挂到交互标识相同的导入（`data.interaction_id`），或进程标识相同的对话（对话的交互标识就是进程标识）；`topic_compaction:` 开头的各自合成一次话题折叠。挂不上的（例如它所属的运行已超出缓冲）自成一次系统运行，状态取 work 的终态。work id 的前缀改变时挂接失效，运行退化为单独显示，不会出错。
+- **work 的挂接**：`work.*` 不单独归组。work id 为 `memory_generation:{task_id}` 的挂到同一 task 的生成运行；`interaction:{interaction_id}` 的挂到交互标识相同的导入（`data.interaction_id`），或进程标识相同的对话（对话的交互标识就是进程标识）；`topic_fold:` 开头的（交互提交队列的折叠维护项）各自合成一次话题折叠；写进展记录的 `topic_progress_entry:` 不归组，按下文自成一次系统运行。挂不上的（例如它所属的运行已超出缓冲）自成一次系统运行，状态取 work 的终态。work id 的前缀改变时挂接失效，运行退化为单独显示，不会出错。
 - **状态**：有终态事件时取终态；没有终态时为"进行中"，开始超过 10 分钟仍没有终态的显示为"未见终态"。不属于任何运行的单条事件是一次瞬时观测，没有进行中可言，显示为完成。页面每 15 秒按当前时间重算一次，进行中的耗时与未见终态随之更新。
 - **耗时**：多条事件的运行取首尾事件的间隔，与终态事件自带的 `duration_ms` 取较大者；只有一条事件的运行只取它自带的 `duration_ms`，没有时显示"—"。
 - **关联**：运行中出现的 `topic_id`（包括 Gateway 终态事件 `data.topic_id` 中路由到的话题）列为关联话题。生成任务事件沿用提交者的 trace，因此一次 MCP 写入或对话与它提交的生成运行互相链接：详情中显示"来自"与"生成任务"。

@@ -186,7 +186,7 @@ def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_inter
                 topic_id=topic_id,
                 topic_title="Test Topic",
                 topic_summary="Test Summary",
-                blocks=(make_logical_block("q", "a"),),
+                interactions=(make_logical_block("q", "a"),),
             )
             if include_interaction_input
             else None
@@ -266,7 +266,9 @@ class TestMemoryGenerationFamiliarExecute:
             source=MemoryGenerationSource.SETTLE,
             intent_id=None,
             pending_alias=None,
-            interaction_input=InteractionArtifactInput(topic_id="t1", blocks=blocks, folds=(fold,)),
+            interaction_input=InteractionArtifactInput(
+                topic_id="t1", interactions=blocks, folds=(fold,)
+            ),
         )
 
         gen_engine = Mock()

@@ -1,10 +1,7 @@
-"""
-HiveMemory Token 溢出接力控制器 / Page Folding 摘要生成器
+"""折叠摘要的写作者：话题折叠时，为被折叠的那部分交互写一段摘要。
 
-无状态服务，职责：
-    - 检测即将溢出的 Buffer (should_relay)
-    - 为 Page Folding 生成 fold_summary (generate_summary)
-    - 生成中间态摘要以维持跨 Block 的上下文连贯性
+折叠摘要接在上一次的折叠摘要之后，已经折叠的历史因此不会丢失；它是话题工作视图的开头，
+后面跟着没有折叠的交互。写作者无状态，不读写话题：由感知服务在持有话题的 lease 时调用。
 """
 
 import asyncio
@@ -12,25 +9,24 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from hivememory.config.patchouli import (
+    GenerationTranscriptConfig,
+    LLMSummaryWriterConfig,
+    SimpleSummaryWriterConfig,
+)
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import LogicalBlock
 from hivememory.engines.perception.material import render_turn_text
-from hivememory.i18n import get_relay_prompt_text
+from hivememory.i18n import get_fold_summary_prompt_text
 
 if TYPE_CHECKING:
-    from hivememory.config.patchouli import GenerationTranscriptConfig, RelayControllerConfig
     from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 logger = logging.getLogger(__name__)
 
 
-class BaseRelayController(ABC):
-    """Token 溢出接力控制器基类。
-
-    无状态服务，职责：为 Page Folding 生成 ``fold_summary``
-    （``generate_summary``）。由 PerceptionFamiliar 在 lease 持有期间调用，
-    不感知 Store 与话题生命周期。
-    """
+class FoldSummaryWriter(ABC):
+    """折叠摘要写作者的基类：以被折叠的交互与上一次的折叠摘要写出新的折叠摘要。"""
 
     @abstractmethod
     async def generate_summary(
@@ -41,9 +37,9 @@ class BaseRelayController(ABC):
         """生成摘要（抽象方法）"""
 
 
-class SimpleRelayController(BaseRelayController):
+class RuleFoldSummaryWriter(FoldSummaryWriter):
     """
-    简单接力控制器（基于规则的摘要生成）
+    按规则写折叠摘要，不调用模型
 
     使用统计信息生成摘要：
         - 用户请求数量
@@ -124,9 +120,9 @@ class SimpleRelayController(BaseRelayController):
         return "；".join(summary_parts)
 
 
-class LLMRelayController(BaseRelayController):
+class LLMFoldSummaryWriter(FoldSummaryWriter):
     """
-    LLM 接力控制器（基于 LLM 的智能摘要生成）
+    用模型写折叠摘要
 
     使用 LLM 生成更智能、更语义化的摘要；没有可用 LLM、提供商失败或摘要调用
     超时时回退为简单摘要，程序错误与取消不降级。回退的简单摘要接在上一次摘要
@@ -143,7 +139,7 @@ class LLMRelayController(BaseRelayController):
         transcript_config: "GenerationTranscriptConfig",
     ):
         """
-        初始化 LLM 接力控制器
+        初始化用模型写折叠摘要的写作者
 
         Args:
             summary_llm: 用于生成摘要的 LLM 服务（可选）
@@ -180,7 +176,7 @@ class LLMRelayController(BaseRelayController):
     def _build_recent_events(self, blocks: list[LogicalBlock]) -> str:
         """构建 recent_events 文本：各块与记忆生成视图相同的材料，块之间空一行。
 
-        被折叠的块在结算前只以摘要存在，近期事件因此保留思考与外部工具过程，
+        被折叠的块在沉淀前只以摘要存在，近期事件因此保留思考与外部工具过程，
         不只有问答。
         """
         return "\n\n".join(
@@ -203,20 +199,22 @@ class LLMRelayController(BaseRelayController):
         # 无 LLM 服务时的回退
         if self.summary_llm is None or self._llm_params is None:
             logger.warning("summary_llm 未配置，回退到简单摘要")
-            return await SimpleRelayController().generate_summary(blocks, previous_summary)
+            return await RuleFoldSummaryWriter().generate_summary(blocks, previous_summary)
 
         # 构建近期事件文本
         recent_events = self._build_recent_events(blocks)
 
         # 构建用户提示词
-        previous_summary_text = previous_summary or get_relay_prompt_text("previous_summary_empty")
-        user_prompt = get_relay_prompt_text("user_prompt").format(
+        previous_summary_text = previous_summary or get_fold_summary_prompt_text(
+            "previous_summary_empty"
+        )
+        user_prompt = get_fold_summary_prompt_text("user_prompt").format(
             previous_summary=previous_summary_text,
             recent_events=recent_events,
         )
 
         # 获取系统提示词（默认回退到全局 i18n 兜底文案）
-        system_prompt = get_relay_prompt_text("system_prompt")
+        system_prompt = get_fold_summary_prompt_text("system_prompt")
 
         # 调用 LLM；只有提供商失败与调用超时回退为简单摘要
         messages = [
@@ -229,87 +227,59 @@ class LLMRelayController(BaseRelayController):
         except (TimeoutError, ModelProviderError) as error:
             # TimeoutError 来自上面的时限：超过 summary_timeout_seconds 未返回。
             logger.warning("LLM 摘要生成失败，回退到简单摘要: %r", error)
-            return await SimpleRelayController().generate_summary(blocks, previous_summary)
+            return await RuleFoldSummaryWriter().generate_summary(blocks, previous_summary)
 
         summary = completion.text
         logger.debug("LLM 摘要生成成功，长度: %s 字符", len(summary))
         return summary
 
 
-class NoOpRelayController(BaseRelayController):
-    """RelayController 的禁用实现。"""
-
-    async def generate_summary(
-        self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
-    ) -> str:
-        return previous_summary or ""
-
-
 # ========== 工厂函数 ==========
 
 
-def create_relay_controller(
-    config: "RelayControllerConfig",
+def create_fold_summary_writer(
+    config: SimpleSummaryWriterConfig | LLMSummaryWriterConfig,
     llm_service: "BaseLLMService | None" = None,
     llm_params: "LLMRequestParams | None" = None,
     *,
-    transcript_config: "GenerationTranscriptConfig",
-) -> BaseRelayController:
+    transcript_config: GenerationTranscriptConfig,
+) -> FoldSummaryWriter:
     """
-    创建 RelayController 实例（工厂函数）
-
-    根据配置类型自动实例化对应的控制器实现。
+    按配置创建折叠摘要的写作者
 
     Args:
-        config: RelayControllerConfig 配置对象
-        llm_service: LLM 服务（可选，用于 LLMRelayController）
-        llm_params: 摘要调用的请求参数（可选，用于 LLMRelayController）
-        transcript_config: 记忆生成视图的工具结果上限，LLM 接力按同一个上限渲染近期事件
+        config: 折叠摘要写作者的配置（``simple`` 或 ``llm``）
+        llm_service: LLM 服务（可选，用于 LLMFoldSummaryWriter）
+        llm_params: 摘要调用的请求参数（可选，用于 LLMFoldSummaryWriter）
+        transcript_config: 记忆生成视图的工具结果上限，用模型写摘要时按同一个上限渲染近期事件
 
     Returns:
-        BaseRelayController 实例
+        FoldSummaryWriter 实例
 
     Examples:
         >>> from hivememory.config.patchouli import (
         ...     GenerationTranscriptConfig,
-        ...     RelayControllerConfig,
-        ...     SimpleRelayConfig,
+        ...     SimpleSummaryWriterConfig,
         ... )
-        >>> config = RelayControllerConfig(engine=SimpleRelayConfig())
-        >>> controller = create_relay_controller(
-        ...     config, transcript_config=GenerationTranscriptConfig()
+        >>> writer = create_fold_summary_writer(
+        ...     SimpleSummaryWriterConfig(), transcript_config=GenerationTranscriptConfig()
         ... )
-        >>> isinstance(controller, SimpleRelayController)
+        >>> isinstance(writer, RuleFoldSummaryWriter)
         True
     """
-    from hivememory.config.patchouli import (
-        LLMRelayConfig,
-        SimpleRelayConfig,
-    )
-
-    if not config.enable:
-        return NoOpRelayController()
-
-    impl_config = config.engine
-
-    if isinstance(impl_config, SimpleRelayConfig):
-        return SimpleRelayController()
-
-    elif isinstance(impl_config, LLMRelayConfig):
-        return LLMRelayController(
+    if isinstance(config, LLMSummaryWriterConfig):
+        return LLMFoldSummaryWriter(
             summary_llm=llm_service,
             llm_params=llm_params,
-            summary_timeout_seconds=impl_config.summary_timeout_seconds,
+            summary_timeout_seconds=config.summary_timeout_seconds,
             transcript_config=transcript_config,
         )
-
-    raise ValueError(f"未知的 RelayController 配置类型: {type(impl_config)}")
+    return RuleFoldSummaryWriter()
 
 
 __all__ = [
-    "BaseRelayController",
-    "NoOpRelayController",
-    "SimpleRelayController",
-    "LLMRelayController",
-    "create_relay_controller",
+    "FoldSummaryWriter",
+    "RuleFoldSummaryWriter",
+    "LLMFoldSummaryWriter",
+    "create_fold_summary_writer",
 ]

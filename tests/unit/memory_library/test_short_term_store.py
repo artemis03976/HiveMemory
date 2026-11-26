@@ -69,7 +69,7 @@ def test_replaying_the_log_restores_what_was_written(tmp_path):
     )
     store.append_interaction(_MAIN, topic.topic_id, block=second)
     store.append_fold(_MAIN, topic.topic_id, folded=[first], summary="s1")
-    store.append_settled(_MAIN, topic.topic_id, interaction_count=2)
+    store.append_settled(_MAIN, topic.topic_id, settled_until=2)
     store.append_generated_memories(
         _MAIN, topic.topic_id, generated=frozenset({"m1"}), absorbed_into={"x": "y"}
     )
@@ -82,7 +82,8 @@ def test_replaying_the_log_restores_what_was_written(tmp_path):
     loaded = reloaded.load()
 
     assert sorted(loaded.topics, key=lambda topic: topic.topic_id) == sorted(
-        store.list_all(), key=lambda topic: topic.topic_id
+        [*store.list_by_workspace(_MAIN), *store.list_by_workspace(_OTHER)],
+        key=lambda topic: topic.topic_id,
     )
     assert reloaded.get(_MAIN, topic.topic_id) == store.get(_MAIN, topic.topic_id)
     assert [entry.text for entry in reloaded.get(_MAIN, topic.topic_id).progress_record] == ["e1"]
@@ -141,7 +142,7 @@ def test_retired_topic_keeps_writes_and_settlement_until_its_log_is_deleted(tmp_
     store.append_generated_memories(
         _MAIN, topic.topic_id, generated=frozenset({"m1"}), absorbed_into={}
     )
-    settled = store.append_settled(_MAIN, topic.topic_id, interaction_count=1)
+    settled = store.append_settled(_MAIN, topic.topic_id, settled_until=1)
     progress = store.append_progress_entry(
         _MAIN, topic.topic_id, text="e1", covered=topic.interactions, covered_until=2
     )
@@ -149,14 +150,14 @@ def test_retired_topic_keeps_writes_and_settlement_until_its_log_is_deleted(tmp_
 
     assert progress is None
     assert replayed.progress_record == ()
-    assert (store.get(_MAIN, topic.topic_id), store.list_all()) == (None, [])
+    assert (store.get(_MAIN, topic.topic_id), store.list_by_workspace(_MAIN)) == (None, [])
     assert store.get_generated_memories(_MAIN, topic.topic_id) == {"m1"}
     assert store.get_generated_memories(_OTHER, topic.topic_id) is None
     assert replayed == settled
-    assert (replayed.settled_interaction_count, replayed.topic_generated_memory_ids) == (1, {"m1"})
+    assert (replayed.settled_until, replayed.topic_generated_memory_ids) == (1, {"m1"})
     assert store.delete(_MAIN, topic.topic_id) is True
     assert store.get_generated_memories(_MAIN, topic.topic_id) is None
-    assert store.append_settled(_MAIN, topic.topic_id, interaction_count=2) is None
+    assert store.append_settled(_MAIN, topic.topic_id, settled_until=2) is None
     assert list((tmp_path / "topics").glob("*.jsonl")) == []
 
 
@@ -169,7 +170,7 @@ def test_load_sorts_logs_into_pool_retired_and_rejected(tmp_path):
     writer.retire(_MAIN, pending.topic_id, reason=TriggerReason.MANUAL_SETTLE)
     finished = _topic_with_interactions(writer, "finished")
     writer.retire(_MAIN, finished.topic_id, reason=TriggerReason.LRU_EVICTION)
-    writer.append_settled(_MAIN, finished.topic_id, interaction_count=1)
+    writer.append_settled(_MAIN, finished.topic_id, settled_until=1)
     broken = _topic_with_interactions(writer, "broken", "later")
     log_dir = tmp_path / "topics"
     broken_log = log_dir / f"{broken.topic_id}.jsonl"
@@ -183,7 +184,7 @@ def test_load_sorts_logs_into_pool_retired_and_rejected(tmp_path):
     assert [(topic.topic_id, record.reason) for topic, record in loaded.retired] == [
         (pending.topic_id, TriggerReason.MANUAL_SETTLE)
     ]
-    assert store.list_all() == [live]
+    assert store.list_by_workspace(_MAIN) == [live]
     (rejected,) = loaded.rejected_files
     assert Path(rejected).name.startswith(f"{broken.topic_id}.rejected-")
     assert Path(rejected).read_bytes().split(b"\n")[1] == b"{not json"

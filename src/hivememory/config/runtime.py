@@ -4,9 +4,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MaintenanceTasksConfig(BaseModel):
-    perception_idle_flush_interval_seconds: float = Field(default=30.0)
-    enable_perception_idle_flush: bool = Field(default=True)
-    # 检查话题是否停顿到该写一条进展记录；停顿阈值由感知配置决定。
+    # 检查话题是否停下到该沉淀；阈值是感知配置的 settle_after_seconds。
+    perception_settle_interval_seconds: float = Field(default=30.0)
+    enable_perception_settle: bool = Field(default=True)
+    # 检查话题是否停下到该写一条进展记录；阈值是感知配置的 progress_record_after_seconds。
     perception_progress_record_interval_seconds: float = Field(default=30.0)
     enable_perception_progress_record: bool = Field(default=True)
     lifecycle_gc_interval_hours: int = Field(default=24)

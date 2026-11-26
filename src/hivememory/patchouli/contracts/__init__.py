@@ -22,7 +22,7 @@ from hivememory.patchouli.contracts.memory_tasks import (
 )
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.contracts.topic_management import (
-    TopicEvictionResult,
+    TopicDeleteResult,
     TopicSettleResult,
 )
 
@@ -45,6 +45,6 @@ __all__ = [
     "PatchouliLocalEvents",
     "PatchouliLocalRoutes",
     "PatchouliRoutes",
-    "TopicEvictionResult",
+    "TopicDeleteResult",
     "TopicSettleResult",
 ]

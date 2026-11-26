@@ -81,7 +81,7 @@ Workspace 不会改变 route 的全局注册语义。身份声明经认证得到
 
 `GlobalMaintenanceScheduler` 继承纯 `asyncio` 的 `AsyncMaintenanceScheduler`。它由 System 装配，运行在当前主 event loop，不创建线程或隐藏 event loop。
 
-统一调度来自一次具体的运行时教训：旧链路曾由线程式 `BackgroundScheduler` 触发，再经 SystemBus 调用 `asyncio.run()` / `create_task()`。任务可能被挂到临时 event loop，而 `asyncio.run()` 返回时该 loop 随即关闭，后台协程的完成、异常和 shutdown 都失去可靠所有者。当前方案统一的是运行时钟、event loop 与启停生命周期，不是把 Patchouli perception idle flush、gardening 或 GC 合并成同一种业务语义。
+统一调度来自一次具体的运行时教训：旧链路曾由线程式 `BackgroundScheduler` 触发，再经 SystemBus 调用 `asyncio.run()` / `create_task()`。任务可能被挂到临时 event loop，而 `asyncio.run()` 返回时该 loop 随即关闭，后台协程的完成、异常和 shutdown 都失去可靠所有者。当前方案统一的是运行时钟、event loop 与启停生命周期，不是把 Patchouli 话题的沉淀扫描、gardening 或 GC 合并成同一种业务语义。
 
 因此 scheduler 由 System 持有并提供基础设施，Patchouli 等业务所有者只注册 callback。旧设计中“由 Patchouli 持有系统调度器”的阶段性安排已经被纠正：Patchouli 拥有维护行为，System 拥有全局调度生命周期。
 
@@ -104,7 +104,7 @@ jitter_seconds     -> 可选启动抖动
 
 当前 System 通过同一调度器承载：
 
-- Patchouli 注册的维护任务（perception idle flush、memory gardening 与 model idle unload）；
+- Patchouli 注册的维护任务（话题的沉淀扫描 `perception_settle` 与进展记录扫描 `perception_progress_record`、memory gardening 与 model idle unload）；
 - 其他已经实现的 subsystem maintenance callbacks。
 
 System 自身不注册维护任务：Import Bus 一次请求导入一轮完整记录，不在服务端累积待封口的轮次，因此没有需要定时冲刷的缓冲。
@@ -195,7 +195,7 @@ retry-wait 与有限终态记录均不可恢复，因此当前入口只能声称
 payload 可以不同，新提交以递增的尝试号区分工作项标识。为查重保留的旁路索引只存编码 payload 的摘要。
 `topic:{topic_id}` ordering key 只保证成功 apply 的 topic-local
 顺序，不代表执行时读取的 topic snapshot 或 Agent 因果顺序。应用写入话题后，话题需要折叠时由队列以同一 ordering key
-排入折叠项，交互的应用结果不等折叠；话题停顿时，停顿扫描同样经队列排入写一条进展记录。折叠与进展记录的语义见[感知与短期话题](../patchouli/perception.md#5-page-folding)第 5、7 节。
+排入折叠项，交互的应用结果不等折叠；话题停下够久时，进展记录扫描同样经队列排入写一条进展记录。折叠与进展记录的语义见[感知与短期话题](../patchouli/perception.md#5-折叠)第 5、7 节。
 
 提交路由在 admission 后等待 applied gate 到终态或调用方给出的时限，只有 work `SUCCEEDED` 才以成功结局交回：
 任务进程不设时限，成功后才以实际所在的话题写入会话并交付终态；Import Bus 以 `import_bus.apply_wait_seconds`

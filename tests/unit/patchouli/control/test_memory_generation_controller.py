@@ -74,7 +74,7 @@ def _spec(
     retires_topic=False,
     interactions=(),
 ):
-    """生成任务规范；话题结算与生产中一样带着冻结材料时话题的全部交互。"""
+    """生成任务规范；话题沉淀与生产中一样带着冻结材料时话题的全部交互。"""
     return MemoryGenerationTaskSpec(
         belong_to=make_memory_identity_scope().workspace_identity,
         from_actor=make_memory_identity_scope().actor_identity,
@@ -86,7 +86,7 @@ def _spec(
             context=GenerationContext(),
         ),
         interaction_input=(
-            InteractionArtifactInput(topic_id=topic_id, blocks=tuple(interactions))
+            InteractionArtifactInput(topic_id=topic_id, interactions=tuple(interactions))
             if source == MemoryGenerationSource.SETTLE
             else None
         ),
@@ -461,7 +461,7 @@ class TestMemoryGenerationTaskController:
         assert topics["topic_b"].topic_generated_memory_ids == {"other"}
 
     @pytest.mark.asyncio
-    async def test_idle_settlement_records_only_the_memories_it_created(self):
+    async def test_settle_scan_records_only_the_memories_it_created(self):
         """不退役的沉淀执行后只把这次新建的记忆记回话题；触碰与修订的是已有记忆，不是这个话题
         写下的，不记。同一话题的下一次沉淀读得到它们。"""
         replies = {
@@ -955,7 +955,7 @@ async def test_merge_failure_or_cancel_never_settles_original_intent(cancel):
 
 @pytest.mark.asyncio
 async def test_shutdown_saves_unexecuted_work_but_not_settlements(tmp_path):
-    """关闭时排队中的写入与合并写进保存文件，已开始写入的结算写完并记下进度；还没写入的结算
+    """关闭时排队中的写入与合并写进保存文件，已开始写入的沉淀写完并记下进度；还没写入的沉淀
     （在跑或排队）不保存、以关闭为原因取消，话题的进度停在上一次完成的位置。"""
     executed = []
     commit_gate = asyncio.Event()
@@ -1040,7 +1040,7 @@ async def test_shutdown_saves_unexecuted_work_but_not_settlements(tmp_path):
             merge.task_id: (cancelled, SHUTDOWN_PERSISTED_REASON),
             queued_settle.task_id: (cancelled, SHUTDOWN_DISCARDED_REASON),
         }
-        settled = {topic_id: topic.settled_interaction_count for topic_id, topic in topics.items()}
+        settled = {topic_id: topic.settled_until for topic_id, topic in topics.items()}
         assert settled == {"ta": 1, "tb": 0, "td": 0}
         # 保存的写入下次启动后还会结算，不发布写入意图的取消。
         bus.publish.assert_not_awaited()
@@ -1077,7 +1077,7 @@ async def test_settlement_reaching_a_terminal_state_records_its_progress(ending)
     finally:
         await controller.stop()
 
-    assert topics["t1"].settled_interaction_count == 2
+    assert topics["t1"].settled_until == 2
 
 
 @pytest.mark.asyncio
@@ -1129,7 +1129,7 @@ async def test_restore_sets_aside_unparseable_file_without_failing(tmp_path):
 
 @pytest.mark.asyncio
 async def test_settlement_saved_by_an_earlier_version_runs_with_only_its_frozen_record(tmp_path):
-    """升级前关闭时保存的结算照常读回执行：它的话题不在新的话题池里，执行时只用冻结材料时
+    """升级前关闭时保存的沉淀照常读回执行：它的话题不在新的话题池里，执行时只用冻结材料时
     本话题生成的记忆，完成时没有话题可记进度。"""
     path = tmp_path / "pending_generation.json"
     writer = MemoryGenerationTaskController(bus=Mock())

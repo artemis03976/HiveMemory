@@ -203,28 +203,28 @@ class InteractionSubmissionCodec:
 class TopicMaintenancePort(Protocol):
     """提交队列对话题维护的需要：判断话题是否需要折叠，执行一次折叠，写一条进展记录。"""
 
-    def needs_compact(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool: ...
+    def needs_fold(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool: ...
 
-    async def compact_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None: ...
+    async def fold_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None: ...
 
     async def write_progress_entry(self, belong_to: WorkspaceIdentity, topic_id: str) -> None: ...
 
 
 @dataclass(frozen=True)
 class TopicMaintenance:
-    """排在话题提交之间的一项话题维护：折叠工作视图的旧前缀（``compaction``），或写一条进展
+    """排在话题提交之间的一项话题维护：折叠工作视图的旧前缀（``fold``），或写一条进展
     记录（``progress_entry``）；执行期间挡住同一话题的后续提交。"""
 
     belong_to: WorkspaceIdentity
     topic_id: str
-    task: Literal["compaction", "progress_entry"]
+    task: Literal["fold", "progress_entry"]
 
     def __post_init__(self) -> None:
         if not isinstance(self.belong_to, WorkspaceIdentity):
             raise TypeError("belong_to must be a WorkspaceIdentity")
         _require_text(self.topic_id, field_name="topic_id")
-        if self.task not in ("compaction", "progress_entry"):
-            raise ValueError("task must be compaction or progress_entry")
+        if self.task not in ("fold", "progress_entry"):
+            raise ValueError("task must be fold or progress_entry")
 
 
 class TopicMaintenanceCodec:
@@ -357,7 +357,7 @@ class InteractionSubmissionHandler(
         """仅重试已明确分类、且可复用同一 interaction identity 的失败。
 
         维护项只在话题正被占用时重试（只有折叠取 lease）；其他失败结束这个维护项，话题保持
-        原样：下一次写入该话题时重新判断是否需要折叠，停顿扫描在话题有新交互后再写进展记录。
+        原样：下一次写入该话题时重新判断是否需要折叠，进展记录扫描在话题有新交互后再写。
         """
         if context.kind == TopicMaintenanceCodec.kind:
             if isinstance(error, TopicBusyError):
@@ -416,7 +416,7 @@ def _ended_without_success(state: WorkState) -> bool:
 class InteractionSubmissionQueue:
     """Patchouli 交互摄入 lane 的轻量业务队列。
 
-    提供 ``maintenance`` 时，交互应用后话题需要折叠就排入一个折叠项，停顿扫描经
+    提供 ``maintenance`` 时，交互应用后话题需要折叠就排入一个折叠项，进展记录扫描经
     :meth:`schedule_progress_entry` 排入写一条进展记录；不提供时只应用交互，不维护话题。
     同一话题同时至多一个未结束的维护项。交互应用的时限由 ``apply_timeout_seconds`` 施加，
     lane 的默认策略不设统一时限，维护的时限由各自的模型调用承担。
@@ -464,7 +464,7 @@ class InteractionSubmissionQueue:
             handler=InteractionSubmissionHandler(
                 apply_interaction,
                 apply_timeout_seconds=apply_timeout_seconds,
-                after_apply=self._schedule_compaction if maintenance is not None else None,
+                after_apply=self._schedule_fold if maintenance is not None else None,
                 run_maintenance=self._run_maintenance if maintenance is not None else None,
             ),
             policy=lane_policy,
@@ -497,11 +497,11 @@ class InteractionSubmissionQueue:
         """停止话题维护：不再排入维护项，排队中的直接结束，进行中的被取消。
 
         系统停止前调用，使排空队列时不再等待模型；折叠与写一条进展记录都在模型返回后才
-        写回，取消不改动话题，随后的结算带走话题的完整 blocks。
+        写回，取消不改动话题：话题停在最后一次写入的样子，下次启动从日志读回。
         """
         self._maintenance_closed.set()
 
-    async def _schedule_compaction(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
+    async def _schedule_fold(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """交互应用后话题需要折叠时排入一个折叠项。
 
         队列已满或已停止时放弃这一次，交互已经写入，下一次写入该话题时会重新判断。
@@ -509,16 +509,16 @@ class InteractionSubmissionQueue:
         port = self._maintenance
         if port is None or self._maintenance_closed.is_set():
             return
-        if not port.needs_compact(belong_to, topic_id):
+        if not port.needs_fold(belong_to, topic_id):
             return
         await self._schedule_maintenance(
-            TopicMaintenance(belong_to=belong_to, topic_id=topic_id, task="compaction")
+            TopicMaintenance(belong_to=belong_to, topic_id=topic_id, task="fold")
         )
 
     async def schedule_progress_entry(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
-        """为停顿的话题排入写一条进展记录；排入了返回真。
+        """为停下够久的话题排入写一条进展记录；排入了返回真。
 
-        话题已有未结束的维护项、维护已关闭或队列已满时返回假，停顿扫描下一轮再看。
+        话题已有未结束的维护项、维护已关闭或队列已满时返回假，进展记录扫描下一轮再看。
         """
         return await self._schedule_maintenance(
             TopicMaintenance(belong_to=belong_to, topic_id=topic_id, task="progress_entry")
@@ -537,7 +537,7 @@ class InteractionSubmissionQueue:
             await self._forget_finished_maintenance_locked()
             if key in self._maintenance_items:
                 return False
-            # 工作标识以 topic_compaction: 或 topic_progress_entry: 开头，运行页按前缀归组。
+            # 工作标识以 topic_fold: 或 topic_progress_entry: 开头，运行页按前缀归组。
             work_id = (
                 f"topic_{maintenance.task}:{maintenance.topic_id}"
                 f"#{next(self._maintenance_sequence)}"
@@ -578,9 +578,9 @@ class InteractionSubmissionQueue:
         port = self._maintenance
         if port is None or self._maintenance_closed.is_set():
             return
-        if maintenance.task == "compaction":
-            run = port.compact_topic(maintenance.belong_to, maintenance.topic_id)
-            failure_reason = "topic_compaction_failed"
+        if maintenance.task == "fold":
+            run = port.fold_topic(maintenance.belong_to, maintenance.topic_id)
+            failure_reason = "topic_fold_failed"
         else:
             run = port.write_progress_entry(maintenance.belong_to, maintenance.topic_id)
             failure_reason = "progress_record_failed"
@@ -596,7 +596,7 @@ class InteractionSubmissionQueue:
             return
         error = run_task.exception()
         if error is not None:
-            if isinstance(error, TopicBusyError):  # 话题正被结算等占用，由失败分类重试
+            if isinstance(error, TopicBusyError):  # 话题正被沉淀等占用，由失败分类重试
                 raise error
             logger.warning(
                 "话题维护失败，话题保持原样: reason=%s, topic_id=%s",
@@ -610,7 +610,7 @@ class InteractionSubmissionQueue:
         """规范化并接受一次 submission；重复 interaction_id 只返回原收据。
 
         已应用失败的交互允许以同一标识重新提交，载荷可以不同（例如提交指定的话题
-        已被驱逐，提交方重新路由后再交）：新的提交以递增的尝试号作为工作项
+        已被删除或退役，提交方重新路由后再交）：新的提交以递增的尝试号作为工作项
         标识入队。等待中与已成功的交互仍按原规则幂等，载荷不同时报冲突。
         """
         if not isinstance(submission, InteractionSubmission):
@@ -770,8 +770,8 @@ class InteractionSubmissionQueue:
     async def drain_all(self, *, timeout: float | None = 5.0) -> int:
         """等待已知交互与已排入的维护项进入终态，返回成功的交互数量。
 
-        系统停止时先关闭维护再排空，进行中的折叠在这里收尾并释放话题的 lease，
-        之后的结算不会遇到占用。
+        系统停止时先关闭维护再排空，进行中的维护在这里收尾并释放话题的 lease，
+        排空返回时没有维护项还占着话题。
         """
         entries = list(self._submissions.values())
         maintenance_ids = list(self._maintenance_items.values())

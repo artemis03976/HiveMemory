@@ -13,7 +13,7 @@ from hivememory.core.models import (
     TopicTurnExcerpt,
 )
 from hivememory.patchouli.contracts.topic_management import (
-    TopicEvictionResult,
+    TopicDeleteResult,
     TopicSettleResult,
 )
 
@@ -96,7 +96,7 @@ class ActiveTopicResponse(BaseModel):
     )
     last_update: float = Field(description="话题最近一次写入的 Unix 时间戳（秒）")
     has_unsettled_interactions: bool = Field(
-        description="话题是否有还没有沉淀为长期记忆的交互；没有时空闲不会再触发沉淀"
+        description="话题是否有还没有沉淀为长期记忆的交互；没有时话题停下也不会再触发沉淀"
     )
     progress_record: list[TopicProgressEntryResponse] = Field(
         description="话题的进展记录，按写下的顺序；还没有写过一条时为空"
@@ -144,7 +144,7 @@ class TopicSettleResponse(BaseModel):
 
     @classmethod
     def from_domain(cls, result: TopicSettleResult) -> TopicSettleResponse:
-        """从 Topic settle 业务结果构造 HTTP 投影。"""
+        """从沉淀并退役的业务结果构造 HTTP 投影。"""
 
         return cls(
             topic_id=result.topic_id,
@@ -154,14 +154,14 @@ class TopicSettleResponse(BaseModel):
 
 
 class TopicDeleteResponse(BaseModel):
-    """Topic delete/evict HTTP 响应。"""
+    """删除话题的 HTTP 响应。"""
 
     topic_id: str
     removed: bool
 
     @classmethod
-    def from_domain(cls, result: TopicEvictionResult) -> TopicDeleteResponse:
-        """从 Topic eviction 业务结果构造 HTTP 投影。"""
+    def from_domain(cls, result: TopicDeleteResult) -> TopicDeleteResponse:
+        """从删除话题的业务结果构造 HTTP 投影。"""
 
         return cls(topic_id=result.topic_id, removed=result.removed)
 

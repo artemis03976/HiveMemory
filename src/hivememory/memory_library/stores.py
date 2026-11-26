@@ -1,7 +1,7 @@
 """Storage facades for Patchouli memory layers.
 
 短期存储只暴露持久化事实：话题上每种事件一个写入方法，写入即在话题的日志末尾追加一条记录。
-Topic 状态转换、compact、settle、驱逐与路由策略不属于本模块；占用权（lease）由
+话题的折叠、沉淀、退役与路由策略不属于本模块；占用权（lease）由
 ``TopicWorkingSet`` 管理，编排由 Perception Familiar 承担。
 """
 
@@ -112,15 +112,6 @@ class ShortTermMemoryStore:
                 if topic.workspace_identity == belong_to and (include_empty or topic.has_content)
             ]
 
-    def list_all(self) -> list[TopicData]:
-        """列出全部 Workspace 池中的话题（进程级维护路径使用）。"""
-        with self._lock:
-            return list(self._topics.values())
-
-    def count(self, belong_to: WorkspaceIdentity) -> int:
-        """统计 Workspace 内池中的话题数量。"""
-        return len(self.list_by_workspace(belong_to))
-
     def get_generated_memories(
         self, belong_to: WorkspaceIdentity, topic_id: str
     ) -> frozenset[str] | None:
@@ -200,13 +191,13 @@ class ShortTermMemoryStore:
         return self._append(belong_to, topic_id, record, apply_fold)
 
     def append_settled(
-        self, belong_to: WorkspaceIdentity, topic_id: str, *, interaction_count: int
+        self, belong_to: WorkspaceIdentity, topic_id: str, *, settled_until: int
     ) -> TopicData | None:
-        """记下一次沉淀完成、覆盖到第几个交互。
+        """记下一次沉淀完成、覆盖到第几个交互；话题的 ``settled_until`` 只往前推进。
 
         退役话题的日志在最后一次沉淀完成之前还在，这次写入同样记到它的日志上。
         """
-        record = TopicSettledRecord(at=_now(), interaction_count=interaction_count)
+        record = TopicSettledRecord(at=_now(), interaction_count=settled_until)
         return self._append(belong_to, topic_id, record, apply_settled, include_retired=True)
 
     def append_generated_memories(

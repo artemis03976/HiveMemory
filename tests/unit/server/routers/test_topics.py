@@ -18,7 +18,7 @@ from hivememory.core.models import (
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.contracts.topic_management import (
-    TopicEvictionResult,
+    TopicDeleteResult,
     TopicSettleResult,
 )
 from hivememory.server.error_handlers import install_error_handlers
@@ -30,7 +30,7 @@ from tests.helpers.workspace import (
 )
 
 
-def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=None):
+def _create_test_app(librarian_core, *, settle_and_retire_topic=None, delete_topic=None):
     app = FastAPI()
     install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
@@ -40,10 +40,10 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
     bus = GlobalSystemBus()
     management = _TopicManagementStub(librarian_core)
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, management.list_active_topics)
-    if manual_settle_topic is not None:
-        bus.register(PatchouliRoutes.MANUAL_SETTLE_TOPIC, manual_settle_topic)
-    if evict_topic is not None:
-        bus.register(PatchouliRoutes.EVICT_TOPIC, evict_topic)
+    if settle_and_retire_topic is not None:
+        bus.register(PatchouliRoutes.SETTLE_AND_RETIRE_TOPIC, settle_and_retire_topic)
+    if delete_topic is not None:
+        bus.register(PatchouliRoutes.DELETE_TOPIC, delete_topic)
     # Topic 管理读取与生命周期变更执行 root 授权；服务与访问依赖共享
     # 同一组合的认证网关与操作授权者，工作 actor 才能通过准入与 root 身份校验。
     overrides, composition = make_server_access_overrides()
@@ -161,7 +161,7 @@ class TestTopicsRouter:
                 generation_task_id="task-1",
             )
 
-        app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_result)
+        app = _create_test_app(librarian_core, settle_and_retire_topic=manual_settle_result)
         client = TestClient(app)
 
         response = client.post("/api/v1/topics/t1/settle")
@@ -175,12 +175,12 @@ class TestTopicsRouter:
         """settle 成功不依赖是否存在 generation task。"""
         librarian_core = MagicMock()
 
-        async def manual_settle_topic(*, identity_scope, topic_id):
+        async def settle_and_retire_topic(*, identity_scope, topic_id):
             return TopicSettleResult(
                 topic_id=topic_id,
             )
 
-        app = _create_test_app(librarian_core, manual_settle_topic=manual_settle_topic)
+        app = _create_test_app(librarian_core, settle_and_retire_topic=settle_and_retire_topic)
         client = TestClient(app)
 
         response = client.post("/api/v1/topics/t1/settle")
@@ -199,7 +199,7 @@ class TestTopicsRouter:
 
         app = _create_test_app(
             librarian_core,
-            manual_settle_topic=reject_settlement,
+            settle_and_retire_topic=reject_settlement,
         )
         client = TestClient(app)
 
@@ -208,7 +208,7 @@ class TestTopicsRouter:
         assert response.status_code == 503
         assert response.json() == {
             "error": "patchouli.topic.settle_rejected",
-            "detail": "结算材料暂未被生成队列接纳，话题内容已保留，可重试",
+            "detail": "沉淀材料暂未被生成队列接纳，话题内容已保留，可重试",
         }
 
     def test_settle_topic_missing_returns_not_found(self):
@@ -220,7 +220,7 @@ class TestTopicsRouter:
 
         app = _create_test_app(
             librarian_core,
-            manual_settle_topic=reject_missing_topic,
+            settle_and_retire_topic=reject_missing_topic,
         )
         client = TestClient(app)
 
@@ -238,7 +238,7 @@ class TestTopicsRouter:
         async def broken_settlement(*, identity_scope, topic_id):
             raise KeyError("internal state missing")
 
-        app = _create_test_app(MagicMock(), manual_settle_topic=broken_settlement)
+        app = _create_test_app(MagicMock(), settle_and_retire_topic=broken_settlement)
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.post("/api/v1/topics/t1/settle")
@@ -246,7 +246,7 @@ class TestTopicsRouter:
         assert response.status_code == 500
 
     def test_settle_topic_busy_returns_conflict(self):
-        """手动结算与其他 Topic 写入冲突时应提供可重试的 HTTP 409。"""
+        """手动沉淀并退役与其他 Topic 写入冲突时应提供可重试的 HTTP 409。"""
         librarian_core = MagicMock()
 
         async def reject_busy_topic(*, identity_scope, topic_id):
@@ -254,7 +254,7 @@ class TestTopicsRouter:
 
         app = _create_test_app(
             librarian_core,
-            manual_settle_topic=reject_busy_topic,
+            settle_and_retire_topic=reject_busy_topic,
         )
         client = TestClient(app, raise_server_exceptions=False)
 
@@ -268,9 +268,9 @@ class TestTopicsRouter:
 
     def test_delete_topic(self):
         librarian_core = MagicMock()
-        evict_topic = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
+        delete_topic = AsyncMock(return_value=TopicDeleteResult(topic_id="t1", removed=True))
 
-        app = _create_test_app(librarian_core, evict_topic=evict_topic)
+        app = _create_test_app(librarian_core, delete_topic=delete_topic)
         client = TestClient(app)
 
         response = client.delete("/api/v1/topics/t1")
@@ -279,9 +279,9 @@ class TestTopicsRouter:
 
     def test_delete_topic_missing(self):
         librarian_core = MagicMock()
-        evict_topic = AsyncMock(return_value=TopicEvictionResult(topic_id="missing", removed=False))
+        delete_topic = AsyncMock(return_value=TopicDeleteResult(topic_id="missing", removed=False))
 
-        app = _create_test_app(librarian_core, evict_topic=evict_topic)
+        app = _create_test_app(librarian_core, delete_topic=delete_topic)
         client = TestClient(app)
 
         response = client.delete("/api/v1/topics/missing")
@@ -295,7 +295,7 @@ class TestTopicsRouter:
         async def reject_busy_topic(*, identity_scope, topic_id):
             raise TopicBusyError(f"topic '{topic_id}' 正忙")
 
-        app = _create_test_app(librarian_core, evict_topic=reject_busy_topic)
+        app = _create_test_app(librarian_core, delete_topic=reject_busy_topic)
         client = TestClient(app, raise_server_exceptions=False)
 
         response = client.delete("/api/v1/topics/t1")

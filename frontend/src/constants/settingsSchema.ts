@@ -53,7 +53,7 @@ export const COMMON_SECTIONS: SettingSectionDef[] = [
       { path: 'patchouli.retrieval.retriever.top_k', label: '检索条数上限', description: '每次检索最多返回几条记忆，至少为 1', kind: 'number', unit: '条', min: 1, step: 1 },
       { path: 'patchouli.generation.extractor.enabled', label: '自动从对话中提取记忆', description: '话题结算时，从对话里提炼出长期记忆', kind: 'switch' },
       { path: 'patchouli.generation.settle_mode', label: '话题结算时的生成方式', description: '一次性生成更快，但写之前看不到本话题生成的记忆与库，可能留下较多重复；馆长探索先查看本话题生成的记忆与库中相关记忆再写，更慢，模型调用次数是一次性生成的数倍', kind: 'select', options: [{ label: '一次性生成', value: 'one_shot' }, { label: '馆长探索', value: 'librarian' }] },
-      { path: 'patchouli.perception.idle_timeout_seconds', label: '对话停多久后沉淀话题', description: '超过这段时间没有新消息，话题中的新内容沉淀为长期记忆，话题仍留在话题池', kind: 'number', unit: '分钟', scale: 1 / 60, min: 1, step: 1 },
+      { path: 'patchouli.perception.settle_after_seconds', label: '话题停下多久后沉淀', description: '话题停下超过这段时间，其中的新内容沉淀为长期记忆，话题仍留在话题池', kind: 'number', unit: '分钟', scale: 1 / 60, min: 1, step: 1 },
     ],
   },
   {
@@ -131,7 +131,7 @@ export const ADVANCED_SECTIONS: SettingSectionDef[] = [
     persona: '帕秋莉',
     description: '驻留、遗忘与归档',
     fields: [
-      { path: 'patchouli.perception.engine.max_resident_topics', label: '同时驻留的话题数', description: '超过时最久没用的话题先沉淀再退出话题池', kind: 'number', min: 1, step: 1 },
+      { path: 'patchouli.perception.max_resident_topics', label: '同时驻留的话题数', description: '超过时最久没用的话题先沉淀再退出话题池', kind: 'number', min: 1, step: 1 },
       { path: 'patchouli.lifecycle.vitality_calculator.decay_lambda', label: '遗忘速度', description: '越大，长期不用的记忆生命力下降越快', kind: 'number', step: 0.001, min: 0 },
       { path: 'patchouli.lifecycle.garbage_collector.low_watermark', label: '低于多少生命力时归档', description: '自动归档的阈值', kind: 'number', min: 0, step: 1 },
       { path: 'scheduler.tasks.enable_lifecycle_gc', label: '自动归档', description: '按周期扫描并归档低生命力的记忆', kind: 'switch' },

@@ -42,7 +42,7 @@ from hivememory.components.work_queue import (
     QueuePolicy,
     WorkQueueShutdownSummary,
 )
-from hivememory.config.patchouli import LLMRelayConfig, PatchouliConfig
+from hivememory.config.patchouli import LLMSummaryWriterConfig, PatchouliConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.infrastructure.model_service import ModelLoadState
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -134,7 +134,7 @@ class PatchouliRuntime:
         self._shared_config = shared_config
         self._runtime_events = runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
         # Librarian LLM：共享服务与组件请求参数由组合根注入；缺少任一项时
-        # 记忆抽取以 No-Op 运行，Page Folding 回退为简单摘要。
+        # 记忆抽取以 No-Op 运行，折叠摘要回退为按规则写的摘要。
         self._llm_service = llm_service
         self._llm_params = llm_params
         # 进程级唯一 WorkspaceAssetStore 的只读 reader：供记忆生成
@@ -549,57 +549,36 @@ class PatchouliRuntime:
     def _build_perception_engine(self):
         """[私有构建器] 组装 Perception 纯算法引擎
 
-        Engine 不持有 Store / Queue 等运行时状态；编排依赖
-        （Relay、WorkingSet、Store）由 PerceptionFamiliar 持有。
-        感知关闭（``engine.enable=False``）时返回 ``None``，Familiar 以
-        no-op 模式运行（继承原 ``NullPerceptionLayer`` 语义）。
+        Engine 不持有 Store / Queue 等运行时状态；编排依赖（折叠摘要与进展记录的写作者、
+        WorkingSet、Store）由 PerceptionFamiliar 持有。
         """
-        from hivememory.engines.perception import (
-            MemoryPerceptionEngine,
-            ProgressRecordWriter,
-            create_relay_controller,
-        )
+        from hivememory.engines.perception import MemoryPerceptionEngine
 
-        impl_config = self._patchouli_config.perception.engine
-        if not impl_config.enable:
-            return None
-
-        relay_config = (
-            getattr(self._patchouli_config.perception, "relay", None) or impl_config.relay
-        )
-        relay_controller = create_relay_controller(
-            config=relay_config,
-            llm_service=self._llm_service,
-            llm_params=self._llm_params,
-            transcript_config=self._patchouli_config.generation.transcript,
-        )
-        # 进展记录与 LLM 接力用同一个模型与时限；接力不用 LLM、或没有配置模型时不写进展记录。
-        progress_writer = None
-        if (
-            isinstance(relay_config.engine, LLMRelayConfig)
-            and self._llm_service is not None
-            and self._llm_params is not None
-        ):
-            progress_writer = ProgressRecordWriter(
-                self._llm_service,
-                self._llm_params,
-                timeout_seconds=relay_config.engine.summary_timeout_seconds,
-                transcript_config=self._patchouli_config.generation.transcript,
-            )
         return MemoryPerceptionEngine(
-            config=impl_config,
-            relay_controller=relay_controller,
+            config=self._patchouli_config.perception.engine,
             transcript_config=self._patchouli_config.generation.transcript,
-            progress_writer=progress_writer,
         )
 
-    def _build_perception_orchestration(self):
-        """[私有构建器] 组装 Perception 的编排依赖：驻留工作集"""
-        from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+    def _build_progress_record_writer(self):
+        """[私有构建器] 写进展记录的写作者；折叠摘要不用模型、或没有配置模型时为 None。
 
-        impl_config = self._patchouli_config.perception.engine
-        working_set = TopicWorkingSet(max_resident=impl_config.max_resident_topics)
-        return working_set
+        进展记录与用模型写的折叠摘要用同一个模型与时限。
+        """
+        from hivememory.engines.perception import ProgressRecordWriter
+
+        summary_writer = self._patchouli_config.perception.engine.summary_writer
+        if (
+            not isinstance(summary_writer, LLMSummaryWriterConfig)
+            or self._llm_service is None
+            or self._llm_params is None
+        ):
+            return None
+        return ProgressRecordWriter(
+            self._llm_service,
+            self._llm_params,
+            timeout_seconds=summary_writer.summary_timeout_seconds,
+            transcript_config=self._patchouli_config.generation.transcript,
+        )
 
     def _build_generation_engine(self):
         """[私有构建器] 组装 Generation 引擎"""
@@ -629,7 +608,7 @@ class PatchouliRuntime:
             deduplicator=deduplicator,
             # alias 唯一性第一层：生成侧以中期库为占用查询端口。
             alias_generator=AliasGenerator(self.memory_library.mid_term),
-            # 话题结算选馆长时才装配；否则结算走一次性生成。
+            # 话题沉淀选馆长时才装配；否则沉淀走一次性生成。
             librarian=create_librarian(
                 config,
                 mid_term=self.memory_library.mid_term,
@@ -713,6 +692,7 @@ class PatchouliRuntime:
         当前注册：perception、retrieval、generation、generation_coordinator、lifecycle。
         MemoryGenerationTaskController 通过 local bus 请求生成执行，不再注入馆长本体。
         """
+        from hivememory.engines.perception import create_fold_summary_writer
         from hivememory.patchouli.control.memory_generation import (
             MemoryGenerationCoordinator,
             MemoryGenerationTaskController,
@@ -721,6 +701,7 @@ class PatchouliRuntime:
         from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
         from hivememory.patchouli.services.perception import PerceptionFamiliar
         from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+        from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 
         self._services["retrieval"] = RetrievalFamiliar(
             engine=self._engines["retrieval"],
@@ -758,13 +739,20 @@ class PatchouliRuntime:
             ),
         )
 
-        working_set = self._build_perception_orchestration()
+        perception_config = self._patchouli_config.perception
         self._services["perception"] = PerceptionFamiliar(
             engine=self._engines["perception"],
+            fold_summary_writer=create_fold_summary_writer(
+                perception_config.engine.summary_writer,
+                self._llm_service,
+                self._llm_params,
+                transcript_config=self._patchouli_config.generation.transcript,
+            ),
+            progress_writer=self._build_progress_record_writer(),
             store=self.memory_library.short_term,
-            working_set=working_set,
+            working_set=TopicWorkingSet(max_resident=perception_config.max_resident_topics),
             bus=self._local_bus,
-            config=self._patchouli_config.perception,
+            config=perception_config,
             runtime_events=self._runtime_events,
         )
 

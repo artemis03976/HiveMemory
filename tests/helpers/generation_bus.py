@@ -1,15 +1,16 @@
 """记忆生成控制器测试使用的 Patchouli 本地总线替身与话题路由。
 
-控制器执行写入与结算时经 ``topic.get_generated_memories`` 读取本话题生成的记忆，执行之后经
-``topic.record_generated_memories`` 记回话题；结算到达终态时经 ``topic.record_settled`` 让话题记下进度。
+控制器执行写入与沉淀时经 ``topic.get_generated_memories`` 读取本话题生成的记忆，执行之后经
+``topic.record_generated_memories`` 记回话题；沉淀到达终态时经 ``topic.record_settled`` 让话题记下进度。
 """
 
 from collections.abc import Awaitable, Callable
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
-from hivememory.config.patchouli import MemoryPerceptionConfig
+from hivememory.config.patchouli import MemoryPerceptionConfig, PerceptionEngineConfig
 from hivememory.core.models import TopicData, WorkspaceIdentity
+from hivememory.engines.perception import MemoryPerceptionEngine, RuleFoldSummaryWriter
 from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.memory_library.topic_log import (
     TopicGeneratedMemoriesRecord,
@@ -58,7 +59,7 @@ def make_generation_bus(
             if topic_id in table:
                 table[topic_id] = apply_settled(
                     table[topic_id],
-                    TopicSettledRecord(at=0.0, interaction_count=kwargs["interaction_count"]),
+                    TopicSettledRecord(at=0.0, interaction_count=kwargs["settled_until"]),
                 )
             return None
         return await run(route, *args, **kwargs)
@@ -70,11 +71,13 @@ def register_topic_routes(bus: PatchouliBus, store: ShortTermMemoryStore) -> Non
     """在真实总线上注册话题读取、读取与记下本话题生成的记忆、记下沉淀完成四条路由，都落在
     ``store`` 上。
 
-    本话题生成的记忆与沉淀完成由真实的感知使魔处理；它不需要感知引擎，话题不存在时
-    不记。
+    本话题生成的记忆与沉淀完成由真实的感知使魔处理，话题不存在时不记；这两条路由用不到
+    引擎与写作者，按默认配置构造。
     """
     perception = PerceptionFamiliar(
-        engine=None,
+        engine=MemoryPerceptionEngine(PerceptionEngineConfig()),
+        fold_summary_writer=RuleFoldSummaryWriter(),
+        progress_writer=None,
         store=store,
         working_set=TopicWorkingSet(),
         bus=bus,

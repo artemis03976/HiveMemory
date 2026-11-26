@@ -149,10 +149,12 @@ def build_patchouli_route_bindings(
             PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
             list_active_topics,
         ),
-        RouteBinding.of(PatchouliLocalRoutes.TOPIC_EVICT, runtime.perception_familiar.evict_topic),
         RouteBinding.of(
-            PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
-            runtime.perception_familiar.manual_settle_topic,
+            PatchouliLocalRoutes.TOPIC_DELETE, runtime.perception_familiar.delete_topic
+        ),
+        RouteBinding.of(
+            PatchouliLocalRoutes.TOPIC_SETTLE_AND_RETIRE,
+            runtime.perception_familiar.settle_and_retire_topic,
         ),
     )
 

@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     )
     from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTask
     from hivememory.patchouli.contracts.topic_management import (
-        TopicEvictionResult,
+        TopicDeleteResult,
         TopicSettleResult,
     )
 
@@ -240,22 +240,22 @@ class PatchouliRoutes:
         new_topic_title: str | None = None,
         new_topic_summary: str | None = None,
     ) -> str:
-        """确认或建立一轮的目标话题（必要时先按 LRU 驱逐），返回真实话题标识。
+        """确认或建立一轮的目标话题（建新话题时池满，先让最久没用的话题退役），返回真实话题标识。
 
         已有话题确认存在并刷新驻留；``NEW_TOPIC`` 以给出的标题与摘要建立。
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("patchouli.public.manual_settle_topic")
-    async def MANUAL_SETTLE_TOPIC(
+    @route("patchouli.public.topic.settle_and_retire")
+    async def SETTLE_AND_RETIRE_TOPIC(
         *, identity_scope: IdentityScope, topic_id: str
     ) -> TopicSettleResult:
-        """通过本地总线结算 Topic（生命周期变更授权在能力层），返回稳定业务结果。"""
+        """通过本地总线沉淀并退役话题（生命周期变更授权在能力层），返回稳定业务结果。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("patchouli.public.evict_topic")
-    async def EVICT_TOPIC(*, identity_scope: IdentityScope, topic_id: str) -> TopicEvictionResult:
-        """通过本地总线驱逐 Topic（生命周期变更授权在能力层），不触发记忆结算。"""
+    @route("patchouli.public.topic.delete")
+    async def DELETE_TOPIC(*, identity_scope: IdentityScope, topic_id: str) -> TopicDeleteResult:
+        """通过本地总线删除话题（生命周期变更授权在能力层），不沉淀。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.record_memory_citation")
@@ -323,8 +323,8 @@ class PatchouliRoutes:
         INTERACTION_WAIT,
         MEMORY_INTENT_SUBMIT,
         PREPARE_TOPIC,
-        MANUAL_SETTLE_TOPIC,
-        EVICT_TOPIC,
+        SETTLE_AND_RETIRE_TOPIC,
+        DELETE_TOPIC,
         RECORD_MEMORY_CITATION,
         RECORD_RETRIEVAL_HITS,
         STORAGE_AVAILABLE,

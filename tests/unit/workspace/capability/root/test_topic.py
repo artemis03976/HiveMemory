@@ -1,4 +1,4 @@
-"""root Topic 列表、结算与驱逐的公共路由和业务结果，以及为一轮确定话题的测试。"""
+"""root Topic 列表、沉淀与驱逐的公共路由和业务结果，以及为一轮确定话题的测试。"""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -85,10 +85,12 @@ class TestRootTopicService:
                 generation_task_id="memtask_1",
             )
         )
-        bus.register(PatchouliRoutes.MANUAL_SETTLE_TOPIC, handler)
+        bus.register(PatchouliRoutes.SETTLE_AND_RETIRE_TOPIC, handler)
         actor = await composition.authenticate(agent_id="system", user_id="u1")
 
-        result = await service.settle_topic(target_workspace=workspace, topic_id="t1", actor=actor)
+        result = await service.settle_and_retire_topic(
+            target_workspace=workspace, topic_id="t1", actor=actor
+        )
 
         assert result.topic_id == "t1"
         assert result.generation_task_id == "memtask_1"
@@ -110,26 +112,28 @@ class TestRootTopicService:
                 topic_id="t1",
             )
         )
-        bus.register(PatchouliRoutes.MANUAL_SETTLE_TOPIC, handler)
+        bus.register(PatchouliRoutes.SETTLE_AND_RETIRE_TOPIC, handler)
         actor = await composition.authenticate(agent_id="system", user_id="u1")
 
-        result = await service.settle_topic(target_workspace=workspace, topic_id="t1", actor=actor)
+        result = await service.settle_and_retire_topic(
+            target_workspace=workspace, topic_id="t1", actor=actor
+        )
 
         assert result.topic_id == "t1"
         assert result.generation_task_id is None
         assert result.generation_submitted is False
 
     @pytest.mark.asyncio
-    async def test_evict_topic_uses_public_route(self, service, bus, composition, workspace):
-        from hivememory.patchouli.contracts.topic_management import TopicEvictionResult
+    async def test_delete_topic_uses_public_route(self, service, bus, composition, workspace):
+        from hivememory.patchouli.contracts.topic_management import TopicDeleteResult
 
-        handler = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
-        bus.register(PatchouliRoutes.EVICT_TOPIC, handler)
+        handler = AsyncMock(return_value=TopicDeleteResult(topic_id="t1", removed=True))
+        bus.register(PatchouliRoutes.DELETE_TOPIC, handler)
         actor = await composition.authenticate(agent_id="system", user_id="u1")
 
-        result = await service.evict_topic(target_workspace=workspace, topic_id="t1", actor=actor)
+        result = await service.delete_topic(target_workspace=workspace, topic_id="t1", actor=actor)
 
-        # evict_topic 是纯透传；约束力来自路由与参数
+        # delete_topic 是纯透传；约束力来自路由与参数
         handler.assert_awaited_once()
         assert handler.await_args.kwargs["topic_id"] == "t1"
         assert handler.await_args.kwargs["identity_scope"].workspace_identity == workspace

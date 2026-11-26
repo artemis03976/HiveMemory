@@ -1,4 +1,4 @@
-"""话题结算的发起者与生成查重可见性跨组件回归。"""
+"""话题沉淀的发起者与生成查重可见性跨组件回归。"""
 
 from types import SimpleNamespace
 
@@ -58,7 +58,7 @@ from tests.helpers.sessions import make_interaction_payload
 
 
 class _Clock:
-    """测试驱动的单调时钟，无需等待真实空闲时间。"""
+    """测试驱动的单调时钟，无需真的等话题停下。"""
 
     value = 0.0
 
@@ -66,11 +66,11 @@ class _Clock:
         return self.value
 
 
-class _Relay:
+class _SummaryWriter:
     """LLM 折叠端口替身；本测试的阈值不触发折叠。"""
 
     async def generate_summary(self, _blocks, _previous_summary):
-        raise AssertionError("settlement identity test must not compact")
+        raise AssertionError("settlement identity test must not fold")
 
 
 class _Extractor:
@@ -195,10 +195,10 @@ class _WritableVectorStore:
 
 
 @pytest.mark.asyncio
-async def test_idle_settlement_persists_public_memory_without_merging_similar_private(
+async def test_settle_scan_persists_public_memory_without_merging_similar_private(
     tmp_path,
 ) -> None:
-    """完整空闲结算链必须新建 PUBLIC，既有高相似 PRIVATE 内容保持不变。"""
+    """话题停下后的完整沉淀链必须新建 PUBLIC，既有高相似 PRIVATE 内容保持不变。"""
     belong_to = WorkspaceIdentity(
         owner_user_id="owner-1", workspace_key="main_workspace", workspace_id="main_workspace"
     )
@@ -246,24 +246,24 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
     register_topic_routes(bus, store)
     clock = _Clock()
     perception = PerceptionFamiliar(
-        engine=MemoryPerceptionEngine(
-            PerceptionEngineConfig(fold_token_threshold=999999), _Relay()
-        ),
+        engine=MemoryPerceptionEngine(PerceptionEngineConfig(fold_token_threshold=999999)),
+        fold_summary_writer=_SummaryWriter(),
+        progress_writer=None,
         store=store,
         working_set=TopicWorkingSet(clock=clock),
         bus=bus,
-        config=SimpleNamespace(idle_timeout_seconds=5),
+        config=SimpleNamespace(settle_after_seconds=5),
     )
     await controller.start()
     try:
-        topic_id = await perception.apply_interaction(
+        topic_id = await perception.receive_interaction(
             make_interaction_payload("question", "answer"),
             belong_to=belong_to,
             from_actor=from_actor,
             interaction_id="idle-interaction",
         )
         clock.value = 6
-        assert await perception.scan_idle_topics_once() == [topic_id]
+        assert await perception.scan_for_settle_once() == [topic_id]
         (task,) = await controller.list_tasks()
         completed = await controller.wait_task(task.task_id, timeout=2)
 

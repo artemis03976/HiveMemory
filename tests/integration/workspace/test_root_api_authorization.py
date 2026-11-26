@@ -24,7 +24,7 @@ from hivememory.core.models import (
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationSource, MemoryGenerationTask
-from hivememory.patchouli.contracts.topic_management import TopicEvictionResult, TopicSettleResult
+from hivememory.patchouli.contracts.topic_management import TopicDeleteResult, TopicSettleResult
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.capability.root import (
     RootAgentProfileService,
@@ -104,14 +104,14 @@ _ROUTED_CASES = [
     _Case("topic", "list_active_topics", PatchouliRoutes.TOPIC_LIST_ACTIVE),
     _Case(
         "topic",
-        "settle_topic",
-        PatchouliRoutes.MANUAL_SETTLE_TOPIC,
+        "settle_and_retire_topic",
+        PatchouliRoutes.SETTLE_AND_RETIRE_TOPIC,
         keywords=(("topic_id", "topic-1"),),
     ),
     _Case(
         "topic",
-        "evict_topic",
-        PatchouliRoutes.EVICT_TOPIC,
+        "delete_topic",
+        PatchouliRoutes.DELETE_TOPIC,
         keywords=(("topic_id", "topic-1"),),
     ),
     _Case("tasks", "list_memory_tasks", PatchouliRoutes.MEMORY_TASK_LIST),
@@ -211,10 +211,10 @@ class _OwnerBoundary:
                 return []
             if route == PatchouliRoutes.TOPIC_LIST_ACTIVE:
                 return ()
-            if route == PatchouliRoutes.MANUAL_SETTLE_TOPIC:
+            if route == PatchouliRoutes.SETTLE_AND_RETIRE_TOPIC:
                 return TopicSettleResult(topic_id=kwargs["topic_id"])
-            if route == PatchouliRoutes.EVICT_TOPIC:
-                return TopicEvictionResult(topic_id=kwargs["topic_id"], removed=True)
+            if route == PatchouliRoutes.DELETE_TOPIC:
+                return TopicDeleteResult(topic_id=kwargs["topic_id"], removed=True)
             if route == PatchouliRoutes.MEMORY_TASK_GET:
                 return MemoryGenerationTask(
                     task_id=args[0],

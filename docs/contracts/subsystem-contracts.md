@@ -156,13 +156,13 @@ storage.available() -> bool
 | Memory | 携带 `IdentityScope` 的 create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases；create/update 在提交边界生成完整版本记录（无历史不成功），无变化的编辑不创建版本 |
 | Memory Task | 携带 `IdentityScope` 的 list/get/cancel；按 task 的 `belong_to` 检查归属，get/cancel 对越域与不存在统一抛 `ResourceNotFoundError` |
 | Agent Profile | create/update/delete/list/get，读写 AgentProfileStore 中的文件；Profile 是全局的、没有可见性，路由不接收 `IdentityScope`，授权在调用方一侧的 root API 或 actor API 完成；get 解析可以执行的 Profile（[检索](../patchouli/retrieval.md#24-agent-profile-解析)第 2.4 节） |
-| Topic | 携带 `IdentityScope` 的 list active、topic data、prepare（第 3.2 节）、manual settle、evict；Patchouli owner 拒绝越域 topic |
+| Topic | 携带 `IdentityScope` 的 list active、topic data、prepare（第 3.2 节）、settle and retire（`patchouli.public.topic.settle_and_retire`）、delete（`patchouli.public.topic.delete`）；Patchouli owner 拒绝越域 topic |
 | Citation 与命中 | 记录正式记忆引用，workspace 引用交付统一使用 `workspace.reference_read` 来源；为 actor 的检索记录命中（第 3.3 节） |
 | Readiness | 模型 warmup、预取与 ready 查询；存储健康（第 3.3 节） |
 
 Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；操作授权由调用方一侧的授权点完成（第 3.5 节）。任务快照的 `belong_to` 必须等于 scope 的目标 Workspace，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；scope 在公共边界拆分，内部以 `belong_to + topic_id` 检查归属，不构造另一套局部 ID 命名空间。
 
-`MemoryGenerationTaskSpec`、只读快照 `MemoryGenerationTask` 与跨子系统请求 `PendingAtomMaterializeTask` 均独立保存必需的 `belong_to`、`from_actor`。WRITE/UPDATE 保留提交 Agent；手动、idle、LRU 和 shutdown SETTLE 统一使用 `system_actor_for_workspace(belong_to)`（owner 用户、保留的 system、无 Team），参与内容的 Agent 只记入贡献者，结算查重只看到本 Workspace 的 PUBLIC 记忆。`TopicMaterializeTask` 与 Topic lease 只保存资源归属，不保留最近访问者。
+`MemoryGenerationTaskSpec`、只读快照 `MemoryGenerationTask` 与跨子系统请求 `PendingAtomMaterializeTask` 均独立保存必需的 `belong_to`、`from_actor`。WRITE/UPDATE 保留提交 Agent；手动、idle、LRU 和 shutdown SETTLE 统一使用 `system_actor_for_workspace(belong_to)`（owner 用户、保留的 system、无 Team），参与内容的 Agent 只记入贡献者，沉淀的查重只看到本 Workspace 的 PUBLIC 记忆。沉淀材料 `TopicSettleMaterial` 与 Topic lease 只保存资源归属，不保留最近访问者。
 
 Profile、Topic 与交互提交的公共失败定义在 `patchouli.contracts.errors`；会话、意图与任务进程交互提交的失败定义在 `workspace.contracts.errors`，共享访问、资源和存储类型位于 `core.errors`。调用者按类型处理，HTTP/MTP 在各自出口呈现；完整分类见[错误模型](./error-model.md)。Profile 不可见与缺失同样隐藏，类型或配置损坏、或 Profile 已停用（`AgentProfile.enabled` 为假）显式失败，不回退内置 Profile。任务进程的交互提交没有跨过接纳或应用时，由进程以 Workspace 领域错误 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败，`details` 中的 `stage` 区分接纳与应用；接纳被拒以外的提交异常原样传播，不声称没有副作用。
 
@@ -202,7 +202,7 @@ interaction.wait(*, identity_scope, interaction_id, timeout_seconds: float | Non
 - **结局**：`InteractionSubmitResult` 携带 `interaction_id` 与等待结束时的进度 `state`：`succeeded` 带实际所在的话题 `topic_id`（`NEW_TOPIC` 已解析），`failed` 带应用失败的异常类名 `error_class`，`pending` 表示等到时限仍未应用完成（不设时限时只在队列停止时出现），`unknown` 只出现在此前接纳、结局已超出保留窗口的交互上。`previously_accepted` 表示这一交互在本次调用之前已被接纳，本次没有再提交；`new_topic` 表示本次提交以 `NEW_TOPIC` 请求建立新话题。
 - **进度**：`InteractionStatus` 的 `state` 为 `pending`（尚未应用完成）、`succeeded`（已应用，`topic_id` 给出实际所在的话题，`NEW_TOPIC` 已解析）、`failed`（到达终态但没有成功，不再重试）或 `unknown`（接纳过，但工作记录已超出队列的终态保留窗口）；未被接纳，或旁路索引与工作记录都已裁剪时返回 `None`。归属是硬边界：同名交互由另一个 Workspace 提交时以 `WorkspaceMismatchError` 拒绝，不把其他 Workspace 的接纳当作重复。
 - **等待**：`interaction.wait` 先按状态查询校验归属；仍为 `pending` 时等待交互应用到终态或时限，返回此时的进度，超时仍为 `pending`，时限为空时等到终态，队列停止时返回停止那一刻的进度。状态查询与等待只在 root API 的方法内部调用：查重、续接上一轮所在的话题，以及等待仍在应用的交互。
-- **重发**：同一 `interaction_id` 在等待中或已成功时，相同载荷返回原收据，不同载荷报冲突；到达终态而未成功的交互允许以同一标识重新提交，载荷可以不同（例如提交指定的话题在应用前已被驱逐，提交方重新路由后再交），新提交以递增的尝试号作为工作项标识入队。为查重保留的旁路索引只存编码载荷的摘要，冲突比较不需要留住整份载荷。
+- **重发**：同一 `interaction_id` 在等待中或已成功时，相同载荷返回原收据，不同载荷报冲突；到达终态而未成功的交互允许以同一标识重新提交，载荷可以不同（例如提交指定的话题在应用前已退役或被删除，提交方重新路由后再交），新提交以递增的尝试号作为工作项标识入队。为查重保留的旁路索引只存编码载荷的摘要，冲突比较不需要留住整份载荷。
 
 root API 的提交交互 `submit_interaction(*, target_workspace, participant, payload, interaction_id, origin, topic, timeout_seconds=None, actor)` 在入口 root 授权一次，目标不是 `system` 驻留的 Workspace 时在任何查询、路由与提交之前拒绝。方法内依次：
 
@@ -410,7 +410,7 @@ Import Bus 由 System 拥有：`ImportBusService` 只认证系统的 root 工作
 
 `InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容，不嵌入操作 scope。Interaction codec v7 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。同一 `interaction_id` 的幂等只由提交队列负责：等待中与已成功的提交以相同载荷重交时复用原收据、载荷不同时冲突，只有应用未成功的交互可以重新提交；应用把 block 写入话题是它最后一个可能失败的步骤，未成功的应用没有写入，重新提交因此不会重复写入。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
-`InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
+`InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给感知的 `receive_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。

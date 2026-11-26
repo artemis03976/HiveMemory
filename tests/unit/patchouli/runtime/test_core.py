@@ -162,10 +162,12 @@ def _runtime_with_topic_logs(tmp_path, *, max_resident=5):
     runtime.memory_library.short_term = store
     runtime._services["perception"] = PerceptionFamiliar(
         engine=Mock(build_block=Mock()),
+        fold_summary_writer=Mock(),
+        progress_writer=None,
         store=store,
         working_set=working_set,
         bus=runtime.local_bus,
-        config=SimpleNamespace(idle_timeout_seconds=60),
+        config=SimpleNamespace(settle_after_seconds=60),
     )
     return runtime, store, working_set
 
@@ -226,7 +228,9 @@ class TestRuntimeTopicPool:
 
         assert report.restored == 3
         assert submitted == [("oldest", True), ("middle", True)]
-        assert sorted(topic.topic_id for topic in store.list_all()) == sorted(["newest", topic_id])
+        assert sorted(topic.topic_id for topic in store.list_by_workspace(_workspace())) == sorted(
+            ["newest", topic_id]
+        )
 
     @pytest.mark.asyncio
     async def test_restore_reports_retired_and_rejected_logs_and_resettles_after_queue(
@@ -253,7 +257,10 @@ class TestRuntimeTopicPool:
         await runtime.resettle_retired_topics()
 
         assert (report.restored, report.retired, report.rejected) == (1, 1, 1)
-        assert ([topic.topic_id for topic in store.list_all()], resident) == (["live"], "live")
+        assert ([topic.topic_id for topic in store.list_by_workspace(_workspace())], resident) == (
+            ["live"],
+            "live",
+        )
         assert submitted == [("retired", TriggerReason.MANUAL_SETTLE, True)]
         completed = runtime._test_runtime_events.events[-1]
         assert (completed.source, completed.status, completed.severity) == (

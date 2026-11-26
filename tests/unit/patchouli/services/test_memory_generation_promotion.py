@@ -422,7 +422,7 @@ async def test_promotion_write_failure_is_best_effort_and_releases_lease() -> No
 
 def _interaction_input(*blocks) -> InteractionArtifactInput:
     return InteractionArtifactInput(
-        topic_id="t1", topic_title="Test", topic_summary="Summary", blocks=blocks
+        topic_id="t1", topic_title="Test", topic_summary="Summary", interactions=blocks
     )
 
 

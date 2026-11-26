@@ -47,7 +47,7 @@ def _topic(interactions=(), folds=(), settled=0) -> TopicData:
         interactions=tuple(interactions),
         folds=tuple(folds),
         last_update=1.0,
-        settled_interaction_count=settled,
+        settled_until=settled,
     )
 
 
@@ -147,7 +147,7 @@ class TestApplyFunctions:
         advanced = apply_settled(topic, TopicSettledRecord(at=9.0, interaction_count=3))
         late = apply_settled(advanced, TopicSettledRecord(at=10.0, interaction_count=1))
 
-        assert (late.settled_interaction_count, late.has_unsettled_interactions) == (3, False)
+        assert (late.settled_until, late.has_unsettled_interactions) == (3, False)
         assert late.last_update == topic.last_update
 
     def test_writes_change_only_the_record_and_redirect_recorded_merges(self):
@@ -186,7 +186,7 @@ class TestApplyFunctions:
             ("entry-3", 3, 6.0),
         ]
         assert second.progress_record[0] == first.progress_record[0]
-        assert second.recorded_interaction_count == 3
+        assert second.recorded_until == 3
         assert second.to_topic_snapshot().unrecorded_turn_count == 1
         assert second.last_update == topic.last_update
 
@@ -243,7 +243,7 @@ class TestApplyFunctions:
             bindings=(),
             last_update=1.0,
             model_used="",
-            settled_interaction_count=0,
+            settled_until=0,
             topic_generated_memory_ids=frozenset(),
             progress_record=(),
         )
@@ -276,7 +276,7 @@ class TestReplay:
         assert topic.fold_summary == "s1"
         assert (topic.last_update, topic.model_used) == (4.0, "model-a")
         assert topic.topic_generated_memory_ids == {"m1", "m2"}
-        assert topic.settled_interaction_count == 1
+        assert topic.settled_until == 1
         assert [(entry.covered_until, entry.written_at) for entry in topic.progress_record] == [
             (1, 5.5)
         ]

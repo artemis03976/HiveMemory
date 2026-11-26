@@ -280,7 +280,7 @@ intent_type, rewritten_query, search_keywords, sub_intents, reason.""",
     "session_context_empty": "None",
 }
 
-_RELAY_PROMPT_TEXT_ZH = {
+_FOLD_SUMMARY_PROMPT_TEXT_ZH = {
     "system_prompt": """\
 [系统指令]
 你是 HiveMemory 的状态管理器。
@@ -321,7 +321,7 @@ _RELAY_PROMPT_TEXT_ZH = {
     "previous_summary_empty": "无。当前为新话题。",
 }
 
-_RELAY_PROMPT_TEXT_EN = {
+_FOLD_SUMMARY_PROMPT_TEXT_EN = {
     "system_prompt": """\
 [System Instruction]
 You are the State Manager of HiveMemory.
@@ -362,7 +362,7 @@ You must strictly output using the following Markdown template:
     "previous_summary_empty": "None. This is a new topic.",
 }
 
-# 进展记录：话题停顿时，以旧进展记录与还没整理的交互原文写出新的一条。
+# 进展记录：话题停下够久时，以旧进展记录与还没整理的交互原文写出新的一条。
 _PROGRESS_RECORD_PROMPT_TEXT_ZH = {
     "system_prompt": """\
 你在为一个进行中的话题总结并编写进展记录。话题是按语义内容聚合在一起的一段交互事件：可能是完成一项工作，也可能是一段讨论或闲聊。进展记录按时间排列、只往后追加，每一条写这个话题自上一条以来有了什么新进展。任何一个希望继续这个话题的人，在阅读进展记录之后，应当能够知道当前话题进行到了哪一步，并自然的将话题继续下去。当使用者需要更详细的背景信息时，你写出的进展记录应当能够起到指引的作用。
@@ -1318,10 +1318,12 @@ def get_gateway_prompt_text(key: str, language: str | Language | None = None) ->
     return texts[key]
 
 
-def get_relay_prompt_text(key: str, language: str | Language | None = None) -> str:
+def get_fold_summary_prompt_text(key: str, language: str | Language | None = None) -> str:
     """返回中继压缩提示词文案片段。"""
     resolved = resolve_language(explicit=language)
-    texts = _RELAY_PROMPT_TEXT_EN if resolved == Language.EN else _RELAY_PROMPT_TEXT_ZH
+    texts = (
+        _FOLD_SUMMARY_PROMPT_TEXT_EN if resolved == Language.EN else _FOLD_SUMMARY_PROMPT_TEXT_ZH
+    )
     return texts[key]
 
 
@@ -1375,6 +1377,6 @@ __all__ = [
     "get_mtp_prompt_text",
     "get_mtp_verb_text",
     "get_progress_record_prompt_text",
-    "get_relay_prompt_text",
+    "get_fold_summary_prompt_text",
     "get_system_prompt_text",
 ]

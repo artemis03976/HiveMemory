@@ -10,10 +10,13 @@ code_paths:
   - src/hivememory/memory_library/stores.py
   - src/hivememory/memory_library/topic_log.py
   - src/hivememory/patchouli/services/perception.py
+  - src/hivememory/patchouli/services/topic_working_set.py
   - src/hivememory/engines/perception/
   - src/hivememory/i18n/prompts.py
   - src/hivememory/workspace/capability/root/topic.py
   - src/hivememory/workspace/capability/actor/memory.py
+  - src/hivememory/workspace/resolution/memory.py
+  - src/hivememory/mcp_server/server.py
   - src/hivememory/engines/gateway/topic_router.py
   - integrations/hivememory/
 related_current:
@@ -82,7 +85,7 @@ last_reviewed: 2026-11-26
   │
   ├─ 推送：另一个会话被路由回来 → 话题的进展；会话压缩之后 → 进展记录的索引（第 7 节）
   ├─ 拉取：按句柄回查原文（第 7 节）
-  ├─ 生命周期：空闲 → 沉淀；容量满或明确结束 → 退役（第 5 节）
+  ├─ 生命周期：停下够久 → 沉淀；容量满或明确结束 → 退役（第 5 节）
   └─ 存储：每个话题一条只追加的日志（第 5 节）
 ```
 
@@ -105,7 +108,7 @@ last_reviewed: 2026-11-26
 
 合起来就是完整可用的短期记忆。还没写过一条的话题，进展就是它的原文，所以从未折叠的话题也能回答“进行到哪一步”。
 
-进展记录的数据、写一条的输入（旧进展记录加新交互记录原文，输出一段总结）与它的理由已经实现，见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)第 1.3 节与[第 6 节](../patchouli/perception.md#6-memoryperceptionengine-与-relaycontroller)。
+进展记录的数据、写一条的输入（旧进展记录加新交互记录原文，输出一段总结）与它的理由已经实现，见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)第 1.3 节与[第 6 节](../patchouli/perception.md#6-memoryperceptionengine-与两个写作者)。
 
 todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与完成逻辑。
 
@@ -120,17 +123,17 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 **设计**：
 
-- **轮与轮之间**：话题停下时写一条，即会话切到别的话题、话题停顿或空闲。交互连续进行时前台自己的上下文就够用，需要话题的进展的，是停下之后回来的人或另一个会话。话题停顿时写一条已经实现，空闲由停顿涵盖（[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节）。
-- **一轮之内**：长 turn 可能一直不停，空闲只是一种触发方式；段用来指回原文，但不必每段都写一条。一轮之内什么时候写一条暂缓设计（第 9 节搁置项）。
+- **轮与轮之间**：话题停下时写一条，即会话切到别的话题，或话题停下一段时间。交互连续进行时前台自己的上下文就够用，需要话题的进展的，是停下之后回来的人或另一个会话。话题停下 `progress_record_after_seconds` 之后写一条已经实现；沉淀看同一个访问时间、阈值更长，沉淀时通常已经写过一条，不另外再写（[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节）。
+- **一轮之内**：长 turn 可能一直不停，话题停下只是一种触发方式；段用来指回原文，但不必每段都写一条。一轮之内什么时候写一条暂缓设计（第 9 节搁置项）。
 - 候选，有人读时补：新对话不多时，直接给“已整理的部分 + 未整理的原始交互记录”，不需要生成；新对话已经很长，才在读之前先写出新的一条。
 
 **现状与差距**：
 
-- 话题停顿时写一条已实现（随附配置的停顿阈值 1800 秒）；会话切到别的话题、一轮之内都没有触发。plugin 模式在一轮结束后才导入：Claude Code 在 `Stop` 钩子同步，连接器按最后一条助手条目的 `stop_reason` 判断这一轮是否写完（[Import Bus](../system/import-bus.md)）。
+- 话题停下够久时写一条已实现（随附配置的 `progress_record_after_seconds` 为 1800 秒）；会话切到别的话题、一轮之内都没有触发。plugin 模式在一轮结束后才导入：Claude Code 在 `Stop` 钩子同步，连接器按最后一条助手条目的 `stop_reason` 判断这一轮是否写完（[Import Bus](../system/import-bus.md)）。
 - 单个事件没有时间戳（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），“步与步之间长时间等待”无法从已存的事件算出。
 - “会话切到了别的话题”由 Gateway 的话题路由判断：任务进程与 Import Bus 都把上一轮实际所在的话题交给 Gateway（`GatewaySessionTurn.topic_id`），这一轮的目标话题与它不同即是切走。差距在于这个结果不随提交交给 Patchouli：交互提交只带目标话题，Patchouli 只看到一轮应用到了哪个话题，看不到这个会话离开了哪个话题。候选：root API 提交交互时拿到的话题来源中已有上一轮的话题，随提交一并交出。
 - 日常 121 个长轮次（每轮至少 72 个事件）中，83 个没有一次计划步骤完成；Claude 桌面端每轮都列自己的操作步骤，计划步骤完成在普通轮次里也频繁出现，不代表话题的工作单位。
-- 成本：日常 11 天导入 881 轮，同一会话切到别的话题 132 次、话题内停顿超过 30 分钟 41 次，轮与轮之间停下时写的次数约为每轮都写的四分之一。
+- 成本：日常 11 天导入 881 轮，同一会话切到别的话题 132 次、话题内停下超过 30 分钟 41 次，轮与轮之间停下时写的次数约为每轮都写的四分之一。
 
 ## 5. 生命周期与存储：沉淀、退役与话题的日志
 
@@ -144,7 +147,7 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 **现状与差距**：
 
 - 沉淀与退役、话题的日志、跨重启与崩溃后读回均已实现（链接见上）；同一话题多次沉淀时，本话题经任何途径生成的记忆进入同一份“本话题生成的记忆”记录，记在话题的日志上，见[记忆生成](../patchouli/generation.md#42-本话题生成的记忆)第 4.2 节。
-- 拆开之前的日常数据（11 天 89 次结算）：空闲 77、关闭 11、LRU 1。
+- 拆开之前的日常数据（11 天 89 次结算）：话题停下超过时限 77、关闭 11、LRU 1。
 
 ## 6. 折叠：只为材料服务
 
@@ -168,10 +171,10 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 **现状与差距**：
 
-- 工作视图的 token 超过 `fold_token_threshold` 时折叠，保留最近 `fold_retain_recent_blocks` 块，其余折叠进 `fold_summary`；随附配置为 131072 与 2，代码缺省阈值 32768；LLMRelay 参照旧摘要写新摘要，失败回退为规则摘要（[感知与短期话题](../patchouli/perception.md)）。
+- 工作视图的 token 超过 `fold_token_threshold` 时折叠，保留最近 `fold_retain_recent_blocks` 块，其余折叠进 `fold_summary`；随附配置为 131072 与 2，代码缺省阈值 32768；`LLMFoldSummaryWriter` 参照旧摘要写新摘要，失败回退为规则摘要（[感知与短期话题](../patchouli/perception.md)）。
 - 结算时被折叠的轮次只以 `fold_summary` 进入生成，原文冻结进来源 Artifact、不参与生成（[记忆生成](../patchouli/generation.md)）。
 - 折叠摘要的读者不只是生成：Gateway 的话题路由在没有 `topic_summary` 时用它、候选话题渲染为“状态”、查询理解读它；话题池详情把它标为“较早内容的摘要”，话题卡片与对话页的话题选择器把它当副标题；主动写入的材料、结算材料与下一次折叠读它。
-- Relay 提示词用固定的四段标题（核心目标、系统状态与已完成、约束与避坑、当前焦点），写明供 Worker Agent 使用，与“读者是读材料的生成”不符。日常 17 份折叠摘要中 16 份按四段写，文件路径多只保住 5% 以下；一份规则回退摘要把约 79 万字符压成 120 字符；单轮超大时每来一轮就折一次，最后两次摘要逐字相同。
+- 折叠摘要的提示词（`get_fold_summary_prompt_text`）用固定的四段标题（核心目标、系统状态与已完成、约束与避坑、当前焦点），写明供 Worker Agent 使用，与“读者是读材料的生成”不符。日常 17 份折叠摘要中 16 份按四段写，文件路径多只保住 5% 以下；一份规则回退摘要把约 79 万字符压成 120 字符；单轮超大时每来一轮就折一次，最后两次摘要逐字相同。
 
 ## 7. 什么时候用：推送与拉取
 
@@ -181,14 +184,24 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 - 两个时点都由系统把短期记忆注入（推送）进前台的上下文。
 - 会话压缩之后只注入进展记录的索引（每一条一句话，加上指回原文的句柄）；“现在停在哪”交给 harness 自己的压缩摘要。大部分 harness 自带的压缩已经覆盖一部分进展；harness 的摘要按会话组织、没有句柄，索引补上的是按话题的进展与可以回查的原文。别的会话在同一话题上写下的条目也在索引中。
 - 会话压缩之后注入，是从话题到会话的单向读出，不共享状态、不互相控制。
+- 拉取：agent 经 actor API 的 READ 读话题。话题是 READ 的新对象，不新增 actor 操作，权限沿用 `memory.read`。
+- READ 按句柄的形态区分读话题还是读中期记忆，不加显式的 target：话题句柄只由系统签发（注入的索引、话题池），读什么由句柄本身说明，agent 照抄即可；MTP、MCP 与连接器的入口不变，一次 READ 可以同时读记忆与话题。
+- 候选，句柄：`topic:<话题 id>` 读话题的进展（进展记录加未整理的原始交互记录），`topic:<话题 id>#<n>` 读第 n 条进展记录覆盖的原文。句柄不写轮次标识与事件区间，条目到原文区间的换算由系统完成。
+- 候选，句柄与 alias 互斥：生成的 alias 不含冒号；手动创建、编辑、Profile 管理创建与 revive 都经中期库写入前的 alias 校验，在那里拒绝 `topic:` 开头的 alias。不沿用写入句柄“先查正式记忆”的顺序：同名的记忆会静默遮住话题。
+- 候选，可见性：读话题只要求 `memory.read` 与 Workspace 归属，不新增 actor 可见性规则，与“话题生成的记忆在 Workspace 内公开”一致。
+- 候选，结局：退役话题在日志删除之前照常可读，删除之后按已过期交付；话题句柄不能 RUN；读话题不记录引用。READ 的结果增加话题一种，MemoryCompiler 的 `READ_RESULT` 增加话题的渲染。
 - 候选，第 1 个时点：plugin 模式下，在用户提交时先为这一轮确定话题（root API 的 `determine_topic`，导入时沿用、不再路由）；落在已有话题、且这个会话此前不在它上面时，注入它的进展，会话本来就在这个话题上则不注入。controller 模式下 Gateway 在 PREPARE 阶段先于 CPU 运行，可以直接注入。
-- 候选，拉取：agent 顺着索引回查原文需要按句柄读取的入口；话题作为 READ 的新对象，不新增 actor 操作。
+- 候选，压缩之后注入哪个话题：只注入会话最近一轮所在的话题，不为外部会话新建“会话到话题”的记录。代价是一个会话交替在两个话题上时，压缩之后只看到最近的那个。一轮中间的自动压缩发生时，这一轮还没有导入，最近一轮是上一轮，多数时候就是当前的话题。
+- 候选，压缩之后的推送入口：插件在 `SessionStart`（`source: 'compact'`）时调用后端的一条新路由，带上外部会话标识与最近一轮的外部标识。路由像 MCP 入口一样认证出工作 actor，像 Import Bus 一样经 root API 查出这一轮实际所在的话题，再以请求级提交执行 READ，把渲染结果作为 `additionalContext` 返回。这是第一个向 harness 返回记忆内容的入口，Import Bus 仍不返回上下文。
 - 候选：注入放在请求尾部（用户提交时的注入随这条消息排在历史之后；压缩之后的注入发生在缓存本来已断的时候），并标明是历史资料、不是指令。
 - 长 turn 中压缩常发生在一轮中间，索引能否覆盖这一轮前面的部分，取决于一轮之内写一条（暂缓）与一轮进行中接收已完成的事件。
 
 **现状与差距**：
 
 - 话题没有给 agent 的读出入口：actor API 的读取、检索、写入与更新都以中期记忆为对象（[能力层](../workspace/capability.md)），MCP 的四个工具同样（[MCP 记忆访问](../contracts/mcp.md)）；Import Bus 不返回任何上下文（[Import Bus](../system/import-bus.md)）。
+- READ 的目标已经按句柄的形态分派：写入句柄（`draft_`/`rev_`）先查写入意图登记，再查正式记忆，都查不到才按已过期交付；RUN 的 `sys_*` 交给系统工具（[MTP 契约](../contracts/mtp.md#32-read)第 3.2、3.3 节）。之所以要先查正式记忆，是因为正式记忆的 alias 只限长度、不限格式，手动创建时可以任取；生成的 alias 是类型前缀加蛇形后缀，或 `mem_<记忆 id>`。READ 的逐项结果只有记忆的种类。
+- 话题只有 Workspace 归属，没有 actor 读取策略；生成的记忆默认在 Workspace 内公开，私有与团队可见只来自手动管理。
+- 后端不保存外部会话的会话记录：Import Bus 每次由连接器带来最近几轮，按上一轮的交互标识查出它实际所在的话题（[Import Bus](../system/import-bus.md)），所以“一个外部会话在哪个话题上”只能得到最近一轮所在的那一个。
 - Alice 的上下文不含话题的折叠摘要与块（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）。
 - `determine_topic` 已供任务进程的线程表与 Import Bus 编排器使用，MCP 写入时以它在一轮结束前确定话题（[能力层](../workspace/capability.md)）。日常一次话题路由约 3 秒。
 - Claude Code：压缩之后以 `source: 'compact'` 触发 `SessionStart`，它与 `UserPromptSubmit` 都能返回 `additionalContext`；注入只保证交到模型手里，不保证模型会读。插件注册了 `SessionStart`，只用来同步会话记录，没有注册 `UserPromptSubmit`。Codex 的钩子是 `SessionStart`、`Stop`、`Interrupt` 与 `SessionEnd`；Codex、pi 与 DeepSeek Harness 能否注入内容没有核对。
@@ -224,7 +237,7 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 搁置：
 
-- 会话切走这一触发：多个会话并发进行时，一个会话离开话题不等于话题停下，判断逻辑还没有设计；在此之前只在话题停顿与空闲时写一条。
+- 会话切走这一触发：多个会话并发进行时，一个会话离开话题不等于话题停下，判断逻辑还没有设计；在此之前只在话题停下够久时写一条。
 - 长话题的旧条目怎样处理（合并成阶段，或只给最近若干条）。
 - 每次记忆生成前都把话题的全部交互冻结成一份交互快照，各份互相重叠；属于[全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md)。
 - 折叠摘要的具体字段。

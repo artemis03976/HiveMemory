@@ -12,7 +12,7 @@ related_docs:
   - docs/components/observability.md
   - docs/contracts/routes-and-events.md
   - docs/system/configuration.md
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-26
 ---
 
 # 日志与运行时事件
@@ -25,7 +25,7 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 
 日常使用以 plugin 模式为主（Claude Code、dsh），没有人打开前端的 Workspace Vision。2026-11-03 排查 4 次合并失败时，两条通道都没有给出原因（[已归档的收敛 Idea](../../archive/ideas/generation-source-convergence.md#25-合并失败)第 2.5 节）：
 
-- **事件**：`work.failed` 带了异常类名，但事件流唯一的消费方是前端的实时面板，刷新即丢失。进程内缓冲 1000 条被调度器心跳占满（话题空闲扫描每 30 秒、模型卸载检查每 60 秒各一对 started/completed），约 2.8 小时就轮换完，取证时已经查不到。
+- **事件**：`work.failed` 带了异常类名，但事件流唯一的消费方是前端的实时面板，刷新即丢失。进程内缓冲 1000 条被调度器心跳占满（话题的沉淀扫描每 30 秒、模型卸载检查每 60 秒各一对 started/completed），约 2.8 小时就轮换完，取证时已经查不到。
 - **日志**：生成任务失败只有一句通用文本，合并中止的原因只在异常的 `details` 中，没有被任何一条通道带出。
 
 ## 2. 当前最低约束

@@ -14,7 +14,7 @@ from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import (
     PatchouliLocalRoutes,
     PatchouliRoutes,
-    TopicEvictionResult,
+    TopicDeleteResult,
 )
 
 
@@ -59,10 +59,10 @@ async def check_routes(
 
     # 身份整体不能冒充资源归属，按位置传参同样需要静态约束。
     assert_type(
-        await bus.request(PatchouliLocalRoutes.TOPIC_EVICT, workspace, "topic"),
-        TopicEvictionResult,
+        await bus.request(PatchouliLocalRoutes.TOPIC_DELETE, workspace, "topic"),
+        TopicDeleteResult,
     )
-    await bus.request(PatchouliLocalRoutes.TOPIC_EVICT, scope, "topic")  # type: ignore[arg-type]
+    await bus.request(PatchouliLocalRoutes.TOPIC_DELETE, scope, "topic")  # type: ignore[arg-type]
 
     # 普通字符串只保留运行时兼容性，不能进入生产代码的静态 API。
     bus.register("typecheck.prepare", prepare_handler)  # type: ignore[arg-type]

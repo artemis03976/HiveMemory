@@ -54,7 +54,7 @@ class TestPatchouliPublicRoutes:
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.PREPARE_TOPIC in routes
         assert PatchouliRoutes.TOPIC_GET_DATA in routes
-        assert PatchouliRoutes.EVICT_TOPIC in routes
+        assert PatchouliRoutes.DELETE_TOPIC in routes
         assert PatchouliRoutes.MEMORY_TASK_LIST in routes
         assert PatchouliRoutes.MEMORY_TASK_GET in routes
         assert PatchouliRoutes.MEMORY_TASK_CANCEL in routes
@@ -75,7 +75,7 @@ class TestPatchouliPublicRoutes:
         routes = self.global_bus.list_routes()
         assert PatchouliRoutes.PREPARE_TOPIC not in routes
         assert PatchouliRoutes.TOPIC_GET_DATA not in routes
-        assert PatchouliRoutes.EVICT_TOPIC not in routes
+        assert PatchouliRoutes.DELETE_TOPIC not in routes
         assert PatchouliRoutes.MEMORY_TASK_LIST not in routes
         assert PatchouliRoutes.MEMORY_TASK_GET not in routes
         assert PatchouliRoutes.MEMORY_TASK_CANCEL not in routes
@@ -178,8 +178,8 @@ class TestPatchouliPublicRoutes:
         topic_management_service = MagicMock()
         topic_management_service.list_active_topics = AsyncMock()
         topic_management_service.get_topic_data = AsyncMock()
-        topic_management_service.settle_topic = AsyncMock()
-        topic_management_service.evict_topic = AsyncMock()
+        topic_management_service.settle_and_retire_topic = AsyncMock()
+        topic_management_service.delete_topic = AsyncMock()
         topic_management_service.prepare_topic = AsyncMock()
 
         model_readiness_service = MagicMock()

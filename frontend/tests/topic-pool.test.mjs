@@ -1,4 +1,4 @@
-/** 短期话题池的估算与显示：空闲沉淀的剩余时间按秒级配置与毫秒时间戳换算，只对有未沉淀交互的话题计时；详情列出话题的进展并把折叠摘要标为较早内容的摘要，卡片标出进展记录的条数。 */
+/** 短期话题池的估算与显示：话题停下后自动沉淀的剩余时间按秒级配置与毫秒时间戳换算，只对有未沉淀交互的话题计时；详情列出话题的进展并把折叠摘要标为较早内容的摘要，卡片标出进展记录的条数。 */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
@@ -16,7 +16,7 @@ before(async () => {
 });
 after(async () => { await vite?.close(); globalThis.localStorage = originalStorage; globalThis.window = originalWindow; });
 
-test('空闲沉淀的剩余分钟向上取整，到期后为 0', () => {
+test('自动沉淀的剩余分钟向上取整，到期后为 0', () => {
   const now = Date.UTC(2026, 10, 11, 12, 0);
   const topic = (lastActive) => ({ lastActive, hasUnsettledInteractions: true });
   assert.equal(minutesUntilAutoSettle(topic(now - 3 * 60_000), 3600, now), 57);
@@ -24,7 +24,7 @@ test('空闲沉淀的剩余分钟向上取整，到期后为 0', () => {
   assert.equal(minutesUntilAutoSettle(topic(now - 61 * 60_000), 3600, now), 0);
 });
 
-test('没有未沉淀交互的话题不计时：沉淀之后话题留在池中，空闲不会再沉淀', () => {
+test('没有未沉淀交互的话题不计时：沉淀之后话题留在池中，停下再久也不会再沉淀', () => {
   const now = Date.UTC(2026, 10, 11, 12, 0);
   assert.equal(
     minutesUntilAutoSettle({ lastActive: now - 61 * 60_000, hasUnsettledInteractions: false }, 3600, now),
@@ -32,7 +32,7 @@ test('没有未沉淀交互的话题不计时：沉淀之后话题留在池中�
   );
 });
 
-const SETTINGS = { capacity: 5, idleTimeoutSeconds: 3600, foldTokenThreshold: 131_072, foldRetainBlocks: 2, progressPauseSeconds: 1800 };
+const SETTINGS = { capacity: 5, settleAfterSeconds: 3600, foldTokenThreshold: 131_072, foldRetainBlocks: 2, progressRecordAfterSeconds: 1800 };
 
 function apiTopic(fields) {
   return {
@@ -96,11 +96,11 @@ test('详情按写下的顺序列出进展记录，其后是还没有整理的�
   assert.match(html, /还有 2 轮没有整理/);
 });
 
-test('还没有写过一条时，话题的进展是全部还没有整理的轮次，并说明停顿多久后写第一条', async () => {
+test('还没有写过一条时，话题的进展是全部还没有整理的轮次，并说明话题停下多久后写第一条', async () => {
   const html = await renderDetail(apiTopic({ unrecorded_turn_count: 14 }));
 
   assert.match(html, /还没有进展记录 · 14 轮没有整理/);
-  assert.match(html, /话题停顿 30 分钟后写下第一条/);
+  assert.match(html, /话题停下 30 分钟后写下第一条/);
   assert.match(html, /还有 14 轮没有整理/);
 });
 
@@ -121,13 +121,13 @@ test('展开还没有整理的轮次时列出节选；后端只交出最近几�
     { turnNumber: 14, user: '退出时怎么办？', assistant: '先结算再退出。' },
   ];
 
-  const html = renderToStaticMarkup(createElement(UnrecordedTurnList, { turns, total: 14, pause: '话题停顿 30 分钟后' }));
+  const html = renderToStaticMarkup(createElement(UnrecordedTurnList, { turns, total: 14, recordAfter: '话题停下 30 分钟后' }));
 
   assert.match(html, /只列出最近 2 轮，更早的 12 轮没有展开/);
   assert.ok(html.indexOf('第 13 轮') < html.indexOf('第 14 轮'));
   assert.match(html, /删除数据要不要二次确认？/);
   assert.match(html, /先结算再退出。/);
-  assert.match(html, /话题停顿 30 分钟后，这些轮会整理成新的一条进展记录/);
+  assert.match(html, /话题停下 30 分钟后，这些轮会整理成新的一条进展记录/);
 });
 
 test('话题列表响应的折叠摘要在详情中标为较早内容的摘要，与话题的进展同时显示', async () => {

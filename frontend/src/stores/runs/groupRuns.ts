@@ -98,7 +98,7 @@ function attachWorkEvents(groups: Map<string, Group>, workEvents: RuntimeEvent[]
       if (groups.has(taskKey)) key = taskKey;
     } else if (workId.startsWith('interaction:')) {
       key = interactionOwner.get(workId.slice('interaction:'.length));
-    } else if (workId.startsWith('topic_compaction:')) {
+    } else if (workId.startsWith('topic_fold:')) {
       kind = 'topic';
     }
     key ??= `work:${workId || event.event_id}`;

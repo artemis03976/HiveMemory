@@ -31,7 +31,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-23
+last_reviewed: 2026-11-26
 ---
 
 # 跨边界错误模型
@@ -201,7 +201,7 @@ Import Bus 在交互应用完成之后才确认，失败按“重发能否得到
 | 同上 | 503 | `queue_unavailable` | Patchouli 提交队列容量已满或已停止，交互未被接管；以同一 `interaction_id` 重发不会形成重复 |
 | 同上 | 503 | `apply_pending` | 交互已被接纳，等待应用超过 `import_bus.apply_wait_seconds`；重发时查到仍在应用，只继续等待、不重复提交 |
 | 同上 | 503 | `shutting_down` | 编排器已开始关闭：认证网关关闭之前已通过认证、关闭开始后才到达，或在同一外部会话的串行门外等待的请求 |
-| `ImportBusApplyFailedError` / `import_bus.apply_failed` | 500 | —— | 交互已被接纳，但在感知应用时失败（例如提交指定的话题在应用前已被驱逐）；重发时重新路由并以同一 `interaction_id` 再次提交，失败可能反复出现，连接器有限次重试 |
+| `ImportBusApplyFailedError` / `import_bus.apply_failed` | 500 | —— | 交互已被接纳，但在感知应用时失败（例如提交指定的话题在应用前已退役或被删除）；重发时重新路由并以同一 `interaction_id` 再次提交，失败可能反复出现，连接器有限次重试 |
 | `RuntimeError`（root API 的契约检查） | 500（`server.internal_error`） | —— | 下游破坏公共契约，例如 `PASSIVE_MEMORY` 返回命令结果，或已接纳的交互在等待时查不到；重发只会重复失败，不转为可重试错误 |
 
 请求进入 Import Bus 之前的拒绝沿用 server 与访问边界的分类：请求体超过 `import_bus.max_request_bytes` 在框架解析请求体之前以 413 `request.body_too_large` 拒绝，过大且不是合法 JSON 的请求不会落成 422；请求校验失败为 422，缺少 principal 声明（`request.principal_required`）、Agent 缺失或为 `system` 为 400，凭据缺失或不一致（`invalid_credential`）与其他未获准入为 403，认证网关已关闭为 503（第 4.4 节）。其中只有认证网关关闭的 503 可以稍后重发，其余拒绝重发也不会改变结果。
@@ -320,7 +320,7 @@ Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明
 | Gateway 查询理解与话题路由 | 转为各自的能力错误，由 workflow 保守降级（第 4.2 节） |
 | Patchouli 记忆抽取、合并与馆长 | 每次模型调用只对提供商失败重试，最多两次请求；馆长在同一步内重试、不另计步。超窗与程序错误不重试。重试耗尽后抛出最后一次的 `ModelProviderError`；话题提取的模型输出为空或无法解析是“没有产出”，不是失败；WRITE、修订与合并的输出不合格由生成引擎带着原因再请一次，不属于提供商失败。话题结算的提取输出被截断时抛出 `ModelProviderError`、不重试：截断的草稿列表无法解析，当作没有产出会让整段话题不留记忆 |
 | Patchouli 生成引擎 | Mode A 不捕获提供商失败，生成任务以 `model_provider_failed`（超窗为 `model_context_window_exceeded`）失败收尾，不再记录为没有产出；Mode B/C 对提供商失败使用既有 fallback，保证明确的保存与更新意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级 |
-| Page Folding 摘要 | 只在提供商失败时回退为规则摘要，程序错误沿 compact 路径传播 |
+| 折叠摘要 | 只在没有可用模型、提供商失败或调用超时时回退为规则摘要，程序错误沿折叠路径传播 |
 | Alice 帧生成 | frame 形成 `FAILED`；超窗投影为 `model_context_window_exceeded`，其他提供商失败不填原因码（第 2.2 节） |
 | Alice 会话摘要器 | 以 `summary_model_context_exceeded` / `summary_provider_error` 拒绝本次摘要并保守回退 |
 

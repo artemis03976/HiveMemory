@@ -583,7 +583,7 @@ class _FakeTopics:
     """感知一侧的替身：写入使话题需要折叠，折叠完成后不再需要；写进展记录只记一个事件。
 
     ``on_maintenance`` 在折叠与写进展记录时执行，可阻塞或失败；失败的折叠不改变话题的状态。
-    ``compact_after_apply`` 为假时写入不使话题需要折叠。
+    ``fold_after_apply`` 为假时写入不使话题需要折叠。
     """
 
     def __init__(
@@ -592,27 +592,27 @@ class _FakeTopics:
         *,
         on_maintenance=None,
         fail_needs_check: bool = False,
-        compact_after_apply: bool = True,
+        fold_after_apply: bool = True,
     ):
         self._events = events
         self._on_maintenance = on_maintenance
         self._fail_needs_check = fail_needs_check
-        self._compact_after_apply = compact_after_apply
+        self._fold_after_apply = fold_after_apply
         self._over_threshold: set[str] = set()
 
     async def apply(self, payload, *, target_topic_id, **kwargs) -> str:
         self._events.append(f"apply:{payload.user_message}")
-        if self._compact_after_apply:
+        if self._fold_after_apply:
             self._over_threshold.add(target_topic_id)
         return target_topic_id
 
-    def needs_compact(self, belong_to, topic_id) -> bool:
+    def needs_fold(self, belong_to, topic_id) -> bool:
         if self._fail_needs_check:
             raise RuntimeError("topic store unavailable")
         return topic_id in self._over_threshold
 
-    async def compact_topic(self, belong_to, topic_id) -> None:
-        self._events.append(f"compact:{topic_id}")
+    async def fold_topic(self, belong_to, topic_id) -> None:
+        self._events.append(f"fold:{topic_id}")
         if self._on_maintenance is not None:
             await self._on_maintenance(topic_id)
         self._over_threshold.discard(topic_id)
@@ -629,19 +629,19 @@ def _events_until(events: list[str], last: str) -> list[str]:
 
 
 async def _start_maintenance(queue, task: str, topic_id: str) -> None:
-    """让话题有一个维护项：折叠由一次写入之后排入，写进展记录由停顿扫描排入。"""
-    if task == "compaction":
+    """让话题有一个维护项：折叠由一次写入之后排入，写进展记录由进展记录扫描排入。"""
+    if task == "fold":
         first = await queue.submit(_topic_submission(f"i-first-{topic_id}", "first", topic_id))
         await queue.wait(first, timeout=2)
     else:
         assert await queue.schedule_progress_entry(_WORKSPACE, topic_id) is True
 
 
-_MAINTENANCE_EVENT = {"compaction": "compact:t1", "progress_entry": "progress:t1"}
+_MAINTENANCE_EVENT = {"fold": "fold:t1", "progress_entry": "progress:t1"}
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("task", ["compaction", "progress_entry"])
+@pytest.mark.parametrize("task", ["fold", "progress_entry"])
 async def test_same_topic_submission_waits_for_the_maintenance(task) -> None:
     """维护执行期间，同话题的提交不开始、在它之后应用；其他话题的提交照常执行。"""
     events: list[str] = []
@@ -653,7 +653,7 @@ async def test_same_topic_submission_waits_for_the_maintenance(task) -> None:
             started.set()
             await release.wait()
 
-    topics = _FakeTopics(events, on_maintenance=hold_t1, compact_after_apply=task == "compaction")
+    topics = _FakeTopics(events, on_maintenance=hold_t1, fold_after_apply=task == "fold")
     queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
     try:
         await queue.start()
@@ -672,7 +672,7 @@ async def test_same_topic_submission_waits_for_the_maintenance(task) -> None:
     assert other_outcome.state is WorkState.SUCCEEDED
     assert "apply:second" not in applied_while_maintaining
     assert second_outcome.state is WorkState.SUCCEEDED
-    t1_events = [event for event in events if event not in {"apply:other", "compact:t2"}]
+    t1_events = [event for event in events if event not in {"apply:other", "fold:t2"}]
     assert _events_until(t1_events, "apply:second")[-2:] == [
         _MAINTENANCE_EVENT[task],
         "apply:second",
@@ -682,7 +682,7 @@ async def test_same_topic_submission_waits_for_the_maintenance(task) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("task", "reason"),
-    [("compaction", "topic_compaction_failed"), ("progress_entry", "progress_record_failed")],
+    [("fold", "topic_fold_failed"), ("progress_entry", "progress_record_failed")],
 )
 async def test_failed_maintenance_neither_fails_the_interaction_nor_holds_the_topic(
     task, reason, caplog
@@ -693,9 +693,7 @@ async def test_failed_maintenance_neither_fails_the_interaction_nor_holds_the_to
     async def model_down(topic_id):
         raise RuntimeError("model down")
 
-    topics = _FakeTopics(
-        events, on_maintenance=model_down, compact_after_apply=task == "compaction"
-    )
+    topics = _FakeTopics(events, on_maintenance=model_down, fold_after_apply=task == "fold")
     queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
     try:
         await queue.start()
@@ -758,7 +756,7 @@ async def test_closed_maintenance_ends_queued_items_without_running_them() -> No
 
 
 @pytest.mark.asyncio
-async def test_topic_with_a_pending_compaction_is_not_scheduled_again() -> None:
+async def test_topic_with_a_pending_fold_is_not_scheduled_again() -> None:
     """折叠项排在已入队的同话题提交之后；那次提交不再追加第二个折叠项。"""
     events: list[str] = []
     topics = _FakeTopics(events)
@@ -777,7 +775,7 @@ async def test_topic_with_a_pending_compaction_is_not_scheduled_again() -> None:
     assert _events_until(events, "apply:third") == [
         "apply:first",
         "apply:second",
-        "compact:t1",
+        "fold:t1",
         "apply:third",
     ]
 
@@ -812,12 +810,12 @@ async def test_closing_maintenance_cancels_the_running_item_and_releases_the_top
 
     assert cancelled.is_set()
     assert second_outcome.state is WorkState.SUCCEEDED
-    assert events == ["apply:first", "compact:t1", "apply:second"]
+    assert events == ["apply:first", "fold:t1", "apply:second"]
 
 
 @pytest.mark.asyncio
 async def test_drain_all_returns_after_closed_maintenance_finishes_its_cleanup() -> None:
-    """停止时先关闭维护再排空：排空要等进行中的折叠收尾，之后的结算才不会遇到占用。"""
+    """停止时先关闭维护再排空：排空要等进行中的折叠收尾，返回时折叠已经释放话题的 lease。"""
     events: list[str] = []
     cleanup_started = asyncio.Event()
     allow_cleanup = asyncio.Event()
@@ -856,7 +854,7 @@ async def test_drain_all_returns_after_closed_maintenance_finishes_its_cleanup()
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["queue_full", "needs_check_error"])
-async def test_failure_while_scheduling_compaction_keeps_the_interaction_succeeded(
+async def test_failure_while_scheduling_fold_keeps_the_interaction_succeeded(
     failure: str,
 ) -> None:
     """交互已经写入：队列已满或判断出错时放弃这次折叠，交互结果仍是成功。"""

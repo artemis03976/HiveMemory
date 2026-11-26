@@ -23,7 +23,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/architecture/data-model.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # 系统边界与所有权
@@ -146,12 +146,12 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 Patchouli 在主动链路两端各提供一组公开能力，中间由任务进程把本轮快照编译为输入清单交给 CPU（当前为 Alice）：
 
 - **预检索**：任务进程以主线程经操作入口进入 actor API 的检索，Patchouli 按执行者的可见性返回未编译的检索原子，经 workspace 读取视图交付，actor API 随检索为交付的记忆记录命中。Agent Profile 解析、附件租借与编译、记忆与中立提示词编译、输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
-- **话题准备**：公开路由以 scope 的归属确认已有话题并刷新驻留，或以给出的标题与摘要建立新话题（必要时先按 LRU 结算），返回真实话题标识。它只由 root API 的“为一轮确定话题”调用：任务进程在 PREPARE 确认已有话题、在第一次写入时建立新话题，Import Bus 在外部 harness 写入时为一轮确定话题。
+- **话题准备**：公开路由以 scope 的归属确认已有话题并刷新驻留，或以给出的标题与摘要建立新话题（池满时先让最久没用的话题沉淀并退役），返回真实话题标识。它只由 root API 的“为一轮确定话题”调用：任务进程在 PREPARE 确认已有话题、在第一次写入时建立新话题，Import Bus 在外部 harness 写入时为一轮确定话题。
 - **交互提交**：公开提交路由接收封口的 `InteractionPayload`、当次 root 授权的 `IdentityScope`、显式的参与者与请求的话题（已确定的话题，或 `NEW_TOPIC` 与标题、摘要），以参与者为发起者创建 submission、原样提交感知链，接纳后等待应用到终态或时限，返回结局（进度、成功时实际所在的话题、失败时的异常类名）。它只由 root API 的提交交互调用，任务进程与 Import Bus 共用，接纳失败、应用失败与超时的归类只在 Patchouli 做一次。存储健康有一条公开路由，同样只经 root API 调用；主动写入经独立的意图路由实时派发。
 
 交互记录由提交方封口（主动链路是任务进程，导入链路是 System 的 Import Bus），两者调用 core 中同一个封口函数 `seal_interaction`，Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口函数调用。任务进程与 Import Bus 都经 root API 交接，不持有提交队列。
 
-这一设计允许执行者专注执行，又确保长期状态的创建与结算仍经过 Patchouli。话题只在写入或交互应用时建立，没有为本轮预先建立、事后补偿的临时副作用；已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销，建立后没有接收交互的话题由 Patchouli 的空闲结算或 LRU 回收。完整契约见[子系统公共契约](../contracts/subsystem-contracts.md)。
+这一设计允许执行者专注执行，又确保长期状态的创建与结算仍经过 Patchouli。话题只在写入或交互应用时建立，没有为本轮预先建立、事后补偿的临时副作用；已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销，建立后没有接收交互的话题在停下超过沉淀阈值或池满时由 Patchouli 退役。完整契约见[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ### 6.3 禁止的越界
 
