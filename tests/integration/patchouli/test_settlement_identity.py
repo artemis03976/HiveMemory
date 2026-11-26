@@ -1,4 +1,4 @@
-"""话题结算的发起者与生成查重可见性跨组件回归。"""
+"""话题沉淀的发起者与生成查重可见性跨组件回归。"""
 
 from types import SimpleNamespace
 
@@ -198,7 +198,7 @@ class _WritableVectorStore:
 async def test_idle_settlement_persists_public_memory_without_merging_similar_private(
     tmp_path,
 ) -> None:
-    """完整空闲结算链必须新建 PUBLIC，既有高相似 PRIVATE 内容保持不变。"""
+    """完整空闲沉淀链必须新建 PUBLIC，既有高相似 PRIVATE 内容保持不变。"""
     belong_to = WorkspaceIdentity(
         owner_user_id="owner-1", workspace_key="main_workspace", workspace_id="main_workspace"
     )
@@ -256,7 +256,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
     )
     await controller.start()
     try:
-        topic_id = await perception.apply_interaction(
+        topic_id = await perception.receive_interaction(
             make_interaction_payload("question", "answer"),
             belong_to=belong_to,
             from_actor=from_actor,

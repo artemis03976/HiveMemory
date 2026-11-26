@@ -58,7 +58,7 @@ _HTTP_ERROR_TEXT_ZH = {
     "model.duplicate_id": "模型 ID 已存在",
     "provider.not_found": "提供商不存在或不能删除",
     "patchouli.topic.busy": "话题正在处理，请稍后重试",
-    "patchouli.topic.settle_rejected": "结算材料暂未被生成队列接纳，话题内容已保留，可重试",
+    "patchouli.topic.settle_rejected": "沉淀材料暂未被生成队列接纳，话题内容已保留，可重试",
     "import_bus.unavailable": "导入暂时无法完成，请保留该轮并稍后重发",
     "import_bus.apply_failed": "导入的轮次在应用时失败，重发时会重新路由并再次提交",
     "workspace.asset.not_found": "附件不存在或已失效",

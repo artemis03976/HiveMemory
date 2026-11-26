@@ -20,16 +20,16 @@ from hivememory.engines.perception.material import render_turn_text
 from hivememory.utils.token_estimator import estimate_tokens
 
 if TYPE_CHECKING:
+    from hivememory.engines.perception.fold_summary import FoldSummaryWriter
     from hivememory.engines.perception.progress_record import ProgressRecordWriter
-    from hivememory.engines.perception.relay_controller import BaseRelayController
 
 
 class MemoryPerceptionEngine:
-    """无状态的短期记忆摄入与 compact 算法。
+    """无状态的短期记忆摄入与折叠算法。
 
     职责：``InteractionPayload`` → ``LogicalBlock`` 的纯函数构造、token 估算、
-    compact 阈值判断、待折叠 blocks 选择，以及折叠摘要生成（通过持有的
-    ``RelayController``）。
+    折叠阈值判断、待折叠 blocks 选择，以及折叠摘要生成（通过持有的
+    ``FoldSummaryWriter``）。
 
     不职责：不持有 Store / Journal / Queue 等运行时状态；不实现 route /
     apply / settle 编排（Familiar 的用例）；不解释触发原因。
@@ -38,12 +38,12 @@ class MemoryPerceptionEngine:
     def __init__(
         self,
         config: PerceptionEngineConfig,
-        relay_controller: BaseRelayController,
+        fold_summary_writer: FoldSummaryWriter,
         transcript_config: GenerationTranscriptConfig | None = None,
         progress_writer: ProgressRecordWriter | None = None,
     ) -> None:
         self.config = config
-        self._relay = relay_controller
+        self._fold_summary_writer = fold_summary_writer
         # 与记忆生成视图同一个工具结果上限：块的 token 统计按生成实际看到的材料计算。
         self._transcript_config = transcript_config or GenerationTranscriptConfig()
         # 没有可用的模型时为 None：不写进展记录。
@@ -68,7 +68,7 @@ class MemoryPerceptionEngine:
         total_tokens = estimate_tokens(render_turn_text(turn.turn_events, self._transcript_config))
         return LogicalBlock(turn=turn, total_tokens=total_tokens)
 
-    def should_compact(self, total_tokens: int) -> bool:
+    def should_fold(self, total_tokens: int) -> bool:
         """纯函数：判断话题当前 token 总量是否已溢出折叠阈值。"""
         return total_tokens > self.config.fold_token_threshold
 
@@ -89,8 +89,8 @@ class MemoryPerceptionEngine:
         blocks_to_fold: list[LogicalBlock],
         previous_summary: str,
     ) -> str:
-        """生成 Page Folding 摘要，封装为 Engine 的算法能力。"""
-        return await self._relay.generate_summary(blocks_to_fold, previous_summary)
+        """以持有的写作者生成折叠摘要。"""
+        return await self._fold_summary_writer.generate_summary(blocks_to_fold, previous_summary)
 
     @property
     def writes_progress_record(self) -> bool:

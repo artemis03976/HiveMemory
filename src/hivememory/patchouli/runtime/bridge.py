@@ -190,12 +190,12 @@ class PatchouliBridge:
                 self._public_api.topics.prepare_topic,
             ),
             RouteBinding.of(
-                PatchouliRoutes.MANUAL_SETTLE_TOPIC,
-                self._public_api.topics.settle_topic,
+                PatchouliRoutes.SETTLE_AND_RETIRE_TOPIC,
+                self._public_api.topics.settle_and_retire_topic,
             ),
             RouteBinding.of(
-                PatchouliRoutes.EVICT_TOPIC,
-                self._public_api.topics.evict_topic,
+                PatchouliRoutes.DELETE_TOPIC,
+                self._public_api.topics.delete_topic,
             ),
             RouteBinding.of(
                 PatchouliRoutes.RECORD_MEMORY_CITATION,

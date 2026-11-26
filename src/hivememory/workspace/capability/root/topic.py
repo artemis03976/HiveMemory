@@ -1,4 +1,4 @@
-"""root Topic API：授权后调用话题列表、结算与驱逐的公共路由，并为一轮确定话题。
+"""root Topic API：授权后调用话题列表、沉淀并退役与删除的公共路由，并为一轮确定话题。
 
 确定话题服务于写入：写入派发需要这一轮最终所在的话题。任务进程按 Gateway 的
 决定确认已有话题或在第一次写入时建立新话题；外部 harness 的一轮在 HiveMemory
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, overload
 
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.topic_management import (
-    TopicEvictionResult,
+    TopicDeleteResult,
     TopicSettleResult,
 )
 from hivememory.workspace.capability.root.passive_routing import (
@@ -66,32 +66,32 @@ class RootTopicService:
             identity_scope=scope,
         )
 
-    async def settle_topic(
+    async def settle_and_retire_topic(
         self,
         *,
         target_workspace: WorkspaceIdentity,
         topic_id: str,
         actor: WorkingActor,
     ) -> TopicSettleResult:
-        """结算 Topic（root 授权），并原样返回 Patchouli 的业务结果。"""
+        """沉淀并退役话题（root 授权），并原样返回 Patchouli 的业务结果。"""
         scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
-            PatchouliRoutes.MANUAL_SETTLE_TOPIC,
+            PatchouliRoutes.SETTLE_AND_RETIRE_TOPIC,
             identity_scope=scope,
             topic_id=topic_id,
         )
 
-    async def evict_topic(
+    async def delete_topic(
         self,
         *,
         target_workspace: WorkspaceIdentity,
         topic_id: str,
         actor: WorkingActor,
-    ) -> TopicEvictionResult:
-        """删除 Topic（root 授权），并原样返回 Patchouli 的驱逐结果。"""
+    ) -> TopicDeleteResult:
+        """删除话题（root 授权），并原样返回 Patchouli 的删除结果。"""
         scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
-            PatchouliRoutes.EVICT_TOPIC,
+            PatchouliRoutes.DELETE_TOPIC,
             identity_scope=scope,
             topic_id=topic_id,
         )
@@ -132,7 +132,7 @@ class RootTopicService:
         此时重新路由会让写入与这一轮落在不同的话题；否则以 PASSIVE_MEMORY 路由。
 
         目标是已有话题时确认它存在并刷新驻留，是 ``NEW_TOPIC`` 时以决定中的
-        标题与摘要建立（必要时先按 LRU 驱逐）。Gateway 与话题准备的异常原样
+        标题与摘要建立（池满时先让最久没用的话题退役）。Gateway 与话题准备的异常原样
         传出。
         """
         scope = self._authorizer.authorize_root(actor, target_workspace)

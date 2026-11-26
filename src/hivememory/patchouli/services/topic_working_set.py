@@ -106,7 +106,7 @@ class TopicWorkingSet:
             return topic_id
         return None
 
-    def list_idle_candidates(
+    def list_inactive(
         self,
         timeout_seconds: float,
         *,

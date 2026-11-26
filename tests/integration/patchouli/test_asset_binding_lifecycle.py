@@ -54,12 +54,12 @@ def _make_ready_asset(asset_store: InMemoryWorkspaceAssetStore, workspace):
 
 
 def _make_familiar_with_store(tmp_path):
-    """组装真实 Familiar + Store（binding 写入走 apply_interaction 真实链路）。"""
+    """组装真实 Familiar + Store（binding 写入走 receive_interaction 真实链路）。"""
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     familiar = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=999999),
-            relay_controller=Mock(),
+            fold_summary_writer=Mock(),
         ),
         store=store,
         working_set=TopicWorkingSet(),
@@ -107,7 +107,7 @@ async def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire(tm
     asset_store.remove_asset(workspace, ref)
 
     # 成功 Interaction 在 remove 后提交 binding：记录 remove 前已发生的真实使用。
-    await familiar.apply_interaction(
+    await familiar.receive_interaction(
         _payload(),
         belong_to=workspace,
         from_actor=make_identity_scope(user_id="u1").actor_identity,
@@ -135,7 +135,7 @@ async def test_commit_before_remove_preserves_binding(tmp_path):
     topic = store.create(workspace)
 
     lease = asset_store.acquire_ready_representation(workspace, ref)
-    await familiar.apply_interaction(
+    await familiar.receive_interaction(
         _payload(),
         belong_to=workspace,
         from_actor=make_identity_scope(user_id="u1").actor_identity,

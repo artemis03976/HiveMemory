@@ -1,7 +1,7 @@
 """记忆生成控制器测试使用的 Patchouli 本地总线替身与话题路由。
 
-控制器执行写入与结算时经 ``topic.get_generated_memories`` 读取本话题生成的记忆，执行之后经
-``topic.record_generated_memories`` 记回话题；结算到达终态时经 ``topic.record_settled`` 让话题记下进度。
+控制器执行写入与沉淀时经 ``topic.get_generated_memories`` 读取本话题生成的记忆，执行之后经
+``topic.record_generated_memories`` 记回话题；沉淀到达终态时经 ``topic.record_settled`` 让话题记下进度。
 """
 
 from collections.abc import Awaitable, Callable

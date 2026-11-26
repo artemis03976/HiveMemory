@@ -136,7 +136,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(me
             topic_id="topic-codec",
             topic_title="title",
             topic_summary="summary",
-            blocks=(block,),
+            interactions=(block,),
         ),
         intent_id="intent-codec",
         pending_alias="draft-codec",
@@ -199,7 +199,7 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(me
     assert isinstance(first.spec.request.existing_memory, MemoryAtom)
     assert first.spec.request.existing_memory.payload.content == "original content"
     assert first.spec.interaction_input is not None
-    assert isinstance(first.spec.interaction_input.blocks[0], LogicalBlock)
+    assert isinstance(first.spec.interaction_input.interactions[0], LogicalBlock)
     first.spec.request.context.fold_summary = "attempt-local mutation"
     assert second.spec.request.context.fold_summary == "original summary"
 
@@ -322,7 +322,7 @@ def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -
     spec = replace(
         _spec(topic_id="topic-old", request=GenerationRequest(context=context)),
         source=MemoryGenerationSource.SETTLE,
-        interaction_input=InteractionArtifactInput(topic_id="topic-old", blocks=(block,)),
+        interaction_input=InteractionArtifactInput(topic_id="topic-old", interactions=(block,)),
     )
     item = queue.encode_for_restart("settle:topic-old", spec)
     assert queue.decode_for_restart(item) == spec
@@ -340,7 +340,7 @@ def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -
     assert (turn.turn_id, turn.segments) == ("", [])
     assert turn.material_entries == context.turns[0].material_entries
     assert restored.request.context.cited_segments(["1.1"]) == []
-    [restored_block] = restored.interaction_input.blocks
+    [restored_block] = restored.interaction_input.interactions
     assert [event.response_index for event in restored_block.turn_events] == [None, None]
 
 
@@ -377,7 +377,7 @@ def test_codec_roundtrips_settlement_records_without_loss() -> None:
         spec,
         interaction_input=InteractionArtifactInput(
             topic_id="topic-bind",
-            blocks=(folded, retained),
+            interactions=(folded, retained),
             folds=(fold,),
             asset_bindings=(binding,),
         ),
@@ -389,7 +389,7 @@ def test_codec_roundtrips_settlement_records_without_loss() -> None:
     decoded = adapter.decode(encoded)
 
     assert decoded.spec.interaction_input is not None
-    assert decoded.spec.interaction_input.blocks == (folded, retained)
+    assert decoded.spec.interaction_input.interactions == (folded, retained)
     assert decoded.spec.interaction_input.folds == (fold,)
     assert decoded.spec.interaction_input.asset_bindings == (binding,)
     assert decoded.spec.interaction_input.asset_bindings[0].asset_ref.token == "token-1"

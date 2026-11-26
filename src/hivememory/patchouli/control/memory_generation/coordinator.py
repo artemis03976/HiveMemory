@@ -17,7 +17,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.generation.models import GenerationRequest
-from hivememory.engines.perception.models import TopicMaterializeTask
+from hivememory.engines.perception.models import TopicSettleMaterial
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmission
 from hivememory.patchouli.control.memory_generation.models import (
@@ -57,12 +57,12 @@ class MemoryGenerationCoordinator:
         # 生成材料只有工具结果按配置的上限截断，感知的 token 统计使用同一个上限。
         self._transcript_builder = GenerationTranscriptBuilder(transcript_config)
 
-    async def submit_settlement(self, payload: TopicMaterializeTask) -> MemoryGenerationTask | None:
-        """将话题结算转为 SETTLE 任务，统一以归属对应的 system 为发起者。
+    async def submit_settlement(self, payload: TopicSettleMaterial) -> MemoryGenerationTask | None:
+        """将话题的沉淀材料转为 SETTLE 任务，统一以归属对应的 system 为发起者。
 
         生成材料是话题的工作视图；来源记录冻结全部交互记录与折叠记录，覆盖
         已折叠的轮次。生成请求带着冻结时本话题生成的记忆，执行时再并入话题当时的记录；
-        升级之前的版本保存的结算的话题不在话题池里，执行时只有这一份。
+        升级之前的版本保存的沉淀的话题不在话题池里，执行时只有这一份。
         """
         gen_context = self._transcript_builder.build_context(
             payload.blocks,
@@ -86,7 +86,7 @@ class MemoryGenerationCoordinator:
                 topic_id=payload.topic_id,
                 topic_title=payload.topic_title,
                 topic_summary=payload.topic_summary,
-                blocks=payload.interactions,
+                interactions=payload.interactions,
                 folds=payload.folds,
                 asset_bindings=payload.asset_bindings,
             ),
@@ -142,7 +142,7 @@ class MemoryGenerationCoordinator:
             topic_id=topic_id,
             topic_title=topic_data.topic_title if topic_data is not None else "",
             topic_summary=topic_data.topic_summary if topic_data is not None else "",
-            blocks=blocks,
+            interactions=blocks,
         )
         built = await self._try_build_active_spec(
             task,
@@ -274,18 +274,18 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         topic_title: str,
         topic_summary: str,
-        blocks: Sequence[LogicalBlock],
+        interactions: Sequence[LogicalBlock],
         folds: Sequence[TopicFold] = (),
         asset_bindings: tuple = (),
     ) -> InteractionArtifactInput | None:
         """将原始交互数据冻结为生成数据平面的交互输入。"""
-        if not blocks:
+        if not interactions:
             return None
         return InteractionArtifactInput(
             topic_id=topic_id,
             topic_title=topic_title,
             topic_summary=topic_summary,
-            blocks=tuple(blocks),
+            interactions=tuple(interactions),
             folds=tuple(folds),
             asset_bindings=tuple(asset_bindings),
         )

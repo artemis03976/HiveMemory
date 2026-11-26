@@ -10,9 +10,9 @@
 
 数据流:
     Active: 任务进程 -> 预检索 (memory.retrieve) -> CPU 端口 (Alice) -> root API 提交交互
-            -> interaction.submit (公开路由) -> InteractionSubmissionQueue -> apply_interaction
+            -> interaction.submit (公开路由) -> InteractionSubmissionQueue -> receive_interaction
     Import: ImportBusService -> root API 提交交互 -> interaction.submit (公开路由)
-            -> InteractionSubmissionQueue -> apply_interaction
+            -> InteractionSubmissionQueue -> receive_interaction
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
@@ -73,7 +73,7 @@ class PatchouliSystem(SubsystemProtocol):
 
     架构:
         - PatchouliRuntime (帕秋莉运行时): 记忆域运行时宿主
-            - PerceptionFamiliar (感知使魔): 话题缓冲与结算触发
+            - PerceptionFamiliar (感知使魔): 话题的维护、沉淀与退役
             - RetrievalFamiliar (检索使魔): 上下文检索 (Hot)
             - MemoryGenerationFamiliar / Coordinator: 记忆生成执行与编排
             - LifecycleFamiliar (生命周期使魔): 活力维护与园艺任务
@@ -111,7 +111,7 @@ class PatchouliSystem(SubsystemProtocol):
         )
 
         self._interaction_submission_queue = InteractionSubmissionQueue(
-            self.runtime.perception_familiar.apply_interaction,
+            self.runtime.perception_familiar.receive_interaction,
             maintenance=self.runtime.perception_familiar,
             runtime_events=self._runtime_events.scoped(
                 subsystem="patchouli",
@@ -187,9 +187,9 @@ class PatchouliSystem(SubsystemProtocol):
         scheduler.register(
             MaintenanceTaskSpec(
                 owner=self._MAINTENANCE_OWNER,
-                name="perception_idle_flush",
-                interval_seconds=tasks_config.perception_idle_flush_interval_seconds,
-                enabled=tasks_config.enable_perception_idle_flush,
+                name="perception_idle_settle",
+                interval_seconds=tasks_config.perception_idle_settle_interval_seconds,
+                enabled=tasks_config.enable_perception_idle_settle,
             ),
             self.runtime.perception_familiar.scan_idle_topics_once,
         )

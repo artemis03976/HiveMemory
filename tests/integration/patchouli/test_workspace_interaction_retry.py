@@ -49,7 +49,7 @@ def _build_familiar(
         engine=engine
         or MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=999999),
-            relay_controller=Mock(),
+            fold_summary_writer=Mock(),
         ),
         store=store,
         working_set=TopicWorkingSet(max_resident=4),
@@ -103,7 +103,7 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once(tmp_
         attempts.append((len(attempts) + 1, belong_to))
         if len(attempts) == 1:
             raise TopicBusyError("retry once")
-        return await familiar.apply_interaction(
+        return await familiar.receive_interaction(
             payload,
             belong_to=belong_to,
             from_actor=from_actor,
@@ -145,7 +145,7 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once(tmp_
 
 
 @pytest.mark.asyncio
-async def test_compaction_runs_after_apply_and_next_same_topic_submission_follows_it(
+async def test_fold_runs_after_apply_and_next_same_topic_submission_follows_it(
     tmp_path,
 ) -> None:
     """交互不等折叠即完成；同一话题的下一次提交在折叠写回之后才写入话题。"""
@@ -169,17 +169,17 @@ async def test_compaction_runs_after_apply_and_next_same_topic_submission_follow
     relay.generate_summary = AsyncMock(side_effect=slow_summary)
     engine = MemoryPerceptionEngine(
         config=PerceptionEngineConfig(fold_token_threshold=1, fold_retain_recent_blocks=1),
-        relay_controller=relay,
+        fold_summary_writer=relay,
     )
     familiar = _build_familiar(store, engine=engine)
     scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.apply_interaction(
+    topic_id = await familiar.receive_interaction(
         _payload("first"),
         belong_to=scope.workspace_identity,
         from_actor=scope.actor_identity,
         interaction_id="i-first",
     )
-    queue = InteractionSubmissionQueue(familiar.apply_interaction, maintenance=familiar)
+    queue = InteractionSubmissionQueue(familiar.receive_interaction, maintenance=familiar)
 
     def submission(interaction_id: str, message: str) -> InteractionSubmission:
         return InteractionSubmission(

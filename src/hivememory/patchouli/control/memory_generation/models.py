@@ -45,16 +45,16 @@ _WORK_STATE_TO_TASK_STATUS = {
 class InteractionArtifactInput:
     """传递给记忆生成数据面的原始交互数据。
 
-    话题结算时 ``blocks`` 是话题的全部交互记录（包括已折叠的轮次），``folds`` 是
-    全部折叠记录；主动生成只取最近的 blocks，``folds`` 为空。
+    沉淀时 ``interactions`` 是话题的全部交互记录（包括已折叠的轮次），``folds`` 是
+    全部折叠记录；主动生成只取最近几轮，``folds`` 为空。
     """
 
     topic_id: str
     topic_title: str = ""
     topic_summary: str = ""
-    blocks: tuple[LogicalBlock, ...] = ()
+    interactions: tuple[LogicalBlock, ...] = ()
     folds: tuple[TopicFold, ...] = ()
-    # settle 前冻结的 Topic 真实使用资产关系；进入 queue 后不再依赖短期 buffer 实体。
+    # 冻结材料时话题实际使用的附件关系；进入生成队列后不再读话题。
     asset_bindings: tuple[TopicAssetBinding, ...] = ()
 
 
@@ -68,7 +68,7 @@ class MemoryGenerationTaskSpec:
     ``intent_id`` 与 ``pending_alias`` 只属于主动写入，二者同时出现：写入意图的
     终态事件携带两者，由 workspace 登记严格匹配；被动生成两者都缺省。
 
-    ``retires_topic`` 只属于话题结算：为真表示话题在这次沉淀之后退役，不再接收交互；
+    ``retires_topic`` 只属于话题的沉淀：为真表示话题在这次沉淀之后退役，不再接收交互；
     为假是空闲时的沉淀，话题之后还会再次沉淀。
     """
 
@@ -87,7 +87,7 @@ class MemoryGenerationTaskSpec:
         if (self.intent_id is None) != (self.pending_alias is None):
             raise ValueError("intent_id 与 pending_alias 必须同时提供或同时缺省")
         if self.retires_topic and self.source != MemoryGenerationSource.SETTLE:
-            raise ValueError("只有话题结算可以携带 retires_topic")
+            raise ValueError("只有话题的沉淀可以携带 retires_topic")
         is_merge = self.source == MemoryGenerationSource.MERGE
         if is_merge != (self.request.merge_focus is not None):
             raise ValueError("MERGE 来源必须且只能携带 merge_focus")

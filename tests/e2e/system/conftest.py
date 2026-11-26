@@ -213,7 +213,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
             PerceptionEngineConfig(fold_token_threshold=999999), _Relay()
         ),
         store=short_term,
-        # 为多轮会话样本预留话题容量；LRU 结算由资源归属层单独验证。
+        # 为多轮会话样本预留话题容量；LRU 退役由资源归属层单独验证。
         working_set=TopicWorkingSet(max_resident=16),
         bus=local_bus,
         config=MemoryPerceptionConfig(),
@@ -274,7 +274,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         ),
     ):
         local_bus.register(route, handler)
-    queue = InteractionSubmissionQueue(perception.apply_interaction)
+    queue = InteractionSubmissionQueue(perception.receive_interaction)
     chat_service = PatchouliService(local_bus)
     bridge = PatchouliBridge(
         local_bus=local_bus,

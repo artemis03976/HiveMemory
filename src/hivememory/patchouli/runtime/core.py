@@ -134,7 +134,7 @@ class PatchouliRuntime:
         self._shared_config = shared_config
         self._runtime_events = runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
         # Librarian LLM：共享服务与组件请求参数由组合根注入；缺少任一项时
-        # 记忆抽取以 No-Op 运行，Page Folding 回退为简单摘要。
+        # 记忆抽取以 No-Op 运行，折叠摘要回退为按规则写的摘要。
         self._llm_service = llm_service
         self._llm_params = llm_params
         # 进程级唯一 WorkspaceAssetStore 的只读 reader：供记忆生成
@@ -557,7 +557,7 @@ class PatchouliRuntime:
         from hivememory.engines.perception import (
             MemoryPerceptionEngine,
             ProgressRecordWriter,
-            create_relay_controller,
+            create_fold_summary_writer,
         )
 
         impl_config = self._patchouli_config.perception.engine
@@ -567,7 +567,7 @@ class PatchouliRuntime:
         relay_config = (
             getattr(self._patchouli_config.perception, "relay", None) or impl_config.relay
         )
-        relay_controller = create_relay_controller(
+        fold_summary_writer = create_fold_summary_writer(
             config=relay_config,
             llm_service=self._llm_service,
             llm_params=self._llm_params,
@@ -588,7 +588,7 @@ class PatchouliRuntime:
             )
         return MemoryPerceptionEngine(
             config=impl_config,
-            relay_controller=relay_controller,
+            fold_summary_writer=fold_summary_writer,
             transcript_config=self._patchouli_config.generation.transcript,
             progress_writer=progress_writer,
         )
@@ -629,7 +629,7 @@ class PatchouliRuntime:
             deduplicator=deduplicator,
             # alias 唯一性第一层：生成侧以中期库为占用查询端口。
             alias_generator=AliasGenerator(self.memory_library.mid_term),
-            # 话题结算选馆长时才装配；否则结算走一次性生成。
+            # 话题沉淀选馆长时才装配；否则沉淀走一次性生成。
             librarian=create_librarian(
                 config,
                 mid_term=self.memory_library.mid_term,

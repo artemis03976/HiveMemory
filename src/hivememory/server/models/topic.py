@@ -13,7 +13,7 @@ from hivememory.core.models import (
     TopicTurnExcerpt,
 )
 from hivememory.patchouli.contracts.topic_management import (
-    TopicEvictionResult,
+    TopicDeleteResult,
     TopicSettleResult,
 )
 
@@ -144,7 +144,7 @@ class TopicSettleResponse(BaseModel):
 
     @classmethod
     def from_domain(cls, result: TopicSettleResult) -> TopicSettleResponse:
-        """从 Topic settle 业务结果构造 HTTP 投影。"""
+        """从沉淀并退役的业务结果构造 HTTP 投影。"""
 
         return cls(
             topic_id=result.topic_id,
@@ -154,14 +154,14 @@ class TopicSettleResponse(BaseModel):
 
 
 class TopicDeleteResponse(BaseModel):
-    """Topic delete/evict HTTP 响应。"""
+    """删除话题的 HTTP 响应。"""
 
     topic_id: str
     removed: bool
 
     @classmethod
-    def from_domain(cls, result: TopicEvictionResult) -> TopicDeleteResponse:
-        """从 Topic eviction 业务结果构造 HTTP 投影。"""
+    def from_domain(cls, result: TopicDeleteResult) -> TopicDeleteResponse:
+        """从删除话题的业务结果构造 HTTP 投影。"""
 
         return cls(topic_id=result.topic_id, removed=result.removed)
 

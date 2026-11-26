@@ -5,11 +5,11 @@
 Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用可控时钟。
 
 测试覆盖:
-- apply_interaction: 新建（含提交携带的标题与摘要）/指定话题写入、binding 幂等、busy 拒绝、未知目标
+- receive_interaction: 新建（含提交携带的标题与摘要）/指定话题写入、binding 幂等、busy 拒绝、未知目标
 - LRU 驱逐: 池满驱逐最久未访问话题、busy 候选改选、admission 失败传播
-- 折叠: 应用不在内部折叠、needs_compact 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
-  失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已结算时直接结束、未超保留块数不折叠
-- manual_settle_topic / evict_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
+- 折叠: 应用不在内部折叠、needs_fold 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
+  失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已退役时直接结束、未超保留块数不折叠
+- settle_and_retire_topic / delete_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
 - scan_idle_topics_once：空闲只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
   从没接收过交互的空话题空闲时直接退役；折叠后沉淀携带被折叠的轮次
 - 沉淀进度在生成完成时推进：接纳后只记在途，在途期间不重复沉淀同一段，完成后日志记下进度；
@@ -149,7 +149,7 @@ def _make_familiar(
             )
         engine = MemoryPerceptionEngine(
             config=engine_config or PerceptionEngineConfig(fold_token_threshold=999999),
-            relay_controller=relay,
+            fold_summary_writer=relay,
             progress_writer=progress_writer,
         )
     familiar = PerceptionFamiliar(
@@ -178,7 +178,7 @@ def _topic_events(events: RecordingRuntimeEventSink) -> list[tuple[str, str | No
     ]
 
 
-# ========== apply_interaction：核心摄入用例 ==========
+# ========== receive_interaction：接收一轮交互 ==========
 
 
 class TestApplyInteraction:
@@ -187,7 +187,7 @@ class TestApplyInteraction:
         familiar, store, working_set, bus = _make_familiar(tmp_path)
         scope = _identity_scope()
 
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -207,7 +207,7 @@ class TestApplyInteraction:
         familiar, store, _, _ = _make_familiar(tmp_path)
         scope = _identity_scope()
 
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -227,7 +227,7 @@ class TestApplyInteraction:
         store.create(scope.workspace_identity, topic_id="t-fixed", topic_title="Fixed")
         ref = WorkspaceAssetRef(token="token-1", asset_id="asset-1")
 
-        first = await familiar.apply_interaction(
+        first = await familiar.receive_interaction(
             _payload("a"),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -235,7 +235,7 @@ class TestApplyInteraction:
             interaction_id="i-1",
             asset_refs=(ref,),
         )
-        second = await familiar.apply_interaction(
+        second = await familiar.receive_interaction(
             _payload("b"),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -260,7 +260,7 @@ class TestApplyInteraction:
         assert lease is not None
 
         with pytest.raises(TopicBusyError, match="正忙"):
-            await familiar.apply_interaction(
+            await familiar.receive_interaction(
                 _payload(),
                 belong_to=scope.workspace_identity,
                 from_actor=scope.actor_identity,
@@ -274,7 +274,7 @@ class TestApplyInteraction:
         familiar, _, _, _ = _make_familiar(tmp_path)
 
         with pytest.raises(ResourceNotFoundError):
-            await familiar.apply_interaction(
+            await familiar.receive_interaction(
                 _payload(),
                 belong_to=_identity_scope().workspace_identity,
                 from_actor=_identity_scope().actor_identity,
@@ -285,22 +285,22 @@ class TestApplyInteraction:
 # ========== LRU 驱逐 ==========
 
 
-class TestLruEviction:
+class TestLruRetirement:
     @pytest.mark.asyncio
-    async def test_pool_full_evicts_least_recently_used_topic(self, tmp_path):
+    async def test_pool_full_retires_least_recently_used_topic(self, tmp_path):
         clock = _FakeClock()
         familiar, store, _, bus = _make_familiar(tmp_path, max_resident=2, clock=clock)
         scope = _identity_scope()
-        t1 = await familiar.apply_interaction(
+        t1 = await familiar.receive_interaction(
             _payload("1"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
         )
         clock.advance(10)
-        t2 = await familiar.apply_interaction(
+        t2 = await familiar.receive_interaction(
             _payload("2"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
         )
         clock.advance(10)
 
-        t3 = await familiar.apply_interaction(
+        t3 = await familiar.receive_interaction(
             _payload("3"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
         )
 
@@ -319,18 +319,18 @@ class TestLruEviction:
         clock = _FakeClock()
         familiar, store, working_set, _ = _make_familiar(tmp_path, max_resident=2, clock=clock)
         scope = _identity_scope()
-        t1 = await familiar.apply_interaction(
+        t1 = await familiar.receive_interaction(
             _payload("1"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
         )
         clock.advance(10)
-        t2 = await familiar.apply_interaction(
+        t2 = await familiar.receive_interaction(
             _payload("2"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
         )
         clock.advance(10)
         lease = working_set.acquire(scope.workspace_identity, t1)
         assert lease is not None
 
-        t3 = await familiar.apply_interaction(
+        t3 = await familiar.receive_interaction(
             _payload("3"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
         )
 
@@ -344,13 +344,13 @@ class TestLruEviction:
     async def test_admission_failure_preserves_topic_and_propagates(self, tmp_path):
         familiar, store, _, bus = _make_familiar(tmp_path, max_resident=1)
         scope = _identity_scope()
-        t1 = await familiar.apply_interaction(
+        t1 = await familiar.receive_interaction(
             _payload("1"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
         )
         bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
 
         with pytest.raises(RuntimeError, match="admission boom"):
-            await familiar.apply_interaction(
+            await familiar.receive_interaction(
                 _payload("2"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
             )
 
@@ -362,13 +362,13 @@ class TestLruEviction:
     async def test_pool_full_with_all_candidates_busy_raises(self, tmp_path):
         familiar, _, working_set, _ = _make_familiar(tmp_path, max_resident=1)
         scope = _identity_scope()
-        t1 = await familiar.apply_interaction(
+        t1 = await familiar.receive_interaction(
             _payload("1"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
         )
         working_set.acquire(scope.workspace_identity, t1)  # 唯一候选正被占用
 
-        with pytest.raises(TopicBusyError, match="无可占用候选"):
-            await familiar.apply_interaction(
+        with pytest.raises(TopicBusyError, match="全部话题正被占用"):
+            await familiar.receive_interaction(
                 _payload("2"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
             )
 
@@ -383,7 +383,7 @@ def _fold_every_block_config() -> PerceptionEngineConfig:
 
 async def _apply_to_topic(familiar, scope, topic_id: str, *messages: str) -> None:
     for message in messages:
-        await familiar.apply_interaction(
+        await familiar.receive_interaction(
             _payload(message),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -392,9 +392,9 @@ async def _apply_to_topic(familiar, scope, topic_id: str, *messages: str) -> Non
         )
 
 
-class TestCompact:
+class TestFold:
     @pytest.mark.asyncio
-    async def test_apply_writes_block_without_compacting_over_threshold_topic(self, tmp_path):
+    async def test_receive_writes_block_without_folding_over_threshold_topic(self, tmp_path):
         """应用只写入 block；话题超过阈值也不在应用内折叠。"""
         familiar, store, _, _ = _make_familiar(
             tmp_path, engine_config=_fold_every_block_config(), relay=_folding_relay()
@@ -407,10 +407,10 @@ class TestCompact:
         topic = store.get(scope.workspace_identity, "t1")
         assert [block.user_message for block in topic.blocks] == ["a", "b"]
         assert topic.fold_summary == ""
-        assert familiar.needs_compact(scope.workspace_identity, "t1") is True
+        assert familiar.needs_fold(scope.workspace_identity, "t1") is True
 
     @pytest.mark.asyncio
-    async def test_compact_topic_appends_fold_records_and_keeps_interactions(self, tmp_path):
+    async def test_fold_topic_appends_fold_records_and_keeps_interactions(self, tmp_path):
         """折叠只推进工作视图：交互记录不移除，每次折叠追加一条记录，摘要在上一次之上累积。"""
         familiar, store, _, bus = _make_familiar(
             tmp_path, engine_config=_fold_every_block_config(), relay=_folding_relay()
@@ -420,7 +420,7 @@ class TestCompact:
 
         for message in ("a", "b", "c"):
             await _apply_to_topic(familiar, scope, "t1", message)
-            await familiar.compact_topic(scope.workspace_identity, "t1")
+            await familiar.fold_topic(scope.workspace_identity, "t1")
 
         topic = store.get(scope.workspace_identity, "t1")
         first, second, third = topic.interactions
@@ -433,7 +433,7 @@ class TestCompact:
         # 第二次折叠收到第一次的摘要作为 previous_summary，累积成链
         assert topic.fold_summary == "folded:1|folded:1"
         assert topic.total_tokens == third.total_tokens
-        assert familiar.needs_compact(scope.workspace_identity, "t1") is False
+        assert familiar.needs_fold(scope.workspace_identity, "t1") is False
         # 折叠只压缩上下文，不触发记忆生成，也不驱逐话题
         bus.request.assert_not_awaited()
 
@@ -458,7 +458,7 @@ class TestCompact:
         store.create(workspace, topic_id="t1")
         await _apply_to_topic(familiar, scope, "t1", "a", "b")
 
-        compaction = asyncio.create_task(familiar.compact_topic(workspace, "t1"))
+        compaction = asyncio.create_task(familiar.fold_topic(workspace, "t1"))
         await asyncio.wait_for(summarizing.wait(), timeout=1)
         await familiar.record_generated_memories(
             "t1", belong_to=workspace, generated=frozenset({"m"}), absorbed_into={}
@@ -470,7 +470,7 @@ class TestCompact:
         assert (topic.fold_summary, topic.topic_generated_memory_ids) == ("summary", {"m"})
 
     @pytest.mark.asyncio
-    async def test_failed_compaction_leaves_topic_intact_and_can_compact_again(self, tmp_path):
+    async def test_failed_fold_leaves_topic_intact_and_can_fold_again(self, tmp_path):
         """摘要失败时话题原样保留并释放占用，之后的折叠照常完成。"""
         relay = Mock()
         relay.generate_summary = AsyncMock(
@@ -485,17 +485,17 @@ class TestCompact:
         before = store.get(scope.workspace_identity, "t1")
 
         with pytest.raises(RuntimeError, match="relay down"):
-            await familiar.compact_topic(scope.workspace_identity, "t1")
+            await familiar.fold_topic(scope.workspace_identity, "t1")
 
         assert store.get(scope.workspace_identity, "t1") == before
-        await familiar.compact_topic(scope.workspace_identity, "t1")
+        await familiar.fold_topic(scope.workspace_identity, "t1")
         topic = store.get(scope.workspace_identity, "t1")
         assert [block.user_message for block in topic.blocks] == ["b"]
         assert topic.fold_summary == "folded-summary"
 
     @pytest.mark.asyncio
-    async def test_compact_topic_rejects_topic_held_by_another_use_case(self, tmp_path):
-        """话题正被占用（例如结算中）时折叠以 busy 拒绝，留待重试，不改动话题。"""
+    async def test_fold_topic_rejects_topic_held_by_another_use_case(self, tmp_path):
+        """话题正被占用（例如沉淀中）时折叠以 busy 拒绝，留待重试，不改动话题。"""
         familiar, store, working_set, _ = _make_familiar(
             tmp_path, engine_config=_fold_every_block_config(), relay=_folding_relay()
         )
@@ -506,14 +506,14 @@ class TestCompact:
         assert lease is not None
 
         with pytest.raises(TopicBusyError, match="正忙"):
-            await familiar.compact_topic(scope.workspace_identity, "t1")
+            await familiar.fold_topic(scope.workspace_identity, "t1")
 
         working_set.release(lease)
         assert store.get(scope.workspace_identity, "t1").fold_summary == ""
 
     @pytest.mark.asyncio
-    async def test_compact_topic_ends_without_reviving_settled_topic(self, tmp_path):
-        """折叠开始前话题已被结算删除：直接结束，不把话题写回。"""
+    async def test_fold_topic_ends_without_reviving_retired_topic(self, tmp_path):
+        """折叠开始前话题已被沉淀并退役：直接结束，不把话题写回。"""
         familiar, store, _, bus = _make_familiar(
             tmp_path, engine_config=_fold_every_block_config(), relay=_folding_relay()
         )
@@ -521,15 +521,15 @@ class TestCompact:
         store.create(scope.workspace_identity, topic_id="t1")
         await _apply_to_topic(familiar, scope, "t1", "a", "b")
         bus.request.side_effect = _accept_settlement_task
-        await familiar.manual_settle_topic(scope.workspace_identity, "t1")
+        await familiar.settle_and_retire_topic(scope.workspace_identity, "t1")
 
-        await familiar.compact_topic(scope.workspace_identity, "t1")
+        await familiar.fold_topic(scope.workspace_identity, "t1")
 
         assert store.get(scope.workspace_identity, "t1") is None
-        assert familiar.needs_compact(scope.workspace_identity, "t1") is False
+        assert familiar.needs_fold(scope.workspace_identity, "t1") is False
 
     @pytest.mark.asyncio
-    async def test_blocks_within_retain_count_need_no_compaction(self, tmp_path):
+    async def test_blocks_within_retain_count_need_no_fold(self, tmp_path):
         """超过阈值但块数不多于保留数时没有可折叠前缀：不需要折叠，折叠也不改动话题。"""
         familiar, store, _, _ = _make_familiar(
             tmp_path,
@@ -538,15 +538,15 @@ class TestCompact:
             ),
         )
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("q", "a"),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
             target_topic_id="NEW_TOPIC",
         )
 
-        assert familiar.needs_compact(scope.workspace_identity, topic_id) is False
-        await familiar.compact_topic(scope.workspace_identity, topic_id)
+        assert familiar.needs_fold(scope.workspace_identity, topic_id) is False
+        await familiar.fold_topic(scope.workspace_identity, topic_id)
         data = store.get(scope.workspace_identity, topic_id)
         assert data.fold_summary == ""
         assert len(data.blocks) == 1
@@ -557,11 +557,11 @@ class TestCompact:
 
 class TestNamedUseCases:
     @pytest.mark.asyncio
-    async def test_manual_settle_admits_task_then_deletes_topic(self, tmp_path):
+    async def test_settle_and_retire_admits_task_then_retires_topic(self, tmp_path):
         events = RecordingRuntimeEventSink()
         familiar, store, _, bus = _make_familiar(tmp_path, events=events)
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -570,7 +570,7 @@ class TestNamedUseCases:
         accepted = _generation_task("task-1", topic_id)
         bus.request = AsyncMock(return_value=accepted)
 
-        result = await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
+        result = await familiar.settle_and_retire_topic(scope.workspace_identity, topic_id)
 
         assert result.topic_id == topic_id
         assert result.generation_task_id == "task-1"
@@ -593,15 +593,15 @@ class TestNamedUseCases:
         ]
 
     @pytest.mark.asyncio
-    async def test_manual_settle_retires_settled_topic_without_generation(self, tmp_path):
-        """空闲时已沉淀完成、之后没有新交互的话题，手动结算直接退役，不再生成，日志立即删除。"""
+    async def test_settle_and_retire_retires_settled_topic_without_generation(self, tmp_path):
+        """空闲时已沉淀完成、之后没有新交互的话题，手动沉淀并退役时直接退役，不再生成，日志立即删除。"""
         events = RecordingRuntimeEventSink()
         clock = _FakeClock()
         familiar, store, _, bus = _make_familiar(
             tmp_path, idle_timeout=30, clock=clock, events=events
         )
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -610,7 +610,7 @@ class TestNamedUseCases:
         clock.advance(100)
         assert await familiar.scan_idle_topics_once() == [topic_id]
 
-        result = await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
+        result = await familiar.settle_and_retire_topic(scope.workspace_identity, topic_id)
 
         assert result.generation_submitted is False
         assert result.generation_task_id is None
@@ -628,10 +628,10 @@ class TestNamedUseCases:
         )
 
     @pytest.mark.asyncio
-    async def test_manual_settle_busy_topic_raises_busy_error(self, tmp_path):
+    async def test_settle_and_retire_busy_topic_raises_busy_error(self, tmp_path):
         familiar, store, working_set, _ = _make_familiar(tmp_path)
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -640,30 +640,30 @@ class TestNamedUseCases:
         working_set.acquire(scope.workspace_identity, topic_id)
 
         with pytest.raises(TopicBusyError):
-            await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
+            await familiar.settle_and_retire_topic(scope.workspace_identity, topic_id)
 
         assert store.get(scope.workspace_identity, topic_id) is not None
 
     @pytest.mark.asyncio
-    async def test_manual_settle_unknown_topic_raises_not_found(self, tmp_path):
+    async def test_settle_and_retire_unknown_topic_raises_not_found(self, tmp_path):
         familiar, _, _, _ = _make_familiar(tmp_path)
 
         with pytest.raises(ResourceNotFoundError):
-            await familiar.manual_settle_topic(_identity_scope().workspace_identity, "missing")
+            await familiar.settle_and_retire_topic(_identity_scope().workspace_identity, "missing")
 
     @pytest.mark.asyncio
-    async def test_evict_topic_removes_topic_and_log_without_settlement(self, tmp_path):
+    async def test_delete_topic_removes_topic_and_log_without_settling(self, tmp_path):
         events = RecordingRuntimeEventSink()
         familiar, store, working_set, bus = _make_familiar(tmp_path, events=events)
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
             interaction_id="i-1",
         )
 
-        result = await familiar.evict_topic(scope.workspace_identity, topic_id)
+        result = await familiar.delete_topic(scope.workspace_identity, topic_id)
 
         await familiar.record_settled(
             topic_id, belong_to=scope.workspace_identity, interaction_count=1
@@ -673,17 +673,17 @@ class TestNamedUseCases:
         assert store.get(scope.workspace_identity, topic_id) is None
         assert working_set.select_lru_candidate(scope.workspace_identity) is None
         assert not _log_exists(tmp_path, topic_id)  # 之后到达的沉淀完成没有日志可记
-        bus.request.assert_not_awaited()  # evict 不触发结算
+        bus.request.assert_not_awaited()  # 删除不沉淀
         assert [event_type for event_type, _, _ in _topic_events(events)] == [
             "topic.created",
             "topic.deleted",
         ]
 
     @pytest.mark.asyncio
-    async def test_evict_busy_topic_reports_not_removed(self, tmp_path):
+    async def test_delete_busy_topic_reports_not_removed(self, tmp_path):
         familiar, store, working_set, _ = _make_familiar(tmp_path)
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -691,7 +691,7 @@ class TestNamedUseCases:
         )
         working_set.acquire(scope.workspace_identity, topic_id)
 
-        result = await familiar.evict_topic(scope.workspace_identity, topic_id)
+        result = await familiar.delete_topic(scope.workspace_identity, topic_id)
 
         assert result.removed is False
         assert store.get(scope.workspace_identity, topic_id) is not None
@@ -700,13 +700,13 @@ class TestNamedUseCases:
     @pytest.mark.parametrize(
         "failure", [WorkQueueCapacityError("memory", 1), WorkQueueStoppedError("stopped")]
     )
-    async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_retry(
+    async def test_settle_and_retire_admission_failure_keeps_topic_intact_and_allows_retry(
         self, tmp_path, failure
     ):
         events = RecordingRuntimeEventSink()
         familiar, store, _, bus = _make_familiar(tmp_path, events=events)
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("question", "answer"),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -716,7 +716,7 @@ class TestNamedUseCases:
         bus.request = AsyncMock(side_effect=failure)
 
         with pytest.raises(TopicSettleAdmissionError, match="可重试"):
-            await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
+            await familiar.settle_and_retire_topic(scope.workspace_identity, topic_id)
 
         after = store.get(scope.workspace_identity, topic_id)
         assert after is not None
@@ -726,7 +726,7 @@ class TestNamedUseCases:
 
         # 修复 admission 后可再次重试并成功结束生命周期
         bus.request = AsyncMock(return_value=None)
-        result = await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
+        result = await familiar.settle_and_retire_topic(scope.workspace_identity, topic_id)
         assert result.topic_id == topic_id
         assert store.get(scope.workspace_identity, topic_id) is None
 
@@ -745,14 +745,14 @@ class TestMaintenance:
             tmp_path, idle_timeout=30, clock=clock, events=events
         )
         scope = _identity_scope()
-        stale_id = await familiar.apply_interaction(
+        stale_id = await familiar.receive_interaction(
             _payload("1"),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
             interaction_id="i-1",
         )
         clock.advance(100)
-        fresh_id = await familiar.apply_interaction(
+        fresh_id = await familiar.receive_interaction(
             _payload("2"),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -765,7 +765,7 @@ class TestMaintenance:
         assert store.get(scope.workspace_identity, stale_id).settled_interaction_count == 1
         assert store.get(scope.workspace_identity, fresh_id).settled_interaction_count == 0
         # 访问时间没有被沉淀刷新：话题仍在驻留集合中，也仍是空闲候选。
-        assert working_set.list_idle_candidates(30) == [(scope.workspace_identity, stale_id)]
+        assert working_set.list_inactive(30) == [(scope.workspace_identity, stale_id)]
         route, settlement = bus.request.await_args.args
         assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         assert settlement.reason == TriggerReason.IDLE_TIMEOUT
@@ -787,7 +787,7 @@ class TestMaintenance:
         familiar, store, _, bus = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
         scope = _identity_scope()
         workspace = scope.workspace_identity
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("1"),
             belong_to=workspace,
             from_actor=scope.actor_identity,
@@ -819,7 +819,7 @@ class TestMaintenance:
         clock = _FakeClock()
         familiar, store, working_set, _ = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -838,7 +838,7 @@ class TestMaintenance:
         clock = _FakeClock()
         familiar, store, _, bus = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -861,7 +861,7 @@ class TestMaintenance:
         clock = _FakeClock()
         familiar, store, _, bus = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
         scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("1"),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -932,13 +932,13 @@ class TestMaintenance:
         topic_id = "NEW_TOPIC"
 
         for i in range(3):
-            topic_id = await familiar.apply_interaction(
+            topic_id = await familiar.receive_interaction(
                 _payload(f"question-{i}-" * 80, f"answer-{i}"),
                 belong_to=scope.workspace_identity,
                 from_actor=scope.actor_identity,
                 target_topic_id=topic_id,
             )
-            await familiar.compact_topic(scope.workspace_identity, topic_id)
+            await familiar.fold_topic(scope.workspace_identity, topic_id)
 
         folded = store.get(scope.workspace_identity, topic_id)
         assert folded.fold_summary == "folded:1|folded:1"
@@ -973,7 +973,7 @@ class TestSettlementProgress:
         bus.request.side_effect = _accept_settlement_task
         scope = _identity_scope()
         workspace = scope.workspace_identity
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("1"), belong_to=workspace, from_actor=scope.actor_identity
         )
         clock.advance(100)
@@ -1001,11 +1001,11 @@ class TestSettlementProgress:
         bus.request.side_effect = _accept_settlement_task
         scope = _identity_scope()
         workspace = scope.workspace_identity
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("1"), belong_to=workspace, from_actor=scope.actor_identity
         )
 
-        await familiar.manual_settle_topic(workspace, topic_id)
+        await familiar.settle_and_retire_topic(workspace, topic_id)
         await familiar.record_generated_memories(
             topic_id, belong_to=workspace, generated=frozenset({"m"}), absorbed_into={}
         )
@@ -1028,13 +1028,13 @@ class TestSettlementProgress:
         bus.request.side_effect = _accept_settlement_task
         scope = _identity_scope()
         workspace = scope.workspace_identity
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("1"), belong_to=workspace, from_actor=scope.actor_identity
         )
         clock.advance(100)
         await familiar.scan_idle_topics_once()
 
-        result = await familiar.manual_settle_topic(workspace, topic_id)
+        result = await familiar.settle_and_retire_topic(workspace, topic_id)
         kept = _log_exists(tmp_path, topic_id)
         await familiar.record_settled(topic_id, belong_to=workspace, interaction_count=1)
 
@@ -1071,7 +1071,7 @@ class TestProgressRecord:
         belong_to = scope.workspace_identity
 
         async def apply(message, topic_id="NEW_TOPIC"):
-            return await familiar.apply_interaction(
+            return await familiar.receive_interaction(
                 _payload(message),
                 belong_to=belong_to,
                 from_actor=scope.actor_identity,
@@ -1121,7 +1121,7 @@ class TestProgressRecord:
         )
         scope = _identity_scope()
         belong_to = scope.workspace_identity
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("q1"),
             belong_to=belong_to,
             from_actor=scope.actor_identity,
@@ -1134,7 +1134,7 @@ class TestProgressRecord:
             await familiar.write_progress_entry(belong_to, topic_id)
         clock.advance(100)
         retried_at_same_position = await familiar.scan_paused_topics_once(_ScheduledEntries())
-        await familiar.apply_interaction(
+        await familiar.receive_interaction(
             _payload("q2"),
             belong_to=belong_to,
             from_actor=scope.actor_identity,
@@ -1153,7 +1153,7 @@ class TestProgressRecord:
 
     @pytest.mark.asyncio
     async def test_topic_retired_while_writing_keeps_no_entry(self, tmp_path):
-        """写一条不取 lease：生成期间手动结算照常退役话题，生成完成后这一条不记到退役话题的日志。"""
+        """写一条不取 lease：生成期间手动沉淀并退役照常让话题退役，生成完成后这一条不记到退役话题的日志。"""
         generating = asyncio.Event()
         release = asyncio.Event()
 
@@ -1169,7 +1169,7 @@ class TestProgressRecord:
         bus.request = AsyncMock(side_effect=_accept_settlement_task)
         scope = _identity_scope()
         belong_to = scope.workspace_identity
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload("q1"),
             belong_to=belong_to,
             from_actor=scope.actor_identity,
@@ -1178,7 +1178,7 @@ class TestProgressRecord:
 
         writing = asyncio.create_task(familiar.write_progress_entry(belong_to, topic_id))
         await asyncio.wait_for(generating.wait(), timeout=2)
-        await familiar.manual_settle_topic(belong_to, topic_id)
+        await familiar.settle_and_retire_topic(belong_to, topic_id)
         release.set()
         await asyncio.wait_for(writing, timeout=2)
 
@@ -1196,7 +1196,7 @@ class TestDisabledPerception:
         familiar, store, _, _ = _make_familiar(tmp_path, engine=None)
         scope = _identity_scope()
 
-        topic_id = await familiar.apply_interaction(
+        topic_id = await familiar.receive_interaction(
             _payload(),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -1209,11 +1209,11 @@ class TestDisabledPerception:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [KeyError("handler bug"), asyncio.CancelledError()])
-async def test_manual_settle_unknown_failure_keeps_topic_and_propagates(tmp_path, failure):
+async def test_settle_and_retire_unknown_failure_keeps_topic_and_propagates(tmp_path, failure):
     """未知接纳结果与取消不改判明确拒绝；保留材料并释放占用，供后续核实。"""
     familiar, store, _, bus = _make_familiar(tmp_path)
     scope = _identity_scope()
-    topic_id = await familiar.apply_interaction(
+    topic_id = await familiar.receive_interaction(
         _payload("question", "answer"),
         belong_to=scope.workspace_identity,
         from_actor=scope.actor_identity,
@@ -1223,11 +1223,11 @@ async def test_manual_settle_unknown_failure_keeps_topic_and_propagates(tmp_path
     bus.request = AsyncMock(side_effect=failure)
 
     with pytest.raises(type(failure)) as caught:
-        await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
+        await familiar.settle_and_retire_topic(scope.workspace_identity, topic_id)
 
     assert caught.value is failure
     assert store.get(scope.workspace_identity, topic_id) == before
     # 释放占用后仍可由拥有者操作话题；失败不能留下永久 busy 状态。
-    result = await familiar.evict_topic(scope.workspace_identity, topic_id)
+    result = await familiar.delete_topic(scope.workspace_identity, topic_id)
     assert result.removed is True
     assert store.get(scope.workspace_identity, topic_id) is None

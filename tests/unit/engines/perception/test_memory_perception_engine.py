@@ -3,7 +3,7 @@
 测试覆盖:
 - build_block: 逻辑块只保存结局、来源身份与载荷中的事件集；token 统计等于
   整轮渲染材料的估算（工具输出按截断上限计入，能力调用的结果不计入）
-- should_compact: 阈值边界（严格大于）
+- should_fold: 阈值边界（严格大于）
 - select_blocks_to_fold: 最旧前缀选择、retain 边界、非法 retain 拒绝
 - generate_fold_summary: 委托给持有的 RelayController
 
@@ -49,7 +49,7 @@ def _mock_relay():
 def _engine(**transcript_limits) -> MemoryPerceptionEngine:
     return MemoryPerceptionEngine(
         config=PerceptionEngineConfig(fold_token_threshold=100),
-        relay_controller=_mock_relay(),
+        fold_summary_writer=_mock_relay(),
         transcript_config=GenerationTranscriptConfig(**transcript_limits),
     )
 
@@ -141,38 +141,38 @@ class TestRenderedMaterialTokens:
         with_output = engine.build_block(_bash("collected 120 items, 3 failed " * 20), _identity())
         messages_only = engine.build_block(make_interaction_payload("q", "a"), _identity())
 
-        assert engine.should_compact(with_output.total_tokens) is True
-        assert engine.should_compact(messages_only.total_tokens) is False
+        assert engine.should_fold(with_output.total_tokens) is True
+        assert engine.should_fold(messages_only.total_tokens) is False
 
 
-# ========== should_compact：阈值判断 ==========
+# ========== should_fold：阈值判断 ==========
 
 
-class TestShouldCompact:
+class TestShouldFold:
     def test_not_triggered_below_threshold(self):
         engine = MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=100),
-            relay_controller=_mock_relay(),
+            fold_summary_writer=_mock_relay(),
         )
 
-        assert engine.should_compact(99) is False
+        assert engine.should_fold(99) is False
 
     def test_not_triggered_at_exact_threshold(self):
         engine = MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=100),
-            relay_controller=_mock_relay(),
+            fold_summary_writer=_mock_relay(),
         )
 
         # 与旧 is_idle/折叠语义一致：达到阈值不触发，严格大于才触发
-        assert engine.should_compact(100) is False
+        assert engine.should_fold(100) is False
 
     def test_triggered_above_threshold(self):
         engine = MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=100),
-            relay_controller=_mock_relay(),
+            fold_summary_writer=_mock_relay(),
         )
 
-        assert engine.should_compact(101) is True
+        assert engine.should_fold(101) is True
 
 
 # ========== select_blocks_to_fold：折叠选择 ==========
@@ -181,7 +181,7 @@ class TestShouldCompact:
 class TestSelectBlocksToFold:
     def test_selects_oldest_prefix_and_retains_recent(self):
         engine = MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(), relay_controller=_mock_relay()
+            config=PerceptionEngineConfig(), fold_summary_writer=_mock_relay()
         )
         blocks = tuple(_block(total_tokens=i) for i in range(3))
 
@@ -191,7 +191,7 @@ class TestSelectBlocksToFold:
 
     def test_defers_folding_when_retain_covers_all_blocks(self):
         engine = MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(), relay_controller=_mock_relay()
+            config=PerceptionEngineConfig(), fold_summary_writer=_mock_relay()
         )
         blocks = tuple(_block() for _ in range(3))
 
@@ -199,7 +199,7 @@ class TestSelectBlocksToFold:
 
     def test_rejects_retain_below_one(self):
         engine = MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(), relay_controller=_mock_relay()
+            config=PerceptionEngineConfig(), fold_summary_writer=_mock_relay()
         )
 
         with pytest.raises(ValueError, match="retain_recent must be >= 1"):
@@ -215,7 +215,7 @@ class TestGenerateFoldSummary:
         mock_relay = _mock_relay()
         mock_relay.generate_summary.return_value = "summarized content"
         engine = MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(), relay_controller=mock_relay
+            config=PerceptionEngineConfig(), fold_summary_writer=mock_relay
         )
         blocks = [_block(), _block()]
 

@@ -1,7 +1,7 @@
 """Storage facades for Patchouli memory layers.
 
 短期存储只暴露持久化事实：话题上每种事件一个写入方法，写入即在话题的日志末尾追加一条记录。
-Topic 状态转换、compact、settle、驱逐与路由策略不属于本模块；占用权（lease）由
+话题的折叠、沉淀、退役与路由策略不属于本模块；占用权（lease）由
 ``TopicWorkingSet`` 管理，编排由 Perception Familiar 承担。
 """
 

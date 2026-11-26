@@ -61,14 +61,14 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
             config=config.patchouli.perception.engine,
-            relay_controller=_UnusedSummaryProvider(),
+            fold_summary_writer=_UnusedSummaryProvider(),
         ),
         store=store,
         working_set=TopicWorkingSet(),
         bus=PatchouliBus(),
         config=config.patchouli.perception,
     )
-    queue = InteractionSubmissionQueue(perception.apply_interaction)
+    queue = InteractionSubmissionQueue(perception.receive_interaction)
     submissions = InteractionSubmissionService(interaction_queue=queue)
     bus = GlobalSystemBus()
     bus.register(PatchouliRoutes.INTERACTION_SUBMIT, submissions.submit_interaction)

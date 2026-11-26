@@ -44,7 +44,7 @@ from hivememory.engines.generation.models import (
     GenerationOutcome,
 )
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
-from hivememory.engines.perception.models import TopicMaterializeTask
+from hivememory.engines.perception.models import TopicSettleMaterial
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.memory_library.adapters.artifact import (
     FilesystemArtifactStorageAdapter,
@@ -90,7 +90,7 @@ def _identity_scope():
 
 @pytest.fixture
 def topic_store(tmp_path) -> ShortTermMemoryStore:
-    """生成读取材料、记下生成的记忆与沉淀进度的话题池：``topic_1`` 接收过两轮交互，与结算冻结的
+    """生成读取材料、记下生成的记忆与沉淀进度的话题池：``topic_1`` 接收过两轮交互，与沉淀冻结的
     交互数相同。"""
     workspace = _identity_scope().workspace_identity
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
@@ -100,10 +100,10 @@ def topic_store(tmp_path) -> ShortTermMemoryStore:
     return store
 
 
-def _settlement_task(*, retires_topic: bool = True) -> TopicMaterializeTask:
-    """折叠过一次的话题结算：工作视图只剩最近一轮，状态摘要来自折叠。"""
+def _settlement_task(*, retires_topic: bool = True) -> TopicSettleMaterial:
+    """折叠过一次的话题沉淀：工作视图只剩最近一轮，状态摘要来自折叠。"""
     folded = make_logical_block("earlier question", "earlier answer")
-    return TopicMaterializeTask(
+    return TopicSettleMaterial(
         topic_id="topic_1",
         topic_title="topic title",
         topic_summary="topic summary",
@@ -561,7 +561,7 @@ def _wire_process(
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=999999),
-            relay_controller=Mock(),
+            fold_summary_writer=Mock(),
         ),
         store=store,
         working_set=TopicWorkingSet(clock=itertools.count(step=1000).__next__),
@@ -599,7 +599,7 @@ def _extraction_engine(memory_library: MemoryLibrary, extractor) -> MemoryGenera
 
 async def _apply(perception: PerceptionFamiliar, message: str, topic_id="NEW_TOPIC") -> str:
     scope = _identity_scope()
-    return await perception.apply_interaction(
+    return await perception.receive_interaction(
         make_interaction_payload(message, f"answer to {message}"),
         belong_to=scope.workspace_identity,
         from_actor=scope.actor_identity,
@@ -676,7 +676,7 @@ def _gated_extractor(release: asyncio.Event, started: asyncio.Event) -> AsyncMoc
 async def test_last_settlement_of_a_retired_topic_knows_what_earlier_settlements_wrote(
     memory_library, artifact_engine, tmp_path
 ):
-    """空闲时的沉淀还在生成，话题随即被手动结算退役：前一次沉淀写下的记忆记到退役话题上，随
+    """空闲时的沉淀还在生成，话题随即被手动沉淀并退役退役：前一次沉淀写下的记忆记到退役话题上，随
     退役执行的最后一次沉淀认得它们，复述它们的草稿按本话题生成的记忆丢弃，不新建、不提名合并。"""
     topic_dir = tmp_path / "topics"
     release, started = asyncio.Event(), asyncio.Event()
@@ -688,7 +688,7 @@ async def test_last_settlement_of_a_retired_topic_knows_what_earlier_settlements
         topic_id = await _apply(perception, "how do we deploy now")
         await perception.scan_idle_topics_once()
         await _apply(perception, "and staging?", topic_id)
-        await perception.manual_settle_topic(_identity_scope().workspace_identity, topic_id)
+        await perception.settle_and_retire_topic(_identity_scope().workspace_identity, topic_id)
         release.set()
         await controller.wait_all()
         tasks = await controller.list_tasks()
@@ -709,7 +709,7 @@ async def test_last_settlement_of_a_retired_topic_knows_what_earlier_settlements
 async def test_retired_topic_last_settlement_is_resubmitted_after_restart(
     memory_library, artifact_engine, tmp_path
 ):
-    """空闲时的沉淀还在生成，话题被手动结算退役，前一次沉淀写完之后关闭，最后一次沉淀没有完成：
+    """空闲时的沉淀还在生成，话题被手动沉淀并退役退役，前一次沉淀写完之后关闭，最后一次沉淀没有完成：
     重启后话题不回到话题池，它的最后一次沉淀重新发起，认得前一次沉淀写下、记在退役话题日志上
     的记忆，完成后日志删除。"""
     topic_dir = tmp_path / "topics"
@@ -724,7 +724,7 @@ async def test_retired_topic_last_settlement_is_resubmitted_after_restart(
     [earlier] = await controller.list_tasks()
     await asyncio.wait_for(started.wait(), timeout=5)
     await _apply(perception, "and staging?", topic_id)
-    await perception.manual_settle_topic(_identity_scope().workspace_identity, topic_id)
+    await perception.settle_and_retire_topic(_identity_scope().workspace_identity, topic_id)
     await controller.stop_dispatch()
     release.set()
     await controller.wait_task(earlier.task_id)
@@ -825,7 +825,7 @@ def _draft(title: str, content: str) -> ExtractedMemoryDraft:
 async def test_passive_settlement_records_the_cited_segment_of_the_captured_turn(
     memory_library, tmp_path, topic_store
 ):
-    """被动结算的材料按响应切段并印出标签；模型引用的段换算为轮次标识加事件区间，写进
+    """沉淀的材料按响应切段并印出标签；模型引用的段换算为轮次标识加事件区间，写进
     新记忆的版本记录，被引用的轮次就在同一份版本记录指向的交互快照中。"""
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))
     bus = PatchouliBus()
@@ -864,7 +864,7 @@ async def test_passive_settlement_records_the_cited_segment_of_the_captured_turn
     scope = _identity_scope()
 
     task = await coordinator.submit_settlement(
-        TopicMaterializeTask(
+        TopicSettleMaterial(
             topic_id="topic_1",
             topic_title="topic title",
             interactions=(block,),
@@ -899,7 +899,7 @@ async def test_passive_settlement_records_the_cited_segment_of_the_captured_turn
 async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
     memory_library, artifact_engine, topic_store
 ):
-    """同一话题先写入、后结算：复述写入的被动草稿被丢弃，不产生合并任务，库中只有写入的那条。"""
+    """同一话题先写入、后沉淀：复述写入的被动草稿被丢弃，不产生合并任务，库中只有写入的那条。"""
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus, topic_store)
     await controller.start()

@@ -1,4 +1,4 @@
-"""Patchouli 资源解析、话题结算与交互提交的公共错误。"""
+"""Patchouli 资源解析、话题沉淀与交互提交的公共错误。"""
 
 from typing import Literal
 

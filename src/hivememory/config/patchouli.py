@@ -113,12 +113,12 @@ class GenerationTranscriptConfig(BaseModel):
 
 
 class LibrarianConfig(BaseModel):
-    """话题结算选馆长时的预算；一次性生成不使用。"""
+    """话题沉淀选馆长时的预算；一次性生成不使用。"""
 
     max_steps: int = Field(
         default=12,
         ge=1,
-        description="一次结算中模型最多输出几个动作；用完时照常提交已暂存的记忆",
+        description="一次沉淀中模型最多输出几个动作；用完时照常提交已暂存的记忆",
     )
     search_top_k: int = Field(default=5, ge=1, description="馆长每次检索最多返回的记忆条数")
 
@@ -128,7 +128,7 @@ class LibrarianConfig(BaseModel):
 class MemoryGenerationConfig(BaseModel):
     extractor: ExtractorConfig = Field(default_factory=ExtractorConfig)
     deduplicator: DeduplicatorConfig = Field(default_factory=DeduplicatorConfig)
-    # 话题结算的生成方式：一次性生成更快，但写之前看不到本话题生成的记忆与库；
+    # 话题沉淀的生成方式：一次性生成更快，但写之前看不到本话题生成的记忆与库；
     # 馆长先查看两者再写，模型调用次数是一次性生成的数倍。
     settle_mode: Literal["one_shot", "librarian"] = Field(default="one_shot")
     librarian: LibrarianConfig = Field(default_factory=LibrarianConfig)
@@ -461,7 +461,7 @@ class PatchouliShutdownConfig(BaseModel):
 
 
 class PatchouliConfig(BaseModel):
-    # Librarian 的模型：记忆提取、合并与话题折叠摘要共用。一次结算输出多条记忆，
+    # Librarian 的模型：记忆提取、合并与话题折叠摘要共用。一次沉淀输出多条记忆，
     # 输出被截断时任务失败，因此输出上限较大。None 表示不使用 LLM：记忆提取以
     # No-Op 运行，话题折叠回退为规则摘要。
     llm: ModelSelection | None = Field(

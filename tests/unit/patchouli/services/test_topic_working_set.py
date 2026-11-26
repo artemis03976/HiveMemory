@@ -125,7 +125,7 @@ class TestLease:
         ws, _ = _make_working_set()
         scope = _identity_scope()
 
-        # 新创建的话题在被 touch 前也必须可以占用（apply_interaction 主线路径）
+        # 新创建的话题在被 touch 前也必须可以占用（receive_interaction 主线路径）
         assert ws.acquire(scope.workspace_identity, "brand-new-topic") is not None
 
     def test_select_skips_leased_topic_and_recovers_after_release(self):
@@ -198,15 +198,13 @@ class TestCandidateQueries:
         clock.advance(150)
         ws.touch(scope.workspace_identity, "topic-2")
 
-        candidates = ws.list_idle_candidates(timeout_seconds=100)
+        candidates = ws.list_inactive(timeout_seconds=100)
         assert [topic_id for _, topic_id in candidates] == ["topic-1"]
         # 返回的坐标只携带归属，后台维护无需保存访问者。
         assert candidates[0][0].workspace_id == "main_workspace"
 
         clock.advance(100)  # topic-2 恰好达到超时阈值，仍未空闲（与 is_idle 的严格大于一致）
-        assert [topic_id for _, topic_id in ws.list_idle_candidates(timeout_seconds=100)] == [
-            "topic-1"
-        ]
+        assert [topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100)] == ["topic-1"]
 
     def test_idle_candidates_exclude_leased_topics(self):
         ws, clock = _make_working_set()
@@ -219,9 +217,7 @@ class TestCandidateQueries:
 
         ws.acquire(scope.workspace_identity, "topic-1")
 
-        assert [topic_id for _, topic_id in ws.list_idle_candidates(timeout_seconds=100)] == [
-            "topic-2"
-        ]
+        assert [topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100)] == ["topic-2"]
 
     def test_idle_candidates_honor_explicit_now(self):
         ws, clock = _make_working_set()
@@ -232,10 +228,9 @@ class TestCandidateQueries:
         clock.advance(200)
 
         # 显式 now 早于真实流逝时间时不得误判为空闲
-        assert ws.list_idle_candidates(timeout_seconds=100, now=touched_at + 50) == []
+        assert ws.list_inactive(timeout_seconds=100, now=touched_at + 50) == []
         assert [
-            topic_id
-            for _, topic_id in ws.list_idle_candidates(timeout_seconds=100, now=touched_at + 150)
+            topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100, now=touched_at + 150)
         ] == ["topic-1"]
 
     def test_idle_candidates_cover_all_workspaces(self):
@@ -247,7 +242,7 @@ class TestCandidateQueries:
         ws.touch(scope_b.workspace_identity, "topic-b1")
         clock.advance(500)
 
-        candidates = ws.list_idle_candidates(timeout_seconds=100)
+        candidates = ws.list_inactive(timeout_seconds=100)
         assert {(belong_to.workspace_id, topic_id) for belong_to, topic_id in candidates} == {
             ("ws_a", "topic-a1"),
             ("ws_b", "topic-b1"),
@@ -263,14 +258,14 @@ class TestCandidateQueries:
         ws.touch(scope_agent_b.workspace_identity, "topic-1")
         clock.advance(10)
 
-        assert ws.list_idle_candidates(timeout_seconds=5) == [
+        assert ws.list_inactive(timeout_seconds=5) == [
             (scope_agent_a.workspace_identity, "topic-1")
         ]
 
     def test_idle_candidates_on_empty_working_set(self):
         ws, _ = _make_working_set()
 
-        assert ws.list_idle_candidates(timeout_seconds=0) == []
+        assert ws.list_inactive(timeout_seconds=0) == []
 
 
 # ========== 在途沉淀 ==========

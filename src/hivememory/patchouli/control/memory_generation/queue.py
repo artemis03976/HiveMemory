@@ -122,7 +122,7 @@ class _MemoryGenerationWorkAdapter:
 
     适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
     重建独立的领域任务对象。1.3 起生成材料的轮次带轮次标识与段，交互记录的
-    事件带响应序号；1.4 起任务带话题是否随这次结算退役；1.5 起生成材料的折叠摘要
+    事件带响应序号；1.4 起任务带话题是否随这次沉淀退役；1.5 起生成材料的折叠摘要
     叫 ``fold_summary``；1.6 起生成请求中本话题生成的记忆叫 ``topic_generated_memory_ids``。
     """
 
@@ -133,7 +133,7 @@ class _MemoryGenerationWorkAdapter:
     def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
         """从领域任务中派生稳定的队列标识和调度元数据。
 
-        只有话题结算带顺序键：同一话题的几次沉淀与退役依次执行，后一次执行时才读得到
+        只有话题的沉淀带顺序键：同一话题的几次沉淀与退役依次执行，后一次执行时才读得到
         前一次新建、记作本话题生成的记忆，读回的保存工作也按保存顺序执行。其余来源不按
         话题排序，同一话题的主动写入照常并行生成。
         """
@@ -265,7 +265,7 @@ class _MemoryGenerationWorkAdapter:
             "topic_id": interaction_input.topic_id,
             "topic_title": interaction_input.topic_title,
             "topic_summary": interaction_input.topic_summary,
-            "blocks": [block.model_dump(mode="json") for block in interaction_input.blocks],
+            "blocks": [block.model_dump(mode="json") for block in interaction_input.interactions],
             "folds": [fold.model_dump(mode="json") for fold in interaction_input.folds],
             "asset_bindings": [
                 binding.model_dump(mode="json") for binding in interaction_input.asset_bindings
@@ -300,7 +300,7 @@ class _MemoryGenerationWorkAdapter:
                 payload.get("topic_summary"),
                 field_name="interaction_input.topic_summary",
             ),
-            blocks=tuple(LogicalBlock.model_validate(block) for block in raw_blocks),
+            interactions=tuple(LogicalBlock.model_validate(block) for block in raw_blocks),
             folds=tuple(TopicFold.model_validate(fold) for fold in raw_folds),
             asset_bindings=tuple(
                 TopicAssetBinding.model_validate(binding) for binding in raw_bindings
@@ -374,9 +374,9 @@ class _SavedWorkV14Adapter(_SavedWorkV15Adapter):
 
 
 class _SavedWorkV13Adapter(_SavedWorkV14Adapter):
-    """只用于读回升级前以 1.3 保存的工作：那时任务还不带话题是否随结算退役。
+    """只用于读回升级前以 1.3 保存的工作：那时任务还不带话题是否随沉淀退役。
 
-    那时每次话题结算都结束话题，结算任务因此补为退役；
+    那时每次话题的沉淀都结束话题，沉淀任务因此补为退役；
     其余来源补为不退役。其余字段与 1.4 相同，补齐后按 1.4 的读回规则继续升级。
     """
 
@@ -453,7 +453,7 @@ class MemoryGenerationHandler(WorkHandlerPort[_MemoryGenerationWork, str]):
     """将单次队列执行尝试适配到现有的记忆生成数据面。
 
     handler 只执行生成并分类失败；任务状态仍由通用 runtime 维护，领域结果通过
-    对应的类型化 handle 暂存在进程内，供控制器完成终态结算。
+    对应的类型化 handle 暂存在进程内，供控制器收尾任务的领域终态。
     """
 
     def __init__(
@@ -558,7 +558,7 @@ class MemoryGenerationQueue:
             max_attempts=1,
             terminal_retention=100,
         )
-        # 同一话题的结算必须依次执行（见 identity），这不是可调的配置项。
+        # 同一话题的沉淀必须依次执行（见 identity），这不是可调的配置项。
         self._lane = self._runtime.register_lane(
             self.LANE,
             handler=self._handler,

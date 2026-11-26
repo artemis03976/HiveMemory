@@ -25,7 +25,7 @@ if TYPE_CHECKING:
         WorkspaceIdentity,
     )
     from hivememory.core.models.pending import PendingAtomMaterializeTask
-    from hivememory.engines.perception.models import TopicMaterializeTask
+    from hivememory.engines.perception.models import TopicSettleMaterial
     from hivememory.engines.retrieval.models import RetrievalQuery
     from hivememory.patchouli.contracts.memory_management import MemoryListPage
     from hivememory.patchouli.contracts.memory_tasks import (
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         MemoryGenerationTask,
     )
     from hivememory.patchouli.contracts.topic_management import (
-        TopicEvictionResult,
+        TopicDeleteResult,
         TopicSettleResult,
     )
     from hivememory.patchouli.control.memory_generation.models import (
@@ -162,9 +162,9 @@ class PatchouliLocalRoutes:
 
     @route("generation.submit_settlement")
     async def GENERATION_SUBMIT_SETTLEMENT(
-        payload: TopicMaterializeTask,
+        payload: TopicSettleMaterial,
     ) -> MemoryGenerationTask | None:
-        """将话题结算转为 SETTLE 任务，统一以归属对应的 system 为发起者。"""
+        """将话题的沉淀材料转为 SETTLE 任务，统一以归属对应的 system 为发起者。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("generation.submit_active")
@@ -248,7 +248,7 @@ class PatchouliLocalRoutes:
         new_topic_summary: str | None,
         belong_to: WorkspaceIdentity,
     ) -> str:
-        """确保目标短期话题存在（必要时先执行 LRU 驱逐），返回真实 topic_id。"""
+        """确保目标短期话题存在（建新话题时池满，先让最久没用的话题退役），返回真实 topic_id。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("topic.get")
@@ -288,14 +288,16 @@ class PatchouliLocalRoutes:
         """列出指定用户的话题快照（短期检索入口）。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("topic.manual_settle")
-    async def TOPIC_MANUAL_SETTLE(belong_to: WorkspaceIdentity, topic_id: str) -> TopicSettleResult:
-        """手动结算指定话题。"""
+    @route("topic.settle_and_retire")
+    async def TOPIC_SETTLE_AND_RETIRE(
+        belong_to: WorkspaceIdentity, topic_id: str
+    ) -> TopicSettleResult:
+        """手动沉淀并退役指定话题。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("topic.evict")
-    async def TOPIC_EVICT(belong_to: WorkspaceIdentity, topic_id: str) -> TopicEvictionResult:
-        """从活跃话题池中驱逐话题，不触发结算；正被占用时报 ``removed=False``。"""
+    @route("topic.delete")
+    async def TOPIC_DELETE(belong_to: WorkspaceIdentity, topic_id: str) -> TopicDeleteResult:
+        """删除话题的日志与内存中的状态，不沉淀；正被占用时报 ``removed=False``。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("runtime.models.warmup")
@@ -355,8 +357,8 @@ class PatchouliLocalRoutes:
         TOPIC_RECORD_GENERATED_MEMORIES,
         TOPIC_RECORD_SETTLED,
         TOPIC_LIST_ACTIVE,
-        TOPIC_MANUAL_SETTLE,
-        TOPIC_EVICT,
+        TOPIC_SETTLE_AND_RETIRE,
+        TOPIC_DELETE,
         RUNTIME_MODELS_WARMUP,
         RUNTIME_MODELS_PREFETCH,
         RUNTIME_MODELS_READY,

@@ -37,8 +37,8 @@ async def settle_topic(
     actor: WorkingActor = Depends(get_request_actor),
     service: RootTopicService = Depends(get_root_topic_service),
 ) -> TopicSettleResponse:
-    """经 root API 手动结算话题。"""
-    result = await service.settle_topic(
+    """经 root API 手动沉淀并退役话题。"""
+    result = await service.settle_and_retire_topic(
         target_workspace=actor.workspace,
         topic_id=topic_id,
         actor=actor,
@@ -52,8 +52,8 @@ async def delete_topic(
     actor: WorkingActor = Depends(get_request_actor),
     service: RootTopicService = Depends(get_root_topic_service),
 ) -> TopicDeleteResponse:
-    """经 root API 从活跃池驱逐话题，不结算或写入记忆。"""
-    result = await service.evict_topic(
+    """经 root API 从话题池删除话题，不沉淀、不写入记忆。"""
+    result = await service.delete_topic(
         target_workspace=actor.workspace,
         topic_id=topic_id,
         actor=actor,

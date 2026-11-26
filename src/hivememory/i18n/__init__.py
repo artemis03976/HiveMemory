@@ -14,13 +14,13 @@ from hivememory.i18n.mtp_runtime import (
 )
 from hivememory.i18n.prompts import (
     get_compaction_prompt_text,
+    get_fold_summary_prompt_text,
     get_gateway_prompt_text,
     get_generation_prompt_text,
     get_generation_schema_description,
     get_mtp_prompt_text,
     get_mtp_verb_text,
     get_progress_record_prompt_text,
-    get_relay_prompt_text,
     get_system_prompt_text,
 )
 from hivememory.i18n.resolver import (
@@ -54,7 +54,7 @@ __all__ = [
     "get_mtp_prompt_text",
     "get_mtp_verb_text",
     "get_progress_record_prompt_text",
-    "get_relay_prompt_text",
+    "get_fold_summary_prompt_text",
     "get_system_prompt_text",
     "get_time_formatter_text",
     "get_mtp_error_text",

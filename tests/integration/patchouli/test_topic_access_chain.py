@@ -70,7 +70,7 @@ def _topic_boundary(tmp_path, *, max_resident_topics: int = 5, clock: _FakeClock
             fold_token_threshold=999999,
             fold_retain_recent_blocks=1,
         ),
-        relay_controller=relay,
+        fold_summary_writer=relay,
     )
     working_set = TopicWorkingSet(max_resident=max_resident_topics, clock=clock)
     bus = PatchouliBus()
@@ -93,8 +93,8 @@ def _topic_boundary(tmp_path, *, max_resident_topics: int = 5, clock: _FakeClock
     bus.register(PatchouliLocalRoutes.TOPIC_GET, retrieval.get_topic)
     bus.register(PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, retrieval.list_active_topics)
     bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, familiar.prepare_topic)
-    bus.register(PatchouliLocalRoutes.TOPIC_EVICT, familiar.evict_topic)
-    bus.register(PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE, familiar.manual_settle_topic)
+    bus.register(PatchouliLocalRoutes.TOPIC_DELETE, familiar.delete_topic)
+    bus.register(PatchouliLocalRoutes.TOPIC_SETTLE_AND_RETIRE, familiar.settle_and_retire_topic)
 
     async def admit_settlement(payload):
         return MemoryGenerationTask(
@@ -121,7 +121,7 @@ def _topic_boundary(tmp_path, *, max_resident_topics: int = 5, clock: _FakeClock
 async def test_get_topic_data_is_pure_read(tmp_path):
     service, familiar, working_set, store = _topic_boundary(tmp_path)
     identity_scope = make_identity_scope(user_id="u1")
-    topic_id = await familiar.apply_interaction(
+    topic_id = await familiar.receive_interaction(
         _payload("question", "answer"),
         belong_to=identity_scope.workspace_identity,
         from_actor=identity_scope.actor_identity,
@@ -206,13 +206,13 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects(tmp
         agent_id="a1",
         workspace_id="isolation_workspace",
     )
-    main_topic_id = await familiar.apply_interaction(
+    main_topic_id = await familiar.receive_interaction(
         _payload("main question", "main answer"),
         belong_to=main.workspace_identity,
         from_actor=main.actor_identity,
         target_topic_id="NEW_TOPIC",
     )
-    isolated_topic_id = await familiar.apply_interaction(
+    isolated_topic_id = await familiar.receive_interaction(
         _payload("isolated question", "isolated answer"),
         belong_to=isolated.workspace_identity,
         from_actor=isolated.actor_identity,
@@ -224,9 +224,9 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects(tmp
     assert before_isolated.topic_id == isolated_topic_id
 
     with pytest.raises(ResourceNotFoundError):
-        await service.settle_topic(identity_scope=isolated, topic_id=main_topic_id)
+        await service.settle_and_retire_topic(identity_scope=isolated, topic_id=main_topic_id)
 
-    delete_result = await service.evict_topic(
+    delete_result = await service.delete_topic(
         identity_scope=isolated,
         topic_id=main_topic_id,
     )
@@ -268,7 +268,7 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic(tmp
         store.list_by_workspace(isolated.workspace_identity, include_empty=True) == before_isolated
     )
     assert (
-        await familiar.apply_interaction(
+        await familiar.receive_interaction(
             _payload("valid", "valid"),
             belong_to=main.workspace_identity,
             from_actor=main.actor_identity,
@@ -282,7 +282,7 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic(tmp
 
 
 @pytest.mark.asyncio
-async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rejection(tmp_path):
+async def test_unknown_cross_workspace_topic_does_not_retire_local_lru_before_rejection(tmp_path):
     """捕获话题池已满时先驱逐本域 LRU、再把异域 ID 回退成新话题的缺陷。"""
     service, familiar, _, store = _topic_boundary(tmp_path, max_resident_topics=1)
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
@@ -292,7 +292,7 @@ async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rej
         workspace_id="isolation_workspace",
     )
     # isolated 池满（1 个驻留话题），main 话题不在本域
-    isolated_topic_id = await familiar.apply_interaction(
+    isolated_topic_id = await familiar.receive_interaction(
         _payload("isolated question", "isolated answer"),
         belong_to=isolated.workspace_identity,
         from_actor=isolated.actor_identity,
@@ -336,7 +336,7 @@ async def test_prepare_new_topic_creates_titled_topic_in_scope_workspace(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_prepare_new_topic_on_full_pool_evicts_topic_least_recently_prepared(tmp_path):
+async def test_prepare_new_topic_on_full_pool_retires_topic_least_recently_prepared(tmp_path):
     """池满时建立新话题先驱逐最久未用的话题；确认已有话题算一次使用，不新建话题。
 
     捕获确认已有话题时不刷新驻留、导致本轮要写入的话题被 LRU 驱逐的缺陷。

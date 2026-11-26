@@ -1,5 +1,5 @@
 """
-RelayController 单元测试
+折叠摘要写作者的单元测试
 
 测试覆盖:
 - 规则摘要：请求计数取用户消息，工具列表取工具步骤（动词的小写或工具名）
@@ -20,10 +20,10 @@ from hivememory.config.patchouli import (
 )
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import TurnEvent
-from hivememory.engines.perception.relay_controller import (
-    LLMRelayController,
-    SimpleRelayController,
-    create_relay_controller,
+from hivememory.engines.perception.fold_summary import (
+    LLMFoldSummaryWriter,
+    RuleFoldSummaryWriter,
+    create_fold_summary_writer,
 )
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.sessions import make_logical_block
@@ -63,39 +63,39 @@ def _process_block():
     )
 
 
-class TestRelayController:
-    """测试 Token 溢出接力控制器"""
+class TestRuleFoldSummaryWriter:
+    """按规则写折叠摘要"""
 
     def setup_method(self):
-        self.controller = SimpleRelayController()
+        self.writer = RuleFoldSummaryWriter()
 
     @pytest.mark.asyncio
     async def test_generate_simple_summary(self):
         """请求数取用户消息；工具列表为能力调用动词的小写与外部工具名；最近一条用户消息作参考。"""
         blocks = [make_logical_block("查询天气", "晴"), _process_block()]
 
-        summary = await self.controller.generate_summary(blocks)
+        summary = await self.writer.generate_summary(blocks)
 
         assert "处理了 2 个用户请求" in summary
         assert "使用了工具: run, weather_api" in summary
         assert "最近: 创建认证模块" in summary
 
 
-class TestLLMRelayController:
-    """测试 LLM 接力控制器"""
+class TestLLMFoldSummaryWriter:
+    """用模型写折叠摘要"""
 
     @pytest.mark.asyncio
     async def test_llm_summary_generation(self):
         """LLM 摘要以 system + user 双消息请求，近期事件是与记忆生成视图相同的整轮材料。"""
         llm = ScriptedLLMService("LLM 生成的摘要")
-        controller = LLMRelayController(
+        writer = LLMFoldSummaryWriter(
             summary_llm=llm,
             llm_params=DEFAULT_LLM_PARAMS,
             summary_timeout_seconds=60,
             transcript_config=TRANSCRIPT,
         )
 
-        summary = await controller.generate_summary([_process_block()])
+        summary = await writer.generate_summary([_process_block()])
 
         assert summary == "LLM 生成的摘要"
         call = llm.calls[-1]
@@ -115,21 +115,21 @@ class TestLLMRelayController:
     @pytest.mark.asyncio
     async def test_llm_fallback_when_no_service(self):
         """无 LLM 服务时回退到简单摘要，并接在上一次摘要之后，已折叠的历史不丢失。"""
-        controller = LLMRelayController(
+        writer = LLMFoldSummaryWriter(
             summary_llm=None, summary_timeout_seconds=60, transcript_config=TRANSCRIPT
         )
 
         block = make_logical_block("测试查询", "测试响应", total_tokens=50)
 
-        summary = await controller.generate_summary([block], previous_summary="早先的接力摘要")
+        summary = await writer.generate_summary([block], previous_summary="早先的折叠摘要")
 
-        assert summary.startswith("早先的接力摘要\n---\n")
+        assert summary.startswith("早先的折叠摘要\n---\n")
         assert "处理了 1 个用户请求" in summary
 
     @pytest.mark.asyncio
     async def test_llm_fallback_on_provider_failure(self):
         """提供商失败时回退到简单摘要"""
-        controller = LLMRelayController(
+        writer = LLMFoldSummaryWriter(
             summary_llm=ScriptedLLMService(ModelProviderError("provider down")),
             llm_params=DEFAULT_LLM_PARAMS,
             summary_timeout_seconds=60,
@@ -138,7 +138,7 @@ class TestLLMRelayController:
 
         block = make_logical_block("测试", "响应", total_tokens=50)
 
-        summary = await controller.generate_summary([block])
+        summary = await writer.generate_summary([block])
 
         assert "处理了 1 个用户请求" in summary
 
@@ -151,7 +151,7 @@ class TestLLMRelayController:
 
         hanging_llm = Mock()
         hanging_llm.complete = AsyncMock(side_effect=never_returns)
-        controller = create_relay_controller(
+        writer = create_fold_summary_writer(
             RelayControllerConfig(engine=LLMRelayConfig(summary_timeout_seconds=0.01)),
             llm_service=hanging_llm,
             llm_params=DEFAULT_LLM_PARAMS,
@@ -161,17 +161,17 @@ class TestLLMRelayController:
         block = make_logical_block("测试", "响应", total_tokens=50)
 
         summary = await asyncio.wait_for(
-            controller.generate_summary([block], previous_summary="早先的接力摘要"), timeout=2
+            writer.generate_summary([block], previous_summary="早先的折叠摘要"), timeout=2
         )
 
-        assert summary.startswith("早先的接力摘要\n---\n")
+        assert summary.startswith("早先的折叠摘要\n---\n")
         assert "处理了 1 个用户请求" in summary
 
     @pytest.mark.asyncio
     async def test_program_error_is_not_masked_by_simple_summary(self):
         """程序错误不属于提供商失败，原样传播而不回退。"""
         failure = TypeError("broken prompt wiring")
-        controller = LLMRelayController(
+        writer = LLMFoldSummaryWriter(
             summary_llm=ScriptedLLMService(failure),
             llm_params=DEFAULT_LLM_PARAMS,
             summary_timeout_seconds=60,
@@ -181,6 +181,6 @@ class TestLLMRelayController:
         block = make_logical_block("测试", "响应", total_tokens=50)
 
         with pytest.raises(TypeError) as raised:
-            await controller.generate_summary([block])
+            await writer.generate_summary([block])
 
         assert raised.value is failure

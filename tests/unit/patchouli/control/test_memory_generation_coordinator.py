@@ -18,7 +18,7 @@ from hivememory.core.models.pending import (
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.engines.perception.models import TopicMaterializeTask
+from hivememory.engines.perception.models import TopicSettleMaterial
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_tasks import (
@@ -190,7 +190,7 @@ class TestMemoryGenerationCoordinator:
         coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
         blocks = tuple(_topic_block(f"q{index}") for index in range(3))
         fold = _fold(*blocks[:2], summary="state")
-        payload = TopicMaterializeTask(
+        payload = TopicSettleMaterial(
             topic_id="t1",
             topic_title="title",
             topic_summary="summary",
@@ -207,8 +207,8 @@ class TestMemoryGenerationCoordinator:
         assert route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION
         assert spec.topic_id == "t1"
         assert spec.source == MemoryGenerationSource.SETTLE
-        # 结算材料不携带访问者：manual/idle/LRU/shutdown 都以归属对应的 system 发起，
-        # 最后访问者或驱逐触发者不能成为结算发起者。
+        # 沉淀材料不携带访问者：manual/idle/LRU/shutdown 都以归属对应的 system 发起，
+        # 最后访问者或驱逐触发者不能成为沉淀发起者。
         assert spec.belong_to == _identity_scope().workspace_identity
         assert spec.from_actor == ActorIdentity(
             user_id="test_user", agent_id=SYSTEM_AGENT_ID, team_id=None
@@ -216,7 +216,7 @@ class TestMemoryGenerationCoordinator:
         assert spec.request.context.fold_summary == "state"
         assert [turn.user_message for turn in spec.request.context.turns] == ["q2"]
         assert spec.interaction_input.topic_title == "title"
-        assert spec.interaction_input.blocks == blocks
+        assert spec.interaction_input.interactions == blocks
         assert spec.interaction_input.folds == (fold,)
         assert spec.retires_topic is True
 
@@ -225,7 +225,7 @@ class TestMemoryGenerationCoordinator:
         bus = Mock()
         bus.request = AsyncMock()
         coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
-        payload = TopicMaterializeTask(
+        payload = TopicSettleMaterial(
             topic_id="empty",
             topic_title="empty",
             belong_to=_identity_scope().workspace_identity,
@@ -449,7 +449,7 @@ class TestMemoryGenerationCoordinator:
         spec = bus.request.await_args_list[-1].args[1]
         assert [turn.user_message for turn in spec.request.context.turns] == ["q4", "q5"]
         assert spec.request.context.fold_summary == "state"
-        assert [block.user_message for block in spec.interaction_input.blocks] == ["q4", "q5"]
+        assert [block.user_message for block in spec.interaction_input.interactions] == ["q4", "q5"]
         assert spec.interaction_input.folds == ()
 
     @pytest.mark.asyncio

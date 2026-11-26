@@ -297,12 +297,12 @@ class MemoryGenerationTaskController:
         """由队列 handler 调用现有的记忆生成数据面。
 
         本话题生成的记忆记在话题上。WRITE 与 SETTLE 执行时经 ``topic.get_generated_memories`` 读取话题当前的
-        记录并入请求，话题已经退役、日志还在时同样读得到；结算的请求另带着冻结材料时的那份，
-        升级之前保存的结算的话题不在话题池里，只有这一份。在执行时而不是接纳时读取：同一话题
-        先后派发的写入，前一条完成后，后一条执行时才能看到它。生成 lane 只让同一话题的结算
-        依次执行，写入不按话题排序：结算开始时仍在执行的同话题写入不在记录中，它与被动草稿
+        记录并入请求，话题已经退役、日志还在时同样读得到；沉淀的请求另带着冻结材料时的那份，
+        升级之前保存的沉淀的话题不在话题池里，只有这一份。在执行时而不是接纳时读取：同一话题
+        先后派发的写入，前一条完成后，后一条执行时才能看到它。生成 lane 只让同一话题的沉淀
+        依次执行，写入不按话题排序：沉淀开始时仍在执行的同话题写入不在记录中，它与被动草稿
         之间照旧按查重处理。数据面返回后，本话题新生成的记忆与合并改指经 ``topic.record_generated_memories``
-        记回话题，仍在这个 handler 内：同一话题的下一次结算开始时，话题上的记录已经包含它们。
+        记回话题，仍在这个 handler 内：同一话题的下一次沉淀开始时，话题上的记录已经包含它们。
         """
 
         if spec.source in {MemoryGenerationSource.SETTLE, MemoryGenerationSource.WRITE}:
@@ -333,7 +333,7 @@ class MemoryGenerationTaskController:
         return results
 
     async def _finalize(self, entry: _MemoryTaskEntry) -> MemoryGenerationTask:
-        """观察执行开始与队列终态，并完成一次领域终态结算。
+        """观察执行开始与队列终态，并收尾这个任务的领域终态。
 
         started 信号只用于及时发布 ``RUNNING``，不参与状态判定；最终状态始终
         取自 handle 返回的 ``WorkRecord``。该协程独立于发起请求的客户端生命周期。
@@ -376,12 +376,12 @@ class MemoryGenerationTaskController:
         async with entry.lock():
             # 与 cancel_task 共用单任务锁，确保取消请求和领域终态事件不会交错
             # 覆盖彼此的最终快照。
-            snapshot = await self._settle_outcome(entry, outcome)
+            snapshot = await self._finish_task(entry, outcome)
             entry.final_snapshot = snapshot
             self._retain_terminal_entries()
             return snapshot
 
-    async def _settle_outcome(
+    async def _finish_task(
         self,
         entry: _MemoryTaskEntry,
         outcome: TaskOutcome[MemoryGenerationResults] | None,
@@ -446,7 +446,7 @@ class MemoryGenerationTaskController:
                 PatchouliLocalRoutes.TOPIC_RECORD_SETTLED,
                 spec.topic_id,
                 belong_to=spec.belong_to,
-                interaction_count=len(spec.interaction_input.blocks),
+                interaction_count=len(spec.interaction_input.interactions),
             )
         except OSError:
             logger.error(
@@ -897,7 +897,7 @@ def _finished_at(task: MemoryGenerationTask) -> datetime:
 def _with_topic_generated_memories(
     spec: MemoryGenerationTaskSpec, generated: frozenset[str]
 ) -> MemoryGenerationTaskSpec:
-    """把本话题当前生成的记忆并入任务规范；结算任务已带有冻结材料时的记录。"""
+    """把本话题当前生成的记忆并入任务规范；沉淀任务已带有冻结材料时的记录。"""
 
     ids = spec.request.topic_generated_memory_ids | generated
     request = spec.request.model_copy(update={"topic_generated_memory_ids": ids})
