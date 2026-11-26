@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from hivememory.core.errors import MemoryUpdateBaseChangedError
+from hivememory.core.models import TOPIC_HANDLE_PREFIX
 from hivememory.engines.memory_compiler.ir import MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemoryArtifact,
@@ -94,7 +95,14 @@ def render_resolve_terminal(unit: MemoryUnitIR, options: MemoryCompileOptions) -
             .rstrip()
         )
 
-    return _resolve_text("resolve_expired", options.language).format(requested_alias=alias)
+    # 话题句柄与写入句柄过期的原因不同：话题离开了话题池，写入句柄超出了保留期。
+    requested = unit.identity.alias or options.requested_alias or ""
+    key = (
+        "resolve_topic_expired"
+        if requested.strip().startswith(TOPIC_HANDLE_PREFIX)
+        else "resolve_expired"
+    )
+    return _resolve_text(key, options.language).format(requested_alias=alias)
 
 
 def _resolve_text(key: str, language: str | None = None) -> str:

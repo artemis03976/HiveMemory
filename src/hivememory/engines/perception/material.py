@@ -73,6 +73,16 @@ def render_turn_text(events: Sequence[TurnEvent], config: GenerationTranscriptCo
     return format_turn_material(turn_user_message(events), render_turn_material(events, config))
 
 
+def clip_middle(text: str, limit: int) -> str:
+    """超过上限时保留首尾、省略中段，并标出省略的字符数。"""
+    if len(text) <= limit:
+        return text
+    tail = limit // 2
+    head = limit - tail
+    omitted = len(text) - limit
+    return f"{text[:head]} …[{omitted} chars omitted]… {text[len(text) - tail :]}"
+
+
 # ---------------------------------------------------------------------------
 # 内部实现
 # ---------------------------------------------------------------------------
@@ -100,7 +110,7 @@ def _tool_text(call: TurnEvent, config: GenerationTranscriptConfig) -> str:
     lines = [head]
     if call.result is not None:
         label = "RESULT (error)" if call.status == "error" else "RESULT"
-        content = _clip(call.result.strip(), config.max_result_chars) or "(empty)"
+        content = clip_middle(call.result.strip(), config.max_result_chars) or "(empty)"
         lines.append(f"{label}: {content}")
     return _bullet("\n".join(lines))
 
@@ -117,17 +127,8 @@ def _bullet(text: str) -> str:
     return "\n".join([f"- {first}", *(f"  {line}" for line in rest)])
 
 
-def _clip(text: str, limit: int) -> str:
-    """超过上限时保留首尾、省略中段，并标出省略的字符数。"""
-    if len(text) <= limit:
-        return text
-    tail = limit // 2
-    head = limit - tail
-    omitted = len(text) - limit
-    return f"{text[:head]} …[{omitted} chars omitted]… {text[len(text) - tail :]}"
-
-
 __all__ = [
+    "clip_middle",
     "format_turn_material",
     "render_turn_material",
     "render_turn_text",

@@ -11,6 +11,7 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     IdentityScope,
     MemoryAtom,
+    TopicData,
 )
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
@@ -36,6 +37,7 @@ class MemoryBackend:
 
     def __init__(self, bus=None) -> None:
         self.memories: dict[str, MemoryAtom] = {}
+        self.topics: dict[str, TopicData] = {}
         self.bus = bus
         # 持久化边界依次收到的读取（点读、alias 批量读、检索与 Profile 读取），
         # 用来观察读取视图是否回源。
@@ -69,6 +71,14 @@ class MemoryBackend:
         if self.bus is not None:
             return await self.bus.request(PatchouliRoutes.MEMORY_RETRIEVE, request=request)
         return list(self.memories.values())
+
+    async def get_topic(self, topic_id, *, scope):
+        """话题池替身：与 Patchouli 一样只交出 scope 的 Workspace 中的话题。"""
+        self.reads.append("get_topic")
+        topic = self.topics.get(topic_id)
+        if topic is None or topic.workspace_identity != scope.workspace_identity:
+            return None
+        return topic
 
     async def get_agent_profile(self, alias):
         # 内存 backing 沿用 Patchouli 的内置图纸规则；入口仍必须先执行

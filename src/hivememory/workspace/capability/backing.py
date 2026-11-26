@@ -25,13 +25,19 @@ from uuid import UUID
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.route import Route
 from hivememory.core.errors import ResourceUnavailableError
-from hivememory.core.models import AgentProfile, IdentityScope, MemoryAtom, StoredAgentProfile
+from hivememory.core.models import (
+    AgentProfile,
+    IdentityScope,
+    MemoryAtom,
+    StoredAgentProfile,
+    TopicData,
+)
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
 
 
 class BusCanonicalReadBackend:
-    """基于 ``GlobalSystemBus`` 的 Patchouli canonical/Profile 读取 backing。"""
+    """基于 ``GlobalSystemBus`` 的 Patchouli canonical/Profile/话题读取 backing。"""
 
     def __init__(self, global_bus: GlobalSystemBus) -> None:
         self._bus = global_bus
@@ -67,6 +73,11 @@ class BusCanonicalReadBackend:
         return await self._request(
             PatchouliRoutes.MEMORY_RETRIEVE,
             request,
+        )
+
+    async def get_topic(self, topic_id: str, *, scope: IdentityScope) -> TopicData | None:
+        return await self._request(
+            PatchouliRoutes.TOPIC_GET_DATA, identity_scope=scope, topic_id=topic_id
         )
 
     async def get_agent_profile(self, agent_alias: str | None) -> AgentProfile:

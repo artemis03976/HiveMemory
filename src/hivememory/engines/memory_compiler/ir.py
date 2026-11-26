@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from hivememory.core.models import TopicData
 from hivememory.engines.memory_compiler.models import (
     CompiledMemoryArtifact,
     MemoryEnvelopeTarget,
@@ -13,7 +14,7 @@ from hivememory.engines.memory_compiler.models import (
 
 
 class MemoryIdentityIR(BaseModel):
-    source_kind: Literal["atom", "pending", "resolve_result", "agent_profile"]
+    source_kind: Literal["atom", "pending", "resolve_result", "agent_profile", "topic"]
     alias: str | None = None
     redirected_from: str | None = None
     memory_id: str | None = None
@@ -44,6 +45,10 @@ class MemoryUnitIR(BaseModel):
     content: MemoryContentIR
     status: MemoryStatusIR
     metadata: dict[str, Any] = {}
+    # 话题句柄的读取：读到的话题与句柄中的条目序号（读索引时为空）。索引与条目的内容都由
+    # 话题的交互记录与进展记录派生，渲染时直接从话题取，不另投影一份。
+    topic: TopicData | None = None
+    topic_entry: int | None = None
 
 
 class MemorySectionIR(BaseModel):

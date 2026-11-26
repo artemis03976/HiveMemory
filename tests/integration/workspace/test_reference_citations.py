@@ -19,6 +19,7 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
+    TopicData,
     WriteFocus,
 )
 from hivememory.core.protocol.models import RetrievalRequest
@@ -34,10 +35,12 @@ from hivememory.workspace.contracts import (
 from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_topic_data
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
+    make_workspace_identity,
     make_workspace_read_view,
 )
 
@@ -47,6 +50,7 @@ class _MemoryBacking:
 
     def __init__(self) -> None:
         self.atoms: dict[UUID, MemoryAtom] = {}
+        self.topics: dict[str, TopicData] = {}
         self.citations: list[tuple[UUID, str, IdentityScope]] = []
 
     async def read(self, memory_id: UUID, *, identity_scope: IdentityScope) -> MemoryAtom | None:
@@ -64,6 +68,15 @@ class _MemoryBacking:
 
     async def retrieve(self, request: RetrievalRequest) -> list[MemoryAtom]:
         return [atom.model_copy(deep=True) for atom in self.atoms.values()]
+
+    async def get_topic_data(
+        self, *, identity_scope: IdentityScope, topic_id: str
+    ) -> TopicData | None:
+        # 与 Patchouli 的公开话题读取一样，只交出调用方 Workspace 中的话题。
+        topic = self.topics.get(topic_id)
+        if topic is None or topic.workspace_identity != identity_scope.workspace_identity:
+            return None
+        return topic
 
     async def record_citation(
         self, *, memory_id: UUID, source: str, identity_scope: IdentityScope
@@ -95,6 +108,7 @@ async def chain():
     bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, backing.retrieve_by_aliases)
     bus.register(PatchouliRoutes.MEMORY_RETRIEVE, backing.retrieve)
     bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, backing.record_citation)
+    bus.register(PatchouliRoutes.TOPIC_GET_DATA, backing.get_topic_data)
     runtime = make_workspace_read_view(global_bus=bus)
     runtime.subscribe(bus)
     composition = make_access_composition([make_actor_access_record()])
@@ -222,6 +236,35 @@ async def test_settled_redirect_and_canonical_alias_share_one_citation(chain):
     assert [result.kind for result in results] == ["redirect", "atom", "redirect"]
     assert [result.atom.id for result in results] == [atom.id, atom.id, atom.id]
     assert atom.meta.lifecycle.access_count == 1
+    assert [(memory_id, source) for memory_id, source, _ in chain.backing.citations] == [
+        (atom.id, "workspace.reference_read")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_topic_handles_read_the_actors_workspace_topics_without_citation(chain):
+    """话题句柄经公开话题读取路由以本次授权的 scope 读出：本 Workspace 的话题交付、不记引用，
+    别的 Workspace 的话题按已过期交付。"""
+    atom = _add_atom(chain)
+    own = make_topic_data(
+        workspace_identity=chain.composition.default_workspace,
+        topic_id="own",
+        turns=[("q1", "a1")],
+        progress=[("进展", 1)],
+    )
+    foreign = make_topic_data(
+        workspace_identity=make_workspace_identity(workspace_id="other_workspace"),
+        topic_id="foreign",
+    )
+    chain.backing.topics.update({"own": own, "foreign": foreign})
+
+    results = await _resolve(chain, "topic:own#1", "canonical", "topic:foreign")
+
+    assert [(result.kind, result.topic) for result in results] == [
+        ("topic", own),
+        ("atom", None),
+        ("expired", None),
+    ]
     assert [(memory_id, source) for memory_id, source, _ in chain.backing.citations] == [
         (atom.id, "workspace.reference_read")
     ]

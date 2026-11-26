@@ -8,8 +8,10 @@ Principal 认证（含凭据核对）、Workspace 准入与操作授权、操作
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
+import httpx2
 import pytest
 import yaml
 
@@ -31,6 +33,7 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
+    TopicData,
 )
 from hivememory.core.models.workspace import resolve_default_workspace_identity
 from hivememory.core.protocol.gateway import (
@@ -41,7 +44,7 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.i18n import Language
-from hivememory.mcp_server import create_mcp_server
+from hivememory.mcp_server import create_http_app, create_mcp_server
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.interaction_submission import (
     InteractionStatus,
@@ -71,6 +74,7 @@ from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.mcp import serve_mcp, tool_error, tool_text
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_topic_data
 from tests.helpers.workspace import INTENT_RECORD_FILE, INTENT_RETENTION, make_actor_access_record
 
 _TOKEN = "token-1"
@@ -93,6 +97,8 @@ def _memory(alias: str, title: str, content: str) -> MemoryAtom:
 class _Patchouli:
     """在公共 RPC 边界替换 Patchouli：保存记忆、话题与交互，记录读取、引用、话题准备与接纳的意图。
 
+    话题池中只有 ``topic-1``（属于 u1 的默认 Workspace，进展记录有一条）。
+
     话题准备把新话题建立为 ``topic-prepared``；提交的交互立即以请求的话题应用。
     """
 
@@ -100,6 +106,15 @@ class _Patchouli:
         self.bus = bus
         self.memory = _memory("deploy_flow", "部署流程", "合并到 master 后由 CI 自动部署。")
         self.memories = {self.memory.id: self.memory}
+        self.topics: dict[str, TopicData] = {
+            "topic-1": make_topic_data(
+                workspace_identity=resolve_default_workspace_identity("u1"),
+                topic_id="topic-1",
+                title="部署",
+                turns=[("部署要不要手动", "改为手动执行"), ("回滚呢", "回滚也手动")],
+                progress=[("决定部署改为手动执行", 1)],
+            )
+        }
         self.reads = 0
         self.citations: list[object] = []
         self.applied_topics: dict[str, str] = {}
@@ -109,6 +124,7 @@ class _Patchouli:
         bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, self._retrieve_by_aliases)
         bus.register(PatchouliRoutes.MEMORY_READ, self._read)
         bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, self._record_citation)
+        bus.register(PatchouliRoutes.TOPIC_GET_DATA, self._get_topic)
         bus.register(PatchouliRoutes.PREPARE_TOPIC, self._prepare_topic)
         bus.register(PatchouliRoutes.INTERACTION_SUBMIT, self._submit_interaction)
         bus.register(PatchouliRoutes.INTERACTION_STATUS, self._interaction_status)
@@ -141,6 +157,12 @@ class _Patchouli:
 
     async def _record_citation(self, *, memory_id, source, identity_scope):
         self.citations.append(memory_id)
+
+    async def _get_topic(self, *, identity_scope, topic_id):
+        topic = self.topics.get(topic_id)
+        if topic is None or topic.workspace_identity != identity_scope.workspace_identity:
+            return None
+        return topic
 
     async def _prepare_topic(self, *, target_topic_id, **kwargs):
         topic_id = "topic-prepared" if target_topic_id == "NEW_TOPIC" else target_topic_id
@@ -292,6 +314,56 @@ async def test_search_then_read_delivers_committed_memory_and_records_one_citati
     assert 'alias="deploy_flow"' in tool_text(found)
     assert "合并到 master 后由 CI 自动部署。" in tool_text(read)
     assert patchouli.citations == [patchouli.memory.id]
+
+
+@pytest.mark.asyncio
+async def test_read_delivers_topic_index_and_entry_beside_memory_without_citing_topics():
+    """memory_read 一次读话题的索引、进展记录的一条与一条记忆：按请求顺序给出，只有记忆记录引用。"""
+    system, patchouli, _ = _compose(_READ_AND_SEARCH)
+
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
+        read = await session.call_tool(
+            "memory_read", {"aliases": ["topic:topic-1", "topic:topic-1#1", "deploy_flow"]}
+        )
+
+    text = tool_text(read)
+    index = text.index("[topic:topic-1] HiveMemory 话题「部署」的进展记录索引")
+    entry = text.index("[topic:topic-1#1] HiveMemory 话题「部署」进展记录的第 1 条")
+    memory = text.index("合并到 master 后由 CI 自动部署。")
+    assert index < entry < memory
+    assert "- topic:topic-1#1 决定部署改为手动执行" in text
+    assert "[User]: 部署要不要手动" in text
+    assert patchouli.citations == [patchouli.memory.id]
+
+
+@pytest.mark.asyncio
+async def test_single_json_rpc_post_reads_a_topic_without_initializing_a_session():
+    """插件的钩子不建会话：一次带插件 MCP 配置请求头的 JSON-RPC POST 即可调用 memory_read 读话题。"""
+    system, _, _ = _compose(_READ_AND_SEARCH)
+    server = create_mcp_server(lambda: system, Language.ZH)
+    app = create_http_app(server)
+    call = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "memory_read", "arguments": {"aliases": ["topic:topic-1"]}},
+    }
+
+    async with (
+        server.session_manager.run(),
+        httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app),
+            base_url="http://localhost:8000",
+        ) as client,
+    ):
+        response = await client.post(
+            "/mcp", json=call, headers={**_HEADERS, "Accept": "application/json"}
+        )
+
+    assert response.status_code == 200
+    result = json.loads(response.text)["result"]
+    assert result["isError"] is False
+    assert result["content"][0]["text"].startswith("[topic:topic-1] HiveMemory 话题「部署」")
 
 
 @pytest.mark.asyncio

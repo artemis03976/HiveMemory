@@ -1,12 +1,17 @@
 """workspace memory read 能力：canonical 引用的多级解析与交付授权。
 
-读取器归读取视图（``WorkspaceReadView``）持有。解析顺序：
+读取器归读取视图（``WorkspaceReadView``）持有。引用先按形态分派：以 ``topic:``
+开头的是话题句柄，经 backing 读出话题池中的话题，不查正式记忆；其余按记忆解析，
+顺序是：
 
 - L0 写入意图登记：在 Workspace 归属边界内交付 pending 与结算状态；登记中没有、
   也不是正式记忆 alias 的写入句柄（``draft_``/``rev_`` 开头）按已过期交付；
 - L1 ``AtomCache``：按原子自身 policy 对当前 Actor 授权，有效命中不回源；
 - L2 backing 冷读：受 Workspace 代次守护，代次未变才回填，库侧资源归属与
   policy 校验独立成立（纵深防御）。
+
+话题只有 Workspace 归属，没有 actor 读取策略：归属由 Patchouli 按 scope 的 Workspace
+复查，读取器不另设可见性规则。话题不经缓存，每次都读当前的话题。
 
 读取器不做检索排序、内容解释或任何写入；只缓存 Workspace 共享的完整
 原子，不缓存 Actor 不可见/缺失结果，也不缓存任何 Actor 的授权结论。
@@ -19,7 +24,14 @@ from typing import Literal
 from uuid import UUID
 
 from hivememory.core.memory_access import memory_belongs_to_workspace, memory_is_readable
-from hivememory.core.models import IdentityScope, MemoryAtom, ReferenceResolution, WorkspaceIdentity
+from hivememory.core.models import (
+    TOPIC_HANDLE_PREFIX,
+    IdentityScope,
+    MemoryAtom,
+    ReferenceResolution,
+    WorkspaceIdentity,
+    parse_topic_handle,
+)
 from hivememory.core.models.pending import (
     PendingAtom,
     PendingAtomResolution,
@@ -69,12 +81,16 @@ class MemoryReader:
         """逐项解析全部引用，保留请求顺序、重复项与 not_found 结果。
 
         正式记忆的 alias 也可能以写入句柄的前缀开头（手动创建时可以任取），因此先查
-        正式记忆，都查不到时才按已过期交付。
+        正式记忆，都查不到时才按已过期交付。记忆 alias 不能以 ``topic:`` 开头，这样的
+        引用一律按话题句柄解析。
         """
         self._guard.ensure_open()
         results: list[ReferenceResolution] = []
         for requested in aliases:
             alias = requested.strip()
+            if alias.startswith(TOPIC_HANDLE_PREFIX):
+                results.append(await self._resolve_topic(alias, requested, scope))
+                continue
             pending = self._intents.get(alias, scope.workspace_identity)
             if pending is not None:
                 results.append(await self._resolve_pending(pending, requested, scope))
@@ -93,6 +109,27 @@ class MemoryReader:
                 )
             )
         return results
+
+    async def _resolve_topic(
+        self, handle: str, requested: str, scope: IdentityScope
+    ) -> ReferenceResolution:
+        """话题句柄：话题读不到（已退役、已删除或不属于这个 Workspace）时按已过期交付。
+
+        不合语法的句柄与超出进展记录的条目序号是 not_found：句柄只由系统签发，
+        这两种只会来自抄错的句柄。
+        """
+        parsed = parse_topic_handle(handle)
+        if parsed is None:
+            return ReferenceResolution(kind="not_found", requested_alias=requested)
+        topic_id, entry_number = parsed
+        topic = await self._backing.get_topic(topic_id, scope=scope)
+        if topic is None:
+            return ReferenceResolution(kind="expired", requested_alias=requested)
+        if entry_number is not None and entry_number > len(topic.progress_record):
+            return ReferenceResolution(kind="not_found", requested_alias=requested)
+        return ReferenceResolution(
+            kind="topic", requested_alias=requested, topic=topic, topic_entry=entry_number
+        )
 
     async def _resolve_pending(
         self,

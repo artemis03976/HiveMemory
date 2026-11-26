@@ -35,8 +35,8 @@ _OPERATIONS: dict[type[OperationRequest[Any]], WorkspaceOperation] = {
     SubmitUpdateIntentRequest: WorkspaceOperation.MEMORY_UPDATE,
 }
 
-# 解析为正式记忆或重定向到正式记忆的引用，才算交付给了调用方。
-_DELIVERED_KINDS = frozenset({"atom", "redirect"})
+# 解析为正式记忆、重定向到正式记忆或读到话题的引用，才算交付给了调用方。
+_DELIVERED_KINDS = frozenset({"atom", "redirect", "topic"})
 
 
 def operation_of(request: OperationRequest[Any]) -> WorkspaceOperation:
