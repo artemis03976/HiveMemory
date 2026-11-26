@@ -37,22 +37,27 @@
     做什么：取 lease，把工作视图除最近几轮外折叠为折叠摘要，追加一条折叠记录；交互记录不变。
     推进：``folded_until``。
     失败：摘要模型超时或提供商失败时以规则摘要接上；其他错误使这一项失败、不折叠，下一次接收
-        交互时重新判断。话题正被占用时提交队列重试。关闭时进行中的被取消，什么也不写。
+        交互时重新判断。话题正被占用时提交队列重试；已退役或删除时直接结束。关闭时进行中的被
+        取消，什么也不写。
 
-停顿（``scan_paused_topics_once`` 排入维护项，``write_progress_entry`` 执行）
-    看什么：访问时间超过 ``progress_record_pause_seconds`` 且没有被占用；``recorded_until`` 之后
-        有交互；``progress_failed_until`` 小于 ``interaction_count``。没有写进展记录的模型时不写。
+停顿（调度任务 ``perception_progress_record`` 调用 ``scan_paused_topics_once`` 排入维护项，
+``write_progress_entry`` 执行）
+    看什么：访问时间超过 ``progress_record_pause_seconds`` 且没有被占用（停顿阈值小于空闲时限，
+        空闲沉淀时通常已经写过一条）；``recorded_until`` 之后有交互；``progress_failed_until``
+        小于 ``interaction_count``。没有写进展记录的模型时不写。
     做什么：排一项维护；执行时不取 lease，以旧进展记录与 ``recorded_until`` 之后的原文写一条，
-        写完才追加。
-    推进：``recorded_until``。
-    失败：生成失败时记下 ``progress_failed_until``，有新交互之前不再写；生成期间话题退役或删除
-        时这一条不记。话题已有未结束的维护项时这一轮不排。关闭时进行中的被取消，什么也不写。
+        写完才追加；不刷新访问时间。
+    推进：``recorded_until``，推进到生成开始时的 ``interaction_count``。
+    失败：生成失败时记下 ``progress_failed_until``，有新交互之前不再写，否则提供商故障时每一轮
+        都会再排一次；生成期间话题退役或删除时这一条不记。话题已有未结束的维护项、维护已关闭
+        或队列已满时这一轮不排。关闭时进行中的被取消，什么也不写。
 
-空闲（``scan_idle_topics_once``）
+空闲（调度任务 ``perception_idle_settle`` 调用 ``scan_idle_topics_once``）
     看什么：访问时间超过 ``idle_timeout_seconds`` 且没有被占用；``settled_until`` 与
         ``settling_until`` 中较远的那个之后有没有交互。
-    做什么：有新交互：取 lease，冻结全部交互与折叠记录交给生成队列，话题留在池中，访问时间不变。
-        从没接收过交互：退役，日志直接删除。其余什么也不做。
+    做什么：有新交互：取 lease，冻结全部交互与折叠记录交给生成队列，话题留在池中，访问时间不变，
+        同一段空闲因此不会反复沉淀。从没接收过交互（为写入预先建立、这一轮却没有交互）：退役，
+        日志直接删除。其余什么也不做。
     推进：``settling_until``。协调器在材料里没有可生成的轮次时不建任务，这时直接推进
         ``settled_until``；工作视图总保留最近几轮，正常不会走到这一支。
     失败：接纳失败（任何异常）时只记日志，话题原样保留，下一轮再看；正被占用时这一轮跳过。
@@ -68,14 +73,14 @@
         ``settled_until``，日志随即删除。
     失败：接纳失败时话题原样保留、错误交给调用方：池满时这一轮交互或话题准备失败；手动时队列
         已满或已停止报为 ``TopicSettleAdmissionError``。全部候选正被占用、或手动的目标正被占用时
-        以 ``TopicBusyError`` 失败。
+        以 ``TopicBusyError`` 失败；手动的目标不存在时以 ``ResourceNotFoundError`` 失败。
 
 沉淀到达终态（``record_settled``，生成控制器经本地路由调用）
     看什么：话题在池中还是已经退役。
     做什么：记下这次沉淀覆盖到第几轮；话题已经退役、这一次之后再没有未沉淀的交互时删除日志。
     推进：``settled_until``（只往前），清除不超过它的 ``settling_until``。
-    失败：成功、失败与用户取消都记，关闭时丢弃的不记；话题已被删除时不记。记不下（磁盘错误）时
-        生成控制器只记日志，位置没有推进，这段交互以后会再沉淀一次。
+    失败：成功、失败与用户取消都记，关闭时丢弃的不记，由生成控制器判断；话题已被删除时不记。
+        记不下（磁盘错误）时生成控制器只记日志，位置没有推进，这段交互以后会再沉淀一次。
 
 删除（``delete_topic``）
     看什么：话题是否正被占用。
@@ -85,8 +90,10 @@
 
 启动（``ShortTermMemoryStore.load``、``restore_topics``、``resettle_retired_topics``）
     看什么：日志。
-    做什么：重放日志读回话题池，按最近写入的先后登记驻留，访问时间从读回时开始计算；已经退役、
-        沉淀都已完成的日志删除；生成队列启动之后，重新发起退役话题没有完成的最后一次沉淀。
+    做什么：重放日志读回话题池，按最近写入的先后登记驻留，访问时间从读回时开始计算；超过驻留
+        容量（容量在两次运行之间调小）的话题也全部读回，之后建新话题时逐个退役，未沉淀的交互
+        不丢。已经退役、沉淀都已完成的日志删除；生成队列启动之后，重新发起退役话题没有完成的
+        最后一次沉淀。
     推进：日志里的四个位置照原样读回，进程内的两个从 0 开始。
     失败：读不回的日志移进 rejected 文件，这个话题不读回；最后一次沉淀没有被接纳时日志保留到
         下次启动。
@@ -208,19 +215,12 @@ class PerceptionFamiliar:
         new_topic_title: str | None = None,
         new_topic_summary: str | None = None,
     ) -> str:
-        """接收一轮交互：把这一轮与首次使用的附件绑定追加到目标话题，返回真实 topic_id。
+        """把这一轮与首次使用的附件绑定追加到目标话题，返回真实 topic_id；触发规则见模块说明的
+        触发表：接收一轮交互。
 
-        看什么：目标是不是新话题；新话题时池是否已满。
-        做什么：池满时先让最久没用的话题退役，建立新话题，取 lease 追加这一轮，刷新访问时间；
-            不折叠，是否需要折叠由交互提交队列在应用之后经 :meth:`needs_fold` 判断。
-        推进：``interaction_count``。
-        失败：话题正被占用时抛出 :class:`TopicBusyError`，目标话题已不在池中时抛出
-            :class:`ResourceNotFoundError`。追加是最后一个可能失败的步骤：要么失败且这一轮没有
-            写入，要么写入并成功；提交队列只允许没有成功的交互重新提交，同一轮因此不会写入两次，
-            在追加之后加入可能失败的步骤会破坏这一点。
-
-        目标为 ``NEW_TOPIC`` 时以提交携带的标题与摘要建立话题（缺省时用默认标题），后续路由
-        依赖候选话题的标题与摘要。
+        追加必须是最后一个可能失败的步骤：提交队列只允许没有成功的交互重新提交，同一轮因此不会
+        写入两次，在追加之后加入可能失败的步骤会破坏这一点。目标为 ``NEW_TOPIC`` 时以提交携带的
+        标题与摘要建立话题（缺省时用默认标题），后续路由依赖候选话题的标题与摘要。
         """
         logger.debug(
             "PerceptionFamiliar 接收一轮交互: interaction_id=%s target_topic_id=%s",
@@ -262,10 +262,8 @@ class PerceptionFamiliar:
         new_topic_summary: str | None,
         belong_to: WorkspaceIdentity,
     ) -> str:
-        """为写入预先确定话题：确保目标话题存在并刷新访问时间，返回真实 topic_id。
-
-        与接收交互相同：已有话题必须在池中；``NEW_TOPIC`` 时池满先让最久没用的话题退役，再以
-        给出的标题与摘要建立话题。
+        """为写入预先确定话题：确保目标话题存在并刷新访问时间，返回真实 topic_id；建新话题时的
+        规则见模块说明的触发表：池满时为新话题腾位置。
         """
         topic_id = await self._ensure_topic(
             belong_to,
@@ -288,16 +286,11 @@ class PerceptionFamiliar:
         retire: bool,
         raise_on_admission_failure: bool,
     ) -> tuple[bool, MemoryGenerationTask | None]:
-        """空闲、池满与手动三个触发共用的沉淀：取 lease → 冻结材料 → 等待接纳 → 记下在途或退役。
+        """取 lease → 冻结材料 → 等待接纳 → 记下在途或退役；触发规则见模块说明的触发表：空闲、
+        池满时为新话题腾位置、手动沉淀并退役，三者共用这一段。
 
-        三者只在接纳之后是否退役上分开：只沉淀（``retire=False``）时话题留在池中，不刷新访问
-        时间；退役时话题离开话题池。有没有新交互以 ``settled_until`` 与 ``settling_until`` 中较远
-        的为准，在途期间同一段不会再沉淀；没有新交互时不生成：只沉淀时什么也不做，退役时直接
-        退役。``reason`` 只作为材料的 provenance 标签，不驱动分支。
-
-        接纳之后只记下 ``settling_until``，沉淀到达终态时由 :meth:`record_settled` 推进
-        ``settled_until``；协调器没有建任务（材料里没有可生成的轮次）时没有可等的终态，立即推进。
-        接纳失败时话题与各位置原样保留，可以重试。
+        ``retire`` 决定接纳之后话题是否退役；``raise_on_admission_failure`` 为假时接纳失败只记
+        日志、返回未完成。``reason`` 只作为材料的 provenance 标签，不驱动分支。
 
         两把锁：等待接纳的整个期间持有话题的 lease，同一话题的交互、折叠、删除与另一次沉淀都进
         不来；存储的锁只在每一次读写时持有，不跨这次等待。
@@ -364,10 +357,10 @@ class PerceptionFamiliar:
     def _retire_topic(
         self, belong_to: WorkspaceIdentity, topic_id: str, reason: TriggerReason
     ) -> None:
-        """话题退役，离开话题池与驻留；还有没完成的沉淀时写退役记录、保留日志，等最后一次沉淀
-        完成再删除。
+        """让话题退役：写退役记录、保留日志，或直接删除日志；规则见模块说明的触发表。
 
-        沉淀都已完成（包括从没接收过交互的空话题）时直接删除日志。调用方持有 lease。
+        调用方持有 lease。“沉淀都已完成”看 ``has_unsettled_interactions``，它只认日志里的
+        ``settled_until``：在途的沉淀算作没有完成，日志因此保留到它到达终态。
         """
         topic = self._store.get(belong_to, topic_id)
         if topic is not None and topic.has_unsettled_interactions:
@@ -379,14 +372,9 @@ class PerceptionFamiliar:
     async def settle_and_retire_topic(
         self, belong_to: WorkspaceIdentity, topic_id: str
     ) -> TopicSettleResult:
-        """手动沉淀并退役指定话题。
+        """手动沉淀并退役指定话题；触发规则见模块说明的触发表：手动沉淀并退役。
 
-        看什么：``settled_until`` 与 ``settling_until`` 中较远的那个之后有没有交互。
-        做什么：有新交互先沉淀，然后退役；没有时直接退役（见 :meth:`_settle_topic`）。
-        推进：话题退役，不再有池中的位置。
-        失败：话题不存在时抛出 :class:`ResourceNotFoundError`；生成队列已满或已停止时抛出
-            :class:`TopicSettleAdmissionError`，话题内容保留可重试；目标正被占用是瞬态冲突，
-            抛出 :class:`TopicBusyError`。
+        返回的 ``generation_task_id`` 是被接纳的沉淀任务，没有新交互、直接退役时为空。
         """
         if self._store.get(belong_to, topic_id) is None:
             raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
@@ -416,14 +404,7 @@ class PerceptionFamiliar:
         return topic is not None and bool(self._blocks_to_fold(topic))
 
     async def fold_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """折叠话题的工作视图（交互提交队列的维护项）。
-
-        看什么：工作视图的 token 是否超过折叠阈值，轮数是否多于保留的最近几轮。
-        做什么：取 lease，把工作视图除最近几轮外折叠为折叠摘要，追加一条折叠记录。
-        推进：``folded_until``。
-        失败：正被占用时抛出 :class:`TopicBusyError` 留待重试；话题已退役或删除时直接结束。
-            写回在摘要返回后一次完成，中途取消或失败都不改动话题。
-        """
+        """折叠话题的工作视图；触发规则见模块说明的触发表：折叠。"""
         lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:
             raise TopicBusyError(f"topic '{topic_id}' 正忙，无法折叠，可稍后重试")
@@ -441,9 +422,9 @@ class PerceptionFamiliar:
         return engine.select_blocks_to_fold(topic.blocks, engine.config.fold_retain_recent_blocks)
 
     async def _fold_if_needed(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """工作视图超过折叠阈值时折叠：生成折叠摘要并追加一条折叠记录。
+        """工作视图超过折叠阈值时生成折叠摘要并追加一条折叠记录。
 
-        调用方持有该话题的 lease。被折叠的 blocks 仍留在交互记录中，沉淀时随全部记录冻结。
+        调用方持有该话题的 lease。写回在摘要返回之后一次完成，取消或失败时什么都不写。
         """
         topic = self._store.get(belong_to, topic_id)
         if topic is None:
@@ -464,15 +445,10 @@ class PerceptionFamiliar:
     # ========== 进展记录 ==========
 
     async def write_progress_entry(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """写一条进展记录（交互提交队列的维护项，由停顿扫描排入）。
+        """写一条进展记录；触发规则见模块说明的触发表：停顿。
 
-        看什么：``recorded_until`` 之后有没有交互。
-        做什么：不取 lease，以旧进展记录与 ``recorded_until`` 之后的原文生成一段总结，生成完成才
-            追加到话题的日志上。
-        推进：``recorded_until``，推进到这次生成开始时的 ``interaction_count``。
-        失败：生成失败时记下 ``progress_failed_until`` 后照常抛出：同一位置不再重试，否则提供商
-            故障时停顿扫描每一轮都会再排入一次。生成期间话题退役或删除时这一条不记；中途取消或
-            进程退出什么也不写。
+        生成失败时先记下失败的位置，再照常抛出，让这个维护项以失败结束。没有写进展记录的模型时
+        停顿扫描不排，这里直接返回。
         """
         writer = self._progress_writer
         if writer is None:
@@ -538,14 +514,10 @@ class PerceptionFamiliar:
     async def record_settled(
         self, topic_id: str, *, belong_to: WorkspaceIdentity, settled_until: int
     ) -> None:
-        """一次沉淀到达终态（生成控制器经本地路由调用）；不取 lease。
+        """记下一次沉淀到达终态；触发规则见模块说明的触发表：沉淀到达终态。
 
-        看什么：话题在池中还是已经退役。
-        做什么：在日志中记下这次沉淀覆盖到第几轮；话题已经退役、这一次之后再没有未沉淀的交互
-            时，这就是最后一次沉淀，随即删除日志。
-        推进：``settled_until``（只往前），清除不超过它的 ``settling_until``。
-        失败：话题已被删除、或日志已经删除时不记。成功、失败与用户取消都会调用这里，关闭时丢弃
-            的沉淀不调用，这由生成控制器决定。
+        ``settled_until`` 是这一次沉淀覆盖到的位置。追加之前先看话题是否还在池中：不在时是已经
+        退役或已被删除；已被删除时 ``append_settled`` 找不到它、返回 ``None``，什么都不记。
         """
         self._working_set.clear_settling(belong_to, topic_id, settled_until=settled_until)
         retired = self._store.get(belong_to, topic_id) is None
@@ -556,14 +528,10 @@ class PerceptionFamiliar:
     # ========== 退役与删除 ==========
 
     async def _retire_lru_for_new_topic(self, belong_to: WorkspaceIdentity) -> None:
-        """池满时为新话题腾位置：让最久没用的话题逐个退役，退役前先沉淀它还没有沉淀的交互。
+        """池满时让最久没用的话题逐个退役；触发规则见模块说明的触发表：池满时为新话题腾位置。
 
-        看什么：池是否已满；哪个话题最久没用、没有被占用。
-        做什么：通常只退役一个；驻留容量在两次运行之间调小时，读回的话题超出容量，这里一次
-            退役到池有空位。
-        推进：被退役的话题不再有池中的位置。
-        失败：候选正被占用时改选其他话题，全部正被占用时抛出 :class:`TopicBusyError`；接纳失败
-            的错误原样抛给调用方。
+        通常只退役一个；驻留容量在两次运行之间调小、读回的话题超出容量时，循环到池有空位为止。
+        候选在选出之后才被占用、或已被别的操作移出池时，记下它、改选下一个。
         """
         attempted: set[str] = set()
         while self._working_set.needs_eviction(belong_to):
@@ -585,14 +553,7 @@ class PerceptionFamiliar:
                 attempted.add(lru_topic_id)
 
     async def delete_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> TopicDeleteResult:
-        """删除话题（话题池的手动删除）。
-
-        看什么：话题是否正被占用。
-        做什么：取 lease，删除日志与驻留记录，不沉淀；已经被接纳的沉淀照常执行，完成时话题已经
-            不在，不再记下。
-        推进：没有，话题不在了。
-        失败：正被占用或话题不存在时报告 ``removed=False``。
-        """
+        """话题池的手动删除，返回是否删除；触发规则见模块说明的触发表：删除。"""
         lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:
             return TopicDeleteResult(topic_id=topic_id, removed=False)
@@ -608,16 +569,7 @@ class PerceptionFamiliar:
     # ========== 扫描与启动时读回 ==========
 
     async def scan_idle_topics_once(self) -> list[str]:
-        """空闲扫描（调度任务 ``perception_idle_settle``）；返回被沉淀或退役的话题。
-
-        看什么：访问时间超过 ``idle_timeout_seconds`` 且没有被占用；``settled_until`` 与
-            ``settling_until`` 中较远的那个之后有没有交互。
-        做什么：有新交互的沉淀，话题留在池中、访问时间不变，没有新交互就不会再被沉淀，同一段
-            空闲因此不会反复沉淀；从没接收过交互的空话题（为写入预先建立、这一轮却没有交互）
-            留在池中只占位置，直接退役、不生成。
-        推进：``settling_until``（见 :meth:`_settle_topic`）。
-        失败：接纳失败时只记日志，话题原样保留，下一轮再看；正被占用时这一轮跳过。
-        """
+        """空闲扫描，返回被沉淀或退役的话题；触发规则见模块说明的触发表：空闲。"""
         settled: list[str] = []
         for belong_to, topic_id in self._working_set.list_inactive(
             self._config.idle_timeout_seconds
@@ -643,16 +595,9 @@ class PerceptionFamiliar:
     async def scan_paused_topics_once(
         self, schedule_progress_entry: Callable[[WorkspaceIdentity, str], Awaitable[bool]]
     ) -> list[str]:
-        """停顿扫描（调度任务 ``perception_progress_record``）；返回排入了写一条进展记录的话题。
+        """停顿扫描，返回排入了写一条进展记录的话题；触发规则见模块说明的触发表：停顿。
 
-        看什么：访问时间超过 ``progress_record_pause_seconds`` 且没有被占用；``recorded_until`` 之后
-            有交互；``progress_failed_until`` 小于 ``interaction_count``。没有写进展记录的模型时
-            什么都不排。
-        做什么：经 ``schedule_progress_entry`` 把一项维护排进交互提交队列，执行见
-            :meth:`write_progress_entry`。停顿阈值小于空闲时限，空闲时通常已经写过一条；写下一条
-            之后访问时间不变，没有新交互就不会再写。
-        推进：这里不推进位置。
-        失败：话题已有未结束的维护项、维护已关闭或队列已满时排入函数返回假，下一轮再看。
+        ``schedule_progress_entry`` 是交互提交队列的排入函数，没有排入时返回假。
         """
         if self._progress_writer is None:
             return []
@@ -674,15 +619,10 @@ class PerceptionFamiliar:
         return scheduled
 
     def restore_topics(self, topics: Sequence[TopicData]) -> None:
-        """启动时为从日志读回的话题登记驻留；在接收交互之前调用，驻留记录此时为空。
+        """为从日志读回的话题登记驻留；触发规则见模块说明的触发表：启动。
 
-        看什么：每个话题最近一次写入的时间（``last_update``）。
-        做什么：按 ``last_update`` 从旧到新登记：最近写入的话题最后登记，最久没有写入的是第一个
-            退役候选。访问时间不写进日志，这只是上次运行访问顺序的近似。同一 Workspace 的话题
-            超过驻留容量（配置在两次运行之间调小）时全部读回，下一次需要新话题时逐个退役，
-            未沉淀的交互不丢。
-        推进：访问时间从读回时开始计算，``settling_until`` 与 ``progress_failed_until`` 从 0 开始。
-        失败：不会失败；读不回的日志在存储读回时已经移进 rejected 文件。
+        在接收交互之前调用，驻留记录此时为空。按 ``last_update`` 从旧到新登记，最久没有写入的
+        是第一个退役候选：访问时间不写进日志，最近写入的时间是上次运行访问顺序的近似。
         """
         for topic in sorted(topics, key=lambda topic: topic.last_update):
             self._working_set.touch(topic.workspace_identity, topic.topic_id)
@@ -690,13 +630,11 @@ class PerceptionFamiliar:
     async def resettle_retired_topics(
         self, retired: Sequence[tuple[TopicData, TopicRetiredRecord]]
     ) -> int:
-        """重新发起上次运行中已退役、最后一次沉淀没有完成的话题的沉淀，返回发起的数量。
+        """重新发起退役话题没有完成的最后一次沉淀，返回发起的数量；触发规则见模块说明的触发表：
+        启动。
 
-        看什么：退役话题日志里的 ``settled_until`` 与退役原因。
-        做什么：在生成队列启动之后调用。材料由日志组装，与运行时的沉淀一样冻结全部交互，带着
-            原来的退役原因；话题仍是退役，最后一次沉淀到达终态时经 :meth:`record_settled` 删除日志。
-        推进：生成队列没有为它建任务时直接推进 ``settled_until`` 并删除日志。
-        失败：生成队列已满或已停止时日志保留，下次启动时再发起。
+        在生成队列启动之后调用。材料由日志组装，带着原来的退役原因；生成队列没有为它建任务时
+        直接经 :meth:`record_settled` 记下，日志随之删除。
         """
         resubmitted = 0
         for topic, retired_record in retired:
