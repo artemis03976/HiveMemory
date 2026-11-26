@@ -1,13 +1,13 @@
 """话题日志的记录与套用函数。
 
 每个话题是一条只追加的日志，话题上发生的事各记一条：建立、接收一轮交互、一次折叠、一次沉淀
-完成、本话题生成的记忆与退役。``TopicData`` 是由这些记录依次套用得到的读取值，不是存储的
-单位。运行时的每次写入与启动时的重放用同一组套用函数，重放得到的读取值因此与写入时内存中的
-相同。
+完成、本话题生成的记忆、进展记录的一条与退役。``TopicData`` 是由这些记录依次套用得到的读取值，
+不是存储的单位。运行时的每次写入与启动时的重放用同一组套用函数，重放得到的读取值因此与写入时
+内存中的相同。
 
 套用函数是纯的：时间取记录的 ``at``，不取当前时间；以完整构造产生新值，``TopicData`` 的构造
-校验（折叠覆盖交互记录的前缀、沉淀进度不超过交互数）照常生效。记录的内容沿用现有模型的 JSON
-形式，不另设序列化。
+校验（折叠覆盖交互记录的前缀、沉淀进度不超过交互数、进展记录依次覆盖相邻的区间）照常生效。
+记录的内容沿用现有模型的 JSON 形式，不另设序列化。
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from hivememory.core.models import (
     TopicAssetBinding,
     TopicData,
     TopicFold,
+    TopicProgressEntry,
     WorkspaceAssetRef,
     WorkspaceIdentity,
 )
@@ -114,6 +115,20 @@ class TopicGeneratedMemoriesRecord(BaseModel):
         return sorted(ids)
 
 
+class TopicProgressEntryRecord(BaseModel):
+    """进展记录的一条：正文、指回原文的区间与覆盖到的位置；写下的时间取记录的 ``at``。"""
+
+    kind: Literal["progress_entry"] = "progress_entry"
+    at: float = Field(description="写下这一条的 Unix 时间戳（秒）")
+    text: str
+    from_turn_id: str
+    to_turn_id: str
+    to_event_seq: int = Field(ge=0)
+    covered_until: int = Field(ge=1)
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
 class TopicRetiredRecord(BaseModel):
     """话题退役，离开话题池。
 
@@ -134,6 +149,7 @@ type TopicLogRecord = Annotated[
     | TopicFoldRecord
     | TopicSettledRecord
     | TopicGeneratedMemoriesRecord
+    | TopicProgressEntryRecord
     | TopicRetiredRecord,
     Field(discriminator="kind"),
 ]
@@ -237,6 +253,25 @@ def apply_generated_memories(topic: TopicData, record: TopicGeneratedMemoriesRec
     )
 
 
+def apply_progress_entry(topic: TopicData, record: TopicProgressEntryRecord) -> TopicData:
+    """在进展记录末尾追加一条，只往后追加，不改写已有的条目。
+
+    这一条必须从当前覆盖到的位置开始、往后覆盖至少一轮且不超过交互数，否则构造校验失败。不改
+    最近写入时间：进展记录整理的是话题已经接收的交互，不是话题接收的一次写入。
+    """
+    entry = TopicProgressEntry(
+        text=record.text,
+        from_turn_id=record.from_turn_id,
+        to_turn_id=record.to_turn_id,
+        to_event_seq=record.to_event_seq,
+        covered_until=record.covered_until,
+        written_at=record.at,
+    )
+    return TopicData.model_validate(
+        {**dict(topic), "progress_record": (*topic.progress_record, entry)}
+    )
+
+
 def replay_topic_log(
     topic_id: str, records: Sequence[TopicLogRecord]
 ) -> tuple[TopicData, TopicRetiredRecord | None]:
@@ -261,6 +296,8 @@ def replay_topic_log(
                 topic = apply_settled(topic, record)
             case TopicGeneratedMemoriesRecord():
                 topic = apply_generated_memories(topic, record)
+            case TopicProgressEntryRecord():
+                topic = apply_progress_entry(topic, record)
             case TopicRetiredRecord():
                 retired = record
     return topic, retired
@@ -271,11 +308,13 @@ __all__ = [
     "TopicFoldRecord",
     "TopicInteractionRecord",
     "TopicLogRecord",
+    "TopicProgressEntryRecord",
     "TopicRetiredRecord",
     "TopicSettledRecord",
     "TopicGeneratedMemoriesRecord",
     "apply_fold",
     "apply_interaction",
+    "apply_progress_entry",
     "apply_settled",
     "apply_generated_memories",
     "decode_topic_record",

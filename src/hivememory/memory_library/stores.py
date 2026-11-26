@@ -46,11 +46,13 @@ from hivememory.memory_library.topic_log import (
     TopicGeneratedMemoriesRecord,
     TopicInteractionRecord,
     TopicLogRecord,
+    TopicProgressEntryRecord,
     TopicRetiredRecord,
     TopicSettledRecord,
     apply_fold,
     apply_generated_memories,
     apply_interaction,
+    apply_progress_entry,
     apply_settled,
     decode_topic_record,
     encode_topic_record,
@@ -226,6 +228,31 @@ class ShortTermMemoryStore:
         return self._append(
             belong_to, topic_id, record, apply_generated_memories, include_retired=True
         )
+
+    def append_progress_entry(
+        self,
+        belong_to: WorkspaceIdentity,
+        topic_id: str,
+        *,
+        text: str,
+        covered: Sequence[LogicalBlock],
+        covered_until: int,
+    ) -> TopicData | None:
+        """在进展记录末尾追加一条：``covered`` 是它覆盖的那几轮，``covered_until`` 是覆盖之后的位置。
+
+        这一条不是从当前覆盖到的位置开始时构造校验失败。只记到池中的话题：退役的话题不再有人
+        读它的进展，找不到时什么都不写。
+        """
+        last = covered[-1].turn
+        record = TopicProgressEntryRecord(
+            at=_now(),
+            text=text,
+            from_turn_id=covered[0].turn.turn_id,
+            to_turn_id=last.turn_id,
+            to_event_seq=last.turn_events[-1].sequence,
+            covered_until=covered_until,
+        )
+        return self._append(belong_to, topic_id, record, apply_progress_entry)
 
     def retire(
         self, belong_to: WorkspaceIdentity, topic_id: str, *, reason: TriggerReason
