@@ -189,11 +189,11 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 - 候选，句柄：`topic:<话题 id>` 读话题的进展（进展记录加未整理的原始交互记录），`topic:<话题 id>#<n>` 读第 n 条进展记录覆盖的原文。句柄不写轮次标识与事件区间，条目到原文区间的换算由系统完成。
 - 候选，句柄与 alias 互斥：生成的 alias 不含冒号；手动创建、编辑、Profile 管理创建与 revive 都经中期库写入前的 alias 校验，在那里拒绝 `topic:` 开头的 alias。不沿用写入句柄“先查正式记忆”的顺序：同名的记忆会静默遮住话题。
 - 候选，可见性：读话题只要求 `memory.read` 与 Workspace 归属，不新增 actor 可见性规则，与“话题生成的记忆在 Workspace 内公开”一致。
-- 候选，结局：退役话题在日志删除之前照常可读，删除之后按已过期交付；话题句柄不能 RUN；读话题不记录引用。READ 的结果增加话题一种，MemoryCompiler 的 `READ_RESULT` 增加话题的渲染。
+- 候选，结局：只读池中的话题，退役或删除的话题按已过期交付，提示其中的内容会沉淀为长期记忆、可以检索；话题句柄不能 RUN；读话题不记录引用。READ 的结果增加话题一种，MemoryCompiler 的 `READ_RESULT` 增加话题的渲染。
 - 候选，第 1 个时点：plugin 模式下，在用户提交时先为这一轮确定话题（root API 的 `determine_topic`，导入时沿用、不再路由）；落在已有话题、且这个会话此前不在它上面时，注入它的进展，会话本来就在这个话题上则不注入。controller 模式下 Gateway 在 PREPARE 阶段先于 CPU 运行，可以直接注入。
 - 候选，压缩之后注入哪个话题：只注入会话最近一轮所在的话题，不为外部会话新建“会话到话题”的记录。代价是一个会话交替在两个话题上时，压缩之后只看到最近的那个。一轮中间的自动压缩发生时，这一轮还没有导入，最近一轮是上一轮，多数时候就是当前的话题。
-- 候选，压缩之后的推送入口：插件在 `SessionStart`（`source: 'compact'`）时调用后端的一条新路由，带上外部会话标识与最近一轮的外部标识。路由像 MCP 入口一样认证出工作 actor，像 Import Bus 一样经 root API 查出这一轮实际所在的话题，再以请求级提交执行 READ，把渲染结果作为 `additionalContext` 返回。这是第一个向 harness 返回记忆内容的入口，Import Bus 仍不返回上下文。
-- 候选：注入放在请求尾部（用户提交时的注入随这条消息排在历史之后；压缩之后的注入发生在缓存本来已断的时候），并标明是历史资料、不是指令。
+- 压缩之后的推送由插件钩子作为 MCP 客户端完成：Import Bus 的导入结果带回这一轮所在的话题标识，连接器为每个会话记下最近一次；会话压缩之后，钩子以插件自己的 MCP 身份调用 `memory_read` 读 `topic:<话题 id>`，把结果作为注入内容返回。推送因此就是钩子在这个时点替 agent 拉取一次，不新开 HTTP 路由，也不新增请求级提交的调用方；话题标识只是句柄，导入结果仍不带 Gateway 决定与记忆内容。
+- 候选：注入标明是历史资料、不是指令。用户提交时的注入随这条消息排在历史之后；压缩之后的注入发生在缓存本来已断的时候，由 harness 决定位置（Claude Code 放在对话开头）。
 - 长 turn 中压缩常发生在一轮中间，索引能否覆盖这一轮前面的部分，取决于一轮之内写一条（暂缓）与一轮进行中接收已完成的事件。
 
 **现状与差距**：
@@ -201,10 +201,10 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 - 话题没有给 agent 的读出入口：actor API 的读取、检索、写入与更新都以中期记忆为对象（[能力层](../workspace/capability.md)），MCP 的四个工具同样（[MCP 记忆访问](../contracts/mcp.md)）；Import Bus 不返回任何上下文（[Import Bus](../system/import-bus.md)）。
 - READ 的目标已经按句柄的形态分派：写入句柄（`draft_`/`rev_`）先查写入意图登记，再查正式记忆，都查不到才按已过期交付；RUN 的 `sys_*` 交给系统工具（[MTP 契约](../contracts/mtp.md#32-read)第 3.2、3.3 节）。之所以要先查正式记忆，是因为正式记忆的 alias 只限长度、不限格式，手动创建时可以任取；生成的 alias 是类型前缀加蛇形后缀，或 `mem_<记忆 id>`。READ 的逐项结果只有记忆的种类。
 - 话题只有 Workspace 归属，没有 actor 读取策略；生成的记忆默认在 Workspace 内公开，私有与团队可见只来自手动管理。
-- 后端不保存外部会话的会话记录：Import Bus 每次由连接器带来最近几轮，按上一轮的交互标识查出它实际所在的话题（[Import Bus](../system/import-bus.md)），所以“一个外部会话在哪个话题上”只能得到最近一轮所在的那一个。
+- 后端不保存外部会话的会话记录：Import Bus 每次由连接器带来最近几轮，按上一轮的交互标识查出它实际所在的话题（[Import Bus](../system/import-bus.md)），所以“一个外部会话在哪个话题上”只能得到最近一轮所在的那一个。这个查询只覆盖交互提交队列的保留窗口（进程内，终态最多 512 条），重启后查不到；导入结果现在不带话题。
 - Alice 的上下文不含话题的折叠摘要与块（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）。
 - `determine_topic` 已供任务进程的线程表与 Import Bus 编排器使用，MCP 写入时以它在一轮结束前确定话题（[能力层](../workspace/capability.md)）。日常一次话题路由约 3 秒。
-- Claude Code：压缩之后以 `source: 'compact'` 触发 `SessionStart`，它与 `UserPromptSubmit` 都能返回 `additionalContext`；注入只保证交到模型手里，不保证模型会读。插件注册了 `SessionStart`，只用来同步会话记录，没有注册 `UserPromptSubmit`。Codex 的钩子是 `SessionStart`、`Stop`、`Interrupt` 与 `SessionEnd`；Codex、pi 与 DeepSeek Harness 能否注入内容没有核对。
+- Claude Code：压缩之后以 `source: 'compact'` 触发 `SessionStart`（matcher 可以只匹配 `compact`），它与 `UserPromptSubmit` 都能返回 `additionalContext`；`SessionStart` 的注入以 system reminder 放在对话开头，每个钩子上限 10,000 字符，超出时转存为文件、只留预览；注入只保证交到模型手里，不保证模型会读；`PostCompact` 不能注入。插件注册了 `SessionStart`，只用来同步会话记录，没有注册 `UserPromptSubmit`。Codex 的钩子是 `SessionStart`、`Stop`、`Interrupt` 与 `SessionEnd`；Codex、pi 与 DeepSeek Harness 能否注入内容没有核对。
 
 ## 8. 会话压缩（前台一侧）
 
