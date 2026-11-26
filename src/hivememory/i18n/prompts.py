@@ -362,6 +362,63 @@ You must strictly output using the following Markdown template:
     "previous_summary_empty": "None. This is a new topic.",
 }
 
+# 进展记录：话题停顿时，以旧进展记录与还没整理的交互原文写出新的一条。
+_PROGRESS_RECORD_PROMPT_TEXT_ZH = {
+    "system_prompt": """\
+你在为一个进行中的话题总结并编写进展记录。话题是按语义内容聚合在一起的一段交互事件：可能是完成一项工作，也可能是一段讨论或闲聊。进展记录按时间排列、只往后追加，每一条写这个话题自上一条以来有了什么新进展。任何一个希望继续这个话题的人，在阅读进展记录之后，应当能够知道当前话题进行到了哪一步，并自然的将话题继续下去。当使用者需要更详细的背景信息时，你写出的进展记录应当能够起到指引的作用。
+
+话题进入了阶段性总结环节，你会看到：
+- [旧进展记录]：这个话题此前写下的进展记录，只作上下文，不改写，也不重复；
+- [新交互记录原文]：自上一条以来的交互，每一轮标有轮次号。
+
+请以[旧进展记录]（如有）作为参考，并依据[新交互记录原文]中发生的事件写出新的一条进展记录，用一段话写清：
+- 这一段谈了什么、做了什么，得出了什么结果、结论或看法；
+- 用户提出了什么要求、表达了什么想法，定下了什么。agent 提出、用户还没有确认的，写成 agent 的提议，不写成决定；agent 自己的分析与推论，也不写成用户的决定或已经确定的事实。
+
+写法要求：
+- 沿用原文中的说法与名称，不另起名字；具体的名称、编号与数值照原文写（例如文件路径、命令、书名、人名）；
+- 旧进展记录写过的，不再写一遍；这一段里新出现的信息，即使与旧进展记录有关，也要写出来；
+- 只写原文里有的事，不评价，不提建议。
+
+只输出一个 JSON 对象：{"entry": "<这一条的正文>"}""",
+    "user_prompt": """\
+[旧进展记录]
+{previous_record}
+
+[新交互记录原文]
+{interactions}""",
+    # 话题还没有写过进展记录时，[旧进展记录] 一节写这一句。
+    "previous_record_empty": "暂无",
+}
+
+_PROGRESS_RECORD_PROMPT_TEXT_EN = {
+    "system_prompt": """\
+You are summarizing an ongoing topic and writing its progress record. A topic is a stretch of interaction events grouped together by their semantic content: it may be getting a piece of work done, or it may be a discussion or a casual chat. The progress record is ordered by time and only appended to; each entry writes what new progress the topic has made since the previous entry. Anyone who wants to continue this topic should, after reading the progress record, know how far the topic has gotten and be able to carry it on naturally. When the reader needs more detailed background, the progress record you write should serve as a guide.
+
+The topic has reached a periodic summary. You will see:
+- [Previous progress record]: the progress record written for this topic so far, given only as context; do not rewrite it, and do not repeat it;
+- [New interaction transcript]: the interactions since the previous entry, each turn marked with its turn number.
+
+Taking the [Previous progress record] (if any) as reference, write a new progress record entry based on the events in the [New interaction transcript], making clear in one paragraph:
+- what this stretch talked about and what was done, and what results, conclusions or views came out of it;
+- what the user asked for, what ideas the user expressed, and what was decided. Something the agent proposed that the user has not yet confirmed is written as the agent's proposal, not as a decision; the agent's own analysis and inferences are not written as the user's decisions or as established facts either.
+
+Writing requirements:
+- Keep the wording and names used in the transcript; do not coin new names. Write specific names, identifiers and values exactly as in the transcript (for example file paths, commands, book titles, people's names);
+- Do not write again what the previous progress record already says; information that is new in this stretch must be written even if it relates to the previous progress record;
+- Write only what happened in the transcript; do not evaluate, and do not make suggestions.
+
+Output only one JSON object: {"entry": "<the text of this entry>"}""",
+    "user_prompt": """\
+[Previous progress record]
+{previous_record}
+
+[New interaction transcript]
+{interactions}""",
+    # 话题还没有写过进展记录时，[Previous progress record] 一节写这一句。
+    "previous_record_empty": "None",
+}
+
 # 会话压缩：历史轮次的结局说明、工具结果减重的线索、接力摘要指令与摘要段落。
 _COMPACTION_PROMPT_TEXT_ZH = {
     "outcome_cancelled": "[本轮已中断，回复未完成。]",
@@ -1268,6 +1325,17 @@ def get_relay_prompt_text(key: str, language: str | Language | None = None) -> s
     return texts[key]
 
 
+def get_progress_record_prompt_text(key: str, language: str | Language | None = None) -> str:
+    """返回写进展记录的提示词文案片段。"""
+    resolved = resolve_language(explicit=language)
+    texts = (
+        _PROGRESS_RECORD_PROMPT_TEXT_EN
+        if resolved == Language.EN
+        else _PROGRESS_RECORD_PROMPT_TEXT_ZH
+    )
+    return texts[key]
+
+
 def get_compaction_prompt_text(key: str, language: str | Language | None = None) -> str:
     """返回会话压缩相关的文案片段。"""
     resolved = resolve_language(explicit=language)
@@ -1306,6 +1374,7 @@ __all__ = [
     "get_gateway_prompt_text",
     "get_mtp_prompt_text",
     "get_mtp_verb_text",
+    "get_progress_record_prompt_text",
     "get_relay_prompt_text",
     "get_system_prompt_text",
 ]

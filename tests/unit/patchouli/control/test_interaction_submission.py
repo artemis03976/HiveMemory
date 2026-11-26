@@ -560,13 +560,15 @@ def test_codec_rejects_nested_noncanonical_payload(mutation: str) -> None:
         )
 
 
-# ========== 话题折叠：排在同一话题提交之间的独立工作项 ==========
+# ========== 话题维护：排在同一话题提交之间的独立工作项 ==========
+
+_WORKSPACE = make_identity_scope(user_id="u1", agent_id="a1").workspace_identity
 
 
 def _topic_submission(interaction_id: str, message: str, topic_id: str) -> InteractionSubmission:
-    """写入已有话题的提交：排序键按话题约定生成，与该话题的折叠项一致。"""
+    """写入已有话题的提交：排序键按话题约定生成，与该话题的维护项一致。"""
     return InteractionSubmission(
-        belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
+        belong_to=_WORKSPACE,
         from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
         interaction_id=interaction_id,
         payload=_payload(message),
@@ -578,20 +580,30 @@ def _topic_submission(interaction_id: str, message: str, topic_id: str) -> Inter
 
 
 class _FakeTopics:
-    """感知一侧的替身：写入使话题需要折叠，折叠完成后不再需要。
+    """感知一侧的替身：写入使话题需要折叠，折叠完成后不再需要；写进展记录只记一个事件。
 
-    ``on_compact`` 在折叠时执行，可阻塞或失败；失败的折叠不改变话题的状态。
+    ``on_maintenance`` 在折叠与写进展记录时执行，可阻塞或失败；失败的折叠不改变话题的状态。
+    ``compact_after_apply`` 为假时写入不使话题需要折叠。
     """
 
-    def __init__(self, events: list[str], *, on_compact=None, fail_needs_check: bool = False):
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        on_maintenance=None,
+        fail_needs_check: bool = False,
+        compact_after_apply: bool = True,
+    ):
         self._events = events
-        self._on_compact = on_compact
+        self._on_maintenance = on_maintenance
         self._fail_needs_check = fail_needs_check
+        self._compact_after_apply = compact_after_apply
         self._over_threshold: set[str] = set()
 
     async def apply(self, payload, *, target_topic_id, **kwargs) -> str:
         self._events.append(f"apply:{payload.user_message}")
-        self._over_threshold.add(target_topic_id)
+        if self._compact_after_apply:
+            self._over_threshold.add(target_topic_id)
         return target_topic_id
 
     def needs_compact(self, belong_to, topic_id) -> bool:
@@ -601,9 +613,14 @@ class _FakeTopics:
 
     async def compact_topic(self, belong_to, topic_id) -> None:
         self._events.append(f"compact:{topic_id}")
-        if self._on_compact is not None:
-            await self._on_compact(topic_id)
+        if self._on_maintenance is not None:
+            await self._on_maintenance(topic_id)
         self._over_threshold.discard(topic_id)
+
+    async def write_progress_entry(self, belong_to, topic_id) -> None:
+        self._events.append(f"progress:{topic_id}")
+        if self._on_maintenance is not None:
+            await self._on_maintenance(topic_id)
 
 
 def _events_until(events: list[str], last: str) -> list[str]:
@@ -611,26 +628,41 @@ def _events_until(events: list[str], last: str) -> list[str]:
     return events[: events.index(last) + 1]
 
 
+async def _start_maintenance(queue, task: str, topic_id: str) -> None:
+    """让话题有一个维护项：折叠由一次写入之后排入，写进展记录由停顿扫描排入。"""
+    if task == "compaction":
+        first = await queue.submit(_topic_submission(f"i-first-{topic_id}", "first", topic_id))
+        await queue.wait(first, timeout=2)
+    else:
+        assert await queue.schedule_progress_entry(_WORKSPACE, topic_id) is True
+
+
+_MAINTENANCE_EVENT = {"compaction": "compact:t1", "progress_entry": "progress:t1"}
+
+
 @pytest.mark.asyncio
-async def test_same_topic_submission_waits_for_the_compaction() -> None:
-    """折叠执行期间，同话题的提交不开始；其他话题的提交照常执行。"""
+@pytest.mark.parametrize("task", ["compaction", "progress_entry"])
+async def test_same_topic_submission_waits_for_the_maintenance(task) -> None:
+    """维护执行期间，同话题的提交不开始、在它之后应用；其他话题的提交照常执行。"""
     events: list[str] = []
+    started = asyncio.Event()
     release = asyncio.Event()
 
     async def hold_t1(topic_id):
         if topic_id == "t1":
+            started.set()
             await release.wait()
 
-    topics = _FakeTopics(events, on_compact=hold_t1)
-    queue = InteractionSubmissionQueue(topics.apply, compaction=topics)
+    topics = _FakeTopics(events, on_maintenance=hold_t1, compact_after_apply=task == "compaction")
+    queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
     try:
         await queue.start()
-        first = await queue.submit(_topic_submission("i-1", "first", "t1"))
-        await queue.wait(first, timeout=2)
+        await _start_maintenance(queue, task, "t1")
+        await asyncio.wait_for(started.wait(), timeout=2)
         second = await queue.submit(_topic_submission("i-2", "second", "t1"))
         other = await queue.submit(_topic_submission("i-3", "other", "t2"))
         other_outcome = await queue.wait(other, timeout=2)
-        applied_while_compacting = list(events)
+        applied_while_maintaining = list(events)
         release.set()
         second_outcome = await queue.wait(second, timeout=2)
     finally:
@@ -638,33 +670,91 @@ async def test_same_topic_submission_waits_for_the_compaction() -> None:
         await queue.stop()
 
     assert other_outcome.state is WorkState.SUCCEEDED
-    assert "apply:second" not in applied_while_compacting
+    assert "apply:second" not in applied_while_maintaining
     assert second_outcome.state is WorkState.SUCCEEDED
     t1_events = [event for event in events if event not in {"apply:other", "compact:t2"}]
-    assert _events_until(t1_events, "apply:second") == ["apply:first", "compact:t1", "apply:second"]
+    assert _events_until(t1_events, "apply:second")[-2:] == [
+        _MAINTENANCE_EVENT[task],
+        "apply:second",
+    ]
 
 
 @pytest.mark.asyncio
-async def test_failed_compaction_neither_fails_the_interaction_nor_holds_the_topic() -> None:
+@pytest.mark.parametrize(
+    ("task", "reason"),
+    [("compaction", "topic_compaction_failed"), ("progress_entry", "progress_record_failed")],
+)
+async def test_failed_maintenance_neither_fails_the_interaction_nor_holds_the_topic(
+    task, reason, caplog
+) -> None:
+    """维护失败只结束这个维护项，日志带这种维护的原因码；同话题的下一次提交照常应用。"""
     events: list[str] = []
 
-    async def relay_down(topic_id):
-        raise RuntimeError("relay down")
+    async def model_down(topic_id):
+        raise RuntimeError("model down")
 
-    topics = _FakeTopics(events, on_compact=relay_down)
-    queue = InteractionSubmissionQueue(topics.apply, compaction=topics)
+    topics = _FakeTopics(
+        events, on_maintenance=model_down, compact_after_apply=task == "compaction"
+    )
+    queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
     try:
         await queue.start()
-        first = await queue.submit(_topic_submission("i-1", "first", "t1"))
-        first_outcome = await queue.wait(first, timeout=2)
+        await _start_maintenance(queue, task, "t1")
         second = await queue.submit(_topic_submission("i-2", "second", "t1"))
         second_outcome = await queue.wait(second, timeout=2)
     finally:
         await queue.stop()
 
-    assert first_outcome.state is WorkState.SUCCEEDED
     assert second_outcome.state is WorkState.SUCCEEDED
-    assert _events_until(events, "apply:second") == ["apply:first", "compact:t1", "apply:second"]
+    assert _events_until(events, "apply:second")[-2:] == [_MAINTENANCE_EVENT[task], "apply:second"]
+    assert any(f"reason={reason}, topic_id=t1" in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_a_topic_has_at_most_one_unfinished_maintenance_item() -> None:
+    """写一条进展记录还没结束时，同一话题再排入写一条、或那之前的写入要排的折叠都不排；其他
+    话题不受影响；结束之后可以再排。"""
+    events: list[str] = []
+    topics = _FakeTopics(events)
+    queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
+    try:
+        first = await queue.submit(_topic_submission("i-1", "first", "t1"))
+        assert await queue.schedule_progress_entry(_WORKSPACE, "t1") is True
+        again = await queue.schedule_progress_entry(_WORKSPACE, "t1")
+        other = await queue.schedule_progress_entry(_WORKSPACE, "t2")
+        await queue.start()
+        await queue.wait(first, timeout=2)
+        await queue.drain_all(timeout=2)
+        after = await queue.schedule_progress_entry(_WORKSPACE, "t1")
+        await queue.drain_all(timeout=2)
+    finally:
+        await queue.stop()
+
+    assert (again, other, after) == (False, True, True)
+    assert [event for event in events if event != "progress:t2"] == [
+        "apply:first",
+        "progress:t1",
+        "progress:t1",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_closed_maintenance_ends_queued_items_without_running_them() -> None:
+    """关闭之后，排队中的维护项直接结束，不调用折叠或写进展记录；之后也不再排入。"""
+    events: list[str] = []
+    topics = _FakeTopics(events)
+    queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
+    try:
+        assert await queue.schedule_progress_entry(_WORKSPACE, "t1") is True
+        queue.close_topic_maintenance()
+        await queue.start()
+        await queue.drain_all(timeout=2)
+        scheduled_after_close = await queue.schedule_progress_entry(_WORKSPACE, "t2")
+    finally:
+        await queue.stop()
+
+    assert events == []
+    assert scheduled_after_close is False
 
 
 @pytest.mark.asyncio
@@ -672,7 +762,7 @@ async def test_topic_with_a_pending_compaction_is_not_scheduled_again() -> None:
     """折叠项排在已入队的同话题提交之后；那次提交不再追加第二个折叠项。"""
     events: list[str] = []
     topics = _FakeTopics(events)
-    queue = InteractionSubmissionQueue(topics.apply, compaction=topics)
+    queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
     try:
         await queue.submit(_topic_submission("i-1", "first", "t1"))
         second = await queue.submit(_topic_submission("i-2", "second", "t1"))
@@ -693,7 +783,7 @@ async def test_topic_with_a_pending_compaction_is_not_scheduled_again() -> None:
 
 
 @pytest.mark.asyncio
-async def test_closing_compactions_cancels_the_running_one_and_releases_the_topic() -> None:
+async def test_closing_maintenance_cancels_the_running_item_and_releases_the_topic() -> None:
     events: list[str] = []
     started = asyncio.Event()
     cancelled = asyncio.Event()
@@ -706,8 +796,8 @@ async def test_closing_compactions_cancels_the_running_one_and_releases_the_topi
             cancelled.set()
             raise
 
-    topics = _FakeTopics(events, on_compact=wait_for_summary)
-    queue = InteractionSubmissionQueue(topics.apply, compaction=topics)
+    topics = _FakeTopics(events, on_maintenance=wait_for_summary)
+    queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
     try:
         await queue.start()
         first = await queue.submit(_topic_submission("i-1", "first", "t1"))
@@ -715,7 +805,7 @@ async def test_closing_compactions_cancels_the_running_one_and_releases_the_topi
         await asyncio.wait_for(started.wait(), timeout=2)
         second = await queue.submit(_topic_submission("i-2", "second", "t1"))
 
-        queue.close_compactions()
+        queue.close_topic_maintenance()
         second_outcome = await queue.wait(second, timeout=2)
     finally:
         await queue.stop()
@@ -726,8 +816,8 @@ async def test_closing_compactions_cancels_the_running_one_and_releases_the_topi
 
 
 @pytest.mark.asyncio
-async def test_drain_all_returns_after_closed_compactions_finish_their_cleanup() -> None:
-    """停止时先关闭折叠再排空：排空要等进行中的折叠收尾，之后的结算才不会遇到占用。"""
+async def test_drain_all_returns_after_closed_maintenance_finishes_its_cleanup() -> None:
+    """停止时先关闭维护再排空：排空要等进行中的折叠收尾，之后的结算才不会遇到占用。"""
     events: list[str] = []
     cleanup_started = asyncio.Event()
     allow_cleanup = asyncio.Event()
@@ -742,14 +832,14 @@ async def test_drain_all_returns_after_closed_compactions_finish_their_cleanup()
             cleaned_up.set()
             raise
 
-    topics = _FakeTopics(events, on_compact=slow_cleanup_on_cancel)
-    queue = InteractionSubmissionQueue(topics.apply, compaction=topics)
+    topics = _FakeTopics(events, on_maintenance=slow_cleanup_on_cancel)
+    queue = InteractionSubmissionQueue(topics.apply, maintenance=topics)
     try:
         await queue.start()
         first = await queue.submit(_topic_submission("i-1", "first", "t1"))
         await queue.wait(first, timeout=2)
 
-        queue.close_compactions()
+        queue.close_topic_maintenance()
         drain = asyncio.create_task(queue.drain_all(timeout=None))
         await asyncio.wait_for(cleanup_started.wait(), timeout=2)
         drained_before_cleanup = drain.done()
@@ -777,7 +867,7 @@ async def test_failure_while_scheduling_compaction_keeps_the_interaction_succeed
         if failure == "queue_full"
         else None
     )
-    queue = InteractionSubmissionQueue(topics.apply, compaction=topics, policy=policy)
+    queue = InteractionSubmissionQueue(topics.apply, maintenance=topics, policy=policy)
     try:
         await queue.start()
         first = await queue.submit(_topic_submission("i-1", "first", "t1"))
@@ -797,7 +887,7 @@ async def test_failure_while_scheduling_compaction_keeps_the_interaction_succeed
     [
         ({"apply_timeout_seconds": 0}, "apply_timeout_seconds"),
         (
-            {"compaction": _FakeTopics([]), "policy": QueuePolicy(capacity=4, max_concurrency=1)},
+            {"maintenance": _FakeTopics([]), "policy": QueuePolicy(capacity=4, max_concurrency=1)},
             "ordered by key",
         ),
     ],

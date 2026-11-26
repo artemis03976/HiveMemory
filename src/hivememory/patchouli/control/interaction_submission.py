@@ -4,9 +4,9 @@
 handler 的单次 attempt 中重新构造。这样提交方封口后，外部继续修改原始
 ``InteractionPayload`` 也不会影响已经接受的 work。
 
-话题折叠以独立工作项排在同一条 lane 上，与该话题的提交共用排序键：交互写入
-话题即完成，折叠的耗时不计入交互的处理时限；折叠执行期间，同一话题的后续
-提交在队列中等待，等待同样不计时。
+话题的维护（折叠，与写一条进展记录）以独立工作项排在同一条 lane 上，与该话题的
+提交共用排序键：交互写入话题即完成，维护的耗时不计入交互的处理时限；维护执行期间，
+同一话题的后续提交在队列中等待，等待同样不计时，不报占用冲突。
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import (
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 def topic_ordering_key(topic_id: str) -> str:
-    """同一话题的全部工作项共用的排序键；lane 按它串行执行同一话题的提交与折叠。"""
+    """同一话题的全部工作项共用的排序键；lane 按它串行执行同一话题的提交与维护。"""
     return f"topic:{topic_id}"
 
 
@@ -200,59 +200,67 @@ class InteractionSubmissionCodec:
         return submission
 
 
-class TopicCompactionPort(Protocol):
-    """提交队列对话题折叠的需要：判断话题是否需要折叠，以及执行一次折叠。"""
+class TopicMaintenancePort(Protocol):
+    """提交队列对话题维护的需要：判断话题是否需要折叠，执行一次折叠，写一条进展记录。"""
 
     def needs_compact(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool: ...
 
     async def compact_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None: ...
 
+    async def write_progress_entry(self, belong_to: WorkspaceIdentity, topic_id: str) -> None: ...
+
 
 @dataclass(frozen=True)
-class TopicCompaction:
-    """排在话题提交之间的一次折叠；执行期间挡住同一话题的后续提交。"""
+class TopicMaintenance:
+    """排在话题提交之间的一项话题维护：折叠工作视图的旧前缀（``compaction``），或写一条进展
+    记录（``progress_entry``）；执行期间挡住同一话题的后续提交。"""
 
     belong_to: WorkspaceIdentity
     topic_id: str
+    task: Literal["compaction", "progress_entry"]
 
     def __post_init__(self) -> None:
         if not isinstance(self.belong_to, WorkspaceIdentity):
             raise TypeError("belong_to must be a WorkspaceIdentity")
         _require_text(self.topic_id, field_name="topic_id")
+        if self.task not in ("compaction", "progress_entry"):
+            raise ValueError("task must be compaction or progress_entry")
 
 
-class TopicCompactionCodec:
-    """TopicCompaction 的 v1 canonical JSON codec。"""
+class TopicMaintenanceCodec:
+    """TopicMaintenance 的 v1 canonical JSON codec。"""
 
-    kind = "patchouli.topic_compaction"
+    kind = "patchouli.topic_maintenance"
     schema_version = 1
 
-    def encode(self, compaction: TopicCompaction) -> object:
-        if not isinstance(compaction, TopicCompaction):
-            raise TypeError("topic compaction payload has an unexpected type")
+    def encode(self, maintenance: TopicMaintenance) -> object:
+        if not isinstance(maintenance, TopicMaintenance):
+            raise TypeError("topic maintenance payload has an unexpected type")
         return {
-            "belong_to": compaction.belong_to.model_dump(mode="json"),
-            "topic_id": compaction.topic_id,
+            "belong_to": maintenance.belong_to.model_dump(mode="json"),
+            "topic_id": maintenance.topic_id,
+            "task": maintenance.task,
         }
 
-    def decode(self, payload: object) -> TopicCompaction:
+    def decode(self, payload: object) -> TopicMaintenance:
         if not isinstance(payload, dict):
-            raise TypeError("topic compaction payload must be an object")
+            raise TypeError("topic maintenance payload must be an object")
         _require_exact_keys(
             payload,
-            expected={"belong_to", "topic_id"},
-            field_name="topic compaction payload",
+            expected={"belong_to", "topic_id", "task"},
+            field_name="topic maintenance payload",
         )
         raw_scope = payload["belong_to"]
         if not isinstance(raw_scope, dict):
-            raise TypeError("topic compaction payload.belong_to must be an object")
-        compaction = TopicCompaction(
+            raise TypeError("topic maintenance payload.belong_to must be an object")
+        maintenance = TopicMaintenance(
             belong_to=WorkspaceIdentity.model_validate(raw_scope),
             topic_id=payload["topic_id"],
+            task=payload["task"],
         )
-        if self.encode(compaction) != payload:
-            raise ValueError("topic compaction payload is not canonical")
-        return compaction
+        if self.encode(maintenance) != payload:
+            raise ValueError("topic maintenance payload is not canonical")
+        return maintenance
 
 
 @dataclass(frozen=True)
@@ -279,13 +287,13 @@ class InteractionSubmissionOutcome:
 
 ApplyInteraction = Callable[..., Awaitable[str]]
 AfterApply = Callable[[WorkspaceIdentity, str], Awaitable[None]]
-RunCompaction = Callable[[TopicCompaction], Awaitable[None]]
+RunMaintenance = Callable[[TopicMaintenance], Awaitable[None]]
 
 
 class InteractionSubmissionHandler(
-    WorkHandlerPort[InteractionSubmission | TopicCompaction, InteractionSubmissionResult | None]
+    WorkHandlerPort[InteractionSubmission | TopicMaintenance, InteractionSubmissionResult | None]
 ):
-    """把通用 work attempt 适配到交互应用与话题折叠。
+    """把通用 work attempt 适配到交互应用与话题维护。
 
     lane 只有一个 handler，按载荷类型分派。交互应用的时限只包住应用本身；
     应用完成后由 ``after_apply`` 决定是否排入折叠，折叠的耗时不计入这次应用。
@@ -297,22 +305,22 @@ class InteractionSubmissionHandler(
         *,
         apply_timeout_seconds: float | None = None,
         after_apply: AfterApply | None = None,
-        run_compaction: RunCompaction | None = None,
+        run_maintenance: RunMaintenance | None = None,
     ) -> None:
         self._apply_interaction = apply_interaction
         self._apply_timeout_seconds = apply_timeout_seconds
         self._after_apply = after_apply
-        self._run_compaction = run_compaction
+        self._run_maintenance = run_maintenance
 
     async def execute(
         self,
-        payload: InteractionSubmission | TopicCompaction,
+        payload: InteractionSubmission | TopicMaintenance,
         context: WorkExecutionContext,
     ) -> InteractionSubmissionResult | None:
-        if isinstance(payload, TopicCompaction):
-            if self._run_compaction is None:
-                raise RuntimeError("topic compaction work requires a compaction port")
-            await self._run_compaction(payload)
+        if isinstance(payload, TopicMaintenance):
+            if self._run_maintenance is None:
+                raise RuntimeError("topic maintenance work requires a maintenance port")
+            await self._run_maintenance(payload)
             return None
         # 只有实际进入 attachment_context 的 bound refs 才进入 binding
         # 投影（按 payload 顺序一次性投影）；selected 但被编译跳过的项不建立
@@ -348,17 +356,17 @@ class InteractionSubmissionHandler(
     ) -> FailureDecision:
         """仅重试已明确分类、且可复用同一 interaction identity 的失败。
 
-        折叠只在话题正被占用时重试；其他失败结束这个折叠项，话题保持原样，
-        下一次写入该话题时会重新判断是否需要折叠。
+        维护项只在话题正被占用时重试（只有折叠取 lease）；其他失败结束这个维护项，话题保持
+        原样：下一次写入该话题时重新判断是否需要折叠，停顿扫描在话题有新交互后再写进展记录。
         """
-        if context.kind == TopicCompactionCodec.kind:
+        if context.kind == TopicMaintenanceCodec.kind:
             if isinstance(error, TopicBusyError):
                 return FailureDecision(
                     action=FailureAction.RETRY,
                     retry_after_seconds=0.05,
-                    reason="topic_compaction_busy",
+                    reason="topic_maintenance_busy",
                 )
-            return FailureDecision(action=FailureAction.FAIL, reason="topic_compaction_failed")
+            return FailureDecision(action=FailureAction.FAIL, reason="topic_maintenance_failed")
 
         if isinstance(error, (ConnectionError, TopicBusyError)):
             return FailureDecision(
@@ -408,9 +416,10 @@ def _ended_without_success(state: WorkState) -> bool:
 class InteractionSubmissionQueue:
     """Patchouli 交互摄入 lane 的轻量业务队列。
 
-    提供 ``compaction`` 时，交互应用后话题需要折叠就排入一个折叠项；不提供时
-    只应用交互，不折叠。交互应用的时限由 ``apply_timeout_seconds`` 施加，lane
-    的默认策略不设统一时限，折叠的时限由摘要调用自身承担。
+    提供 ``maintenance`` 时，交互应用后话题需要折叠就排入一个折叠项，停顿扫描经
+    :meth:`schedule_progress_entry` 排入写一条进展记录；不提供时只应用交互，不维护话题。
+    同一话题同时至多一个未结束的维护项。交互应用的时限由 ``apply_timeout_seconds`` 施加，
+    lane 的默认策略不设统一时限，维护的时限由各自的模型调用承担。
     """
 
     LANE = "patchouli.interaction_submission"
@@ -419,7 +428,7 @@ class InteractionSubmissionQueue:
         self,
         apply_interaction: ApplyInteraction,
         *,
-        compaction: TopicCompactionPort | None = None,
+        maintenance: TopicMaintenancePort | None = None,
         apply_timeout_seconds: float | None = 30.0,
         store: InMemoryWorkStore | None = None,
         runtime_events: RuntimeEventPublisher | None = None,
@@ -428,7 +437,7 @@ class InteractionSubmissionQueue:
         self._codecs = WorkPayloadCodecRegistry()
         # 队列只驻留于进程内，重启后无需保留旧载荷版本。
         self._codecs.register(InteractionSubmissionCodec())
-        self._codecs.register(TopicCompactionCodec())
+        self._codecs.register(TopicMaintenanceCodec())
         if apply_timeout_seconds is not None and apply_timeout_seconds <= 0:
             raise ValueError("apply_timeout_seconds must be greater than 0")
         lane_policy = policy or QueuePolicy(
@@ -439,9 +448,9 @@ class InteractionSubmissionQueue:
             max_attempts=3,
             terminal_retention=512,
         )
-        if compaction is not None and not lane_policy.ordered_by_key:
-            # 折叠项靠与话题提交共用排序键挡住后续提交；不按键串行时两者会争用话题。
-            raise ValueError("topic compaction requires a lane ordered by key")
+        if maintenance is not None and not lane_policy.ordered_by_key:
+            # 维护项靠与话题提交共用排序键挡住后续提交；不按键串行时两者会争用话题。
+            raise ValueError("topic maintenance requires a lane ordered by key")
         self._runtime = WorkQueueRuntime(
             store=store or InMemoryWorkStore(),
             payload_codecs=self._codecs,
@@ -449,14 +458,14 @@ class InteractionSubmissionQueue:
             worker_poll_interval_seconds=0.02,
             shutdown_wait_seconds=2.0,
         )
-        self._compaction = compaction
+        self._maintenance = maintenance
         self._runtime.register_lane(
             self.LANE,
             handler=InteractionSubmissionHandler(
                 apply_interaction,
                 apply_timeout_seconds=apply_timeout_seconds,
-                after_apply=self._schedule_compaction if compaction is not None else None,
-                run_compaction=self._run_compaction if compaction is not None else None,
+                after_apply=self._schedule_compaction if maintenance is not None else None,
+                run_maintenance=self._run_maintenance if maintenance is not None else None,
             ),
             policy=lane_policy,
         )
@@ -464,10 +473,10 @@ class InteractionSubmissionQueue:
         self._submissions: OrderedDict[str, _StoredSubmission] = OrderedDict()
         self._submit_lock = asyncio.Lock()
         self._stopped = asyncio.Event()
-        # 每个话题至多一个未结束的折叠项：话题坐标到折叠项的工作标识。
-        self._compactions: dict[tuple[WorkspaceIdentity, str], str] = {}
-        self._compaction_sequence = itertools.count(1)
-        self._compactions_closed = asyncio.Event()
+        # 每个话题至多一个未结束的维护项：话题坐标到维护项的工作标识。
+        self._maintenance_items: dict[tuple[WorkspaceIdentity, str], str] = {}
+        self._maintenance_sequence = itertools.count(1)
+        self._maintenance_closed = asyncio.Event()
 
     @property
     def runtime(self) -> WorkQueueRuntime:
@@ -477,93 +486,122 @@ class InteractionSubmissionQueue:
         await self._runtime.start()
 
     async def stop(self):
-        self.close_compactions()
+        self.close_topic_maintenance()
         try:
             return await self._runtime.stop()
         finally:
             # 唤醒仍在等待 applied gate 的调用方，由其把非终态解释为运行时不可用。
             self._stopped.set()
 
-    def close_compactions(self) -> None:
-        """停止折叠：不再排入折叠项，排队中的折叠项直接结束，进行中的折叠被取消。
+    def close_topic_maintenance(self) -> None:
+        """停止话题维护：不再排入维护项，排队中的直接结束，进行中的被取消。
 
-        系统停止前调用，使排空队列时不再等待摘要模型；折叠在摘要返回后才写回，
-        取消不改动话题，随后的结算带走话题的完整 blocks。
+        系统停止前调用，使排空队列时不再等待模型；折叠与写一条进展记录都在模型返回后才
+        写回，取消不改动话题，随后的结算带走话题的完整 blocks。
         """
-        self._compactions_closed.set()
+        self._maintenance_closed.set()
 
     async def _schedule_compaction(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """交互应用后话题需要折叠时排入一个折叠项。
 
-        折叠项与该话题的提交共用排序键，排入之后的同一话题提交都排在它之后。
-        话题已有未结束的折叠项、或折叠已关闭时不再排入；队列已满或已停止时放弃
-        这一次，交互已经写入，下一次写入该话题时会重新判断。
+        队列已满或已停止时放弃这一次，交互已经写入，下一次写入该话题时会重新判断。
         """
-        port = self._compaction
-        if port is None or self._compactions_closed.is_set():
+        port = self._maintenance
+        if port is None or self._maintenance_closed.is_set():
             return
         if not port.needs_compact(belong_to, topic_id):
             return
-        key = (belong_to, topic_id)
+        await self._schedule_maintenance(
+            TopicMaintenance(belong_to=belong_to, topic_id=topic_id, task="compaction")
+        )
+
+    async def schedule_progress_entry(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
+        """为停顿的话题排入写一条进展记录；排入了返回真。
+
+        话题已有未结束的维护项、维护已关闭或队列已满时返回假，停顿扫描下一轮再看。
+        """
+        return await self._schedule_maintenance(
+            TopicMaintenance(belong_to=belong_to, topic_id=topic_id, task="progress_entry")
+        )
+
+    async def _schedule_maintenance(self, maintenance: TopicMaintenance) -> bool:
+        """排入一项话题维护；排入了返回真。
+
+        维护项与该话题的提交共用排序键，排入之后的同一话题提交都排在它之后。话题已有未结束的
+        维护项、维护已关闭、队列已满或已停止时不排入。
+        """
+        if self._maintenance is None or self._maintenance_closed.is_set():
+            return False
+        key = (maintenance.belong_to, maintenance.topic_id)
         async with self._submit_lock:
-            await self._forget_finished_compactions_locked()
-            if key in self._compactions:
-                return
-            work_id = f"topic_compaction:{topic_id}#{next(self._compaction_sequence)}"
-            compaction = TopicCompaction(belong_to=belong_to, topic_id=topic_id)
+            await self._forget_finished_maintenance_locked()
+            if key in self._maintenance_items:
+                return False
+            # 工作标识以 topic_compaction: 或 topic_progress_entry: 开头，运行页按前缀归组。
+            work_id = (
+                f"topic_{maintenance.task}:{maintenance.topic_id}"
+                f"#{next(self._maintenance_sequence)}"
+            )
             item = WorkItem(
                 work_id=work_id,
                 lane=self.LANE,
-                kind=TopicCompactionCodec.kind,
-                schema_version=TopicCompactionCodec.schema_version,
+                kind=TopicMaintenanceCodec.kind,
+                schema_version=TopicMaintenanceCodec.schema_version,
                 payload=self._codecs.encode(
-                    TopicCompactionCodec.kind, TopicCompactionCodec.schema_version, compaction
+                    TopicMaintenanceCodec.kind, TopicMaintenanceCodec.schema_version, maintenance
                 ),
-                ordering_key=topic_ordering_key(topic_id),
-                correlation_id=topic_id,
+                ordering_key=topic_ordering_key(maintenance.topic_id),
+                correlation_id=maintenance.topic_id,
             )
             try:
                 await self._runtime.enqueue(item)
             except (WorkQueueCapacityError, WorkQueueStoppedError) as error:
                 logger.warning(
-                    "话题折叠未能排入提交队列，留待下次写入: topic_id=%s, reason=%s",
-                    topic_id,
+                    "话题维护未能排入提交队列，留待下次判断: task=%s, topic_id=%s, reason=%s",
+                    maintenance.task,
+                    maintenance.topic_id,
                     type(error).__name__,
                 )
-                return
-            self._compactions[key] = work_id
+                return False
+            self._maintenance_items[key] = work_id
+            return True
 
-    async def _forget_finished_compactions_locked(self) -> None:
-        """移除已到终态的折叠项记录；调用方持有提交锁。"""
-        for key, work_id in list(self._compactions.items()):
+    async def _forget_finished_maintenance_locked(self) -> None:
+        """移除已到终态的维护项记录；调用方持有提交锁。"""
+        for key, work_id in list(self._maintenance_items.items()):
             record = await self._runtime.get(work_id)
             if record is None or record.state in TERMINAL_WORK_STATES:
-                del self._compactions[key]
+                del self._maintenance_items[key]
 
-    async def _run_compaction(self, compaction: TopicCompaction) -> None:
-        """执行一个折叠项；折叠已关闭时直接结束，执行中关闭则取消折叠。"""
-        port = self._compaction
-        if port is None or self._compactions_closed.is_set():
+    async def _run_maintenance(self, maintenance: TopicMaintenance) -> None:
+        """执行一个维护项；维护已关闭时直接结束，执行中关闭则取消。"""
+        port = self._maintenance
+        if port is None or self._maintenance_closed.is_set():
             return
-        compact_task = asyncio.create_task(
-            port.compact_topic(compaction.belong_to, compaction.topic_id)
-        )
-        closed_task = asyncio.create_task(self._compactions_closed.wait())
+        if maintenance.task == "compaction":
+            run = port.compact_topic(maintenance.belong_to, maintenance.topic_id)
+            failure_reason = "topic_compaction_failed"
+        else:
+            run = port.write_progress_entry(maintenance.belong_to, maintenance.topic_id)
+            failure_reason = "progress_record_failed"
+        run_task = asyncio.create_task(run)
+        closed_task = asyncio.create_task(self._maintenance_closed.wait())
         try:
-            await asyncio.wait({compact_task, closed_task}, return_when=asyncio.FIRST_COMPLETED)
+            await asyncio.wait({run_task, closed_task}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            compact_task.cancel()
+            run_task.cancel()
             closed_task.cancel()
-            await asyncio.gather(compact_task, closed_task, return_exceptions=True)
-        if compact_task.cancelled():
+            await asyncio.gather(run_task, closed_task, return_exceptions=True)
+        if run_task.cancelled():
             return
-        error = compact_task.exception()
+        error = run_task.exception()
         if error is not None:
             if isinstance(error, TopicBusyError):  # 话题正被结算等占用，由失败分类重试
                 raise error
             logger.warning(
-                "话题折叠失败，话题保持原样: topic_id=%s",
-                compaction.topic_id,
+                "话题维护失败，话题保持原样: reason=%s, topic_id=%s",
+                failure_reason,
+                maintenance.topic_id,
                 exc_info=error,
             )
             raise error
@@ -730,18 +768,18 @@ class InteractionSubmissionQueue:
         return self._to_outcome(interaction_id, stored.receipt.work_id, record)
 
     async def drain_all(self, *, timeout: float | None = 5.0) -> int:
-        """等待已知交互与已排入的折叠项进入终态，返回成功的交互数量。
+        """等待已知交互与已排入的维护项进入终态，返回成功的交互数量。
 
-        系统停止时先关闭折叠再排空，进行中的折叠在这里收尾并释放话题的 lease，
+        系统停止时先关闭维护再排空，进行中的折叠在这里收尾并释放话题的 lease，
         之后的结算不会遇到占用。
         """
         entries = list(self._submissions.values())
-        compaction_ids = list(self._compactions.values())
-        if not entries and not compaction_ids:
+        maintenance_ids = list(self._maintenance_items.values())
+        if not entries and not maintenance_ids:
             return 0
         results = await asyncio.gather(
             *(self._runtime.wait(stored.receipt.work_id, timeout=timeout) for stored in entries),
-            *(self._runtime.wait(work_id, timeout=timeout) for work_id in compaction_ids),
+            *(self._runtime.wait(work_id, timeout=timeout) for work_id in maintenance_ids),
         )
         return sum(
             1
@@ -787,8 +825,8 @@ __all__ = [
     "InteractionSubmissionOutcome",
     "InteractionSubmissionQueue",
     "InteractionSubmissionReceipt",
-    "TopicCompaction",
-    "TopicCompactionCodec",
-    "TopicCompactionPort",
+    "TopicMaintenance",
+    "TopicMaintenanceCodec",
+    "TopicMaintenancePort",
     "topic_ordering_key",
 ]

@@ -14,10 +14,14 @@
 写入方法写入，每次写入在话题的日志末尾追加一条记录：写入一轮只追加交互记录，折叠只追加
 折叠记录并推进工作视图，原文在话题结束前一直保留。
 
+进展记录同样是话题自身的维护：话题停顿时，停顿扫描（``scan_paused_topics_once``）为它排入
+写一条，与折叠一样经交互提交队列调度；``write_progress_entry`` 以旧进展记录与还没整理的交互
+原文生成一段总结，只往后追加。
+
 占用权统一由 WorkingSet 的 lease 表达：交互、折叠与结算的写路径都是
 ``acquire → try/finally release``；Relay 摘要生成在 lease 持有期间进行，
-其他调用无法取得同一话题的占用权，因此无需旧的记录状态补偿校验。本话题生成的记忆与
-沉淀完成不取 lease：它们与交互和折叠互不相交。存储的每次写入都在最新的读取值上套用，
+其他调用无法取得同一话题的占用权，因此无需旧的记录状态补偿校验。本话题生成的记忆、
+沉淀完成与进展记录不取 lease：它们与交互和折叠互不相交。存储的每次写入都在最新的读取值上套用，
 等待摘要或接纳期间记下的生成的记忆不会被覆盖。
 统一 settle 时序（``_settle_topic``）为所有来源共用；是否退役由调用的用例决定，
 ``reason`` 只作为材料的 provenance 标签，不驱动分支。
@@ -31,7 +35,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Literal
 
 from hivememory.components.events.bus import NullRuntimeEventSink
@@ -357,6 +361,55 @@ class PerceptionFamiliar:
         )
         self._require_leased_topic(written, topic_id)
 
+    # ========== 进展记录 ==========
+
+    async def write_progress_entry(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
+        """写一条进展记录：以旧进展记录与还没整理的交互原文生成一段总结，追加到话题的日志上。
+
+        不取 lease：这一条只要求从当前覆盖到的位置开始，这个位置只有写进展记录会改，同一话题
+        同时至多一个维护项，交互只往后追加，生成期间别的写入不会破坏它；存储的位置校验兜住
+        违反这一点的错误。生成期间沉淀与 LRU 照常取得 lease；话题因此退役或被删除时这一条不记。
+        生成完成才追加，中途取消或进程退出都什么也不写。
+
+        生成失败时在 WorkingSet 记下这次要覆盖到的位置后照常抛出：同一位置不再重试，否则提供商
+        故障时停顿扫描每一轮都会再排入一次。
+        """
+        engine = self._engine
+        if engine is None or not engine.writes_progress_record:
+            return
+        topic = self._store.get(belong_to, topic_id)
+        if topic is None:
+            return
+        start = topic.recorded_interaction_count
+        covered = topic.interactions[start:]
+        if not covered:
+            return
+        covered_until = len(topic.interactions)
+        try:
+            text = await engine.generate_progress_entry(
+                topic.progress_record, covered, first_turn_number=start + 1
+            )
+        except Exception:
+            self._working_set.mark_progress_entry_failed(belong_to, topic_id, covered_until)
+            raise
+        written = self._store.append_progress_entry(
+            belong_to, topic_id, text=text, covered=covered, covered_until=covered_until
+        )
+        if written is None:
+            logger.info(
+                "话题在写进展记录期间离开了话题池，这一条不记: topic_id=%s, covered_until=%s",
+                topic_id,
+                covered_until,
+            )
+            return
+        logger.info(
+            "写下一条进展记录: topic_id=%s, covered_turns=%s, covered_until=%s, chars=%s",
+            topic_id,
+            len(covered),
+            covered_until,
+            len(text),
+        )
+
     # ========== 本话题生成的记忆与沉淀完成 ==========
 
     async def record_generated_memories(
@@ -483,6 +536,37 @@ class PerceptionFamiliar:
             if completed:
                 flushed.append(topic_id)
         return flushed
+
+    async def scan_paused_topics_once(
+        self, schedule_progress_entry: Callable[[WorkspaceIdentity, str], Awaitable[bool]]
+    ) -> list[str]:
+        """为停顿超过阈值、有还没整理的交互的话题排入写一条进展记录；返回排入了的话题。
+
+        停顿看驻留的访问时间，候选与空闲扫描相同、只是阈值更短，空闲时通常已经写过一条。写下
+        一条之后访问时间不变，没有新交互就不会再写；上一次在同一位置失败、之后没有新交互的
+        话题跳过。``schedule_progress_entry`` 把一项维护排进交互提交队列，话题已有未结束的维护项
+        时返回假，下一轮再看。
+        """
+        engine = self._engine
+        if engine is None or not engine.writes_progress_record:
+            return []
+        scheduled: list[str] = []
+        for belong_to, topic_id in self._working_set.list_idle_candidates(
+            self._config.progress_record_pause_seconds
+        ):
+            topic = self._store.get(belong_to, topic_id)
+            if topic is None:
+                continue
+            interaction_count = len(topic.interactions)
+            if topic.recorded_interaction_count == interaction_count:
+                continue
+            if self._working_set.progress_entry_failed_until(belong_to, topic_id) >= (
+                interaction_count
+            ):
+                continue
+            if await schedule_progress_entry(belong_to, topic_id):
+                scheduled.append(topic_id)
+        return scheduled
 
     def restore_topics(self, topics: Sequence[TopicData]) -> None:
         """登记启动时从日志读回的话题的驻留；在接收交互之前调用，驻留集合此时为空。
