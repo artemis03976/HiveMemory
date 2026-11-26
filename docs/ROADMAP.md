@@ -89,7 +89,7 @@ last_reviewed: 2026-11-24
 - 折叠只为材料服务，折叠摘要结构化。
 - 两个使用时点都由系统推送：另一个会话被路由回已有话题时推送话题的进展，会话压缩之后只推送进展记录的索引。
 
-设计与开放问题见[短期记忆：话题的进展及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役（[感知与短期话题](./patchouli/perception.md#4-触发原因与具名用例)）与话题跨重启保存（同一文档[第 7 节](./patchouli/perception.md#7-维护存储与启动时读回)）已完成，进展落地之前的短期记忆代码整理与话题的存储介质（每个话题一条只追加的日志，[MemoryLibrary 与存储层](./patchouli/memory-library.md#11-短期话题工作台)）与话题的进展记录（话题停顿时写一条，话题池展示，[感知与短期话题](./patchouli/perception.md#7-维护存储与启动时读回)）也已完成，计划见 [Archived Plans](./archive/plans/README.md#v081)；推送与拉取、折叠摘要的结构化等其余部分还没有计划。
+设计与开放问题见[短期记忆：话题的进展及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役（[感知与短期话题](./patchouli/perception.md#4-触发原因与具名用例)）与话题跨重启保存（同一文档[第 7 节](./patchouli/perception.md#7-维护存储与启动时读回)）已完成，进展落地之前的短期记忆代码整理与话题的存储介质（每个话题一条只追加的日志，[MemoryLibrary 与存储层](./patchouli/memory-library.md#11-短期话题工作台)）与话题的进展记录（话题停顿时写一条，话题池展示，[感知与短期话题](./patchouli/perception.md#7-维护存储与启动时读回)）也已完成，计划见 [Archived Plans](./archive/plans/README.md#v081)；推送与拉取之前先整理短期记忆代码的命名与话题的生命周期，计划见[短期记忆代码可读性整理](./plans/v0.8.1-short-term-readability.md)；推送与拉取、折叠摘要的结构化等其余部分还没有计划。
 
 ## 4. 版本之外的工作与候选方向
 
