@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { BookmarkCheck, Bot, Copy, Hash, Info, MessageSquare, RefreshCw, Trash2 } from 'lucide-react';
+import { BookmarkCheck, Bot, Check, ChevronRight, Clock, Copy, Hash, Info, List, MessageSquare, RefreshCw, Trash2 } from 'lucide-react';
 import { useChatStore, useChatUiStore, useToastStore, useTopicStore } from '@/stores';
 import { fetchConfig } from '@/services/configApi';
 import { readPath } from '@/constants/settingsSchema';
@@ -8,7 +8,7 @@ import { formatDateTime, formatFullDateTime } from '@/utils/dateTime';
 import { formatTimeAgo } from '@/utils/timeAgo';
 import { formatTokens, minutesUntilAutoSettle } from '@/utils/topicPool';
 import { ConfirmDialog } from '../common/ConfirmDialog';
-import type { Topic } from '@/types';
+import type { Topic, TopicProgressEntry, TopicTurnExcerpt } from '@/types';
 
 /** 话题池的规则取自主配置；读不到时页面只显示话题本身，不写具体数值。 */
 interface PoolSettings {
@@ -16,6 +16,7 @@ interface PoolSettings {
   idleTimeoutSeconds: number;
   foldTokenThreshold: number;
   foldRetainBlocks: number;
+  progressPauseSeconds: number;
 }
 
 const POOL_SETTING_PATHS = {
@@ -23,6 +24,7 @@ const POOL_SETTING_PATHS = {
   idleTimeoutSeconds: 'patchouli.perception.idle_timeout_seconds',
   foldTokenThreshold: 'patchouli.perception.engine.fold_token_threshold',
   foldRetainBlocks: 'patchouli.perception.engine.fold_retain_recent_blocks',
+  progressPauseSeconds: 'patchouli.perception.progress_record_pause_seconds',
 } as const;
 
 /** 剩余时间在这之内时，自动沉淀以警示色标出。 */
@@ -71,7 +73,128 @@ function SideCard({ title, hint, children }: { title: string; hint?: string; chi
   );
 }
 
-function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
+function turnRange(entry: TopicProgressEntry): string {
+  return entry.fromTurn === entry.toTurn ? `第 ${entry.toTurn} 轮` : `第 ${entry.fromTurn}–${entry.toTurn} 轮`;
+}
+
+/** 还没有整理的轮次的节选；后端只交出最近几轮，更早的只写出轮数。 */
+export function UnrecordedTurnList({ turns, total, pause }: { turns: TopicTurnExcerpt[]; total: number; pause: string }) {
+  const earlier = total - turns.length;
+  return (
+    <div className="flex flex-col gap-2">
+      {earlier > 0 && <span className="text-xs text-fg-3">只列出最近 {turns.length} 轮，更早的 {earlier} 轮没有展开</span>}
+      {turns.map((turn) => (
+        <div key={turn.turnNumber} className="flex flex-col gap-1.5 rounded-xl border border-line bg-surface-container px-3 py-2.5 text-[13px] leading-relaxed">
+          <span className="text-xs font-semibold text-fg-3">第 {turn.turnNumber} 轮</span>
+          {turn.user && (
+            <span className="flex gap-2.5">
+              <span className="w-7 shrink-0 font-semibold text-accent">用户</span>
+              <span className="line-clamp-2 min-w-0 whitespace-pre-wrap text-fg">{turn.user}</span>
+            </span>
+          )}
+          {turn.assistant && (
+            <span className="flex gap-2.5">
+              <span className="w-7 shrink-0 font-semibold text-fg-3">回复</span>
+              <span className="line-clamp-2 min-w-0 whitespace-pre-wrap text-fg-2">{turn.assistant}</span>
+            </span>
+          )}
+        </div>
+      ))}
+      <span className="text-xs leading-relaxed text-fg-3">{pause}，这些轮会整理成新的一条进展记录</span>
+    </div>
+  );
+}
+
+/**
+ * 话题的进展：已经写下的进展记录逐条列出，其后是还没有整理的轮数，可展开为最近几轮的节选。
+ *
+ * 进展记录只往后追加，最后一条覆盖到的位置之后就是还没有整理的原始交互；还没有写过一条时，
+ * 话题的进展就是全部原始交互。展开的状态属于这一个话题，切换话题时由调用方以 key 重置。
+ */
+function ProgressSection({ topic, pauseSeconds, now }: { topic: Topic; pauseSeconds: number | null; now: number }) {
+  const [unrecordedOpen, setUnrecordedOpen] = useState(false);
+  const entries = topic.progressRecord;
+  const recorded = entries.length > 0 ? entries[entries.length - 1].toTurn : 0;
+  const unrecorded = topic.unrecordedTurnCount;
+  const totalTurns = recorded + unrecorded;
+  const summary = entries.length === 0
+    ? `还没有进展记录 · ${unrecorded} 轮没有整理`
+    : `${entries.length} 条进展记录 · ${unrecorded === 0 ? `已整理全部 ${totalTurns} 轮` : `已整理 ${recorded} / ${totalTurns} 轮`}`;
+  const pause = pauseSeconds !== null ? `话题停顿 ${Math.round(pauseSeconds / 60)} 分钟后` : '话题停顿一段时间后';
+
+  return (
+    <section aria-label="话题的进展" className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <span className="text-xs font-semibold text-fg-3">话题的进展</span>
+        <span className="flex-1" />
+        <span className="text-xs text-fg-3">{summary}</span>
+      </div>
+      <div className="flex flex-col rounded-[14px] border border-line bg-surface-container-low px-4 pb-1 pt-4">
+        {entries.length === 0 && (
+          <div className="flex items-start gap-3 pb-3.5">
+            <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] bg-primary/15 text-primary">
+              <Clock className="h-[15px] w-[15px]" />
+            </span>
+            <span className="flex flex-col gap-1">
+              <b className="text-sm font-semibold text-fg">还没有进展记录</b>
+              <span className="text-[13px] leading-relaxed text-fg-2">{pause}写下第一条。在那之前，话题的进展就是这些还没有整理的轮次。</span>
+            </span>
+          </div>
+        )}
+        {entries.length > 0 && (
+          <ol className="flex flex-col">
+            {entries.map((entry, index) => {
+              const latest = index === entries.length - 1;
+              return (
+                <li key={entry.toTurn} className="flex gap-3">
+                  <span aria-hidden="true" className="flex w-3 shrink-0 flex-col items-center">
+                    <span className={`mt-1.5 h-2.5 w-2.5 rounded-full ${latest ? 'bg-accent shadow-[0_0_10px_rgba(255,156,198,0.55)]' : 'bg-primary shadow-[0_0_8px_rgba(157,107,255,0.35)]'}`} />
+                    <span className={`mt-[5px] w-0.5 flex-1 rounded-full ${latest && unrecorded === 0 ? 'bg-transparent' : 'bg-line-strong'}`} />
+                  </span>
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5 pb-4">
+                    <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-fg-3">
+                      <span className="inline-flex h-[22px] items-center rounded-full bg-primary/15 px-2.5 font-semibold text-primary">{turnRange(entry)}</span>
+                      <span>覆盖 {entry.toTurn - entry.fromTurn + 1} 轮</span>
+                      <span className="flex-1" />
+                      <span title={formatFullDateTime(entry.writtenAt)}>{formatDateTime(entry.writtenAt, now)} 写下</span>
+                    </span>
+                    <p className="whitespace-pre-wrap text-sm leading-7 text-fg">{entry.text}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {unrecorded > 0 ? (
+          <div className="flex gap-3 pb-3">
+            <span aria-hidden="true" className="flex w-3 shrink-0 justify-center">
+              <span className="mt-[11px] box-border h-2.5 w-2.5 rounded-full border-2 border-dashed border-accent" />
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => setUnrecordedOpen(!unrecordedOpen)}
+                aria-expanded={unrecordedOpen}
+                className="inline-flex h-8 items-center gap-1.5 self-start rounded-[9px] border border-line-strong bg-surface-container pl-2 pr-3 text-[13px] font-semibold text-accent transition-colors hover:bg-surface-container-high"
+              >
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform ${unrecordedOpen ? 'rotate-90' : ''}`} strokeWidth={2.4} aria-hidden="true" />
+                还有 {unrecorded} 轮没有整理
+              </button>
+              {unrecordedOpen && <UnrecordedTurnList turns={topic.unrecordedTurns} total={unrecorded} pause={pause} />}
+            </div>
+          </div>
+        ) : (
+          <span className="flex items-center gap-1.5 pb-3.5 pl-6 text-xs text-fg-3">
+            <Check className="h-[13px] w-[13px] text-magic-wood" aria-hidden="true" />
+            全部 {totalTurns} 轮都已整理
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
   topic: Topic;
   selected: boolean;
   settleMinutes: number | null;
@@ -97,6 +220,12 @@ function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
           <span>{topic.blockCount} 个片段</span>
           <span>{formatTokens(topic.totalTokens)} tokens</span>
           <span>{formatTimeAgo(topic.lastActive, now)}写入</span>
+          {topic.progressRecord.length > 0 && (
+            <span title="这个话题已经写下的进展记录条数" className="inline-flex h-5 items-center gap-1 rounded-full bg-accent/15 px-[7px] font-semibold text-accent">
+              <List className="h-[11px] w-[11px]" strokeWidth={2.4} aria-hidden="true" />
+              {topic.progressRecord.length} 条进展
+            </span>
+          )}
           {settleMinutes !== null && settleMinutes <= SETTLE_SOON_MINUTES && (
             <span className="inline-flex items-center gap-1.5 font-semibold text-magic-metal">
               <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-magic-metal" />
@@ -121,7 +250,8 @@ export function TopicDetail({ topic, settings, settleMinutes, now, onReference, 
   const addToast = useToastStore((s) => s.addToast);
   const shortId = topic.id.length > 12 ? `${topic.id.slice(0, 4)}…${topic.id.slice(-4)}` : topic.id;
   const soon = settleMinutes !== null && settleMinutes <= SETTLE_SOON_MINUTES;
-  const hasContent = topic.topicSummary || topic.foldSummary || topic.lastTurn;
+  const hasProgress = topic.progressRecord.length > 0 || topic.unrecordedTurnCount > 0;
+  const hasContent = topic.topicSummary || hasProgress || topic.foldSummary || topic.lastTurn;
 
   return (
     <section aria-label={topicTitle(topic)} className="flex min-w-0 flex-1 flex-col overflow-hidden wrap-break-word rounded-[18px] border border-line bg-surface-container shadow-pop">
@@ -184,6 +314,7 @@ export function TopicDetail({ topic, settings, settleMinutes, now, onReference, 
               <p className="text-[15px] leading-relaxed text-fg">{topic.topicSummary}</p>
             </div>
           )}
+          {hasProgress && <ProgressSection key={topic.id} topic={topic} pauseSeconds={settings?.progressPauseSeconds ?? null} now={now} />}
           {topic.foldSummary && (
             <div className="flex flex-col gap-2">
               <span className="text-xs font-semibold text-fg-3">较早内容的摘要</span>
