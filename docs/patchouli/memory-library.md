@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # MemoryLibrary 与存储层
@@ -42,15 +42,15 @@ MemoryLibrary
 
 ### 1.1 短期：话题工作台
 
-短期存储保存话题，是存储事实的封装：每个话题是一条只追加的日志，话题上发生的事各记一条（建立、接收一轮交互、一次折叠、一次沉淀完成、本话题生成的记忆与退役），发生时即落盘，不改写已有的记录。`TopicData` 是由日志依次套用每条记录组装出来的读取值，不是存储的单位：读取值包含话题标题、展示摘要、全部交互记录（结构化 `LogicalBlock[]`）、折叠记录、资产绑定、最近模型名、沉淀进度与本话题生成的记忆；`fold_summary`、工作视图 blocks 与 token 估算由交互记录与折叠记录派生。记录不携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序与在途沉淀归 WorkingSet（见[感知与短期话题](./perception.md)），日志只记已经发生的事。它保存记忆生成的接入材料，可混合多个会话的交互；对话连续性由 workspace 的 ConversationSession 提供。Topic 不再是 Alice 的历史源。话题因此跨过重启与进程崩溃，启动时由 Patchouli runtime 重放日志读回（[感知与短期话题](./perception.md#7-维护存储与启动时读回)第 7 节）；会话当前不提供跨重启恢复。
+短期存储保存话题，是存储事实的封装：每个话题是一条只追加的日志，话题上发生的事各记一条（建立、接收一轮交互、一次折叠、一次沉淀完成、本话题生成的记忆、进展记录的一条与退役），发生时即落盘，不改写已有的记录。`TopicData` 是由日志依次套用每条记录组装出来的读取值，不是存储的单位：读取值包含话题标题、展示摘要、全部交互记录（结构化 `LogicalBlock[]`）、折叠记录、资产绑定、最近模型名、沉淀进度、本话题生成的记忆与进展记录；`fold_summary`、工作视图 blocks 与 token 估算由交互记录与折叠记录派生。记录不携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序与在途沉淀归 WorkingSet（见[感知与短期话题](./perception.md)），日志只记已经发生的事。它保存记忆生成的接入材料，可混合多个会话的交互；对话连续性由 workspace 的 ConversationSession 提供。Topic 不再是 Alice 的历史源。话题因此跨过重启与进程崩溃，启动时由 Patchouli runtime 重放日志读回（[感知与短期话题](./perception.md#7-维护存储与启动时读回)第 7 节）；会话当前不提供跨重启恢复。
 
-话题按顺序保存全部交互，折叠不丢原文，沉淀进度与本话题生成的记忆都只往后加：它本来就是一条只增长的日志。整块替换只适合小而有界的东西，把话题当作整块快照保存，每写一点都要重建整个话题，也只能在正常关闭时整池写出、崩溃即全部丢失。
+话题按顺序保存全部交互，折叠不丢原文，沉淀进度、本话题生成的记忆与进展记录都只往后加：它本来就是一条只增长的日志。整块替换只适合小而有界的东西，把话题当作整块快照保存，每写一点都要重建整个话题，也只能在正常关闭时整池写出、崩溃即全部丢失。
 
 `topic_id` 是领域上的全局唯一身份；内部调用方通过 `belong_to: WorkspaceIdentity + topic_id` 访问。存储按全局 `topic_id` 存放读取值，读取与写入时核对读取值的 Workspace 归属，另一个 Workspace 的同名话题按不存在处理；建立话题时给出的 ID 已被任何 Workspace 占用即拒绝，不把它当作允许不同 Workspace 复用同一 Topic ID 的局部命名空间。日志目录不按 Workspace 分层，归属写在日志的第一条记录里。公共 owner 边界从授权 scope 拆出归属，短期 Store 不接收 actor 或 `IdentityScope`。Topic 的编排规则由 PerceptionFamiliar 负责，MemoryLibrary 只维护存储事实与归属检查。
 
 感知热路径使用同步接口，因此 `ShortTermStoragePort` 也是同步契约，契约是日志：`append(topic_id, line)` 在话题日志末尾追加一行，失败时把日志截回追加之前的长度、错误照常传播；`read_all()` 在启动时返回每个话题的全部完整行，最后一行不完整（写入中途进程退出）时丢弃并截掉；`reject(topic_id)` 把读不回的日志移到一旁；`delete(topic_id)` 与 `check_health()`（报告目录是否可写）。一行是一条已经编码的记录，记录的含义与编解码属于 Store。唯一实现 `JsonlShortTermStorage` 是 `<patchouli.perception.topic_dir>/<topic_id>.jsonl` 文件，写一行并交给操作系统（不经 Python 的缓冲），进程崩溃不丢，不 fsync。Store 构造时必须给出 Port。未来若替换为远程后端，adapter 必须把 I/O 边界封装在 port 后方，不能让一组随机 `await` 穿透 Perception 的状态修改顺序。
 
-`ShortTermMemoryStore` 的公共 API 是：读取 `get`、`list_by_workspace`、`list_all`、`count` 与只交出本话题生成的记忆的 `get_generated_memories`；每种记录一个写入方法 `create`、`append_interaction`、`append_fold`、`append_settled`、`append_generated_memories`、`retire`，以及删除日志的 `delete`；启动时读回的 `load` 与 `check_health`。写入方法不检查话题处在什么状态，谁能写、什么时候写由 lease 保证；每次写入在存储的锁内读当前的读取值、用套用函数算出新值（构造校验失败直接抛出，什么都不写）、经 Port 追加这一行、替换内存中的值，先落盘再改内存，话题不存在时什么都不写、返回空值。内存只放池中话题的读取值，读取原样返回存储的 frozen 实例（零拷贝），不碰磁盘；退役的话题离开池，读取方法看不到它，它的日志保留到最后一次沉淀完成，其间只有 `append_settled`、`append_generated_memories`、`get_generated_memories` 与 `delete` 还能找到它：沉淀完成与本话题生成的记忆在退役之后照样记、照样读。`load` 重放全部日志：没有退役的回到池中，退役而最后一次沉淀没有完成的交给调用方重新发起，退役且沉淀都已完成的删除日志，读不回的移到一旁。Gateway 和前端只能读取不可变 `TopicData` / `TopicSnapshot`。
+`ShortTermMemoryStore` 的公共 API 是：读取 `get`、`list_by_workspace`、`list_all`、`count` 与只交出本话题生成的记忆的 `get_generated_memories`；每种记录一个写入方法 `create`、`append_interaction`、`append_fold`、`append_settled`、`append_generated_memories`、`append_progress_entry`、`retire`，以及删除日志的 `delete`；启动时读回的 `load` 与 `check_health`。写入方法不检查话题处在什么状态，谁能写、什么时候写由 lease 保证；每次写入在存储的锁内读当前的读取值、用套用函数算出新值（构造校验失败直接抛出，什么都不写）、经 Port 追加这一行、替换内存中的值，先落盘再改内存，话题不存在时什么都不写、返回空值。内存只放池中话题的读取值，读取原样返回存储的 frozen 实例（零拷贝），不碰磁盘；退役的话题离开池，读取方法看不到它，它的日志保留到最后一次沉淀完成，其间只有 `append_settled`、`append_generated_memories`、`get_generated_memories` 与 `delete` 还能找到它：沉淀完成与本话题生成的记忆在退役之后照样记、照样读；进展记录的读者是前台，退役的话题对前台不可见，`append_progress_entry` 只记到池中的话题。`load` 重放全部日志：没有退役的回到池中，退役而最后一次沉淀没有完成的交给调用方重新发起，退役且沉淀都已完成的删除日志，读不回的移到一旁。Gateway 和前端只能读取不可变 `TopicData` / `TopicSnapshot`。
 
 活跃话题容量与 LRU 驱逐不属于 Store：`perception.engine.max_resident_topics`（默认 5）配置的是 `TopicWorkingSet` 的驻留上限。创建新话题且池已满时，PerceptionFamiliar 从 WorkingSet 选择最近最少访问的话题，先按 LRU 结算，再让它退役、离开 Store 与驻留集合；命中已有话题不会触发驱逐。
 

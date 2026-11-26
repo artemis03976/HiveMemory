@@ -20,7 +20,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # System 配置与注册表
@@ -40,7 +40,7 @@ last_reviewed: 2026-11-25
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
 | `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`、预设 Agent 写入标记的路径 `preset_agent_profiles_marker`（默认 `.hivememory/preset_agent_profiles_seeded`，相对工作目录）、插件服务记下各 harness 安装版本的文件 `plugin_install_record`（默认 `.hivememory/plugin_installs.json`，相对工作目录）、是否代为安装插件 `plugin_installation_enabled`（默认关闭，只有桌面安装版以环境变量打开）；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
-| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，perception idle flush、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
+| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，perception idle flush、写进展记录的停顿扫描、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | 默认 embedding 模型 | 共享模型能力 |
 | `gateway` | `config.gateway` | 模型选择与生成参数（`llm`）、interceptor、commands、workflow、topic router、query analysis | Gateway |
 | `import_bus` | `config.import_bus` | 导入请求体上限、提交后等待应用的时限 | System Import Bus |
@@ -62,6 +62,8 @@ last_reviewed: 2026-11-25
 `import_bus`（`ImportBusConfig`）只有两项：`max_request_bytes`（默认 8 MiB，即 `8388608`，大于 0）是单次导入请求体的字节上限，超出以 413 拒绝；`apply_wait_seconds`（默认 30，大于 0）是提交后等待感知应用完成的时限，超时以可重试的 503 交回。Import Bus 的 Gateway 请求时限与最近轮数沿用 Gateway 配置段。随仓库发布的 `configs/config.yaml` 不含该段，按默认值运行，语义见 [Import Bus](./import-bus.md#7-配置)。
 
 话题折叠的 LLM 摘要以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60，大于 0）为每次调用的时限，只在 `relay.engine.type` 为 `llm` 时存在；超时与提供商失败一样回退为规则摘要。折叠在交互提交队列中以独立工作项执行，这一项决定一次折叠最多占用一个执行槽多久。随仓库发布的 `configs/config.yaml` 不写这一项，按默认值运行，语义见[感知与短期话题](../patchouli/perception.md#5-page-folding)。
+
+话题停顿 `patchouli.perception.progress_record_pause_seconds`（默认 1800，大于 0）秒之后，有还没整理的交互时写一条进展记录；随仓库发布的 `configs/config.yaml` 写 1800，小于空闲沉淀的 `idle_timeout_seconds`（随附配置 3600）。写一条与 LLM 折叠摘要用同一个模型与时限（`summary_timeout_seconds`），只在 `relay.engine.type` 为 `llm`、且 `patchouli.llm` 配置了模型时写。停顿扫描的周期与开关在 `scheduler.tasks.perception_progress_record_interval_seconds`（默认 30 秒）与 `enable_perception_progress_record`（默认开启）；关闭该任务时不写进展记录。语义见[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节。
 
 推理模型的驻留方式按模型配置：`shared.embedding.default` 与 `patchouli.retrieval.reranker` 各有 `residency` 与 `idle_timeout_seconds`。`residency` 取 `resident`（加载后一直驻留到进程结束）或 `idle_unload`（空闲超过时限即卸载，下一次使用时重新加载），两处默认都是 `idle_unload`；`idle_timeout_seconds` 是空闲时限（大于 0），嵌入模型默认 1800 秒、重排模型默认 600 秒。检查周期与开关在 `scheduler.tasks.model_idle_unload_interval_seconds`（默认 60 秒）与 `enable_model_idle_unload`（默认开启）；关闭该任务时模型不卸载。内存充足的机器可以把两处 `residency` 设为 `resident`。语义见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
 

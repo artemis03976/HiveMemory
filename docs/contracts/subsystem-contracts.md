@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # 子系统公共契约
@@ -414,7 +414,7 @@ Import Bus 由 System 拥有：`ImportBusService` 只认证系统的 root 工作
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。
-3. **Queue FIFO 只是执行约束。** ordering key 只串行化已经入队的 work，不代表源事件发生时间，也不表达 Agent 因果关系。话题折叠项与该话题的提交共用排序键，折叠执行期间同一话题的后续提交在队列中等待；折叠项不改写交互内容与交互之间的先后。队列的幂等接纳只防止重复副作用，不参与排序。
+3. **Queue FIFO 只是执行约束。** ordering key 只串行化已经入队的 work，不代表源事件发生时间，也不表达 Agent 因果关系。话题的维护项（折叠与写一条进展记录）与该话题的提交共用排序键，维护执行期间同一话题的后续提交在队列中等待；维护项不改写交互内容与交互之间的先后。队列的幂等接纳只防止重复副作用，不参与排序。
 4. **外部轮次的先后由提交方保证。** Import Bus 只保证同一外部会话内按到达顺序接纳与应用；连接器按会话顺序提交、确认后才推进，Patchouli 不按外部时间缓存、等待或重排晚到的轮次。导入与主动链路落到同一话题时，由同一个按话题的排序键保证先后。
 5. **一轮执行读取的是某一时刻的 topic snapshot。** Gateway 路由读取候选话题的快照，写入的生成材料读取派发时话题的工作视图；apply 的先后位置只能证明提交顺序，不能证明某个 run 在生成 LLM input 时看见过中间提交。多个 run 可以基于同一 revision 并发执行。
 6. **多 Agent 并发优先表达因果偏序。** 未来应保存 `base_topic_revision`、causal parent 或等价的 run/frame 关系，再由 prompt/display 层按需要确定性线性化；不得仅按完成时间伪造语义先后。
