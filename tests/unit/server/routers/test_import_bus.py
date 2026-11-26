@@ -52,7 +52,9 @@ class _RecordingIngestor:
         )
         if self._error is not None:
             raise self._error
-        return ImportTurnResult(status="accepted", interaction_id="import_0123")
+        return ImportTurnResult(
+            status="accepted", interaction_id="import_0123", topic_id="topic-applied"
+        )
 
 
 # 导入由系统执行：Import Bus 服务以系统自身的 principal 认证该用户的 system。
@@ -125,7 +127,11 @@ def test_import_turn_authenticates_agent_claims_and_returns_result():
     response = client.post("/api/v1/import/turns", json=_body())
 
     assert response.status_code == 200
-    assert response.json() == {"status": "accepted", "interaction_id": "import_0123"}
+    assert response.json() == {
+        "status": "accepted",
+        "interaction_id": "import_0123",
+        "topic_id": "topic-applied",
+    }
     [call] = ingestor.calls
     assert type(call["turn"]) is ImportedTurn
     assert call["turn"].external_turn_id == "prompt-1"

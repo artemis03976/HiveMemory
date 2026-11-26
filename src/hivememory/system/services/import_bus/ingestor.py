@@ -331,7 +331,9 @@ class ImportBusIngestor:
                 participant=participant,
                 interaction_id=interaction_id,
             )
-            return ImportTurnResult(status="duplicate", interaction_id=interaction_id)
+            return ImportTurnResult(
+                status="duplicate", interaction_id=interaction_id, topic_id=result.topic_id
+            )
 
         is_new_topic = placement.is_new if placement is not None else result.new_topic
         logger.debug(
@@ -348,7 +350,9 @@ class ImportBusIngestor:
             topic_id=result.topic_id,
             is_new_topic=is_new_topic,
         )
-        return ImportTurnResult(status="accepted", interaction_id=interaction_id)
+        return ImportTurnResult(
+            status="accepted", interaction_id=interaction_id, topic_id=result.topic_id
+        )
 
     def _routing(
         self, turn: InFlightTurn, participant: ActorIdentity, principal_id: str

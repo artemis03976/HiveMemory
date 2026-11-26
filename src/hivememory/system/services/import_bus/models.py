@@ -225,10 +225,16 @@ ImportTurnStatus = Literal["accepted", "duplicate", "skipped"]
 
 @dataclass(frozen=True)
 class ImportTurnResult:
-    """一次导入的结果：接纳、重复或因没有输出而跳过。"""
+    """一次导入的结果：接纳、重复或因没有输出而跳过。
+
+    ``topic_id`` 原样取自交互提交的结局：这一轮已经应用时是它实际所在的话题，不论是这次
+    提交的还是此前已接纳的；跳过的轮次没有提交，此前接纳的结局超出提交队列的保留窗口时
+    也查不到，两者都为空。
+    """
 
     status: ImportTurnStatus
     interaction_id: str
+    topic_id: str | None = None
 
 
 def derive_import_interaction_id(

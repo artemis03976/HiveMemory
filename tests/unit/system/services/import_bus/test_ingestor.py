@@ -351,13 +351,15 @@ async def test_turn_routed_to_existing_topic_is_confirmed_as_not_new() -> None:
 
 @pytest.mark.asyncio
 async def test_resent_accepted_turn_is_duplicate() -> None:
-    """已应用的轮次重发时返回 duplicate 与同一交互标识，记为重复而不是再次接纳。"""
+    """已应用的轮次重发时返回 duplicate 与同一交互标识，记为重复而不是再次接纳；两次都带回
+    这一轮应用后实际所在的话题。"""
     async with _harness() as harness:
         first = await harness.ingest(_turn())
         resent = await harness.ingest(_turn())
 
     assert (first.status, resent.status) == ("accepted", "duplicate")
     assert resent.interaction_id == first.interaction_id
+    assert (first.topic_id, resent.topic_id) == ("topic-applied", "topic-applied")
     assert [event.event_type for event in harness.events.events] == [
         RuntimeEventType.IMPORT_TURN_ACCEPTED.value,
         RuntimeEventType.IMPORT_TURN_DUPLICATE.value,
@@ -366,11 +368,11 @@ async def test_resent_accepted_turn_is_duplicate() -> None:
 
 @pytest.mark.asyncio
 async def test_turn_without_output_is_skipped_without_gateway_call() -> None:
-    """用户消息之外没有输出的轮次不封口、不路由。"""
+    """用户消息之外没有输出的轮次不封口、不路由，没有所在的话题。"""
     async with _harness() as harness:
         result = await harness.ingest(_turn(events=[]))
 
-    assert result.status == "skipped"
+    assert (result.status, result.topic_id) == ("skipped", None)
     assert harness.gateway_calls == []
     assert harness.applied == []
     assert [event.event_type for event in harness.events.events] == [

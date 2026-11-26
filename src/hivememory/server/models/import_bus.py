@@ -29,16 +29,20 @@ class ImportTurnRequest(ImportedTurn):
 
 
 class ImportTurnResponse(BaseModel):
-    """导入结果：接纳、重复或因没有输出而跳过，并带推导出的交互标识。
+    """导入结果：接纳、重复或因没有输出而跳过，并带推导出的交互标识与这一轮所在的话题。
 
-    ``accepted`` 与 ``duplicate`` 都表示这一轮已经应用；不暴露 Gateway 决定、
-    话题或记忆上下文；可重试与不可重试的失败经错误信封的状态码区分。
+    ``accepted`` 与 ``duplicate`` 都表示这一轮已经应用。话题标识只是句柄，不带 Gateway
+    决定与记忆内容：读话题仍要经 MCP 授权。可重试与不可重试的失败经错误信封的状态码区分。
     """
 
     status: ImportTurnStatus = Field(
         description="accepted（本次提交并已应用）、duplicate（此前已应用）或 skipped（没有输出）"
     )
     interaction_id: str = Field(description="由认证结果与外部标识推导的稳定交互标识")
+    topic_id: str | None = Field(
+        default=None,
+        description="这一轮实际所在的话题；跳过的轮次与结局已超出提交队列保留窗口的重复轮次为空",
+    )
 
 
 __all__ = ["ImportTurnRequest", "ImportTurnResponse"]
