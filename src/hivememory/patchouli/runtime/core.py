@@ -42,7 +42,7 @@ from hivememory.components.work_queue import (
     QueuePolicy,
     WorkQueueShutdownSummary,
 )
-from hivememory.config.patchouli import PatchouliConfig
+from hivememory.config.patchouli import LLMRelayConfig, PatchouliConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.infrastructure.model_service import ModelLoadState
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -554,7 +554,11 @@ class PatchouliRuntime:
         感知关闭（``engine.enable=False``）时返回 ``None``，Familiar 以
         no-op 模式运行（继承原 ``NullPerceptionLayer`` 语义）。
         """
-        from hivememory.engines.perception import MemoryPerceptionEngine, create_relay_controller
+        from hivememory.engines.perception import (
+            MemoryPerceptionEngine,
+            ProgressRecordWriter,
+            create_relay_controller,
+        )
 
         impl_config = self._patchouli_config.perception.engine
         if not impl_config.enable:
@@ -569,10 +573,24 @@ class PatchouliRuntime:
             llm_params=self._llm_params,
             transcript_config=self._patchouli_config.generation.transcript,
         )
+        # 进展记录与 LLM 接力用同一个模型与时限；接力不用 LLM、或没有配置模型时不写进展记录。
+        progress_writer = None
+        if (
+            isinstance(relay_config.engine, LLMRelayConfig)
+            and self._llm_service is not None
+            and self._llm_params is not None
+        ):
+            progress_writer = ProgressRecordWriter(
+                self._llm_service,
+                self._llm_params,
+                timeout_seconds=relay_config.engine.summary_timeout_seconds,
+                transcript_config=self._patchouli_config.generation.transcript,
+            )
         return MemoryPerceptionEngine(
             config=impl_config,
             relay_controller=relay_controller,
             transcript_config=self._patchouli_config.generation.transcript,
+            progress_writer=progress_writer,
         )
 
     def _build_perception_orchestration(self):

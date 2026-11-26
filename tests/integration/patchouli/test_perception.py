@@ -17,6 +17,9 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 - 退役与删除：退役话题的日志保留到最后一次沉淀完成再删除，其间照样记下与交出本话题生成的记忆；
   没有未完成沉淀的退役与手动删除立即删除日志
 - 本话题生成的记忆不取 lease：折叠等待摘要、沉淀等待接纳期间记下的生成的记忆在写回之后仍在
+- 进展记录：停顿超过阈值且有还没整理的交互时排入写一条，写一条只看旧进展记录与还没整理的
+  交互，写下之后没有新交互不再排入；失败后同一位置不重试，有新交互后再写；写一条不取 lease，
+  生成期间话题退役时这一条不记
 - 感知关闭时无副作用
 """
 
@@ -29,12 +32,13 @@ import pytest
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
-from hivememory.config.patchouli import PerceptionEngineConfig
-from hivememory.core.errors import ResourceNotFoundError
+from hivememory.config.patchouli import GenerationTranscriptConfig, PerceptionEngineConfig
+from hivememory.core.errors import ModelProviderError, ResourceNotFoundError
 from hivememory.core.models import WorkspaceAssetRef, system_actor_for_workspace
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.perception.models import TriggerReason
+from hivememory.engines.perception.progress_record import ProgressRecordWriter
 from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
@@ -45,6 +49,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 )
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, CallbackLLMService, ScriptedLLMService
 from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
@@ -117,11 +122,13 @@ def _make_familiar(
     clock=None,
     engine="default",
     events: RecordingRuntimeEventSink | None = None,
+    pause_seconds=30,
+    progress_llm=None,
 ):
     """构造 (familiar, store, working_set, bus) 测试组合。
 
-    Engine（含 RelayController）/ Store / WorkingSet / Journal 为真实对象；
-    时间使用可控时钟。
+    Engine（含 RelayController 与写进展记录的 ProgressRecordWriter）/ Store / WorkingSet / Journal
+    为真实对象；模型是边界外的替身，没有给出 ``progress_llm`` 时不写进展记录；时间使用可控时钟。
     """
     clock = clock or _FakeClock()
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
@@ -132,16 +139,27 @@ def _make_familiar(
     bus = bus or Mock()
     bus.request = AsyncMock(return_value=None)
     if engine == "default":
+        progress_writer = None
+        if progress_llm is not None:
+            progress_writer = ProgressRecordWriter(
+                progress_llm,
+                DEFAULT_LLM_PARAMS,
+                timeout_seconds=60,
+                transcript_config=GenerationTranscriptConfig(),
+            )
         engine = MemoryPerceptionEngine(
             config=engine_config or PerceptionEngineConfig(fold_token_threshold=999999),
             relay_controller=relay,
+            progress_writer=progress_writer,
         )
     familiar = PerceptionFamiliar(
         engine=engine,
         store=store,
         working_set=working_set,
         bus=bus,
-        config=SimpleNamespace(idle_timeout_seconds=idle_timeout),
+        config=SimpleNamespace(
+            idle_timeout_seconds=idle_timeout, progress_record_pause_seconds=pause_seconds
+        ),
         runtime_events=RuntimeEventPublisher(events) if events is not None else None,
     )
     return familiar, store, working_set, bus
@@ -1026,6 +1044,150 @@ class TestSettlementProgress:
 
 
 # ========== 感知关闭（engine=None）==========
+
+
+class _ScheduledEntries:
+    """停顿扫描排入维护项的替身：记下排入的话题，总是排入成功。"""
+
+    def __init__(self) -> None:
+        self.topics: list[str] = []
+
+    async def __call__(self, belong_to, topic_id) -> bool:
+        self.topics.append(topic_id)
+        return True
+
+
+class TestProgressRecord:
+    @pytest.mark.asyncio
+    async def test_paused_topic_gets_entries_over_its_unrecorded_turns(self, tmp_path):
+        """停顿且有还没整理的交互时排入；写一条只看旧进展记录与还没整理的交互，写下之后没有新交互
+        就不再排入。没停顿的话题与空话题不排入。"""
+        clock = _FakeClock()
+        llm = ScriptedLLMService('{"entry": "讨论了发布顺序"}', '{"entry": "定下先发 staging"}')
+        familiar, store, _, _ = _make_familiar(
+            tmp_path, clock=clock, pause_seconds=30, progress_llm=llm
+        )
+        scope = _identity_scope()
+        belong_to = scope.workspace_identity
+
+        async def apply(message, topic_id="NEW_TOPIC"):
+            return await familiar.apply_interaction(
+                _payload(message),
+                belong_to=belong_to,
+                from_actor=scope.actor_identity,
+                target_topic_id=topic_id,
+                interaction_id=f"i-{message}",
+            )
+
+        paused = await apply("q1")
+        await apply("q2", paused)
+        await familiar.prepare_topic("NEW_TOPIC", None, None, belong_to)  # 空话题
+        clock.advance(100)
+        await apply("fresh")
+        first_scan = _ScheduledEntries()
+        assert await familiar.scan_paused_topics_once(first_scan) == [paused]
+        await familiar.write_progress_entry(belong_to, paused)
+        clock.advance(100)
+        after_entry = _ScheduledEntries()
+        await familiar.scan_paused_topics_once(after_entry)
+        await apply("q3", paused)
+        clock.advance(100)
+        await familiar.scan_paused_topics_once(_ScheduledEntries())
+        await familiar.write_progress_entry(belong_to, paused)
+
+        topic = store.get(belong_to, paused)
+        assert first_scan.topics == [paused]
+        assert paused not in after_entry.topics
+        assert [(entry.text, entry.covered_until) for entry in topic.progress_record] == [
+            ("讨论了发布顺序", 2),
+            ("定下先发 staging", 3),
+        ]
+        second_input = llm.calls[1].messages[1]["content"]
+        assert second_input.startswith("[旧进展记录]\n- 讨论了发布顺序\n\n[新交互记录原文]\n")
+        assert "[Turn 3]\n[User]: q3" in second_input
+        assert "q1" not in second_input and "q2" not in second_input
+
+    @pytest.mark.asyncio
+    async def test_failed_entry_is_not_retried_until_the_topic_has_new_turns(self, tmp_path):
+        """生成失败照常抛出、话题不变；同一位置不再排入，有了新交互后再写，覆盖到新的位置。"""
+        clock = _FakeClock()
+        llm = ScriptedLLMService(
+            ModelProviderError("provider down"),
+            ModelProviderError("provider down"),
+            '{"entry": "讨论了发布顺序"}',
+        )
+        familiar, store, _, _ = _make_familiar(
+            tmp_path, clock=clock, pause_seconds=30, progress_llm=llm
+        )
+        scope = _identity_scope()
+        belong_to = scope.workspace_identity
+        topic_id = await familiar.apply_interaction(
+            _payload("q1"),
+            belong_to=belong_to,
+            from_actor=scope.actor_identity,
+            interaction_id="i-1",
+        )
+        clock.advance(100)
+        assert await familiar.scan_paused_topics_once(_ScheduledEntries()) == [topic_id]
+
+        with pytest.raises(ModelProviderError):
+            await familiar.write_progress_entry(belong_to, topic_id)
+        clock.advance(100)
+        retried_at_same_position = await familiar.scan_paused_topics_once(_ScheduledEntries())
+        await familiar.apply_interaction(
+            _payload("q2"),
+            belong_to=belong_to,
+            from_actor=scope.actor_identity,
+            target_topic_id=topic_id,
+            interaction_id="i-2",
+        )
+        clock.advance(100)
+        after_new_turn = await familiar.scan_paused_topics_once(_ScheduledEntries())
+        await familiar.write_progress_entry(belong_to, topic_id)
+
+        assert retried_at_same_position == []
+        assert after_new_turn == [topic_id]
+        assert [
+            entry.covered_until for entry in store.get(belong_to, topic_id).progress_record
+        ] == [2]
+
+    @pytest.mark.asyncio
+    async def test_topic_retired_while_writing_keeps_no_entry(self, tmp_path):
+        """写一条不取 lease：生成期间手动结算照常退役话题，生成完成后这一条不记到退役话题的日志。"""
+        generating = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_entry(messages, params):
+            generating.set()
+            await release.wait()
+            return '{"entry": "讨论了发布顺序"}'
+
+        bus = Mock()
+        familiar, store, _, bus = _make_familiar(
+            tmp_path, bus=bus, progress_llm=CallbackLLMService(complete=slow_entry)
+        )
+        bus.request = AsyncMock(side_effect=_accept_settlement_task)
+        scope = _identity_scope()
+        belong_to = scope.workspace_identity
+        topic_id = await familiar.apply_interaction(
+            _payload("q1"),
+            belong_to=belong_to,
+            from_actor=scope.actor_identity,
+            interaction_id="i-1",
+        )
+
+        writing = asyncio.create_task(familiar.write_progress_entry(belong_to, topic_id))
+        await asyncio.wait_for(generating.wait(), timeout=2)
+        await familiar.manual_settle_topic(belong_to, topic_id)
+        release.set()
+        await asyncio.wait_for(writing, timeout=2)
+
+        [(retired, _)] = (
+            ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics")).load().retired
+        )
+        assert store.get(belong_to, topic_id) is None
+        assert retired.topic_id == topic_id
+        assert retired.progress_record == ()
 
 
 class TestDisabledPerception:

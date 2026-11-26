@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -111,7 +112,7 @@ class PatchouliSystem(SubsystemProtocol):
 
         self._interaction_submission_queue = InteractionSubmissionQueue(
             self.runtime.perception_familiar.apply_interaction,
-            compaction=self.runtime.perception_familiar,
+            maintenance=self.runtime.perception_familiar,
             runtime_events=self._runtime_events.scoped(
                 subsystem="patchouli",
                 component="interaction_submission_queue",
@@ -192,6 +193,19 @@ class PatchouliSystem(SubsystemProtocol):
             ),
             self.runtime.perception_familiar.scan_idle_topics_once,
         )
+        # 停顿扫描只挑出该写一条进展记录的话题，写一条经交互提交队列排在话题的提交之间。
+        scheduler.register(
+            MaintenanceTaskSpec(
+                owner=self._MAINTENANCE_OWNER,
+                name="perception_progress_record",
+                interval_seconds=tasks_config.perception_progress_record_interval_seconds,
+                enabled=tasks_config.enable_perception_progress_record,
+            ),
+            partial(
+                self.runtime.perception_familiar.scan_paused_topics_once,
+                self._interaction_submission_queue.schedule_progress_entry,
+            ),
+        )
         scheduler.register(
             MaintenanceTaskSpec(
                 owner=self._MAINTENANCE_OWNER,
@@ -245,9 +259,10 @@ class PatchouliSystem(SubsystemProtocol):
 
         # interaction work 不可取消；先等待所有已接纳 work 完成，交互在关闭之前写进话题
         # 的日志。任务进程的提交由进程持有，系统关闭时进程服务先于 Patchouli 停止，等待
-        # 已经在那里完成。折叠先行关闭：排空时不再等待摘要模型。话题随时落盘，关闭时不
-        # 沉淀；排队中的生成工作保存到下次启动继续，还没执行的沉淀不保存，重启后重新沉淀。
-        self._interaction_submission_queue.close_compactions()
+        # 已经在那里完成。话题维护（折叠与写进展记录）先行关闭：排空时不再等待模型。话题随时
+        # 落盘，关闭时不沉淀、也不为停下的话题写进展记录；排队中的生成工作保存到下次启动继续，
+        # 还没执行的沉淀不保存，重启后重新沉淀。
+        self._interaction_submission_queue.close_topic_maintenance()
         await self._interaction_submission_queue.drain_all(timeout=None)
         await self._interaction_submission_queue.stop()
         await self.runtime.shutdown_drain()

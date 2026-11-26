@@ -6,6 +6,7 @@
 - 追加失败或构造校验失败时什么都不写，内存中的读取值不变；
 - 读取与写入按 Workspace 归属隔离，话题 ID 全局唯一；
 - 退役的话题离开话题池，日志保留到删除，其间照样记下生成的记忆与沉淀完成、交出本话题生成的记忆；
+  进展记录只记到池中的话题；
 - 读回时没有退役的进入话题池，退役而沉淀没完成的交给调用方，读不回的日志移到一旁。
 """
 
@@ -54,7 +55,7 @@ def _topic_with_interactions(store, *messages, belong_to=_MAIN):
 
 
 def test_replaying_the_log_restores_what_was_written(tmp_path):
-    """接收、折叠、沉淀完成与本话题生成的记忆都记进日志，另一个存储重放得到同样的读取值。"""
+    """接收、折叠、沉淀完成、本话题生成的记忆与进展记录都记进日志，另一个存储重放得到同样的读取值。"""
     store = _store(tmp_path)
     topic = store.create(_MAIN, topic_title="部署", topic_summary="发布流程")
     first, second = _block("q1"), _block("q2")
@@ -72,6 +73,9 @@ def test_replaying_the_log_restores_what_was_written(tmp_path):
     store.append_generated_memories(
         _MAIN, topic.topic_id, generated=frozenset({"m1"}), absorbed_into={"x": "y"}
     )
+    store.append_progress_entry(
+        _MAIN, topic.topic_id, text="e1", covered=[first, second], covered_until=2
+    )
     other = _topic_with_interactions(store, "elsewhere", belong_to=_OTHER)
 
     reloaded = _store(tmp_path)
@@ -81,6 +85,7 @@ def test_replaying_the_log_restores_what_was_written(tmp_path):
         store.list_all(), key=lambda topic: topic.topic_id
     )
     assert reloaded.get(_MAIN, topic.topic_id) == store.get(_MAIN, topic.topic_id)
+    assert [entry.text for entry in reloaded.get(_MAIN, topic.topic_id).progress_record] == ["e1"]
     assert reloaded.get(_OTHER, other.topic_id) == store.get(_OTHER, other.topic_id)
 
 
@@ -128,7 +133,7 @@ def test_topics_are_isolated_by_workspace_and_ids_are_global(tmp_path):
 
 def test_retired_topic_keeps_writes_and_settlement_until_its_log_is_deleted(tmp_path):
     """退役的话题读不到、不回到列表；日志删除之前照样记下生成的记忆与沉淀完成、交出本话题生成的记忆，重放
-    时随日志读回；删除时连同日志一起删除。"""
+    时随日志读回，进展记录不再记；删除时连同日志一起删除。"""
     store = _store(tmp_path)
     topic = _topic_with_interactions(store, "q1", "q2")
 
@@ -137,8 +142,13 @@ def test_retired_topic_keeps_writes_and_settlement_until_its_log_is_deleted(tmp_
         _MAIN, topic.topic_id, generated=frozenset({"m1"}), absorbed_into={}
     )
     settled = store.append_settled(_MAIN, topic.topic_id, interaction_count=1)
+    progress = store.append_progress_entry(
+        _MAIN, topic.topic_id, text="e1", covered=topic.interactions, covered_until=2
+    )
     [(replayed, _)] = _store(tmp_path).load().retired
 
+    assert progress is None
+    assert replayed.progress_record == ()
     assert (store.get(_MAIN, topic.topic_id), store.list_all()) == (None, [])
     assert store.get_generated_memories(_MAIN, topic.topic_id) == {"m1"}
     assert store.get_generated_memories(_OTHER, topic.topic_id) is None

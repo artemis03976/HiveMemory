@@ -23,7 +23,7 @@ last_reviewed: 2026-11-24
 
 本文是面向生产级长时间运行 Agent 的候选设计，不描述当前行为，也不代表近期排期。当前短期话题、Agent runtime、Import Bus、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
 
-话题的工作状态、一轮之内什么时候写工作记录的一条、在段的边界上折叠，以及会话压缩与话题的关系，集中在[短期记忆](./short-term-memory-and-context-compaction.md)：长 turn 下的短期记忆管理由那份设计一并承担；Session → Topic 完整资料 → Artifact 的原始数据保存链集中在[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。本文只讨论未结束 turn 的事件流接入、语义分段、独立覆盖进度、超大事件和封口恢复，不重复定义工作记录、通用压缩算法或证据存储。
+话题的进展、一轮之内什么时候写进展记录的一条、在段的边界上折叠，以及会话压缩与话题的关系，集中在[短期记忆](./short-term-memory-and-context-compaction.md)：长 turn 下的短期记忆管理由那份设计一并承担；Session → Topic 完整资料 → Artifact 的原始数据保存链集中在[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。本文只讨论未结束 turn 的事件流接入、语义分段、独立覆盖进度、超大事件和封口恢复，不重复定义进展记录、通用压缩算法或证据存储。
 
 **前台与后台分开**：前台对话与后台的记忆 Topic 管理是两项独立的工作。前台的上下文压缩归 CPU，用户以 `/compact` 触发（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding。本文分别讨论 CPU 的 turn 内执行视图与 Patchouli 的未结束交互资料视图，两边各自推进，不能串成前一级 compact 完成后再交给后一级 folding 的流水线。
 
@@ -239,7 +239,7 @@ Generation 或审计可以按需沿来源引用分块读取；记忆生成时再
 
 两份视图由各自消费者决定何时生成、何时接受和何时失效，不要求同步生成，也不共用一个拥有双摘要字段的检查点。具体策略见[短期记忆](./short-term-memory-and-context-compaction.md)。
 
-话题的工作状态是另一份视图：它回答“做到哪了”，读者是不在场的前台（另一个会话被路由回来，或会话压缩之后），含当前计划与工作记录，每一条指回原文；它与 continuation summary 各自生成、各自保存，见[短期记忆](./short-term-memory-and-context-compaction.md)第 3、7 节。
+话题的进展是另一份视图：它回答“进行到哪一步”，读者是不在场的前台（另一个会话被路由回来，或会话压缩之后），含当前计划与进展记录，每一条指回原文；它与 continuation summary 各自生成、各自保存，见[短期记忆](./short-term-memory-and-context-compaction.md)第 3、7 节。
 
 Alice 的 continuation summary 不进入 Topic、InteractionPayload 或 Patchouli 的记忆生成材料。外部 harness 另行交付的 summary 若在未来被评估为有价值的辅助输入，需要显式声明来源、覆盖范围和有损性质；它不能替代未收到的事件或原始证据，也不能作为 Patchouli 摘要失败时自动接受的事实来源。
 

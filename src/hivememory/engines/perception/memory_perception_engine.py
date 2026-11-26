@@ -2,22 +2,25 @@
 
 ``MemoryPerceptionEngine`` 只承载纯算法：把 ``InteractionPayload`` 归并为
 不可变 ``LogicalBlock``、按本轮渲染出的材料估算 token、
-判断折叠阈值、选择待折叠 blocks 并生成摘要。它不持有 Store / Journal / Queue，不实现话题路由与 settle 用例（那是
+判断折叠阈值、选择待折叠 blocks 并生成摘要，以及写出进展记录的一条。它不持有 Store / Journal /
+Queue，不实现话题路由与 settle 用例（那是
 ``PerceptionFamiliar`` 的编排职责），也不导入 ``hivememory.patchouli.*``，
 可被其他 runtime 复用、可纯单元测试。
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from hivememory.config.patchouli import GenerationTranscriptConfig, PerceptionEngineConfig
-from hivememory.core.models import ActorIdentity, LogicalBlock, TurnRecord
+from hivememory.core.models import ActorIdentity, LogicalBlock, TopicProgressEntry, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.material import render_turn_text
 from hivememory.utils.token_estimator import estimate_tokens
 
 if TYPE_CHECKING:
+    from hivememory.engines.perception.progress_record import ProgressRecordWriter
     from hivememory.engines.perception.relay_controller import BaseRelayController
 
 
@@ -37,11 +40,14 @@ class MemoryPerceptionEngine:
         config: PerceptionEngineConfig,
         relay_controller: BaseRelayController,
         transcript_config: GenerationTranscriptConfig | None = None,
+        progress_writer: ProgressRecordWriter | None = None,
     ) -> None:
         self.config = config
         self._relay = relay_controller
         # 与记忆生成视图同一个工具结果上限：块的 token 统计按生成实际看到的材料计算。
         self._transcript_config = transcript_config or GenerationTranscriptConfig()
+        # 没有可用的模型时为 None：不写进展记录。
+        self._progress_writer = progress_writer
 
     def build_block(
         self,
@@ -85,6 +91,25 @@ class MemoryPerceptionEngine:
     ) -> str:
         """生成 Page Folding 摘要，封装为 Engine 的算法能力。"""
         return await self._relay.generate_summary(blocks_to_fold, previous_summary)
+
+    @property
+    def writes_progress_record(self) -> bool:
+        """是否有写进展记录的模型；没有时话题不写进展记录。"""
+        return self._progress_writer is not None
+
+    async def generate_progress_entry(
+        self,
+        previous_record: Sequence[TopicProgressEntry],
+        blocks: Sequence[LogicalBlock],
+        *,
+        first_turn_number: int,
+    ) -> str:
+        """以旧进展记录与还没整理的交互写出新的一条的正文；没有写进展记录的模型时是调用错误。"""
+        if self._progress_writer is None:
+            raise RuntimeError("没有写进展记录的模型")
+        return await self._progress_writer.write_entry(
+            previous_record, blocks, first_turn_number=first_turn_number
+        )
 
 
 __all__ = ["MemoryPerceptionEngine"]

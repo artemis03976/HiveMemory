@@ -22,6 +22,47 @@ class TopicLastTurn(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+class TopicProgressEntry(BaseModel):
+    """进展记录的一条：话题自上一条以来有了什么进展，并指回它覆盖的原文。
+
+    一条覆盖交互记录中相邻的若干轮：从上一条覆盖到的位置开始，到 ``covered_until`` 为止。
+    ``from_turn_id`` 到 ``to_turn_id`` 的 ``to_event_seq`` 是指回原文的区间，与记忆引用是
+    同一套坐标（轮次标识 + 事件序号）；首轮从序号 0 的用户消息开始。
+    """
+
+    text: str = Field(description="这一条的正文")
+    from_turn_id: str = Field(description="覆盖的第一轮的轮次标识")
+    to_turn_id: str = Field(description="覆盖的最后一轮的轮次标识")
+    to_event_seq: int = Field(ge=0, description="覆盖的最后一轮中最后一个事件的序号")
+    covered_until: int = Field(ge=1, description="这一条覆盖到第几个交互，即交互记录的前缀长度")
+    written_at: float = Field(description="写下这一条的 Unix 时间戳（秒）")
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+# 快照只带最近这么多轮还没有整理的交互：话题池展开“还有 N 轮没有整理”时给人看的是节选，
+# 不是原文；全部原文留在话题的交互记录里。
+UNRECORDED_TURN_EXCERPTS = 3
+# 每轮的用户消息与回复各截到这么多字符。
+TURN_EXCERPT_MAX_CHARS = 200
+
+
+class TopicTurnExcerpt(BaseModel):
+    """一轮交互的节选：轮次号（话题中从 1 数起）、用户消息与回复，各截到固定长度。"""
+
+    turn_number: int = Field(ge=1)
+    user: str = ""
+    assistant: str = ""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+def _excerpt(text: str) -> str:
+    if len(text) <= TURN_EXCERPT_MAX_CHARS:
+        return text
+    return text[:TURN_EXCERPT_MAX_CHARS] + "…"
+
+
 class TopicSnapshot(BaseModel):
     """供 Gateway 路由和前端话题池使用的只读快照。"""
 
@@ -37,6 +78,16 @@ class TopicSnapshot(BaseModel):
     last_update: float = Field(description="话题最近一次写入的 Unix 时间戳（秒）")
     has_unsettled_interactions: bool = Field(
         default=False, description="话题是否有还没有沉淀为长期记忆的交互"
+    )
+    progress_record: tuple[TopicProgressEntry, ...] = Field(
+        default_factory=tuple, description="话题的进展记录，按写下的顺序"
+    )
+    unrecorded_turn_count: int = Field(
+        default=0, ge=0, description="进展记录还没有覆盖到的交互轮数"
+    )
+    unrecorded_turns: tuple[TopicTurnExcerpt, ...] = Field(
+        default_factory=tuple,
+        description="进展记录还没有覆盖到的交互中最近的几轮的节选，按轮次先后",
     )
 
     model_config = ConfigDict(frozen=True, use_enum_values=True)
@@ -119,6 +170,9 @@ class TopicData(BaseModel):
     ``topic_generated_memory_ids`` 是本话题生成的正式记忆，随话题的日志保存，话题退役后保留到
     日志删除；同一话题之后的写入与沉淀据此不改写、不复述它们。
 
+    ``progress_record`` 是话题的进展记录，只往后追加，各条依次覆盖交互记录中相邻的区间；最后
+    一条覆盖到的位置之后的交互是还没有整理的原始交互记录。二者合起来回答话题进行到哪一步。
+
     话题经短期存储的写入方法写入：每条记录以完整构造产生新的读取值，构造时的校验不会被绕过。执行
     占用不建模为记录字段，跨 await 的占用权由 ``TopicWorkingSet`` 的 lease 表管理。不携带
     话题级 Agent 身份：来源 provenance 由每个 block 的 ``turn.identity`` 记录，资源授权使用
@@ -148,6 +202,7 @@ class TopicData(BaseModel):
             "沉淀新建的；合并吸收了其中一条时改为保留的那条"
         ),
     )
+    progress_record: tuple[TopicProgressEntry, ...] = Field(default_factory=tuple)
 
     model_config = ConfigDict(frozen=True, use_enum_values=False, extra="forbid")
 
@@ -174,6 +229,28 @@ class TopicData(BaseModel):
         """交互记录只追加，沉淀覆盖的交互数不会超过话题接收过的交互数。"""
         if self.settled_interaction_count > len(self.interactions):
             raise ValueError("沉淀覆盖的交互数不能超过交互记录的长度")
+        return self
+
+    @model_validator(mode="after")
+    def _progress_record_covers_adjacent_turns(self) -> TopicData:
+        """进展记录的每一条从上一条覆盖到的位置开始，往后覆盖至少一轮，不超过交互记录。
+
+        指回原文的区间必须与覆盖的位置一致：首轮与末轮的标识、末轮最后一个事件的序号。校验挡住
+        从错误位置写下的一条，例如读回的日志里被改动过的条目。
+        """
+        start = 0
+        for entry in self.progress_record:
+            if not start < entry.covered_until <= len(self.interactions):
+                raise ValueError("进展记录的一条必须从上一条之后开始，且不超过交互记录的长度")
+            first = self.interactions[start].turn
+            last = self.interactions[entry.covered_until - 1].turn
+            if (entry.from_turn_id, entry.to_turn_id, entry.to_event_seq) != (
+                first.turn_id,
+                last.turn_id,
+                last.turn_events[-1].sequence,
+            ):
+                raise ValueError("进展记录的一条指回的区间与它覆盖的交互不一致")
+            start = entry.covered_until
         return self
 
     @property
@@ -213,6 +290,11 @@ class TopicData(BaseModel):
         """最近一次沉淀之后是否接收过新的交互；没有接收过交互的话题为假。"""
         return len(self.interactions) > self.settled_interaction_count
 
+    @property
+    def recorded_interaction_count(self) -> int:
+        """进展记录覆盖到的交互数：最后一条的覆盖位置，还没有写过一条时为 0。"""
+        return self.progress_record[-1].covered_until if self.progress_record else 0
+
     def recent_blocks(self, limit: int) -> tuple[LogicalBlock, ...]:
         if limit <= 0:
             return ()
@@ -229,6 +311,18 @@ class TopicData(BaseModel):
                 user=last_block.user_message,
                 assistant=last_block.reply_text,
             )
+        # 还没有整理的交互读交互记录，不读工作视图：被折叠的轮次也可能还没有写进进展记录。
+        first_excerpt = max(
+            self.recorded_interaction_count, len(self.interactions) - UNRECORDED_TURN_EXCERPTS
+        )
+        unrecorded_turns = tuple(
+            TopicTurnExcerpt(
+                turn_number=index + 1,
+                user=_excerpt(block.user_message),
+                assistant=_excerpt(block.reply_text),
+            )
+            for index, block in enumerate(self.interactions[first_excerpt:], start=first_excerpt)
+        )
         return TopicSnapshot(
             topic_id=self.topic_id,
             workspace_identity=self.workspace_identity,
@@ -241,6 +335,9 @@ class TopicData(BaseModel):
             model_used=self.model_used,
             last_update=self.last_update,
             has_unsettled_interactions=self.has_unsettled_interactions,
+            progress_record=self.progress_record,
+            unrecorded_turn_count=len(self.interactions) - self.recorded_interaction_count,
+            unrecorded_turns=unrecorded_turns,
         )
 
 
@@ -249,7 +346,9 @@ __all__ = [
     "TopicData",
     "TopicFold",
     "TopicLastTurn",
+    "TopicProgressEntry",
     "TopicSnapshot",
+    "TopicTurnExcerpt",
     "topic_fold_summary",
     "topic_working_blocks",
 ]

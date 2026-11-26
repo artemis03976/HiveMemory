@@ -75,7 +75,9 @@ from .topic import (
     TopicData,
     TopicFold,
     TopicLastTurn,
+    TopicProgressEntry,
     TopicSnapshot,
+    TopicTurnExcerpt,
     topic_fold_summary,
     topic_working_blocks,
 )
@@ -149,6 +151,8 @@ __all__ = [
     "TopicLastTurn",
     "TopicData",
     "TopicFold",
+    "TopicProgressEntry",
+    "TopicTurnExcerpt",
     "LogicalBlock",
     "topic_fold_summary",
     "topic_working_blocks",

@@ -29,6 +29,29 @@ export interface Topic {
   totalTokens: number;
   /** 是否有还没有沉淀为长期记忆的交互；没有时空闲不会再触发沉淀。 */
   hasUnsettledInteractions: boolean;
+  /** 话题的进展记录，按写下的顺序；还没有写过一条时为空。 */
+  progressRecord: TopicProgressEntry[];
+  /** 进展记录还没有覆盖到的交互轮数。 */
+  unrecordedTurnCount: number;
+  /** 还没有整理的交互中最近的几轮的节选，按轮次先后；后端截取，可能少于总轮数。 */
+  unrecordedTurns: TopicTurnExcerpt[];
+}
+
+/** 一轮交互的节选：轮次号（话题中从 1 数起）、用户消息与回复，后端已截到固定长度。 */
+export interface TopicTurnExcerpt {
+  turnNumber: number;
+  user: string;
+  assistant: string;
+}
+
+/** 进展记录的一条：话题自上一条以来有了什么进展，覆盖话题中相邻的若干轮。 */
+export interface TopicProgressEntry {
+  text: string;
+  /** 覆盖的第一轮与最后一轮在话题中的轮次号，从 1 数起。 */
+  fromTurn: number;
+  toTurn: number;
+  /** 写下这一条的毫秒时间戳，由后端的时间换算。 */
+  writtenAt: number;
 }
 
 /** 用户为一轮对话指定的话题，随发送请求带上。 */

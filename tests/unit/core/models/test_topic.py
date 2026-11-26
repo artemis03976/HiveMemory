@@ -6,18 +6,20 @@
   折叠时为空串；total_tokens 是工作视图之和；
 - 折叠记录依次拼接必须等于交互记录的前缀，沉淀覆盖的交互数不超过交互记录的长度，
   否则构造失败；
-- 判空看是否接收过交互：全部折叠、工作视图为空后仍不为空。
+- 判空看是否接收过交互：全部折叠、工作视图为空后仍不为空；
+- 快照带进展记录还没有覆盖到的交互中最近至多 3 轮的节选，取自交互记录（被折叠的轮次也算），
+  用户消息与回复各截到固定长度。
 """
 
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import TopicData, TopicFold
+from hivememory.core.models import TopicData, TopicFold, TopicProgressEntry, TopicTurnExcerpt
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
-def _topic(interactions=(), folds=()) -> TopicData:
+def _topic(interactions=(), folds=(), progress_record=()) -> TopicData:
     return TopicData(
         topic_id="t1",
         workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
@@ -25,6 +27,19 @@ def _topic(interactions=(), folds=()) -> TopicData:
         interactions=tuple(interactions),
         folds=tuple(folds),
         last_update=1.0,
+        progress_record=tuple(progress_record),
+    )
+
+
+def _entry(*covered, covered_until: int) -> TopicProgressEntry:
+    last = covered[-1].turn
+    return TopicProgressEntry(
+        text="entry",
+        from_turn_id=covered[0].turn.turn_id,
+        to_turn_id=last.turn_id,
+        to_event_seq=last.turn_events[-1].sequence,
+        covered_until=covered_until,
+        written_at=1.0,
     )
 
 
@@ -100,3 +115,35 @@ class TestContentEmptiness:
         assert topic.blocks == ()
         assert topic.has_content is True
         assert topic.is_empty is False
+
+
+class TestSnapshotUnrecordedTurns:
+    def test_snapshot_excerpts_the_latest_three_unrecorded_turns_including_folded_ones(self):
+        """进展记录覆盖前两轮、折叠覆盖前四轮：节选是最近三轮（第 4～6 轮），第 4 轮已经折叠也在内。"""
+        blocks = [_block(f"q{i}") for i in range(1, 7)]
+        topic = _topic(
+            interactions=blocks,
+            folds=(_fold(*blocks[:4], summary="s"),),
+            progress_record=(_entry(*blocks[:2], covered_until=2),),
+        )
+
+        snapshot = topic.to_topic_snapshot()
+
+        assert snapshot.unrecorded_turn_count == 4
+        assert snapshot.unrecorded_turns == (
+            TopicTurnExcerpt(turn_number=4, user="q4", assistant="a"),
+            TopicTurnExcerpt(turn_number=5, user="q5", assistant="a"),
+            TopicTurnExcerpt(turn_number=6, user="q6", assistant="a"),
+        )
+
+    def test_snapshot_excerpts_cut_long_messages_and_skip_recorded_turns(self):
+        """只剩一轮没有整理时只节选这一轮；超过 200 个字符的用户消息与回复截断并加省略号。"""
+        b1 = _block("q1")
+        b2 = make_logical_block("问" * 250, "答" * 201)
+        topic = _topic(interactions=(b1, b2), progress_record=(_entry(b1, covered_until=1),))
+
+        (excerpt,) = topic.to_topic_snapshot().unrecorded_turns
+
+        assert excerpt.turn_number == 2
+        assert excerpt.user == "问" * 200 + "…"
+        assert excerpt.assistant == "答" * 200 + "…"

@@ -22,7 +22,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # Patchouli
@@ -182,9 +182,10 @@ RetrievalRequest
 
 ### 4.2 维护任务与关闭
 
-Patchouli 向全局调度器注册三个维护任务：
+Patchouli 向全局调度器注册四个维护任务：
 
 - `perception_idle_flush`：扫描空闲话题，沉淀有新交互的、让从没接收过交互的空话题退役，返回被沉淀或退役的话题 ID；
+- `perception_progress_record`：扫描停顿的话题，为有还没整理的交互的话题在交互提交队列中排入写一条进展记录，返回排入了的话题 ID（[感知与短期话题](./perception.md#7-维护存储与启动时读回)第 7 节）；
 - `memory_gardening`：刷新生命力并归档低生命力中期记忆，返回归档数与耗时；
 - `model_idle_unload`：卸载空闲超过各自时限的 `idle_unload` 模型（第 4.1 节），返回本次卸载的模型名。
 

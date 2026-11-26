@@ -33,7 +33,9 @@ from hivememory.server.models.topic import (
     ActiveTopicResponse,
     TopicDeleteResponse,
     TopicLastTurnResponse,
+    TopicProgressEntryResponse,
     TopicSettleResponse,
+    TopicTurnExcerptResponse,
 )
 
 __all__ = [
@@ -53,7 +55,9 @@ __all__ = [
     "ActiveTopicResponse",
     "TopicDeleteResponse",
     "TopicLastTurnResponse",
+    "TopicProgressEntryResponse",
     "TopicSettleResponse",
+    "TopicTurnExcerptResponse",
     "ProviderResponse",
     "ProviderUpsertRequest",
     "ConfigResponse",

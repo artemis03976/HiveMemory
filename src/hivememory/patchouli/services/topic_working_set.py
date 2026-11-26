@@ -1,7 +1,7 @@
 """Topic 驻留工作集（Working Set）与占用（lease）表。
 
 ``TopicWorkingSet`` 是短期话题的驻留管理器：维护有限容量的驻留集合（LRU）、
-以 lease 表表达话题占用权、记下在途沉淀，并提供 idle / LRU 候选查询。它与
+以 lease 表表达话题占用权、记下在途沉淀与写进展记录失败的位置，并提供 idle / LRU 候选查询。它与
 ``ShortTermMemoryStore`` 平级协作——Store 持有内容，WorkingSet 只持有索引，
 由上层 Familiar 编排，零外部依赖、可纯单元测试。所有方法均为同步方法且不
 在内部 await，单事件循环内天然串行；跨线程使用需调用方先行串行化。
@@ -34,7 +34,8 @@ class TopicWorkingSet:
     """短期话题的驻留工作集与占用表。
 
     职责：维护 ``max_resident`` 容量的驻留集合与访问顺序（LRU）；以 lease 表
-    表达跨 await 占用权（替代记录字段状态机）；记下驻留话题在途沉淀覆盖到的交互数；
+    表达跨 await 占用权（替代记录字段状态机）；记下驻留话题在途沉淀覆盖到的交互数与写进展记录
+    失败的位置；
     提供 idle / LRU 候选查询与容量判断。不职责：不持有 TopicData 内容（在 Store 里）、不调用
     Store / Relay / Queue（零外部依赖）、不解释触发原因（由 Familiar 编排）。
     """
@@ -56,6 +57,9 @@ class TopicWorkingSet:
         # (workspace, topic_id) -> 在途沉淀覆盖到的交互数：只在进程内，随进程退出而消失，
         # 重启后日志停在上一次完成的位置，这段交互照样重新沉淀。
         self._settling: dict[TopicKey, int] = {}
+        # (workspace, topic_id) -> 写进展记录失败时那一条要覆盖到的位置：只在进程内，同一位置
+        # 不再重试，话题接收新交互之后再写。
+        self._progress_entry_failures: dict[TopicKey, int] = {}
         # 只用于相对时长的可注入时钟；默认单调时钟，不受系统墙钟回拨影响。
         self._clock = clock or time.monotonic
 
@@ -73,13 +77,14 @@ class TopicWorkingSet:
         return resident_count >= self._max_resident
 
     def remove(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """从驻留集合移除话题（退役 / evict 完成后调用），连同它的在途沉淀。
+        """从驻留集合移除话题（退役 / evict 完成后调用），连同它的在途沉淀与写进展记录失败的位置。
 
-        离开话题池的话题不会再沉淀，在途只用于池中话题判断有没有新交互。lease 不自动清理，
+        离开话题池的话题不会再沉淀、也不再写进展记录，二者只用于池中的话题。lease 不自动清理，
         持有者完成操作后自行 release；目标未驻留时静默忽略。
         """
         self._resident.pop((belong_to, topic_id), None)
         self._settling.pop((belong_to, topic_id), None)
+        self._progress_entry_failures.pop((belong_to, topic_id), None)
 
     # ========== 候选查询 ==========
 
@@ -137,6 +142,18 @@ class TopicWorkingSet:
         key = (belong_to, topic_id)
         if self._settling.get(key, 0) <= up_to:
             self._settling.pop(key, None)
+
+    # ========== 写进展记录失败的位置 ==========
+
+    def mark_progress_entry_failed(
+        self, belong_to: WorkspaceIdentity, topic_id: str, covered_until: int
+    ) -> None:
+        """记下写失败的那一条要覆盖到的位置；话题的交互没有超过它之前不再写。"""
+        self._progress_entry_failures[(belong_to, topic_id)] = covered_until
+
+    def progress_entry_failed_until(self, belong_to: WorkspaceIdentity, topic_id: str) -> int:
+        """最近一次写进展记录失败时要覆盖到的位置；没有失败过时为 0。"""
+        return self._progress_entry_failures.get((belong_to, topic_id), 0)
 
     # ========== 占用权（lease） ==========
 

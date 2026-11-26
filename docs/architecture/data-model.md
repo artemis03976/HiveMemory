@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # 数据模型与可变性边界
@@ -105,7 +105,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 每个话题是一条只追加的日志（一个 JSON Lines 文件），话题上发生的事各记一条；`TopicData` 是由日志依次套用每条记录组装出来的读取值，短期存储在内存中放池中话题的冻结 `TopicData`，读取方只拿到不可变的 `TopicData` 或 `TopicSnapshot`；执行占用不建模为记录字段，由 TopicWorkingSet 的 lease 表达。日志的记录与套用函数在 `memory_library.topic_log`，存储与 Port 契约见 [MemoryLibrary](../patchouli/memory-library.md#11-短期话题工作台)。
 
-`TopicData` 只存两份原始数据：按接收顺序、只追加的交互记录 `interactions`（`LogicalBlock` tuple），与每次折叠追加一条的折叠记录 `folds`（`TopicFold`：被折叠的块标识、折叠后的摘要与折叠时间）。工作视图 `blocks`、`fold_summary` 与 `total_tokens` 是由二者派生的只读属性，`TopicSnapshot` 的 `block_count`、`total_tokens` 同样指工作视图。构造时校验全部折叠记录依次拼接等于交互记录开头同样数量的块标识；模型拒绝未声明字段。语义与理由见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)。
+`TopicData` 只存两份原始数据：按接收顺序、只追加的交互记录 `interactions`（`LogicalBlock` tuple），与每次折叠追加一条的折叠记录 `folds`（`TopicFold`：被折叠的块标识、折叠后的摘要与折叠时间）。工作视图 `blocks`、`fold_summary` 与 `total_tokens` 是由二者派生的只读属性，`TopicSnapshot` 的 `block_count`、`total_tokens` 同样指工作视图。构造时校验全部折叠记录依次拼接等于交互记录开头同样数量的块标识；模型拒绝未声明字段。进展记录 `progress_record`（`TopicProgressEntry` tuple）是对交互记录的整理，只往后追加，构造时校验各条依次覆盖交互记录中相邻的区间；`TopicSnapshot` 带出进展记录、还没有整理的轮数与其中最近至多 3 轮的节选（`TopicTurnExcerpt`）。语义与理由见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)。
 
 “不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增 append、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 经短期存储的写入方法完成领域更新（`append_interaction` 追加交互，`append_fold` 追加折叠记录等）：存储读当前的读取值 → 用这种记录的套用函数以完整构造产生新值 → 追加一行日志 → 替换内存中的值；套用函数不用 `model_copy`，构造校验因此不会被绕过，互斥由 TopicWorkingSet 的 lease 保证。
 

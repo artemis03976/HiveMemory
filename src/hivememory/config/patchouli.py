@@ -61,6 +61,14 @@ class PerceptionEngineConfig(BaseModel):
 
 class MemoryPerceptionConfig(BaseModel):
     idle_timeout_seconds: int = Field(default=900)
+    progress_record_pause_seconds: int = Field(
+        default=1800,
+        gt=0,
+        description=(
+            "话题停顿多少秒后写一条进展记录：自上一条以来有还没整理的交互时，以旧进展记录与这些"
+            "交互的原文写出一段总结"
+        ),
+    )
     topic_dir: str = Field(
         default=".hivememory/topics",
         description=(

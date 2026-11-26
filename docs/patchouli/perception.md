@@ -22,7 +22,7 @@ related_contracts:
   - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # 感知与短期话题
@@ -53,13 +53,13 @@ LogicalBlock = TurnRecord + perception metadata
 
 ### 1.3 话题：原始数据与工作视图
 
-话题的读取值是 `TopicData`，由话题的日志依次套用每条记录组装而成（第 7 节），只存两份原始数据：`interactions` 按接收顺序保存话题接收到的全部交互（`LogicalBlock`），只追加，话题结束前不移除；`folds` 按顺序保存每次折叠的 `TopicFold`，即这一次被折叠的块标识、折叠后的摘要与折叠时间。读取值另含展示 title/summary、资产绑定、最近模型名，`settled_interaction_count`：已经完成的沉淀覆盖到第几个交互（第 4 节），以及 `topic_generated_memory_ids`：本话题生成的记忆，即本话题主动写入结算到的记忆与此前几次沉淀新建的记忆（[记忆生成](./generation.md#42-本话题生成的记忆)第 4.2 节）。`has_unsettled_interactions` 由它派生，表示最近一次沉淀之后是否接收过新交互，没有接收过交互的话题为假。
+话题的读取值是 `TopicData`，由话题的日志依次套用每条记录组装而成（第 7 节），只存两份原始数据：`interactions` 按接收顺序保存话题接收到的全部交互（`LogicalBlock`），只追加，话题结束前不移除；`folds` 按顺序保存每次折叠的 `TopicFold`，即这一次被折叠的块标识、折叠后的摘要与折叠时间。读取值另含展示 title/summary、资产绑定、最近模型名，`settled_interaction_count`：已经完成的沉淀覆盖到第几个交互（第 4 节），以及 `topic_generated_memory_ids`：本话题生成的记忆，即本话题主动写入结算到的记忆与此前几次沉淀新建的记忆（[记忆生成](./generation.md#42-本话题生成的记忆)第 4.2 节）。`has_unsettled_interactions` 由它派生，表示最近一次沉淀之后是否接收过新交互，没有接收过交互的话题为假。`progress_record` 是话题的进展记录（第 7 节）：按写下的顺序排列的 `TopicProgressEntry`，每一条是正文、指回原文的区间（覆盖的首轮与末轮的轮次标识、末轮最后一个事件的序号，与记忆引用是同一套坐标，区间从首轮序号 0 的用户消息开始）、覆盖到第几个交互（`covered_until`，交互记录的前缀长度）与写下的时间。`recorded_interaction_count` 由它派生，是最后一条的覆盖位置，还没有写过一条时为 0；其后的交互是还没有整理的原始交互记录，二者合起来就是话题的进展，回答话题进行到哪一步。构造时校验各条依次覆盖相邻的区间：每一条从上一条覆盖到的位置开始、往后至少一轮、不超过交互记录，指回的区间与覆盖的位置一致。话题快照（`TopicSnapshot`）带出进展记录、还没有整理的轮数（`unrecorded_turn_count`），以及其中最近至多 3 轮的节选（`unrecorded_turns`：轮次号，用户消息与回复各截到 200 个字符，超出时加省略号），话题池界面据此展示话题的进展；节选取自交互记录，已经折叠、还没有整理的轮次也在内。Gateway 读快照但不渲染这几项。
 
-工作视图由两份原始数据派生，不单独存储：`blocks` 是最后一次折叠之后的交互记录，`fold_summary` 是最后一次折叠的摘要（没有折叠时为空串），`total_tokens` 是 `blocks` 的 token 之和。读取话题内容的消费方（折叠选择、Gateway 查询分析、主动生成与话题快照）读的都是工作视图。工作视图不另存一份，是为了不让同一事实有两份表达：分开存储的副本需要在每次写入与折叠时维持“工作视图是交互记录的后缀”，派生则不会失去一致。构造时校验全部折叠记录依次拼接，必须等于交互记录开头同样数量的块标识；`TopicData` 拒绝未声明的字段，以 `blocks=` 等工作视图名构造时显式失败。
+工作视图由两份原始数据派生，不单独存储：`blocks` 是最后一次折叠之后的交互记录，`fold_summary` 是最后一次折叠的摘要（没有折叠时为空串），`total_tokens` 是 `blocks` 的 token 之和。读取话题内容的消费方（折叠选择、Gateway 查询分析、主动生成与话题快照）读的都是工作视图；快照中的进展记录与还没有整理的轮次例外，取自交互记录。工作视图不另存一份，是为了不让同一事实有两份表达：分开存储的副本需要在每次写入与折叠时维持“工作视图是交互记录的后缀”，派生则不会失去一致。构造时校验全部折叠记录依次拼接，必须等于交互记录开头同样数量的块标识；`TopicData` 拒绝未声明的字段，以 `blocks=` 等工作视图名构造时显式失败。
 
-写入话题的方法归短期存储（`ShortTermMemoryStore`），话题上发生的事各有一个写入方法，写入就是在日志末尾追加一条记录：`append_interaction` 只向交互记录追加一轮（以及首次资产绑定），`append_fold` 只追加一条折叠记录，`append_settled` 只推进沉淀进度、不改内容与最近写入时间，`append_generated_memories` 只改本话题生成的记忆（合并改指只在被吸收的记忆在话题当时的记录中时生效），另有建立话题的 `create` 与退役的 `retire`。每种记录有一个套用函数（`memory_library.topic_log`），以完整构造（`TopicData.model_validate`）产生新的读取值：Pydantic 的 `model_copy(update=...)` 不运行校验器，用它写回会绕过构造校验。套用函数是纯的，时间取记录里的发生时间，运行时的写入与启动时的重放用同一组函数，重放得到的读取值与写入时内存中的相同。core 话题模型只保留 `TopicData`、`TopicFold` 与读取侧的派生（`topic_working_blocks`、`topic_fold_summary`）。
+写入话题的方法归短期存储（`ShortTermMemoryStore`），话题上发生的事各有一个写入方法，写入就是在日志末尾追加一条记录：`append_interaction` 只向交互记录追加一轮（以及首次资产绑定），`append_fold` 只追加一条折叠记录，`append_settled` 只推进沉淀进度、不改内容与最近写入时间，`append_generated_memories` 只改本话题生成的记忆（合并改指只在被吸收的记忆在话题当时的记录中时生效），`append_progress_entry` 只在进展记录末尾追加一条、不改内容与最近写入时间，只记到池中的话题，另有建立话题的 `create` 与退役的 `retire`。每种记录有一个套用函数（`memory_library.topic_log`），以完整构造（`TopicData.model_validate`）产生新的读取值：Pydantic 的 `model_copy(update=...)` 不运行校验器，用它写回会绕过构造校验。套用函数是纯的，时间取记录里的发生时间，运行时的写入与启动时的重放用同一组函数，重放得到的读取值与写入时内存中的相同。core 话题模型只保留 `TopicData`、`TopicFold`、`TopicProgressEntry` 与读取侧的派生（`topic_working_blocks`、`topic_fold_summary`）。
 
-读取值只承载内容事实：执行占用不建模为记录字段（原 `BufferState` 状态机与 `last_accessed_at` 访问时间已删除），跨 await 的占用权由 `TopicWorkingSet` 的 lease 表达（本话题生成的记忆与沉淀完成的写入不取 lease，第 4 节），访问顺序由 WorkingSet 的 LRU 索引维护；占用、访问时间、在途沉淀与 LRU 都只在进程内，不写进日志，日志只记已经发生的事。短期存储在内存中放池中话题的 frozen `TopicData`，读取原样返回、不碰磁盘，Store 与 Perception 之间只交接不可变的读取值；生命周期写回由 PerceptionFamiliar 编排。
+读取值只承载内容事实：执行占用不建模为记录字段（原 `BufferState` 状态机与 `last_accessed_at` 访问时间已删除），跨 await 的占用权由 `TopicWorkingSet` 的 lease 表达（本话题生成的记忆、沉淀完成与进展记录的写入不取 lease，第 4、7 节），访问顺序由 WorkingSet 的 LRU 索引维护；占用、访问时间、在途沉淀、写进展记录失败的位置与 LRU 都只在进程内，不写进日志，日志只记已经发生的事。短期存储在内存中放池中话题的 frozen `TopicData`，读取原样返回、不碰磁盘，Store 与 Perception 之间只交接不可变的读取值；生命周期写回由 PerceptionFamiliar 编排。
 
 ## 2. 结构化摄入
 
@@ -156,11 +156,11 @@ Topic 是否为空只看是否接收过交互：`has_content` 为交互记录非
 
 当话题工作视图的 token 超过 `fold_token_threshold`（默认 32768）且有可折叠的旧前缀时，话题需要折叠。`fold_retain_recent_blocks`（默认 2，必须大于 0）定义工作视图中保留的最近 blocks 数；旧前缀与 previous summary 由 RelayController 合成为新的折叠摘要，写回只追加一条折叠记录，工作视图从被折叠的块之后开始，保留后缀继续参与下一轮上下文。Relay 不总结保留后缀，避免 `fold_summary + recent_blocks` 重复承载同一轮事实。由于 Relay 摘要生成的整个窗口内 `compact_topic` 持有该话题的 lease，其他调用无法同时取得占用权，写回不再需要旧的 expected_state 前缀补偿校验。
 
-折叠是话题自身的维护，不属于交互应用。交互写入话题即完成提交；交互提交队列在这次应用之后检查 `needs_compact`，需要时排入一个折叠项。折叠项与该话题的提交共用排序键 `topic:{topic_id}`（`topic_ordering_key`），按键串行的 lane 因此在折叠执行期间挡住同一话题的后续提交，它们在队列中等待，等待不计入各自的处理时限；其他话题的提交照常执行。由此：
+折叠是话题自身的维护，不属于交互应用。交互写入话题即完成提交；交互提交队列在这次应用之后检查 `needs_compact`，需要时排入一个折叠项。折叠项是话题维护项（`TopicMaintenance`）的一种，另一种是写一条进展记录（第 7 节），两种的调度相同。折叠项与该话题的提交共用排序键 `topic:{topic_id}`（`topic_ordering_key`），按键串行的 lane 因此在折叠执行期间挡住同一话题的后续提交，它们在队列中等待，等待不计入各自的处理时限；其他话题的提交照常执行。由此：
 
 - 交互的确认（Import Bus 与任务进程的提交并等待应用）不包含折叠耗时；同一话题的下一轮要等折叠结束，Import Bus 等待超过 `import_bus.apply_wait_seconds` 时返回可重试的 503 `apply_pending`；
-- 同一话题同时至多一个未结束的折叠项；队列已满或排入时出错，就放弃这一次，交互结果不受影响，下一次写入该话题时重新判断；
-- 折叠失败只结束这个折叠项，话题保持原样；话题正被结算等用例占用时重试；
+- 同一话题同时至多一个未结束的维护项（折叠或写一条进展记录），已有时不再排入；队列已满或排入时出错，就放弃这一次，交互结果不受影响，下一次写入该话题时重新判断；
+- 折叠失败只结束这个折叠项，话题保持原样，日志原因码 `topic_compaction_failed`；话题正被结算等用例占用时重试；
 - LLM relay 的每次摘要调用以 `summary_timeout_seconds` 为时限（第 6 节），超时回退为规则摘要，使一次折叠的耗时有上限，并让话题回到阈值以下。
 
 交互应用的时限（30 秒）由提交队列的 handler 只对应用本身施加；lane 不设统一时限，折叠不被它截断。
@@ -178,7 +178,8 @@ overflow 不执行 Settle：折叠只推进工作视图。生成材料仍是工�
 - `build_block`: 把 `InteractionPayload` 转化为不可变 `LogicalBlock` 并估算 token。块的 `total_tokens` 是对整轮渲染材料的估算：用户消息、助手正文、思考、能力调用的一行摘要与外部工具步骤，只有外部工具结果按 `patchouli.generation.transcript.max_result_chars` 截断，折叠阈值因此直接反映生成实际看到的材料；能力调用读回的记忆不渲染，也不计入；
 - `should_compact`: 判断话题工作视图的 token 是否超过折叠阈值；
 - `select_blocks_to_fold`: 选择待折叠的旧 blocks 前缀（保留最近 N 个）；
-- `generate_fold_summary`: 异步生成 Page Folding 摘要（委托给持有的 `RelayController`）。
+- `generate_fold_summary`: 异步生成 Page Folding 摘要（委托给持有的 `RelayController`）；
+- `generate_progress_entry`: 以旧进展记录与还没整理的交互写出进展记录新的一条（委托给持有的 `ProgressRecordWriter`）；没有写进展记录的模型时 `writes_progress_record` 为假，话题不写进展记录。
 
 Engine 持有 `RelayController`，封装了完整的 compact 算法能力。`PerceptionFamiliar` 通过 Engine 的 `generate_fold_summary()` 获取摘要，不再直接持有 Relay 组件。
 
@@ -188,6 +189,10 @@ RelayController 有三种实现：
 - **LLMRelayController**: 经组合根注入的共享 LLM 服务，以 `patchouli.llm` 经模型注册表解析得到的请求参数异步生成更丰富摘要。近期事件是各块与记忆生成视图相同的材料，块之间空一行：被折叠的块此后只以摘要参与工作视图与生成，近期事件因此保留思考与外部工具过程，不只有问答；每次调用以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60 秒）为时限。只在没有可用 LLM（Librarian 未配置模型）、提供商失败（`ModelProviderError`，含超窗）或调用超时时回退为规则摘要，回退的规则摘要接在 previous summary 之后，已折叠的历史不丢失；程序错误不被规则摘要掩盖，沿 compact 路径传播；
 - **NoOpRelayController**: 用于关闭折叠能力。
 
+`ProgressRecordWriter`（`engines/perception/progress_record.py`）写进展记录的一条，与 LLM 接力用同一个模型与时限：Runtime 只在接力的 `relay.engine.type` 为 `llm`、且 `patchouli.llm` 配置了模型时创建它，每次调用以 `summary_timeout_seconds` 为时限，提供商失败重试一次。输入只有两部分：旧进展记录逐条列出，只作上下文；还没整理的交互按感知层唯一的材料渲染，每一轮标上它在话题中的轮次号（`[Turn N]`），结局不是 completed 的轮次在轮首注明，与记忆生成视图相同。提示词按语言取自 `i18n/prompts.py`，只有一份：话题还没有写过一条时，旧进展记录一节写“暂无”（英文 “None”），提示词写的是“以旧进展记录（如有）作为参考”。要求 JSON 输出，结果是 `{"entry": "..."}`；不是这个形状、正文为空、超时或提供商失败都抛出，不回退为规则摘要：进展记录只往后追加，一条写坏了不能再改，宁可这一次不写。
+
+输入同时有旧进展记录与新交互：看得到旧进展记录，写的人知道前面在谈什么、做什么，这一段推进了多少，又不与前面重复；只看新交互时没有上下文，留下的常是“请修改后提交”这类离开前文就读不懂的短句。旧进展记录只作上下文，不改写，新的一条只写这一段新交互带来的进展，也不做结构化的条目。不每次由全部材料重新生成整份进展记录：那只能产出一句始终翻新的总结，前后两次没有约束，容易不一致、变成笼统概括；进展记录比折叠生成得更频繁，全量的成本也高。话题可能是一项工作，也可能是一段讨论或闲聊，提示词不假设话题是工作。
+
 Relay 控制器由 Runtime 按配置创建并注入 Engine 构造。关闭 perception（`engine.enable=false`）时 Runtime 注入 `engine=None`，Familiar 的摄入路径变为无副作用 no-op（原 NullPerceptionLayer 语义），维护用例对空存储自然空转。
 
 Engine 不持有 Store / Queue，也不导入 `hivememory.patchouli.*`，可被其他 runtime 复用、可纯单元测试。
@@ -196,13 +201,17 @@ Engine 不持有 Store / Queue，也不导入 `hivememory.patchouli.*`，可被�
 
 全局 scheduler 定期调用 `scan_idle_topics_once()`；候选来自 WorkingSet 的 idle 查询（访问时间超时且未被 lease 占用），有新交互的逐个沉淀，从没接收过交互的空话题直接退役，admission 失败记录警告并留待下一轮。沉淀之后话题留在池中、访问时间不变，没有新交互就不会再被沉淀，同一段空闲因此不会反复沉淀；话题接收新交互后重新计时。
 
-**话题的日志**。每个话题是一条只追加的日志，存成一个 JSON Lines 文件 `<topic_dir>/<topic_id>.jsonl`（`patchouli.perception.topic_dir`，默认 `.hivememory/topics`，相对路径按工作目录解析），一行一条记录：`created`（格式版本、Workspace 归属、标题与展示摘要）、`interaction`、`fold`、`settled`（沉淀覆盖到的交互数）、`writes` 与 `retired`（退役原因）；每条带发生时间，内容沿用现有模型的 JSON 形式。话题 ID 全局唯一，Workspace 归属写在第一条记录里，目录不按 Workspace 分层：数据根的路径长度有限制。话题上发生的事发生时即落盘，不改写已有的记录：话题按顺序保存全部交互，折叠不丢原文，沉淀进度与本话题生成的记忆都只往后加，它本来就是一条只增长的日志；把它当作整块快照保存，每写一点都要重建整个话题，也只能在正常关闭时整池写出、崩溃即全部丢失。唯一的 Port 实现 `JsonlShortTermStorage` 同步写一行并交给操作系统（不经 Python 的缓冲），进程崩溃不丢；不 fsync，断电可能丢失最后几行。追加失败时文件截回追加之前的长度，日志里不留半行，存储先落盘再改内存，内存中的读取值不变、错误照常传播。健康检查报告话题目录是否可写。
+**停顿与进展记录**。读话题的进展的，是停下之后回来的人或另一个会话；交互连续进行时，前台自己的上下文就够用。所以话题停顿时写一条：全局 scheduler 定期调用 `scan_paused_topics_once()`（任务 `perception_progress_record`，默认每 30 秒），候选与空闲扫描相同（访问时间超过阈值且未被 lease 占用），阈值是 `patchouli.perception.progress_record_pause_seconds`（默认 1800 秒）。有还没整理的交互的话题由交互提交队列排入一个写一条的维护项（第 5 节），与折叠共用调度：与该话题的提交共用排序键，同一话题同时至多一个未结束的维护项，已有时这一轮不排、下一轮再看。停顿阈值小于空闲沉淀的时限，空闲时通常已经写过一条，空闲这一触发由停顿涵盖，不另外再写。写下一条之后访问时间不变，没有新交互就不会再写。
 
-**关闭**。关闭时 Patchouli 先关闭折叠——排队中的折叠项直接结束，进行中的折叠被取消，不改动话题——再排空提交队列（一并等待折叠项收尾，释放 lease），交互在关闭之前都已写进日志。之后只处理生成工作：生成队列停止取新工作，未执行的写入、更新与合并保存到磁盘，未执行的沉淀不保存、以关闭为原因取消，已开始写入的沉淀等它写完并记下进度（[记忆生成](./generation.md#62-提交阶段关闭时保存与启动时继续)）。话题不在关闭时沉淀或退役，空话题留到重启后由空闲扫描退役。
+写一条（`write_progress_entry`）读话题最新的读取值，取旧进展记录与第 `recorded_interaction_count` 个之后的交互，交给 Engine 生成一段总结，完成后经 `append_progress_entry` 追加，覆盖到此刻的交互数。它不取 lease：折叠持有 lease 是因为它折叠的是此刻工作视图的前缀，交互与结算都会改变它；写一条的前提只有“从当前覆盖到的位置开始”，这个位置只有写进展记录会改，同一话题同时至多一个维护项，交互只往后追加，前提不会被别的写入破坏，存储的位置校验兜住违反这一点的错误。生成期间沉淀与 LRU 照常取得 lease；话题因此退役或被删除时，`append_progress_entry` 找不到它，这一条不记。生成完成才追加，进程中途退出时什么都没有写下，重启后停顿到时再写，不需要在途状态。生成失败（提供商错误、超时、输出不合格）不改动话题，WorkingSet 在进程内记下这次要覆盖到的位置，同一位置不再重试，话题有了新交互再判断，避免提供商故障时每一轮扫描都重试；失败以 Work Queue 的 `work.*` 出现，日志原因码 `progress_record_failed`。写下一条记一行 info 日志（话题、覆盖的轮数与覆盖到的位置、正文字数，不记内容）。进展记录不进入记忆生成的材料，结算冻结的仍是交互记录与折叠记录。
+
+**话题的日志**。每个话题是一条只追加的日志，存成一个 JSON Lines 文件 `<topic_dir>/<topic_id>.jsonl`（`patchouli.perception.topic_dir`，默认 `.hivememory/topics`，相对路径按工作目录解析），一行一条记录：`created`（格式版本、Workspace 归属、标题与展示摘要）、`interaction`、`fold`、`settled`（沉淀覆盖到的交互数）、`generated_memories`（本话题生成的记忆与合并改指）、`progress_entry`（进展记录的一条）与 `retired`（退役原因）；每条带发生时间，内容沿用现有模型的 JSON 形式。话题 ID 全局唯一，Workspace 归属写在第一条记录里，目录不按 Workspace 分层：数据根的路径长度有限制。话题上发生的事发生时即落盘，不改写已有的记录：话题按顺序保存全部交互，折叠不丢原文，沉淀进度、本话题生成的记忆与进展记录都只往后加，它本来就是一条只增长的日志；把它当作整块快照保存，每写一点都要重建整个话题，也只能在正常关闭时整池写出、崩溃即全部丢失。唯一的 Port 实现 `JsonlShortTermStorage` 同步写一行并交给操作系统（不经 Python 的缓冲），进程崩溃不丢；不 fsync，断电可能丢失最后几行。追加失败时文件截回追加之前的长度，日志里不留半行，存储先落盘再改内存，内存中的读取值不变、错误照常传播。健康检查报告话题目录是否可写。
+
+**关闭**。关闭时 Patchouli 先关闭话题维护——排队中的维护项直接结束，进行中的折叠与写一条进展记录被取消，不改动话题——再排空提交队列（一并等待维护项收尾，折叠释放 lease），交互在关闭之前都已写进日志。之后只处理生成工作：生成队列停止取新工作，未执行的写入、更新与合并保存到磁盘，未执行的沉淀不保存、以关闭为原因取消，已开始写入的沉淀等它写完并记下进度（[记忆生成](./generation.md#62-提交阶段关闭时保存与启动时继续)）。话题不在关闭时沉淀或退役，也不为停下的话题写进展记录（退出不等待模型调用），空话题留到重启后由空闲扫描退役。
 
 **启动时读回**。下次启动时，Patchouli 在挂载公开路由与启动交互提交之前读回全部日志并重放（`ShortTermMemoryStore.load`），Gateway 与新交互看到的是上次运行留下的话题池，不论上次是正常关闭还是进程崩溃：
 
-- 没有退役的话题回到存储，`restore_topics` 按 `last_update` 从旧到新登记驻留，最久没有写入的是第一个 LRU 候选；驻留的访问时间不写进日志，这只是上次运行访问顺序的近似，空闲计时从读回时重新开始。读回的进度停在上一次完成的沉淀，上次运行中在途或关闭时取消的沉淀，在之后的空闲扫描中重新沉淀。
+- 没有退役的话题回到存储，`restore_topics` 按 `last_update` 从旧到新登记驻留，最久没有写入的是第一个 LRU 候选；驻留的访问时间不写进日志，这只是上次运行访问顺序的近似，空闲计时从读回时重新开始。读回的进度停在上一次完成的沉淀，上次运行中在途或关闭时取消的沉淀，在之后的空闲扫描中重新沉淀。进展记录随日志重放，停顿计时同样从读回时重新开始，到时再写；升级前已有的话题没有进展记录，停顿之后从第 1 个交互开始写第一条。
 - 已经退役、最后一次沉淀没有完成的话题不回到话题池，在生成队列启动之后由 `resettle_retired_topics` 重新发起这次沉淀（材料由日志组装，`retires_topic=True`，带原来的退役原因），完成时删除日志；没有被生成队列接纳的保留日志，下次启动再发起。已经退役、沉淀都已完成的（删除日志之前进程退出）直接删除日志。
 - 同一 Workspace 读回的话题超过 `max_resident_topics`（配置在两次运行之间调小）时全部读回，下一次需要新话题时由 LRU 逐个退役到容量以内，不丢未沉淀的交互。
 - 最后一行不完整（没有换行，写入中途进程退出）时丢弃并从文件中截掉这半行，其余照常读回（`topic_log_partial_line`）；中间某一行解析或校验失败、格式版本不认识、或重放时构造校验失败时，整个文件改名为同目录的 rejected 文件（`<topic_id>.rejected-<UTC 时间>.jsonl`），这个话题不读回（`topic_log_unreadable`）。
@@ -224,7 +233,8 @@ Engine 不持有 Store / Queue，也不导入 `hivememory.patchouli.*`，可被�
 - 所有 compact 配置与 Engine 的折叠选择都拒绝小于 1 的 retain 值，折叠后工作视图至少保留一个最新 block；
 - 被折叠的轮次只以有损的 `fold_summary` 进入生成材料，原文只保存在来源 InteractionArtifact 中，生成不回读；
 - Relay 的摘要调用在 lease 持有期间进行：LLM relay 等待模型时不阻塞事件循环，但该话题一直被占用，同一话题的后续提交在队列中等待，手动结算会遇到忙碌；
-- 折叠项占用提交队列的一个执行槽（共 4 个），一次最多占用摘要时限（默认 60 秒）；多个话题同时折叠时，其他话题的提交要等执行槽；
+- 维护项（折叠与写一条进展记录）占用提交队列的一个执行槽（共 4 个），一次最多占用摘要时限（默认 60 秒）；多个话题同时维护时，其他话题的提交要等执行槽；写一条期间同一话题新到的交互排在它之后等待，与折叠相同，虽然写一条本身不需要排在交互之间；
+- 进展记录只在话题停顿时写：会话切到别的话题、一轮之内都不写；停顿看驻留的访问时间，为写入确定话题时也会刷新，跨重启后从读回时重新计时。旧条目全部保留、全部进入写下一条的输入，没有合并或截取，长话题的输入随条数增长，每次停顿一次模型调用；写一条失败后，同一位置只在本进程内不再重试，重启后照常再写。接力不用 LLM、或没有配置 `patchouli.llm` 时不写进展记录。进展记录经话题列表的 HTTP 响应交出，agent 一侧没有读取入口；
 - 折叠项排在已入队的同一话题提交之后：同一话题积压多轮时，这些轮次都写入之后才折叠一次，这次的摘要输入相应更大；Import Bus 每个外部会话同时只有一轮在途，积压通常很小；
 - WorkingSet 的容量检查与候选选择运行在单事件循环内（方法同步、不内部 await），跨线程使用需调用方先行串行化；两个并发 NEW_TOPIC 的容量检查存在与旧实现等价的短暂竞态窗口；
 - flush 触发器的历史 e2e 用例随感知层删除而移除，重建需要真实 LLM/Qdrant 栈；当前回归由 Familiar 集成测试（tests/integration/patchouli/test_perception.py）覆盖；

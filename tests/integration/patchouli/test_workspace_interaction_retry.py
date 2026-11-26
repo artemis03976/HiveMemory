@@ -179,7 +179,7 @@ async def test_compaction_runs_after_apply_and_next_same_topic_submission_follow
         from_actor=scope.actor_identity,
         interaction_id="i-first",
     )
-    queue = InteractionSubmissionQueue(familiar.apply_interaction, compaction=familiar)
+    queue = InteractionSubmissionQueue(familiar.apply_interaction, maintenance=familiar)
 
     def submission(interaction_id: str, message: str) -> InteractionSubmission:
         return InteractionSubmission(

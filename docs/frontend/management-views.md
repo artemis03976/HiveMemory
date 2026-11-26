@@ -21,7 +21,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # 前端管理页面
@@ -70,15 +70,16 @@ last_reviewed: 2026-11-25
 
 短期话题是 Patchouli 中还没有退役的话题：对话与导入中相关的几轮聚成一个话题暂存。话题空闲时，新的内容沉淀为长期记忆，话题仍留在池中；池满或手动结算时，话题沉淀之后退役、离开话题池；话题随时落盘，后端关闭或崩溃之后，下次启动时话题池照旧。话题的建立、折叠、沉淀与退役都由 Patchouli 负责（[感知与短期话题](../patchouli/perception.md#4-触发原因与具名用例)）；话题池只读取快照、发起手动结算与丢弃，并把自动沉淀的规则写给人看，不自行推断话题的生命周期。
 
-**读取**：进入记忆图书馆与点工具栏的刷新时，以 `GET /api/v1/topics` 经 root API 读取当前 Workspace 的驻留话题，其他时候不自动刷新。每个话题带标题、话题摘要（`topic_summary`）、折叠摘要（`fold_summary`，被折叠的那部分交互的摘要）、最近一轮的用户消息与回复（`last_turn`）、片段数、tokens、所用模型、最近一次写入的时间，以及是否有还没沉淀的交互（`has_unsettled_interactions`）。读取失败时显示原因，连接类的原因由页面顶部的连接状态条说明。
+**读取**：进入记忆图书馆与点工具栏的刷新时，以 `GET /api/v1/topics` 经 root API 读取当前 Workspace 的驻留话题，其他时候不自动刷新。每个话题带标题、话题摘要（`topic_summary`）、折叠摘要（`fold_summary`，被折叠的那部分交互的摘要）、最近一轮的用户消息与回复（`last_turn`）、片段数、tokens、所用模型、最近一次写入的时间、是否有还没沉淀的交互（`has_unsettled_interactions`），以及话题的进展：进展记录（`progress_record`，每一条的正文、覆盖到第几轮与覆盖的轮数、写下的时间）、还没有整理的轮数（`unrecorded_turn_count`）与其中最近至多 3 轮的节选（`unrecorded_turns`，轮次号、用户消息与回复，后端各截到 200 个字符）。读取失败时显示原因，连接类的原因由页面顶部的连接状态条说明。
 
-**规则**：容量、空闲时长与折叠阈值经 `GET /api/v1/config` 从主配置读取，分别是 `patchouli.perception.engine.max_resident_topics`、`patchouli.perception.idle_timeout_seconds`、`patchouli.perception.engine.fold_token_threshold` 与 `fold_retain_recent_blocks`。四项中任一读不到时，页面只显示话题本身，工具栏、上下文与自动沉淀都不写具体数值。
+**规则**：容量、空闲时长、折叠阈值与写进展记录的停顿时长经 `GET /api/v1/config` 从主配置读取，分别是 `patchouli.perception.engine.max_resident_topics`、`patchouli.perception.idle_timeout_seconds`、`patchouli.perception.engine.fold_token_threshold` 与 `fold_retain_recent_blocks`、`patchouli.perception.progress_record_pause_seconds`。任一项读不到时，页面只显示话题本身，工具栏、上下文、自动沉淀与进展记录的说明都不写具体数值。
 
 **布局**：
 
 - **工具栏**：标签旁显示驻留数与容量（容量不超过 10 时画成格子），写明自动沉淀的规则（“话题空闲 N 分钟时，新内容会沉淀为长期记忆，话题仍留在池中；池满需要腾出位置时，最久没用的话题先沉淀再退出”），另有刷新按钮。
-- **列表**：每个话题一行，写标题（没有时为“未命名话题”）、折叠摘要（没有时用话题摘要）、片段数、tokens 与最近写入的相对时间；有还没沉淀的交互、预计十分钟内自动沉淀的话题以警示色标出。
-- **详情**：选中的话题（默认第一个）的标题、可复制的话题 ID、片段数、tokens 与模型。正文是“在聊什么”（话题摘要）、“较早内容的摘要”（折叠摘要）与“最近一轮”（用户消息与回复），没有空格的长串也会换行。侧栏是上下文用量（对比折叠阈值，超过后较早的片段折叠成摘要，只保留最近几个片段的原文，[Page Folding](../patchouli/perception.md#5-page-folding)）、自动沉淀的估算与基本信息。
+- **列表**：每个话题一行，写标题（没有时为“未命名话题”）、折叠摘要（没有时用话题摘要）、片段数、tokens 与最近写入的相对时间；写过进展记录的话题以樱花色标出条数（“N 条进展”）；有还没沉淀的交互、预计十分钟内自动沉淀的话题以警示色标出。
+- **详情**：选中的话题（默认第一个）的标题、可复制的话题 ID、片段数、tokens 与模型。正文依次是“在聊什么”（话题摘要）、“话题的进展”、“较早内容的摘要”（折叠摘要，只在话题折叠过时出现）与“最近一轮”（用户消息与回复），没有空格的长串也会换行。侧栏是上下文用量（对比折叠阈值，超过后较早的片段折叠成摘要，只保留最近几个片段的原文，[Page Folding](../patchouli/perception.md#5-page-folding)）、自动沉淀的估算与基本信息。
+- **话题的进展**：进展记录按写下的顺序逐条列出，每一条写覆盖的轮次（“第 a–b 轮”，只有一轮时“第 n 轮”）、覆盖的轮数、写下的时间与正文，沿一条时间线排列，最新的一条以樱花色标出；标题旁写条数与已整理的轮数（“N 条进展记录 · 已整理 a / b 轮”）。其后是还没有整理的轮数（“还有 N 轮没有整理”），点开列出最近至多 3 轮的节选（轮次号、用户消息与回复各两行），更早的只写出轮数（“只列出最近 3 轮，更早的 M 轮没有展开”），切换话题时收起；全部整理之后改为“全部 N 轮都已整理”。还没有写过一条时说明话题停顿多久后写下第一条，在那之前话题的进展就是还没有整理的轮次。从没接收过交互的话题不显示这一节。进展记录由后端在话题停顿时写下（[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节），页面只读取，不发起写一条。
 - **自动沉淀的估算**：只对有还没沉淀的交互的话题，以最近一次写入加空闲时长估算剩余分钟（“约 N 分钟后沉淀”），每分钟刷新；已经沉淀、没有新内容的话题不显示估算。后端以话题最近一次被确认或写入的时间计时并由周期扫描沉淀，实际沉淀可能稍晚，话题再次写入后重新计时（[维护与关闭](../patchouli/perception.md#7-维护存储与启动时读回)）。
 - **窄窗口**：宽度在 1280px 以下时列表由 400px 收窄到 300px，信息卡排到正文之后、与正文一起滚动。
 - **空池**：说明话题从哪里来、何时沉淀、何时离开，并给出“去对话”。
@@ -201,7 +202,7 @@ Model 页面通过 `/api/v1/models` 管理本机的生效文件 `configs/models.
 | 页面 | 前端入口 | 后端验证 |
 |:---|:---|:---|
 | Memory Library | `hooks/useMemories.ts`、`components/memory/`、`stores/memory/viewStore.ts`、`services/memoryApi.ts`；翻页取全由 `frontend/tests/memory-api.test.mjs`（`node --test`）验证，统一的时间格式由 `date-time.test.mjs` 验证；可见范围的候选合并与取值互换由 `memory-visibility.test.mjs` 验证 | `tests/unit/server/routers/test_memories.py`（含可见范围的透传与 TEAM 的拒绝）；可见范围的创建与修改由 `tests/unit/patchouli/services/test_external_edit_validation.py` 验证，经真实路由改策略后其他 Agent 读不到由 `tests/integration/patchouli/test_memory_management_edit_route.py` 验证；翻页、类型排除与计数经真实 Qdrant 内存模式的 `tests/integration/patchouli/test_memory_management_listing.py` |
-| 短期话题池 | `components/memory/TopicPool.tsx`、`stores/topic/topicStore.ts`、`services/topicApi.ts`、`utils/topicPool.ts`；自动结算的估算与 tokens 的显示由 `frontend/tests/topic-pool.test.mjs` 验证 | `tests/unit/server/routers/test_topics.py` |
+| 短期话题池 | `components/memory/TopicPool.tsx`、`stores/topic/topicStore.ts`、`services/topicApi.ts`、`utils/topicPool.ts`；自动结算的估算、tokens 的显示、进展记录的轮次换算与话题的进展的几种状态由 `frontend/tests/topic-pool.test.mjs` 验证 | `tests/unit/server/routers/test_topics.py` |
 | Agent Management | `hooks/useAgents.ts`、`useAgentManagement.ts`、`components/agent/`、`services/agentApi.ts` | `tests/unit/server/routers/test_agents.py`（新建、修改、删除与列出，`agent_id` 不可改）；Profile 文件的读写与校验由 `tests/unit/memory_library/test_agent_profiles.py` 验证，停用的 Profile 由 `tests/unit/patchouli/services/test_profile_resolution.py` 验证 |
 | Settings | `hooks/useSettings.ts`、`components/settings/TieredSettings.tsx`、`constants/settingsSchema.ts`、`services/configApi.ts`；debug 模式的模拟配置为每个字段给出与控件相符的值，由 `frontend/tests/settings-mock-config.test.mjs` 验证 | `test_config.py`，其中校验字段表中的每条路径都存在于主配置 |
 | Provider Registry | `ProviderSettings.tsx`、`providerRegistryApi.ts` | `test_providers_router.py`、`test_provider_registry.py` |

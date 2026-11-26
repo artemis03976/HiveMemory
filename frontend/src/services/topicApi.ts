@@ -9,7 +9,7 @@
 import { apiErrorMessage } from '@/services/apiError';
 
 import { identityHeaders } from '@/services/identity';
-import type { Topic } from '@/types';
+import type { Topic, TopicProgressEntry } from '@/types';
 import { apiUrl } from '@/transports/backendUrl';
 import { backendFetch } from '@/transports/connectionStatus';
 
@@ -26,10 +26,35 @@ export interface ApiTopicSnapshot {
   model_used?: string;
   /** 是否有还没有沉淀为长期记忆的交互。 */
   has_unsettled_interactions: boolean;
+  /** 进展记录，按写下的顺序。 */
+  progress_record: ApiProgressEntry[];
+  /** 进展记录还没有覆盖到的交互轮数。 */
+  unrecorded_turn_count: number;
+  /** 还没有整理的交互中最近至多 3 轮的节选。 */
+  unrecorded_turns: { turn_number: number; user: string; assistant: string }[];
+}
+
+interface ApiProgressEntry {
+  text: string;
+  /** 这一条覆盖到话题的第几轮（从 1 数起）。 */
+  covered_until: number;
+  /** 这一条覆盖的轮数。 */
+  turn_count: number;
+  /** 写下这一条的 Unix 时间戳（秒）。 */
+  written_at: number;
 }
 
 interface ActiveTopicListResponse {
   topics: ApiTopicSnapshot[];
+}
+
+function mapProgressEntry(raw: ApiProgressEntry): TopicProgressEntry {
+  return {
+    text: raw.text,
+    fromTurn: raw.covered_until - raw.turn_count + 1,
+    toTurn: raw.covered_until,
+    writtenAt: raw.written_at * 1000,
+  };
 }
 
 export function mapTopic(raw: ApiTopicSnapshot): Topic {
@@ -44,6 +69,13 @@ export function mapTopic(raw: ApiTopicSnapshot): Topic {
     blockCount: raw.block_count ?? 0,
     totalTokens: raw.total_tokens ?? 0,
     hasUnsettledInteractions: raw.has_unsettled_interactions,
+    progressRecord: raw.progress_record.map(mapProgressEntry),
+    unrecordedTurnCount: raw.unrecorded_turn_count,
+    unrecordedTurns: raw.unrecorded_turns.map((turn) => ({
+      turnNumber: turn.turn_number,
+      user: turn.user,
+      assistant: turn.assistant,
+    })),
   };
 }
 

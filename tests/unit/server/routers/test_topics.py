@@ -9,7 +9,12 @@ from fastapi.testclient import TestClient
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.errors import ResourceNotFoundError
-from hivememory.core.models import TopicLastTurn, TopicSnapshot
+from hivememory.core.models import (
+    TopicLastTurn,
+    TopicProgressEntry,
+    TopicSnapshot,
+    TopicTurnExcerpt,
+)
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.contracts.topic_management import (
@@ -74,6 +79,26 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
         topic_summary="topic summary",
         model_used="model-a",
         has_unsettled_interactions=True,
+        progress_record=(
+            TopicProgressEntry(
+                text="讨论了发布顺序",
+                from_turn_id="turn-1",
+                to_turn_id="turn-2",
+                to_event_seq=3,
+                covered_until=2,
+                written_at=1_700_000_100.0,
+            ),
+            TopicProgressEntry(
+                text="定下先发 staging",
+                from_turn_id="turn-3",
+                to_turn_id="turn-5",
+                to_event_seq=1,
+                covered_until=5,
+                written_at=1_700_000_200.0,
+            ),
+        ),
+        unrecorded_turn_count=1,
+        unrecorded_turns=(TopicTurnExcerpt(turn_number=6, user="统计一下", assistant="共 4 次"),),
     )
 
 
@@ -102,6 +127,18 @@ class TestTopicsRouter:
         assert data["topics"][0]["last_update"] == 1_700_000_000.0
         assert data["topics"][0]["model_used"] == "model-a"
         assert data["topics"][0]["has_unsettled_interactions"] is True
+        # 每一条覆盖的轮数是它与上一条的覆盖位置之差。
+        assert [
+            (entry["text"], entry["from_turn_id"], entry["covered_until"], entry["turn_count"])
+            for entry in data["topics"][0]["progress_record"]
+        ] == [("讨论了发布顺序", "turn-1", 2, 2), ("定下先发 staging", "turn-3", 5, 3)]
+        assert data["topics"][0]["progress_record"][1]["to_turn_id"] == "turn-5"
+        assert data["topics"][0]["progress_record"][1]["to_event_seq"] == 1
+        assert data["topics"][0]["progress_record"][1]["written_at"] == 1_700_000_200.0
+        assert data["topics"][0]["unrecorded_turn_count"] == 1
+        assert data["topics"][0]["unrecorded_turns"] == [
+            {"turn_number": 6, "user": "统计一下", "assistant": "共 4 次"}
+        ]
         assert "workspace_identity" not in data["topics"][0]
 
     def test_list_topics_empty(self):

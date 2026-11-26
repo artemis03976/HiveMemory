@@ -19,6 +19,7 @@ from hivememory.i18n.prompts import (
     get_generation_schema_description,
     get_mtp_prompt_text,
     get_mtp_verb_text,
+    get_progress_record_prompt_text,
     get_relay_prompt_text,
     get_system_prompt_text,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "get_gateway_prompt_text",
     "get_mtp_prompt_text",
     "get_mtp_verb_text",
+    "get_progress_record_prompt_text",
     "get_relay_prompt_text",
     "get_system_prompt_text",
     "get_time_formatter_text",
