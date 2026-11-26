@@ -1,15 +1,15 @@
 """Storage facades for Patchouli memory layers.
 
-短期存储只暴露持久化事实（CRUD 与套用写函数的原子写入）。Topic 状态转换、compact、
-settle、驱逐与路由策略不属于本模块；占用权（lease）由 ``TopicWorkingSet`` 管理，编排由
-Perception Familiar 承担。
+短期存储只暴露持久化事实：话题上每种事件一个写入方法，写入即在话题的日志末尾追加一条记录。
+Topic 状态转换、compact、settle、驱逐与路由策略不属于本模块；占用权（lease）由
+``TopicWorkingSet`` 管理，编排由 Perception Familiar 承担。
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -17,17 +17,20 @@ from uuid import UUID, uuid4
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import (
     ActorIdentity,
+    LogicalBlock,
     MemoryAtom,
     TopicData,
+    WorkspaceAssetRef,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.artifact import ArtifactRef
 from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.engines.lifecycle.models import ArchiveRecord
-from hivememory.memory_library.adapters.short_term import InMemoryShortTermStorage
+from hivememory.engines.perception.models import TriggerReason
 from hivememory.memory_library.models import (
     ArtifactIntegrityResult,
+    LoadedTopicLogs,
     StorageHealthComponent,
 )
 from hivememory.memory_library.ports import (
@@ -37,59 +40,99 @@ from hivememory.memory_library.ports import (
     MidTermStoragePort,
     ShortTermStoragePort,
 )
+from hivememory.memory_library.topic_log import (
+    TopicCreatedRecord,
+    TopicFoldRecord,
+    TopicGeneratedMemoriesRecord,
+    TopicInteractionRecord,
+    TopicLogRecord,
+    TopicRetiredRecord,
+    TopicSettledRecord,
+    apply_fold,
+    apply_generated_memories,
+    apply_interaction,
+    apply_settled,
+    decode_topic_record,
+    encode_topic_record,
+    replay_topic_log,
+    topic_from_created,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ShortTermMemoryStore:
-    """短期 Topic 持久化 facade。
+    """短期话题的存储：每个话题一条只追加的日志，内存中放池中话题的读取值。
 
-    职责：封装 Port（get/put/delete/list）、全局 ID 唯一性检查（Port 内执行）、
-    返回不可变 ``TopicData`` 业务快照，以及在最新快照上套用写函数的原子写入
-    （``update``）。
+    话题上发生的每件事各有一个写入方法，写入就是在日志末尾追加一条记录。写入方法不检查话题
+    处在什么状态：谁能写、什么时候写由 ``TopicWorkingSet`` 的 lease 保证，同一话题的各次写入一个
+    接一个。每次写入在锁内依次：读当前值 → 用套用函数算出新值（构造校验失败直接抛出，什么都
+    不写）→ 经 Port 追加这一行 → 替换内存中的值。先落盘再改内存：追加失败时内存不变，错误
+    照常传播。写入方法在话题不存在时什么都不写，返回 ``None``。
 
-    不职责：不持有驻留容量与访问时间（``TopicWorkingSet`` 的工作集索引）、
-    不持有执行占用状态（lease 表）、不执行 compact/settle 等组合操作
-    （Familiar 的编排）。
+    读取只读内存，不碰磁盘；磁盘只在写入时追加、在启动时由 :meth:`load` 读回。读取原样返回
+    存储的 frozen 实例，调用方无法经引用改写存储的事实。
+
+    退役的话题离开话题池，读取方法看不到它；它的日志保留到最后一次沉淀完成后再删除，其间只有
+    :meth:`append_settled`、:meth:`append_generated_memories`、:meth:`get_generated_memories` 与 :meth:`delete` 还能
+    找到它：沉淀完成与本话题生成的记忆在话题退役之后照样记、照样读。
+
+    不职责：驻留容量、访问时间与 lease 属于 ``TopicWorkingSet``；沉淀、折叠与退役的编排属于
+    Perception Familiar。
     """
 
-    def __init__(self, port: ShortTermStoragePort | None = None) -> None:
-        self._port = port or InMemoryShortTermStorage()
-        # 只保护 Port 读写的原子性；工作集与生命周期决策不在本模块。
+    def __init__(self, port: ShortTermStoragePort) -> None:
+        self._port = port
+        # 话题 ID 全局唯一，读取时再核对 Workspace 归属。
+        self._topics: dict[str, TopicData] = {}
+        self._retired: dict[str, TopicData] = {}
+        # 保护“读当前值 → 追加 → 替换”的原子性；工作集与生命周期决策不在本模块。
         self._lock = threading.RLock()
 
+    # ========== 读取 ==========
+
     def get(self, belong_to: WorkspaceIdentity, topic_id: str) -> TopicData | None:
-        """读取不可变业务快照；访问追踪在 WorkingSet，不在此处。"""
+        """读取池中话题的读取值；访问追踪在 WorkingSet，不在此处。"""
         with self._lock:
-            return self._port.get(belong_to, topic_id)
+            return _owned(self._topics.get(topic_id), belong_to)
 
-    def put(self, topic: TopicData) -> None:
-        """写入或替换话题快照；全局 ID 唯一性检查在 Port 内部。"""
-        if not isinstance(topic, TopicData):
-            raise TypeError("short-term store accepts TopicData snapshots")
-        with self._lock:
-            self._port.put(topic)
-
-    def update(
+    def list_by_workspace(
         self,
         belong_to: WorkspaceIdentity,
-        topic_id: str,
-        write: Callable[[TopicData], TopicData],
-    ) -> TopicData | None:
-        """在话题的最新快照上套用 ``write`` 并写回，返回新快照。
+        *,
+        include_empty: bool = True,
+    ) -> list[TopicData]:
+        """列出 Workspace 内池中的话题。"""
+        with self._lock:
+            return [
+                topic
+                for topic in self._topics.values()
+                if topic.workspace_identity == belong_to and (include_empty or topic.has_content)
+            ]
 
-        读取、套用与写回在同一把锁内完成，其间不会有别的写回插入，因此调用方不必在
-        跨 await 之后重新读取话题：await 之前读到的快照不会被写回。话题不存在时不调用
-        ``write``、返回 ``None``。``write`` 是不做 I/O 的纯函数；它抛出的错误照常传播，
-        话题不变。
+    def list_all(self) -> list[TopicData]:
+        """列出全部 Workspace 池中的话题（进程级维护路径使用）。"""
+        with self._lock:
+            return list(self._topics.values())
+
+    def count(self, belong_to: WorkspaceIdentity) -> int:
+        """统计 Workspace 内池中的话题数量。"""
+        return len(self.list_by_workspace(belong_to))
+
+    def get_generated_memories(
+        self, belong_to: WorkspaceIdentity, topic_id: str
+    ) -> frozenset[str] | None:
+        """本话题生成的记忆；退役话题的日志删除之前同样交出，话题不存在时返回 ``None``。
+
+        只交出本话题生成的记忆：退役的话题不回到话题池，其余内容仍只经池中话题的读取方法交出。
         """
         with self._lock:
-            topic = self._port.get(belong_to, topic_id)
+            topic = _owned(self._topics.get(topic_id), belong_to)
             if topic is None:
-                return None
-            updated = write(topic)
-            self.put(updated)
-            return updated
+                topic = _owned(self._retired.get(topic_id), belong_to)
+            return None if topic is None else topic.topic_generated_memory_ids
+
+    # ========== 写入 ==========
 
     def create(
         self,
@@ -99,47 +142,198 @@ class ShortTermMemoryStore:
         *,
         topic_id: str | None = None,
     ) -> TopicData:
-        """创建新话题并返回初始快照。"""
-        topic = TopicData(
-            topic_id=topic_id or str(uuid4()),
+        """建立新话题，写下它的第一条记录，返回初始读取值。
+
+        话题 ID 全局唯一：给出的 ID 已被任何 Workspace 的话题占用时以 ``ValueError`` 拒绝。
+        """
+        record = TopicCreatedRecord(
+            at=_now(),
             workspace_identity=belong_to,
             topic_title=topic_title,
             topic_summary=topic_summary,
-            last_update=datetime.now().timestamp(),
         )
-        self.put(topic)
-        return topic
-
-    def delete(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
-        """删除话题；是否允许删除（占用检查）由调用方持有 lease 判断。"""
+        topic_id = topic_id or str(uuid4())
         with self._lock:
-            return self._port.delete(belong_to, topic_id)
+            if topic_id in self._topics or topic_id in self._retired:
+                raise ValueError(f"topic '{topic_id}' already exists")
+            topic = topic_from_created(topic_id, record)
+            self._port.append(topic_id, encode_topic_record(record))
+            self._topics[topic_id] = topic
+            return topic
 
-    def list_by_workspace(
+    def append_interaction(
         self,
         belong_to: WorkspaceIdentity,
+        topic_id: str,
         *,
-        include_empty: bool = True,
-    ) -> list[TopicData]:
-        """列出 Workspace 内的话题快照。"""
-        with self._lock:
-            topics = self._port.list_by_workspace(belong_to)
-            if not include_empty:
-                topics = [topic for topic in topics if topic.has_content]
-            return topics
+        block: LogicalBlock,
+        asset_refs: tuple[WorkspaceAssetRef, ...] = (),
+        interaction_id: str | None = None,
+        model_used: str | None = None,
+    ) -> TopicData | None:
+        """话题接收一轮交互：追加到交互记录，并以 ``asset_id`` 幂等绑定这一轮的附件。"""
+        record = TopicInteractionRecord(
+            at=_now(),
+            block=block,
+            asset_refs=asset_refs,
+            interaction_id=interaction_id,
+            model_used=model_used,
+        )
+        return self._append(belong_to, topic_id, record, apply_interaction)
 
-    def list_all(self) -> list[TopicData]:
-        """列出全部 Workspace 的话题快照（进程级维护路径使用）。"""
-        with self._lock:
-            return self._port.list_all()
+    def append_fold(
+        self,
+        belong_to: WorkspaceIdentity,
+        topic_id: str,
+        *,
+        folded: Sequence[LogicalBlock],
+        summary: str,
+    ) -> TopicData | None:
+        """把工作视图开头的 ``folded`` 折叠为 ``summary``；不是工作视图的前缀时构造校验失败。"""
+        record = TopicFoldRecord(
+            at=_now(),
+            folded_block_ids=tuple(block.block_id for block in folded),
+            summary=summary,
+        )
+        return self._append(belong_to, topic_id, record, apply_fold)
 
-    def count(self, belong_to: WorkspaceIdentity) -> int:
-        """统计 Workspace 内话题数量。"""
+    def append_settled(
+        self, belong_to: WorkspaceIdentity, topic_id: str, *, interaction_count: int
+    ) -> TopicData | None:
+        """记下一次沉淀完成、覆盖到第几个交互。
+
+        退役话题的日志在最后一次沉淀完成之前还在，这次写入同样记到它的日志上。
+        """
+        record = TopicSettledRecord(at=_now(), interaction_count=interaction_count)
+        return self._append(belong_to, topic_id, record, apply_settled, include_retired=True)
+
+    def append_generated_memories(
+        self,
+        belong_to: WorkspaceIdentity,
+        topic_id: str,
+        *,
+        generated: Collection[str],
+        absorbed_into: Mapping[str, str],
+    ) -> TopicData | None:
+        """记下本话题新写下的记忆与合并的改指。
+
+        退役话题的日志在最后一次沉淀完成之前还在，这次写入同样记到它的日志上：最后一次沉淀
+        执行时要认得排在它前面的同话题沉淀写下的记忆。
+        """
+        record = TopicGeneratedMemoriesRecord(
+            at=_now(), generated=frozenset(generated), absorbed_into=dict(absorbed_into)
+        )
+        return self._append(
+            belong_to, topic_id, record, apply_generated_memories, include_retired=True
+        )
+
+    def retire(
+        self, belong_to: WorkspaceIdentity, topic_id: str, *, reason: TriggerReason
+    ) -> TopicData | None:
+        """话题退役：写下退役记录，读取值离开话题池，日志保留到最后一次沉淀完成。"""
+        record = TopicRetiredRecord(at=_now(), reason=reason)
         with self._lock:
-            return self._port.count(belong_to)
+            topic = _owned(self._topics.get(topic_id), belong_to)
+            if topic is None:
+                return None
+            self._port.append(topic_id, encode_topic_record(record))
+            del self._topics[topic_id]
+            self._retired[topic_id] = topic
+            return topic
+
+    def delete(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
+        """删除话题的日志与读取值，池中的与已退役的都可以；话题不存在时返回 ``False``。
+
+        是否允许删除（占用检查）由调用方持有 lease 判断。
+        """
+        with self._lock:
+            if (
+                _owned(self._topics.get(topic_id), belong_to) is None
+                and _owned(self._retired.get(topic_id), belong_to) is None
+            ):
+                return False
+            self._port.delete(topic_id)
+            self._topics.pop(topic_id, None)
+            self._retired.pop(topic_id, None)
+            return True
+
+    def _append[R: TopicLogRecord](
+        self,
+        belong_to: WorkspaceIdentity,
+        topic_id: str,
+        record: R,
+        apply: Callable[[TopicData, R], TopicData],
+        *,
+        include_retired: bool = False,
+    ) -> TopicData | None:
+        """在话题上套用 ``record``、追加到日志并替换读取值；话题不存在时什么都不写。
+
+        ``include_retired`` 为真时，池中没有的话题再到日志还在的退役话题中找。
+        """
+        with self._lock:
+            table = self._topics
+            topic = _owned(table.get(topic_id), belong_to)
+            if topic is None and include_retired:
+                table = self._retired
+                topic = _owned(table.get(topic_id), belong_to)
+            if topic is None:
+                return None
+            updated = apply(topic, record)
+            self._port.append(topic_id, encode_topic_record(record))
+            table[topic_id] = updated
+            return updated
+
+    # ========== 启动时读回 ==========
+
+    def load(self) -> LoadedTopicLogs:
+        """读回全部话题日志并重放；启动时、接收交互之前调用一次。
+
+        没有退役的话题进入话题池；已经退役、最后一次沉淀没有完成的话题留着日志，等调用方重新
+        发起这次沉淀；已经退役、沉淀都已完成的（删除日志之前进程退出）直接删除日志。某一行
+        读不回、或重放时构造校验失败的日志整个移到一旁（rejected），这个话题不读回。
+        """
+        topics: list[TopicData] = []
+        retired: list[tuple[TopicData, TopicRetiredRecord]] = []
+        rejected: list[str] = []
+        for topic_id, lines in self._port.read_all().items():
+            try:
+                topic, retired_record = replay_topic_log(
+                    topic_id, [decode_topic_record(line) for line in lines]
+                )
+            except ValueError:
+                rejected_file = self._port.reject(topic_id)
+                logger.error(
+                    "话题日志无法读回: reason=topic_log_unreadable, topic_id=%s, rejected_file=%s",
+                    topic_id,
+                    rejected_file,
+                    exc_info=True,
+                )
+                rejected.append(rejected_file)
+                continue
+            if retired_record is None:
+                topics.append(topic)
+            elif topic.has_unsettled_interactions:
+                retired.append((topic, retired_record))
+            else:
+                self._port.delete(topic_id)
+        with self._lock:
+            self._topics.update((topic.topic_id, topic) for topic in topics)
+            self._retired.update((topic.topic_id, topic) for topic, _ in retired)
+        return LoadedTopicLogs(topics=topics, retired=retired, rejected_files=rejected)
 
     async def check_health(self) -> StorageHealthComponent:
         return await self._port.check_health()
+
+
+def _owned(topic: TopicData | None, belong_to: WorkspaceIdentity) -> TopicData | None:
+    """话题属于 ``belong_to`` 时原样返回；另一个 Workspace 的同名话题按不存在处理。"""
+    if topic is None or topic.workspace_identity != belong_to:
+        return None
+    return topic
+
+
+def _now() -> float:
+    return datetime.now().timestamp()
 
 
 class MidTermMemoryStore:

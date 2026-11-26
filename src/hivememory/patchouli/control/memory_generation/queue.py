@@ -118,24 +118,24 @@ def _require_exact_keys(
 
 
 class _MemoryGenerationWorkAdapter:
-    """Memory Generation 私有工作信封 1.5 的队列适配器。
+    """Memory Generation 私有工作信封 1.6 的队列适配器。
 
     适配器集中定义工作标识、同 topic 顺序键和幂等键，并负责在每次执行尝试前
     重建独立的领域任务对象。1.3 起生成材料的轮次带轮次标识与段，交互记录的
     事件带响应序号；1.4 起任务带话题是否随这次结算退役；1.5 起生成材料的折叠摘要
-    叫 ``fold_summary``。
+    叫 ``fold_summary``；1.6 起生成请求中本话题生成的记忆叫 ``topic_generated_memory_ids``。
     """
 
     kind = "patchouli.memory_generation"
-    schema_version = "1.5"
+    schema_version = "1.6"
 
     @staticmethod
     def identity(work: _MemoryGenerationWork) -> QueueTaskIdentity:
         """从领域任务中派生稳定的队列标识和调度元数据。
 
         只有话题结算带顺序键：同一话题的几次沉淀与退役依次执行，后一次执行时才读得到
-        前一次新建、记作本话题写入的记忆，读回的保存工作也按保存顺序执行。其余来源不按
-        话题排序，同一话题的写入照常并行生成。
+        前一次新建、记作本话题生成的记忆，读回的保存工作也按保存顺序执行。其余来源不按
+        话题排序，同一话题的主动写入照常并行生成。
         """
 
         settles = work.spec.source == MemoryGenerationSource.SETTLE
@@ -341,10 +341,27 @@ class MemoryGenerationHandle(TaskHandle[MemoryGenerationResults]):
         self._commit_started = True
 
 
-class _SavedWorkV14Adapter(_MemoryGenerationWorkAdapter):
+class _SavedWorkV15Adapter(_MemoryGenerationWorkAdapter):
+    """只用于读回升级前以 1.5 保存的工作：那时生成请求中本话题生成的记忆叫
+    ``topic_write_memory_ids``。
+
+    改名为 ``topic_generated_memory_ids``，值不变。其余字段与 1.6 相同，改名后按 1.6 的规则
+    严格解码。
+    """
+
+    schema_version = "1.5"
+
+    def decode(self, payload: object) -> _MemoryGenerationWork:
+        upgraded = cast(dict[str, Any], copy.deepcopy(payload))
+        request = upgraded["spec"]["request"]
+        request["topic_generated_memory_ids"] = request.pop("topic_write_memory_ids")
+        return super().decode(upgraded)
+
+
+class _SavedWorkV14Adapter(_SavedWorkV15Adapter):
     """只用于读回升级前以 1.4 保存的工作：那时生成材料的折叠摘要叫 ``state_summary``。
 
-    改名为 ``fold_summary``，值不变。其余字段与 1.5 相同，改名后按 1.5 的规则严格解码。
+    改名为 ``fold_summary``，值不变。其余字段与 1.5 相同，改名后按 1.5 的读回规则继续升级。
     """
 
     schema_version = "1.4"
@@ -359,7 +376,7 @@ class _SavedWorkV14Adapter(_MemoryGenerationWorkAdapter):
 class _SavedWorkV13Adapter(_SavedWorkV14Adapter):
     """只用于读回升级前以 1.3 保存的工作：那时任务还不带话题是否随结算退役。
 
-    那时每次话题结算都结束话题，结算任务因此补为退役，执行后照旧清除本话题的写入记录；
+    那时每次话题结算都结束话题，结算任务因此补为退役；
     其余来源补为不退役。其余字段与 1.4 相同，补齐后按 1.4 的读回规则继续升级。
     """
 
@@ -516,7 +533,8 @@ class MemoryGenerationQueue:
         self._adapter = _MemoryGenerationWorkAdapter()
         self._codecs = WorkPayloadCodecRegistry()
         self._codecs.register(self._adapter)
-        # 升级前保存的工作仍按 1.1～1.4 读回；新工作只以当前版本编码。
+        # 升级前保存的工作仍按 1.1～1.5 读回；新工作只以当前版本编码。
+        self._codecs.register(_SavedWorkV15Adapter())
         self._codecs.register(_SavedWorkV14Adapter())
         self._codecs.register(_SavedWorkV13Adapter())
         self._codecs.register(_SavedWorkV12Adapter())

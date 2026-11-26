@@ -6,25 +6,16 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class TopicShutdownFlushReport:
-    """shutdown 阶段 Topic flush 的运行时报告。
+class RestoredTopicPoolReport:
+    """启动时从话题日志读回话题池的结果，只供运行时观测，不作为 HTTP 响应。
 
-    该报告只供 Patchouli Runtime 的 shutdown drain 和可观测性使用，
-    不作为 Topic HTTP API 响应。block 计数表示处理前驻留的工作视图 block
-    数量，不等同于实际进入生成任务的材料数量。
-
-    关闭时只沉淀、不退役：``settled_topic_ids`` 是这次沉淀了新交互的话题，它们留在
-    话题池里随快照保存；``retired_topic_ids`` 是从没接收过交互、直接退役的空话题。
-    接收过交互、已经全部沉淀的话题不出现在报告中。
-
-    ``failed_topic_ids`` 记录没能沉淀的 Topic（正被占用、admission 失败等）：它们带着
-    未沉淀的交互照常保存，单个 Topic 的失败不会阻止其余 Topic 的处理。
+    ``restored`` 是回到话题池的话题数；``retired`` 是已经退役、最后一次沉淀没有完成、在生成
+    队列启动之后重新发起这次沉淀的话题数；``rejected`` 是读不回、移到一旁的日志数。
     """
 
-    settled_topic_ids: tuple[str, ...] = ()
-    retired_topic_ids: tuple[str, ...] = ()
-    resident_block_count: int = 0
-    failed_topic_ids: tuple[str, ...] = ()
+    restored: int = 0
+    retired: int = 0
+    rejected: int = 0
 
 
-__all__ = ["TopicShutdownFlushReport"]
+__all__ = ["RestoredTopicPoolReport"]

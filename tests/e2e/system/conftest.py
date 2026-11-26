@@ -44,6 +44,7 @@ from hivememory.gateway.service import GatewayService
 from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import (
@@ -183,7 +184,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     """话题准备、检索、交互提交、引用和物化链路共用同一份真实资源所有者。"""
     global_bus = GlobalSystemBus()
     local_bus = PatchouliBus()
-    short_term = ShortTermMemoryStore()
+    short_term = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     vector_store = _VectorStore()
     mid_term = MidTermMemoryStore(QdrantStorageAdapter(vector_store))
     artifacts = ArtifactStore(
@@ -250,7 +251,12 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     for route, handler in (
         (PatchouliLocalRoutes.TOPIC_PREPARE, perception.prepare_topic),
         (PatchouliLocalRoutes.TOPIC_GET, retrieval.get_topic),
-        (PatchouliLocalRoutes.TOPIC_RECORD_WRITES, perception.record_writes),
+        (PatchouliLocalRoutes.TOPIC_GET_GENERATED_MEMORIES, perception.get_generated_memories),
+        (
+            PatchouliLocalRoutes.TOPIC_RECORD_GENERATED_MEMORIES,
+            perception.record_generated_memories,
+        ),
+        (PatchouliLocalRoutes.TOPIC_RECORD_SETTLED, perception.record_settled),
         (PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, retrieval.list_active_topics),
         (PatchouliLocalRoutes.GET_AGENT_PROFILE, retrieval.get_agent_profile),
         (PatchouliLocalRoutes.MEMORY_RETRIEVE, retrieval.retrieve_async),

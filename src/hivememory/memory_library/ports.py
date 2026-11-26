@@ -15,7 +15,6 @@ from uuid import UUID
 from hivememory.core.models import (
     ActorIdentity,
     MemoryAtom,
-    TopicData,
     WorkspaceIdentity,
     WorkspaceMemoryKey,
 )
@@ -36,41 +35,40 @@ if TYPE_CHECKING:
 
 class ShortTermStoragePort(ABC):
     """
-    短期存储 Port。
+    短期存储 Port：每个话题一条只追加的日志，按话题 ID 存取。
 
-    Port 的稳定契约使用 WorkspaceIdentity + topic_id 和不可变 TopicData 快照；
-    复合物理键 WorkspaceTopicKey 只属于具体 adapter 的内部实现。
+    一行是一条已经编码的记录（不含换行），记录的含义与编解码属于 ``ShortTermMemoryStore``；
+    Port 只保证一行要么完整写下、要么不留痕迹。话题 ID 全局唯一，Workspace 归属写在日志的
+    第一条记录里。
 
-    ShortTermMemoryStore exposes synchronous APIs to the perception layer, so the
-    short-term port is synchronous as well. Async backends should hide their I/O
-    boundary behind an adapter instead of leaking await points into the store.
+    感知热路径使用同步接口，Port 也是同步契约：写入在返回之前交给操作系统，进程崩溃不丢；
+    不保证断电耐久。
 
     实现：
-        InMemoryShortTermStorage（内存态）
-        RedisShortTermStorage（future）
+        JsonlShortTermStorage（每个话题一个 JSON Lines 文件）
     """
 
     @abstractmethod
-    def get(
-        self,
-        workspace: WorkspaceIdentity,
-        topic_id: str,
-    ) -> TopicData | None: ...
+    def append(self, topic_id: str, line: bytes) -> None:
+        """在话题日志末尾追加一行，日志不存在时新建。
+
+        失败时日志回到追加之前的长度，错误照常传播。
+        """
 
     @abstractmethod
-    def put(self, topic: TopicData) -> None: ...
+    def read_all(self) -> dict[str, list[bytes]]:
+        """读回全部话题日志的完整行，按话题 ID 分组；启动时调用。
+
+        最后一行不完整（写入中途进程退出）时丢弃，并从日志中截掉。
+        """
 
     @abstractmethod
-    def delete(self, workspace: WorkspaceIdentity, topic_id: str) -> bool: ...
+    def reject(self, topic_id: str) -> str:
+        """把读不回的话题日志移到一旁保留，返回它的新位置；之后不再读回它。"""
 
     @abstractmethod
-    def list_by_workspace(self, workspace: WorkspaceIdentity) -> list[TopicData]: ...
-
-    @abstractmethod
-    def list_all(self) -> list[TopicData]: ...
-
-    @abstractmethod
-    def count(self, workspace: WorkspaceIdentity) -> int: ...
+    def delete(self, topic_id: str) -> bool:
+        """删除话题日志；日志不存在时返回 ``False``。"""
 
     async def check_health(self) -> StorageHealthComponent:
         return StorageHealthComponent(name="short_term", healthy=True)

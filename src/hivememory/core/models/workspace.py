@@ -1,36 +1,13 @@
-"""Workspace 资源键、默认 Workspace 解析与严格作用域校验。"""
-
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict, field_validator
+"""默认 Workspace 解析与严格作用域校验。"""
 
 from hivememory.core.errors import ScopeRequiredError
-from hivememory.core.models.identity import (
-    IdentityScope,
-    WorkspaceIdentity,
-    _validate_non_empty,
-)
+from hivememory.core.models.identity import IdentityScope, WorkspaceIdentity
 
 MAIN_WORKSPACE_ID = "main_workspace"
 """公共产品入口解析到的默认 Workspace 标识。"""
 
 ISOLATION_WORKSPACE_ID = "isolation_workspace"
 """仅供内部隔离验证使用的第二 Workspace 标识。"""
-
-
-class WorkspaceTopicKey(BaseModel):
-    """Topic 在短期存储中的权威复合键。"""
-
-    owner_user_id: str
-    workspace_id: str
-    topic_id: str
-
-    @field_validator("owner_user_id", "workspace_id", "topic_id")
-    @classmethod
-    def _require_non_empty(cls, value: str, info: Any) -> str:
-        return _validate_non_empty(value, info.field_name)
-
-    model_config = ConfigDict(frozen=True)
 
 
 def resolve_default_workspace_identity(owner_user_id: str) -> WorkspaceIdentity:
@@ -56,7 +33,6 @@ __all__ = [
     "ISOLATION_WORKSPACE_ID",
     "WorkspaceIdentity",
     "IdentityScope",
-    "WorkspaceTopicKey",
     "resolve_default_workspace_identity",
     "require_identity_scope",
 ]

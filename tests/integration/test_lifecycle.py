@@ -33,6 +33,7 @@ from hivememory.memory_library import (
     ShortTermMemoryStore,
 )
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
@@ -191,7 +192,7 @@ class InMemoryMidTermPort:
 
 @pytest.fixture
 def lifecycle_stack(tmp_path):
-    short_term = ShortTermMemoryStore()
+    short_term = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     mid_port = InMemoryMidTermPort()
     mid_term = MidTermMemoryStore(primary=mid_port)
     long_term = LongTermMemoryStore(

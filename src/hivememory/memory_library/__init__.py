@@ -1,7 +1,7 @@
 from hivememory.memory_library.adapters import (
     FileBasedStorageAdapter,
     FilesystemArtifactStorageAdapter,
-    InMemoryShortTermStorage,
+    JsonlShortTermStorage,
     QdrantStorageAdapter,
 )
 from hivememory.memory_library.agent_profiles import AgentProfileStore
@@ -38,7 +38,7 @@ __all__ = [
     "ArtifactStore",
     "AgentProfileStore",
     "MemoryLibrary",
-    "InMemoryShortTermStorage",
+    "JsonlShortTermStorage",
     "QdrantStorageAdapter",
     "FileBasedStorageAdapter",
     "FilesystemArtifactStorageAdapter",

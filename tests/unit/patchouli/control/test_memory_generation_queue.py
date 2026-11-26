@@ -224,11 +224,37 @@ def test_registry_rejects_previous_memory_generation_versions(schema_version: in
         registry.decode(adapter.kind, schema_version, payload)
 
 
+def _with_topic_write_memory_ids(item: dict) -> dict:
+    """把当前版本保存的工作改回 1.6 之前的写法：那时本话题生成的记忆叫 topic_write_memory_ids。"""
+    request = item["payload"]["spec"]["request"]
+    request["topic_write_memory_ids"] = request.pop("topic_generated_memory_ids")
+    return item
+
+
 def _with_state_summary(item: dict) -> dict:
     """把当前版本保存的工作改回 1.5 之前的写法：那时生成材料的折叠摘要叫 state_summary。"""
-    context = item["payload"]["spec"]["request"]["context"]
+    context = _with_topic_write_memory_ids(item)["payload"]["spec"]["request"]["context"]
     context["state_summary"] = context.pop("fold_summary")
     return item
+
+
+def test_settlement_saved_as_1_5_reads_back_with_its_generated_memories() -> None:
+    """升级前以 1.5 保存的结算里本话题生成的记忆叫 topic_write_memory_ids：读回时改名，
+    记忆不变，照常执行。"""
+    queue = MemoryGenerationQueue(AsyncMock())
+    spec = replace(
+        _spec(
+            topic_id="topic-old",
+            request=GenerationRequest(topic_generated_memory_ids=frozenset({"m1", "m2"})),
+        ),
+        source=MemoryGenerationSource.SETTLE,
+        retires_topic=True,
+    )
+    item = _with_topic_write_memory_ids(queue.encode_for_restart("settle:topic-old", spec))
+
+    restored = queue.decode_for_restart({**item, "schema_version": "1.5"})
+
+    assert restored == spec
 
 
 def test_work_saved_as_1_4_reads_back_with_its_fold_summary() -> None:
@@ -472,7 +498,7 @@ async def test_concurrency_limit_keeps_later_task_queued_and_pending() -> None:
 @pytest.mark.asyncio
 async def test_settlements_of_one_topic_run_in_order_while_its_writes_do_not_wait() -> None:
     """同一话题的结算依次执行：前一次还在执行时，后一次排在队列中，执行时才读得到前一次
-    记下的写入；同一话题的写入不受影响，照常并行。"""
+    生成的记忆；同一话题的主动写入不受影响，照常并行。"""
     write_started = asyncio.Event()
     release = asyncio.Event()
 
@@ -486,7 +512,11 @@ async def test_settlements_of_one_topic_run_in_order_while_its_writes_do_not_wai
     bus = make_generation_bus(execute)
     controller = _controller(bus, max_concurrency=3)
     await controller.start()
-    settle = replace(_spec(), source=MemoryGenerationSource.SETTLE)
+    settle = replace(
+        _spec(),
+        source=MemoryGenerationSource.SETTLE,
+        interaction_input=InteractionArtifactInput(topic_id="topic-1"),
+    )
 
     try:
         await controller.submit_generation(replace(settle, label="idle"))

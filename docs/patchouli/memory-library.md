@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-25
 ---
 
 # MemoryLibrary 与存储层
@@ -28,7 +28,7 @@ MemoryLibrary 是 Patchouli 对记忆存储所有权的工程表达。它不是�
 ```text
 MemoryLibrary
   ├─ ShortTermMemoryStore -> ShortTermStoragePort
-  │    └─ InMemoryShortTermStorage
+  │    └─ JsonlShortTermStorage（每个话题一个只追加的 JSON Lines 文件）
   ├─ MidTermMemoryStore -> MidTermStoragePort
   │    └─ QdrantStorageAdapter -> QdrantMemoryStore
   ├─ LongTermMemoryStore -> LongTermStoragePort
@@ -42,15 +42,17 @@ MemoryLibrary
 
 ### 1.1 短期：话题工作台
 
-短期存储保存 Topic 记录，是存储事实的封装（CRUD，以及在最新快照上套用写函数的原子写入）：adapter 直接存储 frozen `TopicData`，Store/Port 对外交接不可变快照；记录包含话题标题、展示摘要、全部交互记录（结构化 `LogicalBlock[]`）、折叠记录、资产绑定、最近模型名、沉淀进度与本话题的写入记录；`fold_summary`、工作视图 blocks 与 token 估算由交互记录与折叠记录派生。记录不再携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序归 WorkingSet 的 LRU 索引（见[感知与短期话题](./perception.md)）。它保存记忆生成的接入材料，可混合多个会话的交互；对话连续性由 workspace 的 ConversationSession 提供。Topic 不再是 Alice 的历史源。生产上只有内存 adapter；话题池在正常关闭时由 Patchouli runtime 写成快照、下次启动时读回（[感知与短期话题](./perception.md#7-维护与关闭)第 7 节），会话当前不提供跨重启恢复。
+短期存储保存话题，是存储事实的封装：每个话题是一条只追加的日志，话题上发生的事各记一条（建立、接收一轮交互、一次折叠、一次沉淀完成、本话题生成的记忆与退役），发生时即落盘，不改写已有的记录。`TopicData` 是由日志依次套用每条记录组装出来的读取值，不是存储的单位：读取值包含话题标题、展示摘要、全部交互记录（结构化 `LogicalBlock[]`）、折叠记录、资产绑定、最近模型名、沉淀进度与本话题生成的记忆；`fold_summary`、工作视图 blocks 与 token 估算由交互记录与折叠记录派生。记录不携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序与在途沉淀归 WorkingSet（见[感知与短期话题](./perception.md)），日志只记已经发生的事。它保存记忆生成的接入材料，可混合多个会话的交互；对话连续性由 workspace 的 ConversationSession 提供。Topic 不再是 Alice 的历史源。话题因此跨过重启与进程崩溃，启动时由 Patchouli runtime 重放日志读回（[感知与短期话题](./perception.md#7-维护存储与启动时读回)第 7 节）；会话当前不提供跨重启恢复。
 
-`topic_id` 是领域上的全局唯一身份；内部调用方通过 `belong_to: WorkspaceIdentity + topic_id` 访问，`WorkspaceTopicKey` 只由短期 adapter 在内部构造，用于 Workspace 归属校验和物理索引，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。公共 owner 边界从授权 scope 拆出归属，短期 Store 不接收 actor 或 `IdentityScope`。写入同一 `topic_id` 到另一 Workspace 会被 adapter 以全局唯一性检查拒绝。Topic 的编排规则由 PerceptionFamiliar 负责，MemoryLibrary 只维护存储事实与归属检查。
+话题按顺序保存全部交互，折叠不丢原文，沉淀进度与本话题生成的记忆都只往后加：它本来就是一条只增长的日志。整块替换只适合小而有界的东西，把话题当作整块快照保存，每写一点都要重建整个话题，也只能在正常关闭时整池写出、崩溃即全部丢失。
 
-感知热路径使用同步接口，因此 `ShortTermStoragePort` 也是同步契约。未来若替换为远程后端，adapter 必须把 I/O 边界封装在 port 后方，不能让一组随机 `await` 穿透 Perception 的状态修改顺序。
+`topic_id` 是领域上的全局唯一身份；内部调用方通过 `belong_to: WorkspaceIdentity + topic_id` 访问。存储按全局 `topic_id` 存放读取值，读取与写入时核对读取值的 Workspace 归属，另一个 Workspace 的同名话题按不存在处理；建立话题时给出的 ID 已被任何 Workspace 占用即拒绝，不把它当作允许不同 Workspace 复用同一 Topic ID 的局部命名空间。日志目录不按 Workspace 分层，归属写在日志的第一条记录里。公共 owner 边界从授权 scope 拆出归属，短期 Store 不接收 actor 或 `IdentityScope`。Topic 的编排规则由 PerceptionFamiliar 负责，MemoryLibrary 只维护存储事实与归属检查。
 
-`ShortTermMemoryStore` 的长期公共 API 只有 `get`、`put`、`update`、`create`、`delete`、`list_by_workspace`、`list_all`、`count` 和 `check_health`。Perception 在自己的领域边界内经 `update` 写回：`update(belong_to, topic_id, write)` 在存储的锁内读取最新快照、套用 core 话题模型的纯写函数、写回并返回新快照，话题不存在时不调用写函数、返回 `None`，因此跨 await 之前读到的快照不会被写回；Gateway 和前端只能读取不可变 `TopicData` / `TopicSnapshot`。读取原样返回存储的 frozen 实例（零拷贝），frozen 模型保证调用方无法通过引用改写 Store 内事实。
+感知热路径使用同步接口，因此 `ShortTermStoragePort` 也是同步契约，契约是日志：`append(topic_id, line)` 在话题日志末尾追加一行，失败时把日志截回追加之前的长度、错误照常传播；`read_all()` 在启动时返回每个话题的全部完整行，最后一行不完整（写入中途进程退出）时丢弃并截掉；`reject(topic_id)` 把读不回的日志移到一旁；`delete(topic_id)` 与 `check_health()`（报告目录是否可写）。一行是一条已经编码的记录，记录的含义与编解码属于 Store。唯一实现 `JsonlShortTermStorage` 是 `<patchouli.perception.topic_dir>/<topic_id>.jsonl` 文件，写一行并交给操作系统（不经 Python 的缓冲），进程崩溃不丢，不 fsync。Store 构造时必须给出 Port。未来若替换为远程后端，adapter 必须把 I/O 边界封装在 port 后方，不能让一组随机 `await` 穿透 Perception 的状态修改顺序。
 
-活跃话题容量与 LRU 驱逐不属于 Store：`perception.engine.max_resident_topics`（默认 5）配置的是 `TopicWorkingSet` 的驻留上限。创建新话题且池已满时，PerceptionFamiliar 从 WorkingSet 选择最近最少访问的话题，先按 LRU 结算，再从 Store 与驻留集合移除；命中已有话题不会触发驱逐。
+`ShortTermMemoryStore` 的公共 API 是：读取 `get`、`list_by_workspace`、`list_all`、`count` 与只交出本话题生成的记忆的 `get_generated_memories`；每种记录一个写入方法 `create`、`append_interaction`、`append_fold`、`append_settled`、`append_generated_memories`、`retire`，以及删除日志的 `delete`；启动时读回的 `load` 与 `check_health`。写入方法不检查话题处在什么状态，谁能写、什么时候写由 lease 保证；每次写入在存储的锁内读当前的读取值、用套用函数算出新值（构造校验失败直接抛出，什么都不写）、经 Port 追加这一行、替换内存中的值，先落盘再改内存，话题不存在时什么都不写、返回空值。内存只放池中话题的读取值，读取原样返回存储的 frozen 实例（零拷贝），不碰磁盘；退役的话题离开池，读取方法看不到它，它的日志保留到最后一次沉淀完成，其间只有 `append_settled`、`append_generated_memories`、`get_generated_memories` 与 `delete` 还能找到它：沉淀完成与本话题生成的记忆在退役之后照样记、照样读。`load` 重放全部日志：没有退役的回到池中，退役而最后一次沉淀没有完成的交给调用方重新发起，退役且沉淀都已完成的删除日志，读不回的移到一旁。Gateway 和前端只能读取不可变 `TopicData` / `TopicSnapshot`。
+
+活跃话题容量与 LRU 驱逐不属于 Store：`perception.engine.max_resident_topics`（默认 5）配置的是 `TopicWorkingSet` 的驻留上限。创建新话题且池已满时，PerceptionFamiliar 从 WorkingSet 选择最近最少访问的话题，先按 LRU 结算，再让它退役、离开 Store 与驻留集合；命中已有话题不会触发驱逐。
 
 ### 1.2 中期：当前可检索书库
 
@@ -105,7 +107,7 @@ Profile 是全局的，不属于任何 Workspace，也没有可见性：agent �
 短期 blocks 不由 MemoryLibrary 直接“升级”。Perception 冻结话题的全部交互记录与折叠记录，形成 `TopicMaterializeTask`，Generation 从中提取记忆并查重，MemoryGenerationFamiliar 在提交边界（一次取时）分配版本与内容时间、挂载版本 artifacts 后再写入 MidTermMemoryStore；内容相同的重复更新不创建新版本，只经 `patch_payload` 推进访问统计。
 
 ```text
-TopicData 快照
+TopicData 读取值
   -> TopicMaterializeTask
   -> GenerationRequest
   -> GenerationOutcome（CREATE；与已有记忆内容一致时为 TOUCH）
@@ -156,7 +158,7 @@ Patchouli 的 `RUNTIME_STORAGE_HEALTH` 使用该聚合结果。任务进程在 P
 当前配置位于 `PatchouliConfig`：
 
 - `storage`：Qdrant 地址、collection、向量维度、部署与启动参数；
-- `perception.engine.max_resident_topics`：短期活跃话题上限；
+- `perception.topic_dir`：短期话题日志所在的目录，默认 `.hivememory/topics`，相对路径按工作目录（数据根）解析；`perception.engine.max_resident_topics`：短期活跃话题上限；
 - `lifecycle.archiver`：冷存储目录与压缩；
 - `artifacts`：artifact 根目录、摘要内联长度和各 builder 开关；**memory 版本记录组件关闭时内容 create/update 会失败**（Runtime 装配处输出启动诊断，既有读取与 lifecycle 更新不受影响）；
 - `agent_profiles.root_dir`：Agent Profile 文件的根目录，默认 `.hivememory/agent_profiles`，相对路径按工作目录（数据根）解析。
@@ -165,7 +167,7 @@ Runtime 是唯一装配入口。Engine、Familiar 和应用服务不能自行重
 
 ## 5. 当前限制与一致性边界
 
-- 短期 store 只在内存中，只在正常关闭时随话题池快照写盘，异常退出不会自动恢复；
+- 短期话题的日志不 fsync，断电可能丢失最后几行；日志只增长，话题退役后整个删除，不压缩、不重写；写日志是同步写，占着事件循环；
 - archive/revive 是跨两个后端的顺序操作，没有事务、补偿日志或幂等 job；前一步成功而后一步失败时，可能暂时形成重复副本；
 - MidTerm secondary 写入虽有接口，但当前没有原子提交和回滚语义；
 - 合并的写回与删除是两次顺序提交，没有事务；两步之间检索可能同时看到 M 的新版本与 N；
@@ -174,4 +176,4 @@ Runtime 是唯一装配入口。Engine、Familiar 和应用服务不能自行重
 - 健康检查验证可访问性，不扫描缺失副本、悬空 ArtifactRef 或 archive/revive 中间态；
 - Store 和 port 中仍有 Phase 命名与 future adapter 注释，它们是演化痕迹，不代表 Redis、图数据库或 SQL artifact index 已经实现。
 
-后续若引入持久化短期状态、多后端复制或自动复活，必须先定义失败恢复与唯一真相，再修改本文件；不能只增加另一个 adapter 就宣称完成数据耐久性。
+后续若引入多后端复制或自动复活，必须先定义失败恢复与唯一真相，再修改本文件；不能只增加另一个 adapter 就宣称完成数据耐久性。

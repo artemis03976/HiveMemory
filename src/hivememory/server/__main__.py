@@ -48,7 +48,7 @@ def _run_desktop() -> None:
     """桌面模式：由桌面客户端的主进程启动，经 stdin 交来管理凭据，stdin 结束时正常关闭。
 
     stdin 的第一行是管理凭据，只留在内存中。Windows 上不能向另一个进程发送 SIGTERM，
-    结束进程会跳过话题结算，所以主进程以关闭 stdin 请求关闭；主进程意外退出时管道同样
+    结束进程会跳过关闭时保存生成工作，所以主进程以关闭 stdin 请求关闭；主进程意外退出时管道同样
     关闭，后端不会成为没有人持有凭据的孤儿进程。
     """
     credential = sys.stdin.readline().strip()
@@ -70,7 +70,7 @@ def _run_desktop() -> None:
 
 
 def _shutdown_when_stdin_closes(server: uvicorn.Server) -> None:
-    """读到 stdin 结束时请求正常关闭，与 Ctrl+C 走同一条路径，退出前结算内存中的话题。"""
+    """读到 stdin 结束时请求正常关闭，与 Ctrl+C 走同一条路径，退出前保存还没执行的生成工作。"""
     sys.stdin.read()
     logger.info("桌面主进程关闭了 stdin，开始正常关闭")
     server.should_exit = True
@@ -79,10 +79,10 @@ def _shutdown_when_stdin_closes(server: uvicorn.Server) -> None:
 def _delete_memory_data(config: HiveMemoryConfig) -> list[Path]:
     """删除后端拥有的记忆数据，返回实际删除的路径。
 
-    包括 Artifact、长期归档、关闭时写盘的四份文件（保存的生成工作、写入句柄登记、生成
-    任务历史、话题池快照，各含读不回的 rejected 文件）与预设 Agent 的写入标记：句柄与
-    任务都指向记忆库中的内容，话题池保存着还会沉淀为记忆的交互，记忆删除后都不能留下；
-    删除标记后，下次启动补写缺少的预设 Agent。由
+    包括 Artifact、长期归档、短期话题的日志目录（含读不回的 rejected 文件）、关闭时写盘的
+    三份文件（保存的生成工作、写入句柄登记、生成任务历史，各含读不回的 rejected 文件）与
+    预设 Agent 的写入标记：句柄与任务都指向记忆库中的内容，话题的日志保存着还会沉淀为记忆
+    的交互，记忆删除后都不能留下；删除标记后，下次启动补写缺少的预设 Agent。由
     桌面端在关闭后端与 Qdrant 之后调用，记忆库的 Qdrant 存储由桌面端删除。Agent Profile
     文件不是记忆，与配置、密钥、接入凭据、模型缓存和日志一样保留。相对路径按工作目录（数据根）解析；只删这些路径，不删
     数据根本身，数据根指向仓库 checkout 时仓库文件不受影响。
@@ -92,11 +92,11 @@ def _delete_memory_data(config: HiveMemoryConfig) -> list[Path]:
         Path(patchouli.shutdown.pending_work_file),
         Path(config.workspace.write_intents.record_file),
         Path(patchouli.shutdown.task_history_file),
-        Path(patchouli.shutdown.topic_pool_file),
     ]
     targets = [
         Path(patchouli.artifacts.root_dir),
         Path(patchouli.lifecycle.archiver.archive_dir),
+        Path(patchouli.perception.topic_dir),
         Path(config.system.preset_agent_profiles_marker),
     ]
     for path in shutdown_files:
@@ -125,8 +125,8 @@ def main(argv: list[str] | None = None) -> None:
         "--delete-memory-data",
         action="store_true",
         help=(
-            "删除记忆数据后退出：Artifact、长期归档、保存的生成工作、写入句柄、生成任务历史"
-            "与预设 Agent 标记"
+            "删除记忆数据后退出：Artifact、长期归档、短期话题、保存的生成工作、写入句柄、"
+            "生成任务历史与预设 Agent 标记"
         ),
     )
     args = parser.parse_args(argv)

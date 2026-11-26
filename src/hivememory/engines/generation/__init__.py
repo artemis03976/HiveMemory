@@ -5,7 +5,7 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 
 核心组件:
 - MemoryExtractor: LLM 驱动的记忆提取器
-- Librarian: 话题结算的馆长，先查看本话题的写入与库中相关记忆再写
+- Librarian: 话题结算的馆长，先查看本话题生成的记忆与库中相关记忆再写
 - Deduplicator: 查重与知识演化管理器
 - MemoryGenerationOrchestrator: 编排器，协调所有组件
 

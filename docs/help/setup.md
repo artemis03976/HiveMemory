@@ -21,7 +21,7 @@ related_docs:
   - docs/help/deepseek-harness-plugin.md
   - docs/help/codex-plugin.md
   - docs/help/pi-plugin.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-25
 ---
 
 # 安装与启动 HiveMemory
@@ -192,13 +192,14 @@ cp scripts/hivememory-dev.env.example .hivememory/dev.env
 | `start [all\|qdrant\|backend\|frontend]` | 全部，或只启动指定的一个 | 开发模式：默认随代码改动自动重载 | Vite（`5173`） |
 | `serve [--build]` | Qdrant 与后端 | 不重载，单进程，与 Docker 镜像中的运行方式相同 | 由后端在 `8769` 提供 `frontend/dist` 的构建产物 |
 
-- `serve` 适合长期运行，例如让外部 harness 的插件持续导入对话：自动重载会在每次代码改动时重启后端，短期话题随之沉淀并在重启后读回，进程内的重复导入检查会清空。`serve --build` 先构建前端再启动；不加 `--build` 时使用已有的构建产物，它可能早于当前代码。
+- `serve` 适合长期运行，例如让外部 harness 的插件持续导入对话：自动重载会在每次代码改动时重启后端，短期话题随时写在各自的日志里、重启后读回，进程内的重复导入检查会清空。`serve --build` 先构建前端再启动；不加 `--build` 时使用已有的构建产物，它可能早于当前代码。
 - 开发模式下，在 `.hivememory/dev.env` 中设置 `HIVEMEMORY_BACKEND_RELOAD=0` 可以关闭自动重载。
 - `stop` 与 `restart` 同样接受服务名，缺省为全部；`restart` 保持后端原来的模式。`status` 显示各服务的状态与后端的模式，`logs [服务]` 查看日志（位于 `.hivememory/logs`）。
 - 后端自己写 `backend.log`，每天零点后改名为 `backend.log.YYYY-MM-DD` 并另起当天的文件，归档不自动清理；`logs backend` 跟随当天的文件。后端在日志配置生效之前的输出（如导入错误与自动重载的提示）写入 `backend.stdout.log`，启动失败时脚本会把两份日志的末尾一并打印出来。
 - 后端另写 `runtime-events.jsonl`，每行一个运行时事件，切分方式与 `backend.log` 相同。排查一个任务、进程或话题时，用 `python scripts/runtime_event_timeline.py task_id=<ID> .hivememory/logs/runtime-events.jsonl*` 按写入顺序列出它的事件（也可用 `process_id`、`topic_id`、`trace_id` 或 `agent_run_id`）。
-- 停止后端时最多等待 60 秒才强制结束，可用 `HIVEMEMORY_BACKEND_STOP_TIMEOUT` 调整。后端关闭时沉淀短期话题中还没有沉淀的交互，但不在关闭时生成记忆：生成工作保存到 `.hivememory/pending_generation.json`，下次启动后在后台生成；话题池保存到 `.hivememory/topic_pool.json`，下次启动时读回，话题照常续写。因此正常关闭通常几秒内完成。提前强制结束会丢失这些话题与工作，其中包括连接器已得到确认、不会再重发的轮次。
-- 降级到不认识话题池快照的旧版本时，`.hivememory/topic_pool.json` 既不会被读取也不会被删除；之后再升级会把降级之前的话题读回话题池，新的对话可能被路由进这些过时的话题。降级之后先删除这个文件。
+- 停止后端时最多等待 60 秒才强制结束，可用 `HIVEMEMORY_BACKEND_STOP_TIMEOUT` 调整。后端关闭时不生成记忆：还没执行的生成工作保存到 `.hivememory/pending_generation.json`，下次启动后在后台生成；短期话题随时写在 `.hivememory/topics` 下各自的日志里，下次启动时读回、照常续写，关闭时还没完成的沉淀在重启后重新进行。因此正常关闭通常几秒内完成。提前强制结束会丢失还没保存的生成工作；短期话题不受影响，连接器已得到确认的轮次已经写进话题的日志。
+- 升级之后，旧版本关闭时留下的话题池快照 `.hivememory/topic_pool.json` 不再读取，可以删除；跨升级的那一次重启照旧切开正在进行的话题，旧版本关闭时已经沉淀的交互照常生成记忆。
+- 降级到不认识话题日志的旧版本时，`.hivememory/topics` 目录既不会被读取也不会被删除；之后再升级会读回降级之前的日志，话题与沉淀进度停在降级那一刻，降级期间沉淀过的交互会再沉淀一次。降级之后先删除这个目录。
 - 同一时间只运行一个后端：后端已以另一种模式运行时，脚本拒绝启动并提示先执行 `stop backend`；`8769` 上已有不由脚本启动的后端时同样拒绝。启动失败时只停止本次启动的服务，之前已在运行的服务不受影响。
 - 脚本只停止自己启动的进程；它发现 Qdrant 已在脚本之外运行时直接复用，`stop` 不会停止它。
 
@@ -219,7 +220,7 @@ Copy-Item scripts\hivememory-dev.env.example .hivememory\dev.env
 | `status` | Qdrant、后端与 Vite 是否就绪 |
 | `stop-qdrant` | 结束本脚本启动的 Qdrant |
 
-- 后端在前台运行，按 Ctrl+C 停止，等它结算完内存中的话题后自己退出。Windows 上不能向另一个进程发送正常关闭的信号，所以脚本从不结束后端。
+- 后端在前台运行，按 Ctrl+C 停止，等它保存完还没执行的生成工作后自己退出。Windows 上不能向另一个进程发送正常关闭的信号，所以脚本从不结束后端。
 - Qdrant 在隐藏的控制台中运行，后端停止后仍在运行。`stop-qdrant` 直接结束它；Qdrant 先写 WAL 再确认写入，下次启动能够恢复。
 - 端口读自 `.hivememory\dev.env` 的 `HIVEMEMORY_BACKEND_PORT`、`QDRANT_HTTP_PORT` 与 `QDRANT_GRPC_PORT`，缺省 `8769`、`6333`、`6334`；脚本把 Qdrant 的端口以环境变量交给后端。日志在 `.hivememory\logs`。
 

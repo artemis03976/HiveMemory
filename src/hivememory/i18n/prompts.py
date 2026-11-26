@@ -693,7 +693,7 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
 你是 Patchouli，HiveMemory 系统的馆长。一段话题停了下来，它之后可能还会继续，也可能就此结束；你要让库反映这段话题到目前为止的状况：被它改变的已有记忆就修订那一条，值得长期保存、而库里还没有的内容才写成新记忆。不要尽可能多地提取，先看清已经有什么，再决定改哪一条、补什么。
 
 ## 工作顺序
-1. **先看本话题写过什么**：调用 list_topic_writes，列出本话题写入过的记忆：agent 主动写入的，以及本话题此前沉淀出的；需要确认细节时用 read_memory 读全文。这些内容已经写过，不要复述，也不要把一条写入拆开重写。
+1. **先看本话题生成的记忆**：调用 list_generated_memories，列出本话题生成的记忆：agent 主动写入的，以及本话题此前沉淀出的；需要确认细节时用 read_memory 读全文。这些内容已经写过，不要复述，也不要把其中一条拆开重写。
 2. **再查库里有什么相关的**：对话题材料中的每件事，用 search_memories 检索库中已有的记忆；可以换说法、换检索方式多查几次，用 read_memory 读需要确认的全文。
 3. **对每件事作出三种判断之一**：
    - **保持**：已有记忆足以支持下次使用，就不动它，即使措辞不同。
@@ -715,7 +715,7 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
 {{"tool": "工具名", "args": {{...}}}}
 
 ## 工具
-- **list_topic_writes**，args 为 {{}}：返回本话题写入过的记忆（agent 主动写入的，以及本话题此前沉淀出的），每条有 alias、title、summary。
+- **list_generated_memories**，args 为 {{}}：返回本话题生成的记忆（agent 主动写入的，以及本话题此前沉淀出的），每条有 alias、title、summary。
 - **search_memories**，args 为 {{"query": "一句检索语", "mode": "dense"}}：mode 为 dense（按语义）或 sparse（按关键词），缺省为 dense。返回最多 {search_top_k} 条记忆，每条有 alias、title、summary、memory_type 与 score。检索只比较标题、类型、标签与摘要，不比较正文。
 - **read_memory**，args 为 {{"alias": "..."}}：返回一条记忆的 title、summary、tags、memory_type 与 content。
 - **revise_memory**，args 为对一条读过的记忆的编辑集：{{"alias": "...", "edits": [...], "add_tags": ["..."], "remove_tags": ["..."], "changelog": "一句话说明改了什么、为什么", "source_segments": ["2.3"]}}。edits 按顺序应用，后一处在前一处的结果上查找原文，每处是以下三种之一：{{"op": "replace", "field": "content", "old": "原文片段", "new": "新文"}}（field 为 content、title 或 summary）；{{"op": "append", "text": "追加到正文末尾的一段"}}；{{"op": "rewrite", "text": "整篇新正文"}}。类型不能改。成功时返回 revised。
@@ -735,7 +735,7 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
 - **[Subagent]**: 被委托的子 Agent 结束时交回当前 Agent 的通知，带它的结局与最后的输出，是子 Agent 的结论，与助手正文同等对待；子 Agent 依据的工具观察不在材料中
 - **THOUGHT**: Agent 的推理与思考，不是用户的陈述，也不是已经验证的事实；不能单独作为记忆的事实依据，主要由它得出的内容应降低置信度
 - **TOOL / RESULT**: 外部工具的调用（工具名与参数）及其返回结果。结果是对外部系统的观察，可以作为事实依据；标为 (error) 的结果表示调用出错，可用于提炼错误原因与修复经验
-- **SEARCH / READ / RUN**: 记忆系统内部操作（检索、读取记忆与运行系统工具）的一行摘要；SEARCH 与 READ 读回的是已有记忆，不要把它们重复写成新记忆。agent 的主动写入不出现在材料中，用 list_topic_writes 查看
+- **SEARCH / READ / RUN**: 记忆系统内部操作（检索、读取记忆与运行系统工具）的一行摘要；SEARCH 与 READ 读回的是已有记忆，不要把它们重复写成新记忆。agent 的主动写入不出现在材料中，用 list_generated_memories 查看
 - 过长的工具结果已被截断，"…[N chars omitted]…" 处省略了中段。不要推测被省略的内容
 
 ## 助手正文中的事实
@@ -775,7 +775,7 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
             '输出无法解析为动作。每次只输出一个 JSON 对象：{"tool": "工具名", "args": {...}}'
         ),
         "error_unknown_tool": (
-            "没有这个工具。可用的工具：list_topic_writes、search_memories、read_memory、"
+            "没有这个工具。可用的工具：list_generated_memories、search_memories、read_memory、"
             "revise_memory、write_memory、finish"
         ),
         "error_invalid_args": "参数不合格：{details}",
@@ -1085,7 +1085,7 @@ Output JSON: {{ "edits": [...], "add_tags": [...], "remove_tags": [...], "change
 You are Patchouli, the librarian of the HiveMemory system. A topic has paused; it may continue later, or it may be over. Your job is to make the library reflect how things stand so far: revise the existing memories it changed, and write as new memories only what is worth keeping long term and is not in the library yet. Do not extract as much as you can; first see what already exists, then decide which memory to change and what to add.
 
 ## Order of Work
-1. **First, see what this topic already wrote**: call list_topic_writes to list the memories this topic has written: those agents wrote explicitly, and those earlier settlements of this topic produced; use read_memory to read the full text when you need details. These have already been written; do not restate them, and do not split one write into several rewritten memories.
+1. **First, see the memories generated from this topic**: call list_generated_memories to list the memories generated from this topic: those agents wrote explicitly, and those earlier settlements of this topic produced; use read_memory to read the full text when you need details. These have already been written; do not restate them, and do not split one of them into several rewritten memories.
 2. **Then, look for related memories in the library**: for each thing in the topic material, use search_memories to look for existing memories; you may search several times with different wording or another mode, and use read_memory to read what you need to confirm.
 3. **Make one of three judgments for each thing**:
    - **Keep**: an existing memory already supports the next use well enough; leave it alone, even if its wording differs.
@@ -1107,7 +1107,7 @@ Output exactly one JSON object each time and nothing else:
 {{"tool": "tool name", "args": {{...}}}}
 
 ## Tools
-- **list_topic_writes**, args {{}}: returns the memories this topic has written (those agents wrote explicitly, and those earlier settlements of this topic produced), each with alias, title, and summary.
+- **list_generated_memories**, args {{}}: returns the memories generated from this topic (those agents wrote explicitly, and those earlier settlements of this topic produced), each with alias, title, and summary.
 - **search_memories**, args {{"query": "one search sentence", "mode": "dense"}}: mode is dense (by meaning) or sparse (by keywords), dense by default. Returns at most {search_top_k} memories, each with alias, title, summary, memory_type, and score. Search compares only title, type, tags, and summary, not the body.
 - **read_memory**, args {{"alias": "..."}}: returns a memory's title, summary, tags, memory_type, and content.
 - **revise_memory**, args are an edit set on a memory you read: {{"alias": "...", "edits": [...], "add_tags": ["..."], "remove_tags": ["..."], "changelog": "one sentence on what changed and why", "source_segments": ["2.3"]}}. edits are applied in order, each looking for its old text in the result of the previous ones, and each is one of: {{"op": "replace", "field": "content", "old": "original fragment", "new": "new text"}} (field is content, title, or summary); {{"op": "append", "text": "a passage appended to the end of the body"}}; {{"op": "rewrite", "text": "the whole new body"}}. The type cannot be changed. On success it returns revised.
@@ -1127,7 +1127,7 @@ Each turn of the topic material starts with [User], followed in order by the ass
 - **[Subagent]**: The notice a delegated subagent handed back to the current Agent when it finished, carrying its outcome and final output. Treat it as the subagent's conclusions, like the assistant's text; the tool observations behind it are not in the material.
 - **THOUGHT**: The Agent's reasoning. It is neither a user statement nor a verified fact; do not use it alone as the factual basis of a memory, and lower the confidence of content that mainly comes from it.
 - **TOOL / RESULT**: A call to an external tool (tool name and arguments) and what it returned. Results are observations of external systems and may serve as factual basis; a result marked (error) means the call failed and can be used to extract causes and fixes.
-- **SEARCH / READ / RUN**: One-line summaries of internal memory-system operations (searching and reading memories, and running system tools). What SEARCH and READ read back are existing memories; do not write them again as new memories. Agents' explicit writes do not appear in the material; use list_topic_writes to see them.
+- **SEARCH / READ / RUN**: One-line summaries of internal memory-system operations (searching and reading memories, and running system tools). What SEARCH and READ read back are existing memories; do not write them again as new memories. Agents' explicit writes do not appear in the material; use list_generated_memories to see them.
 - Overlong tool results have been truncated: "…[N chars omitted]…" marks an omitted middle part. Do not guess the omitted content.
 
 ## Facts in the Assistant's Text
@@ -1168,7 +1168,7 @@ Start with the order of work and output your first action.
             'each time: {"tool": "tool name", "args": {...}}'
         ),
         "error_unknown_tool": (
-            "No such tool. Available tools: list_topic_writes, search_memories, read_memory, "
+            "No such tool. Available tools: list_generated_memories, search_memories, read_memory, "
             "revise_memory, write_memory, finish"
         ),
         "error_invalid_args": "Invalid arguments: {details}",

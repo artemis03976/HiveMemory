@@ -1,7 +1,7 @@
 """记忆生成控制器测试使用的 Patchouli 本地总线替身与话题路由。
 
-控制器执行写入与结算时经 ``topic.get`` 读取话题的写入记录，执行之后经
-``topic.record_writes`` 记回话题。
+控制器执行写入与结算时经 ``topic.get_generated_memories`` 读取本话题生成的记忆，执行之后经
+``topic.record_generated_memories`` 记回话题；结算到达终态时经 ``topic.record_settled`` 让话题记下进度。
 """
 
 from collections.abc import Awaitable, Callable
@@ -9,8 +9,14 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 from hivememory.config.patchouli import MemoryPerceptionConfig
-from hivememory.core.models import TopicData, WorkspaceIdentity, record_topic_writes
+from hivememory.core.models import TopicData, WorkspaceIdentity
 from hivememory.memory_library.stores import ShortTermMemoryStore
+from hivememory.memory_library.topic_log import (
+    TopicGeneratedMemoriesRecord,
+    TopicSettledRecord,
+    apply_generated_memories,
+    apply_settled,
+)
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.perception import PerceptionFamiliar
@@ -25,22 +31,34 @@ def make_generation_bus(
     """生成控制器的本地总线替身。
 
     生成执行交给 ``execute``（缺省返回空结果），以 ``(route, spec, on_commit_started=...)``
-    调用；话题的读取与记下写入落在 ``topics`` 上：表中没有的话题读回 ``None``，视为已经
-    退役，记下的写入按 core 话题模型的写函数更新表中的话题。``request`` 与 ``publish`` 都是
-    ``AsyncMock``，测试据此断言发布的事件。
+    调用；话题的读取、本话题生成的记忆与沉淀完成落在 ``topics`` 上：表中没有的话题读回 ``None``，
+    视为已被删除（或日志已经删除），记下的生成的记忆与沉淀进度按短期存储的套用函数更新表中的话题。``request`` 与
+    ``publish`` 都是 ``AsyncMock``，测试据此断言发布的事件。
     """
     run = execute or AsyncMock(return_value=[])
     table = {} if topics is None else topics
 
     async def request(route, *args, **kwargs):
-        if route == PatchouliLocalRoutes.TOPIC_GET:
+        if route == PatchouliLocalRoutes.TOPIC_GET_GENERATED_MEMORIES:
             (topic_id,) = args
-            return table.get(topic_id)
-        if route == PatchouliLocalRoutes.TOPIC_RECORD_WRITES:
+            topic = table.get(topic_id)
+            return None if topic is None else topic.topic_generated_memory_ids
+        if route == PatchouliLocalRoutes.TOPIC_RECORD_GENERATED_MEMORIES:
             (topic_id,) = args
             if topic_id in table:
-                table[topic_id] = record_topic_writes(
-                    table[topic_id], kwargs["written"], kwargs["absorbed_into"]
+                table[topic_id] = apply_generated_memories(
+                    table[topic_id],
+                    TopicGeneratedMemoriesRecord(
+                        at=0.0, generated=kwargs["generated"], absorbed_into=kwargs["absorbed_into"]
+                    ),
+                )
+            return None
+        if route == PatchouliLocalRoutes.TOPIC_RECORD_SETTLED:
+            (topic_id,) = args
+            if topic_id in table:
+                table[topic_id] = apply_settled(
+                    table[topic_id],
+                    TopicSettledRecord(at=0.0, interaction_count=kwargs["interaction_count"]),
                 )
             return None
         return await run(route, *args, **kwargs)
@@ -49,9 +67,11 @@ def make_generation_bus(
 
 
 def register_topic_routes(bus: PatchouliBus, store: ShortTermMemoryStore) -> None:
-    """在真实总线上注册话题读取与记下写入两条路由，二者落在 ``store`` 上。
+    """在真实总线上注册话题读取、读取与记下本话题生成的记忆、记下沉淀完成四条路由，都落在
+    ``store`` 上。
 
-    记下写入由真实的感知使魔处理；它不需要感知引擎，话题不存在时不记。
+    本话题生成的记忆与沉淀完成由真实的感知使魔处理；它不需要感知引擎，话题不存在时
+    不记。
     """
     perception = PerceptionFamiliar(
         engine=None,
@@ -65,7 +85,13 @@ def register_topic_routes(bus: PatchouliBus, store: ShortTermMemoryStore) -> Non
         return store.get(belong_to, topic_id)
 
     bus.register(PatchouliLocalRoutes.TOPIC_GET, get_topic)
-    bus.register(PatchouliLocalRoutes.TOPIC_RECORD_WRITES, perception.record_writes)
+    bus.register(
+        PatchouliLocalRoutes.TOPIC_GET_GENERATED_MEMORIES, perception.get_generated_memories
+    )
+    bus.register(
+        PatchouliLocalRoutes.TOPIC_RECORD_GENERATED_MEMORIES, perception.record_generated_memories
+    )
+    bus.register(PatchouliLocalRoutes.TOPIC_RECORD_SETTLED, perception.record_settled)
 
 
 __all__ = ["make_generation_bus", "register_topic_routes"]

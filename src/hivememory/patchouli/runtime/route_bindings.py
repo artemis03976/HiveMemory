@@ -135,7 +135,15 @@ def build_patchouli_route_bindings(
         ),
         RouteBinding.of(PatchouliLocalRoutes.TOPIC_GET, get_topic),
         RouteBinding.of(
-            PatchouliLocalRoutes.TOPIC_RECORD_WRITES, runtime.perception_familiar.record_writes
+            PatchouliLocalRoutes.TOPIC_GET_GENERATED_MEMORIES,
+            runtime.perception_familiar.get_generated_memories,
+        ),
+        RouteBinding.of(
+            PatchouliLocalRoutes.TOPIC_RECORD_GENERATED_MEMORIES,
+            runtime.perception_familiar.record_generated_memories,
+        ),
+        RouteBinding.of(
+            PatchouliLocalRoutes.TOPIC_RECORD_SETTLED, runtime.perception_familiar.record_settled
         ),
         RouteBinding.of(
             PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,

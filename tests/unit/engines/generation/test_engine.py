@@ -430,7 +430,9 @@ class TestGenerationEngineModeA:
 
         request = GenerationRequest(
             context=_make_context_from_messages(_make_messages()),
-            topic_write_memory_ids=frozenset({str(written_similar.id), str(written_identical.id)}),
+            topic_generated_memory_ids=frozenset(
+                {str(written_similar.id), str(written_identical.id)}
+            ),
         )
         result = await self.engine.process(
             request,
@@ -894,7 +896,7 @@ class TestGenerationEngineDedup:
         assert existing.meta.updated_at == updated_at_before
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("restriction", [None, "policy", "topic_write"])
+    @pytest.mark.parametrize("restriction", [None, "policy", "topic_generated"])
     async def test_dedup_merge_creates_before_nominating(self, restriction):
         """查重先创建独立记忆；只有策略相同，且命中的不是本话题主动写入结算到的记忆时才提名。"""
         existing = _make_memory(alias="fact_existing")
@@ -910,8 +912,8 @@ class TestGenerationEngineDedup:
             existing.meta.access_policy = MemoryAccessPolicy(
                 visibility="PRIVATE", target_agent_id="a1"
             )
-        topic_writes = (
-            frozenset({str(existing.id)}) if restriction == "topic_write" else frozenset()
+        generated_memories = (
+            frozenset({str(existing.id)}) if restriction == "topic_generated" else frozenset()
         )
         before = existing.model_copy(deep=True)
         self.mock_extractor.extract_write.return_value = draft.model_dump_json()
@@ -921,7 +923,7 @@ class TestGenerationEngineDedup:
         result = await self.engine.process(
             GenerationRequest(
                 write_focus=WriteFocus(content=draft.content),
-                topic_write_memory_ids=topic_writes,
+                topic_generated_memory_ids=generated_memories,
             ),
             belong_to=identity.workspace_identity,
             from_actor=identity.actor_identity,

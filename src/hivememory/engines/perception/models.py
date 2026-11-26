@@ -36,7 +36,6 @@ class TriggerReason(str, Enum):
 
     IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
     LRU_EVICTION = "lru_eviction"  # LRU 驱逐（活跃话题池满时换出最久未访问话题）
-    SHUTDOWN = "shutdown"  # 进程关闭时沉淀全部驻留话题（只有空话题退役）
     MANUAL_SETTLE = "manual_settle"  # 用户手动结算：结算为记忆资产并结束 Topic
 
 
@@ -74,10 +73,11 @@ class TopicMaterializeTask(BaseModel):
         description="settle 前冻结的 Topic 真实使用资产关系",
     )
 
-    # 冻结时话题的写入记录：这次结算执行时话题可能已经退役，那时只有这一份。
-    topic_write_memory_ids: frozenset[str] = Field(
+    # 冻结时本话题生成的记忆，执行时并入话题当时的记录；升级之前的版本保存的结算的话题不在
+    # 话题池里，执行时只有这一份。
+    topic_generated_memory_ids: frozenset[str] = Field(
         default_factory=frozenset,
-        description="冻结材料时话题的写入记录，结算的生成请求带着它",
+        description="冻结材料时本话题生成的记忆，结算的生成请求带着它",
     )
 
     reason: TriggerReason = Field(
@@ -113,18 +113,20 @@ class TopicMaterializeTask(BaseModel):
         belong_to: WorkspaceIdentity,
         reason: TriggerReason,
         retires_topic: bool,
+        settled_count: int,
     ) -> TopicMaterializeTask | None:
-        """从冻结 TopicData 构造生成交接任务；最近一次沉淀之后没有新交互时返回 None。
+        """从冻结 TopicData 构造生成交接任务；``settled_count`` 之后没有新交互时返回 None。
 
-        ``belong_to`` 必须由调用方显式传入。字段映射和 no-material 判断集中在此，
-        服务与调用方不得重复拼装。
+        ``settled_count`` 是已经完成与仍在途的沉淀覆盖到的交互数，由调用方给出：在途的沉淀只记
+        在进程内，话题的读取值只有已经完成的进度。``belong_to`` 必须由调用方显式传入。字段映射
+        和 no-material 判断集中在此，服务与调用方不得重复拼装。
         """
         # 有新交互时冻结全部交互，不只是新增的部分：生成在完整材料上判断，此前沉淀
-        # 出的记忆由生成侧记作本话题的写入，复述它们的草稿在那里处理。
+        # 出的记忆由生成侧记作本话题生成的记忆，复述它们的草稿在那里处理。
         # 全部交互都进入结算，不在入口按用户消息筛选：只看用户消息会把"请提交"
         # "继续"这类消息背后的整轮实现丢掉。一轮有没有长期价值，由生成阶段在完整
         # 材料上判断。
-        if not topic_data.has_unsettled_interactions:
+        if len(topic_data.interactions) <= settled_count:
             return None
 
         return cls(
@@ -135,7 +137,7 @@ class TopicMaterializeTask(BaseModel):
             interactions=topic_data.interactions,
             folds=topic_data.folds,
             asset_bindings=topic_data.bindings,
-            topic_write_memory_ids=topic_data.topic_write_memory_ids,
+            topic_generated_memory_ids=topic_data.topic_generated_memory_ids,
             reason=reason,
             retires_topic=retires_topic,
         )

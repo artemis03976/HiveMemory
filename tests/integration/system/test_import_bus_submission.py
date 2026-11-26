@@ -24,6 +24,7 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.application import InteractionSubmissionService
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -52,11 +53,11 @@ class _UnusedSummaryProvider:
 
 
 @pytest.mark.asyncio
-async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title():
+async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title(tmp_path):
     """空白名单的 Agent 导入一轮：真实感知只应用一次，保留归属与发起者及新话题标题。"""
     config = HiveMemoryConfig()
     config.patchouli.perception.engine.fold_token_threshold = 999999
-    store = ShortTermMemoryStore()
+    store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
             config=config.patchouli.perception.engine,

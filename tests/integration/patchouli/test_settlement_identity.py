@@ -35,6 +35,7 @@ from hivememory.engines.perception.memory_perception_engine import MemoryPercept
 from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import (
@@ -214,7 +215,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
         payload=PayloadLayer(content="old private content"),
     )
     mid_term = MidTermMemoryStore(QdrantStorageAdapter(_WritableVectorStore(private)))
-    store = ShortTermMemoryStore()
+    store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     artifacts = ArtifactStore(
         FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts"))
     )

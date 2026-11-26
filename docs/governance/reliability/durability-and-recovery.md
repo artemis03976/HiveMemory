@@ -23,7 +23,7 @@ related_docs:
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
   - docs/components/observability.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-25
 ---
 
 # 运行时状态持久化与故障恢复治理
@@ -39,7 +39,7 @@ last_reviewed: 2026-11-12
 | `MemoryAtom` 与 Qdrant 索引 | MidTerm store/Qdrant | 与 Artifact 写入不是原子事务，失败可能留下未引用 Artifact 或缺少 provenance 的 atom | 事务边界、reconciliation 与幂等 upsert |
 | Artifact | filesystem adapter | 没有完整反向索引、orphan/ref 扫描和 compare-and-set；同一 id 的覆盖保护不足 | 版本化写入、引用一致性扫描、保留/删除策略 |
 | LongTerm archive/revive | file archive + MidTerm store | 跨存储搬运不是事务，失败可能形成重复副本或中间态 | 可重试 saga、状态记录和恢复检查 |
-| Active topic / `TopicData` | 进程内 ShortTerm store；正常关闭时写成话题池快照（[感知与短期话题](../../patchouli/perception.md#7-维护与关闭)） | 正常关闭时沉淀未沉淀的交互、生成工作写进保存文件，话题池写成快照、下次启动读回；异常退出会与生成工作一起丢失话题池与未沉淀 blocks；是否保留全部短期原文尚未成为耐久性承诺 | 明确 ephemeral 边界；仅为已承诺的 settlement 提供恢复能力 |
+| Active topic / `TopicData` | 每个话题一条只追加的日志（`patchouli.perception.topic_dir`），随时落盘，启动时重放读回；内存中只放池中话题的读取值（[感知与短期话题](../../patchouli/perception.md#7-维护存储与启动时读回)） | 日志不 fsync，断电可能丢失最后几行；沉淀进度在生成完成时才记下，崩溃或关闭时没有完成的沉淀在重启后重做，已写下的记忆可能被复述，交给查重；日志只增长，话题退役后整个删除 | 断电耐久（fsync）与日志压缩按真实需要另定 |
 | WorkspaceAsset / opaque ref | workspace 的进程内 `WorkspaceAssetStore`（组合根装配） | asset、representation、ref 与 lease 不跨重启保留；shutdown 时随 Store 清空 | 保持当前进程内 ephemeral 语义；仅在已有 Topic settlement 交接中由 ref 反查当前 Store，不为旧 ref 建立恢复承诺 |
 | Passive/Active interaction submission | 进程内 `InteractionSubmissionQueue` + `InMemoryWorkStore` | 重启后已接纳 pending submission 丢失；有界 `_StoredSubmission` 旁路索引与 `WorkRecord` 重复保存 receipt/payload 定位信息 | SQLite WorkStore 成为唯一持久化状态真相；旁路索引仅可保留为可重建定位缓存，当前实现后置 |
 | Memory generation task | `MemoryGenerationQueue` + `InMemoryWorkStore`，Controller 保留有限领域投影；正常关闭时未执行的 work 写进保存文件（[记忆生成](../../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)） | 崩溃或强制结束时 work 丢失；已结束任务的快照在正常关闭时写进任务历史（最近 100 条、7 天以内），崩溃时丢失；运行中 extractor 不能 checkpoint，关闭时在提交之前被中止的任务从头重跑 | 未来持久化 WorkStore、任务 codec、outcome ref 与完整的 running-work 恢复算法；lease 仅作为候选机制 |

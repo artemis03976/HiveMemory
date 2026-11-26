@@ -15,12 +15,10 @@ from hivememory.core.errors import (
     WorkspaceMismatchError,
 )
 from hivememory.core.models import (
-    ISOLATION_WORKSPACE_ID,
     MAIN_WORKSPACE_ID,
     ActorIdentity,
     IdentityScope,
     WorkspaceIdentity,
-    WorkspaceTopicKey,
     require_identity_scope,
     resolve_default_workspace_identity,
 )
@@ -123,35 +121,12 @@ def test_identity_scope_rejects_interaction_id():
         )
 
 
-def test_workspace_topic_key_round_trip_keeps_owner_and_workspace():
-    """防止 Topic key 序列化后退化为裸 topic_id。"""
-    original = WorkspaceTopicKey(
-        owner_user_id="user-a",
-        workspace_id=ISOLATION_WORKSPACE_ID,
-        topic_id="topic-a",
-    )
-
-    restored = WorkspaceTopicKey.model_validate_json(original.model_dump_json())
-
-    assert restored == WorkspaceTopicKey(
-        owner_user_id="user-a",
-        workspace_id=ISOLATION_WORKSPACE_ID,
-        topic_id="topic-a",
-    )
-
-
 def test_internal_boundary_rejects_missing_scope_with_stable_code():
     """防止领域内部在缺少 scope 时静默回退 main_workspace。"""
     with pytest.raises(ScopeRequiredError) as caught:
         require_identity_scope(None)
 
     assert caught.value.code == "workspace.scope_required"
-
-
-def test_topic_key_construction_rejects_missing_workspace():
-    """资源键必须显式声明归属，缺失 Workspace 不能回退公共资源域。"""
-    with pytest.raises(ValidationError, match="workspace_id"):
-        WorkspaceTopicKey(owner_user_id="user-a", topic_id="topic-a")
 
 
 @pytest.mark.parametrize(

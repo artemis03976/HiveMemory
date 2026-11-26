@@ -28,8 +28,8 @@
 3. 打开打印出的地址：选目标（馆长或一次性生成）与材料，左右两栏各载入或编辑一个提示词版本，
    运行一边或两边，每边可以重复几次。馆长的每一步显示模型输出的动作、交回模型的工具结果与
    ``steps_left``，结束后显示暂存的记忆与 token；一次性生成显示模型输出与草稿。材料面板里有
-   话题材料原文，以及生产中这份材料当时由结算产出的记忆。馆长的 ``list_topic_writes`` 列出的
-   本话题写入要在页面上按 alias 给出，因为导出的材料不记录它们。
+   话题材料原文，以及生产中这份材料当时由结算产出的记忆。馆长的 ``list_generated_memories`` 列出的
+   本话题生成的记忆要在页面上按 alias 给出，因为导出的材料不记录它们。
 
 编辑稿可以保存为命名版本，存在 ``.hivememory/prompt_workbench/versions/<语言>/<目标>/``。
 工作台不写回 ``prompts.py``：“与代码对比”给出编辑稿与代码中版本的 diff，供手动改回。
@@ -450,10 +450,10 @@ class Workbench:
         repeats = request.get("repeats")
         if not isinstance(repeats, int) or not 1 <= repeats <= MAX_REPEATS:
             raise WorkbenchError(f"重复次数是 1 到 {MAX_REPEATS}")
-        aliases = request.get("topic_writes") or []
+        aliases = request.get("generated_memories") or []
         if not isinstance(aliases, list) or not all(isinstance(a, str) for a in aliases):
-            raise WorkbenchError("本话题写入是 alias 的列表")
-        topic_writes = await self._resolve_topic_writes(aliases)
+            raise WorkbenchError("本话题生成的记忆是 alias 的列表")
+        generated_memories = await self._resolve_generated_memories(aliases)
         label = str(request.get("label") or "未命名")
         ids = []
         for repeat in range(1, repeats + 1):
@@ -466,15 +466,15 @@ class Workbench:
             )
             self._runs[run.id] = run
             task = asyncio.create_task(
-                self._execute(run, prompts, material.transcript, topic_writes)
+                self._execute(run, prompts, material.transcript, generated_memories)
             )
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
             ids.append(run.id)
         return ids
 
-    async def _resolve_topic_writes(self, aliases: list[str]) -> list[str]:
-        """把本话题写入的 alias 换成记忆 ID；读不到时拒绝运行，不让馆长静默地少看一条。"""
+    async def _resolve_generated_memories(self, aliases: list[str]) -> list[str]:
+        """把本话题生成的记忆的 alias 换成记忆 ID；读不到时拒绝运行，不让馆长静默地少看一条。"""
         ids = []
         for alias in aliases:
             memory = await self._mid_term.get_by_alias(
@@ -486,7 +486,7 @@ class Workbench:
         return ids
 
     async def _execute(
-        self, run: Run, prompts: dict[str, str], transcript: str, topic_writes: list[str]
+        self, run: Run, prompts: dict[str, str], transcript: str, generated_memories: list[str]
     ) -> None:
         recorder = RecordingLLM(self._llm, run)
         try:
@@ -501,7 +501,7 @@ class Workbench:
                 try:
                     result = await librarian.settle(
                         transcript,
-                        topic_write_memory_ids=topic_writes,
+                        topic_generated_memory_ids=generated_memories,
                         belong_to=self._belong_to,
                         from_actor=self._from_actor,
                     )
@@ -757,8 +757,8 @@ details.run > summary { cursor: pointer; }
   <label>每边重复
     <input id="repeats" type="number" min="1" max="5" value="1" style="width: 5em">
   </label>
-  <label id="writes-box">本话题主动写入的记忆 alias（每行一个，可空）
-    <textarea id="writes" rows="2" style="width: 22em"></textarea>
+  <label id="generated-box">本话题生成的记忆 alias（每行一个，可空）
+    <textarea id="generated" rows="2" style="width: 22em"></textarea>
   </label>
   <button id="run-both">两边同时运行</button>
 </div>
@@ -864,7 +864,7 @@ function setMsg(col, text, ok) {
 }
 
 function onTarget() {
-  $("writes-box").style.display = target() === "librarian" ? "" : "none";
+  $("generated-box").style.display = target() === "librarian" ? "" : "none";
   for (const col of cols) {
     fillVersions(col, CODE);
     loadVersion(col, CODE);
@@ -944,7 +944,7 @@ async function showDiff(col) {
 
 async function run(col) {
   setMsg(col, "");
-  const writes = $("writes").value.split("\n").map((line) => line.trim()).filter(Boolean);
+  const generated = $("generated").value.split("\n").map((line) => line.trim()).filter(Boolean);
   try {
     const ids = await api("/api/runs", {
       target: target(),
@@ -952,7 +952,7 @@ async function run(col) {
       prompts: current(col),
       material_id: $("material").value,
       repeats: Number($("repeats").value),
-      topic_writes: target() === "librarian" ? writes : [],
+      generated_memories: target() === "librarian" ? generated : [],
     });
     col.runIds = [...ids, ...col.runIds];
     poll();

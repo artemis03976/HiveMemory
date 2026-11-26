@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call, patch
@@ -10,19 +9,25 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
-from hivememory.core.models import TopicData, WorkspaceIdentity, record_topic_writes
+from hivememory.core.models import WorkspaceIdentity
+from hivememory.engines.perception.models import TriggerReason
 from hivememory.infrastructure.model_service import ModelLoadState
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.models import (
     StorageHealthComponent,
     StorageHealthReport,
 )
 from hivememory.memory_library.stores import ShortTermMemoryStore
+from hivememory.memory_library.topic_log import (
+    TopicCreatedRecord,
+    TopicInteractionRecord,
+    TopicRetiredRecord,
+    encode_topic_record,
+)
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.saved_work import SavedWorkReport
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
-from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
-from hivememory.patchouli.runtime.topic_pool import save_topic_pool
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from tests.helpers.sessions import make_logical_block
@@ -47,7 +52,6 @@ def _create_runtime():
     ):
         patchouli_config = Mock()
         patchouli_config.shutdown.pending_work_file = "saved/pending_generation.json"
-        patchouli_config.shutdown.topic_pool_file = "saved/topic_pool.json"
         runtime_events = RecordingRuntimeEventSink()
         runtime = PatchouliRuntime(
             patchouli_config=patchouli_config,
@@ -67,7 +71,6 @@ def _create_runtime():
         runtime._task_controller.save_unfinished = AsyncMock(return_value=SavedWorkReport())
         runtime.storage = Mock()
         runtime.memory_library = Mock()
-        runtime.memory_library.short_term = ShortTermMemoryStore()
         runtime.memory_library.mid_term.upsert = Mock()
         runtime.memory_library.mid_term.delete = Mock()
         return runtime
@@ -75,33 +78,23 @@ def _create_runtime():
 
 class TestRuntimeShutdownDrain:
     @pytest.mark.asyncio
-    async def test_shutdown_drain_stops_dispatch_before_settling_and_saves_unfinished(self):
+    async def test_shutdown_drain_stops_dispatch_before_saving_unfinished(self):
         runtime = _create_runtime()
         steps = Mock()
         stop_dispatch = AsyncMock()
-        flush = AsyncMock(
-            return_value=TopicShutdownFlushReport(
-                settled_topic_ids=("t1", "t2"),
-                retired_topic_ids=("t3",),
-                resident_block_count=2,
-            )
-        )
         save = AsyncMock(
-            return_value=SavedWorkReport(saved_by_source={"SETTLE": 1}, file_written=True)
+            return_value=SavedWorkReport(saved_by_source={"WRITE": 1}, file_written=True)
         )
         steps.attach_mock(stop_dispatch, "stop_dispatch")
-        steps.attach_mock(flush, "flush")
         steps.attach_mock(save, "save")
         runtime._task_controller.stop_dispatch = stop_dispatch
-        runtime.perception_familiar.flush_all_for_shutdown = flush
         runtime._task_controller.save_unfinished = save
 
         result = await runtime.shutdown_drain()
 
-        # 停止取新工作先于结算：结算产生的任务只入队，与排队中的工作一起保存。
+        # 停止取新工作先于保存：保存时排队中的工作不会再被取走执行。
         assert steps.mock_calls == [
             call.stop_dispatch(),
-            call.flush(),
             call.save(Path("saved/pending_generation.json")),
         ]
         assert result["reentrant"] is False
@@ -115,31 +108,18 @@ class TestRuntimeShutdownDrain:
         assert events[0].data["operation_kind"] == "shutdown"
         completed = events[-1]
         assert completed.status == "completed"
-        assert completed.data["perception"] == {
-            "settled_topic_count": 2,
-            "retired_topic_count": 1,
-            "failed_topic_count": 0,
-            "resident_block_count": 2,
-        }
         assert completed.data["generation"]["saved"] == 1
         assert completed.data["generation"]["file_written"] is True
 
     @pytest.mark.asyncio
     async def test_shutdown_drain_is_reentrant(self):
         runtime = _create_runtime()
-        runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
-            return_value=TopicShutdownFlushReport(
-                settled_topic_ids=(),
-                resident_block_count=0,
-            )
-        )
 
         first = await runtime.shutdown_drain()
         second = await runtime.shutdown_drain()
 
         assert first["reentrant"] is False
         assert second["reentrant"] is True
-        runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
         runtime._task_controller.save_unfinished.assert_awaited_once()
         events = runtime._test_runtime_events.events
         assert [event.event_type for event in events] == [
@@ -150,17 +130,14 @@ class TestRuntimeShutdownDrain:
         ]
         assert events[-2].data["reentrant"] is True
         assert events[-1].data["reentrant"] is True
-        assert events[-1].data["perception"]["settled_topic_count"] == 0
         assert events[-1].data["generation"]["saved"] == 0
 
     @pytest.mark.asyncio
     async def test_shutdown_drain_failure_emits_failed_event(self):
         runtime = _create_runtime()
-        runtime.perception_familiar.flush_all_for_shutdown = AsyncMock(
-            side_effect=RuntimeError("flush boom")
-        )
+        runtime._task_controller.save_unfinished = AsyncMock(side_effect=RuntimeError("save boom"))
 
-        with pytest.raises(RuntimeError, match="flush boom"):
+        with pytest.raises(RuntimeError, match="save boom"):
             await runtime.shutdown_drain()
 
         events = runtime._test_runtime_events.events
@@ -173,20 +150,18 @@ class TestRuntimeShutdownDrain:
         assert failed.severity == "error"
         assert failed.reason == "operation_failed"
         assert failed.data["success"] is False
-        assert failed.data["perception"] is None
         assert failed.data["generation"] is None
         assert failed.data["error_class"] == "RuntimeError"
 
 
-def _runtime_with_topic_pool(tmp_path, *, max_resident=5):
-    """话题池的保存与读回落在真实的短期存储与驻留工作集上，快照写在临时目录。"""
+def _runtime_with_topic_logs(tmp_path, *, max_resident=5):
+    """话题的读回落在真实的短期存储、文件端口与驻留工作集上，日志写在临时目录。"""
     runtime = _create_runtime()
-    runtime._patchouli_config.shutdown.topic_pool_file = str(tmp_path / "topic_pool.json")
-    store = ShortTermMemoryStore()
+    store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     working_set = TopicWorkingSet(max_resident=max_resident)
     runtime.memory_library.short_term = store
     runtime._services["perception"] = PerceptionFamiliar(
-        engine=None,
+        engine=Mock(build_block=Mock()),
         store=store,
         working_set=working_set,
         bus=runtime.local_bus,
@@ -199,139 +174,93 @@ def _workspace(user_id="u1") -> WorkspaceIdentity:
     return make_identity_scope(user_id=user_id).workspace_identity
 
 
-def _settled_topic(topic_id: str, *, last_update: float, workspace=None) -> TopicData:
-    """接收过一轮交互、已经全部沉淀的话题：关闭时不再沉淀，只随快照保存。"""
-    block = make_logical_block(f"question {topic_id}", f"answer {topic_id}")
-    return TopicData(
-        topic_id=topic_id,
-        workspace_identity=workspace or _workspace(),
-        topic_title=f"title {topic_id}",
-        interactions=(block,),
-        last_update=last_update,
-        settled_interaction_count=1,
-    )
+def _write_log(tmp_path, topic_id: str, *, at: float, retired: TriggerReason | None = None):
+    """写一份上次运行留下的话题日志：在 ``at`` 建立并接收一轮交互，可选地随后退役。"""
+    port = JsonlShortTermStorage(tmp_path / "topics")
+    records = [
+        TopicCreatedRecord(at=at, workspace_identity=_workspace(), topic_title=topic_id),
+        TopicInteractionRecord(at=at, block=make_logical_block(f"question {topic_id}", "answer")),
+    ]
+    if retired is not None:
+        records.append(TopicRetiredRecord(at=at, reason=retired))
+    for record in records:
+        port.append(topic_id, encode_topic_record(record))
 
 
 class TestRuntimeTopicPool:
     @pytest.mark.asyncio
-    async def test_drain_saves_topic_pool_after_committing_work_records_its_writes(self, tmp_path):
-        """关闭时话题池在保存生成工作之后写出：等待中写完的任务记回话题的写入在快照里，下次
-        启动读回话题。"""
-        runtime, store, _ = _runtime_with_topic_pool(tmp_path)
-        topic = _settled_topic("t1", last_update=10.0)
-        store.put(topic)
-
-        async def save_unfinished(path):
-            # 保存生成工作时等已开始写入的任务写完，它的写入在此记回话题。
-            await runtime.perception_familiar.record_writes(
-                "t1",
-                belong_to=topic.workspace_identity,
-                written=frozenset({"m"}),
-                absorbed_into={},
-            )
-            return SavedWorkReport()
-
-        runtime._task_controller.save_unfinished = AsyncMock(side_effect=save_unfinished)
-
-        result = await runtime.shutdown_drain()
-        restarted, restored_store, _ = _runtime_with_topic_pool(tmp_path)
-        report = await restarted.restore_topic_pool()
-
-        assert (result["topic_pool"].saved, result["topic_pool"].file_written) == (1, True)
-        assert (report.read, report.restored, report.rejected) == (1, 1, 0)
-        assert restored_store.list_all() == [record_topic_writes(topic, frozenset({"m"}), {})]
-
-    @pytest.mark.asyncio
-    async def test_drain_completes_when_a_topic_cannot_be_encoded(self, tmp_path):
-        """话题里有不能编码为 UTF-8 的文本（半个代理对）时话题池写不出，关闭照常完成，
-        完成事件报告没有保存。"""
-        runtime, store, _ = _runtime_with_topic_pool(tmp_path)
-        broken = _settled_topic("t1", last_update=1.0)
-        store.put(TopicData.model_validate({**dict(broken), "topic_title": "deploy \ud83d"}))
-
-        result = await runtime.shutdown_drain()
-
-        assert (result["topic_pool"].saved, result["topic_pool"].file_written) == (1, False)
-        completed = runtime._test_runtime_events.events[-1]
-        assert (completed.status, completed.severity) == ("completed_without_saved_work", "error")
-        assert not (tmp_path / "topic_pool.json").exists()
-
-    @pytest.mark.asyncio
     async def test_restore_registers_residency_from_oldest_to_newest_update(self, tmp_path):
-        """读回按 last_update 从旧到新登记驻留：最久没有写入的话题是第一个 LRU 候选。"""
-        save_topic_pool(
-            tmp_path / "topic_pool.json",
-            [
-                _settled_topic("middle", last_update=2.0),
-                _settled_topic("newest", last_update=3.0),
-                _settled_topic("oldest", last_update=1.0),
-            ],
-        )
-        runtime, _, working_set = _runtime_with_topic_pool(tmp_path)
+        """读回按最近写入时间从旧到新登记驻留：最久没有写入的话题是第一个 LRU 候选。"""
+        for topic_id, at in (("middle", 2.0), ("newest", 3.0), ("oldest", 1.0)):
+            _write_log(tmp_path, topic_id, at=at)
+        runtime, _, working_set = _runtime_with_topic_logs(tmp_path)
 
         await runtime.restore_topic_pool()
 
-        assert [topic_id for _, topic_id in working_set.list_shutdown_candidates()] == [
-            "oldest",
-            "middle",
-            "newest",
-        ]
+        order: list[str] = []
+        for _ in range(3):
+            order.append(working_set.select_lru_candidate(_workspace(), exclude=set(order)))
+        assert order == ["oldest", "middle", "newest"]
 
     @pytest.mark.asyncio
-    async def test_restore_sets_aside_the_oldest_topics_beyond_capacity(self, tmp_path):
-        """同一 Workspace 读回的话题超过驻留容量时只读回最近的若干个，最久的写进 rejected 文件；
-        其他 Workspace 的话题不受影响。"""
-        save_topic_pool(
-            tmp_path / "topic_pool.json",
-            [
-                _settled_topic("oldest", last_update=1.0),
-                _settled_topic("middle", last_update=2.0),
-                _settled_topic("newest", last_update=3.0),
-                _settled_topic("other", last_update=0.5, workspace=_workspace("u2")),
-            ],
+    async def test_topics_beyond_capacity_are_all_read_back_and_retired_by_lru(self, tmp_path):
+        """驻留容量在两次运行之间调小时全部读回；下一次需要新话题时由 LRU 逐个退役，退役前先
+        沉淀未沉淀的交互。"""
+        for topic_id, at in (("oldest", 1.0), ("middle", 2.0), ("newest", 3.0)):
+            _write_log(tmp_path, topic_id, at=at)
+        runtime, store, _ = _runtime_with_topic_logs(tmp_path, max_resident=2)
+        submitted = []
+
+        async def submit_settlement(task):
+            submitted.append((task.topic_id, task.retires_topic))
+            return None
+
+        runtime.local_bus.register(
+            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, submit_settlement
         )
-        runtime, store, _ = _runtime_with_topic_pool(tmp_path, max_resident=2)
 
         report = await runtime.restore_topic_pool()
+        topic_id = await runtime.perception_familiar.prepare_topic(
+            "NEW_TOPIC", "新话题", "", _workspace()
+        )
 
-        assert sorted(topic.topic_id for topic in store.list_all()) == ["middle", "newest", "other"]
-        rejected = json.loads(Path(report.rejected_file).read_text(encoding="utf-8"))["topics"]
-        assert [item["topic_id"] for item in rejected] == ["oldest"]
+        assert report.restored == 3
+        assert submitted == [("oldest", True), ("middle", True)]
+        assert sorted(topic.topic_id for topic in store.list_all()) == sorted(["newest", topic_id])
+
+    @pytest.mark.asyncio
+    async def test_restore_reports_retired_and_rejected_logs_and_resettles_after_queue(
+        self, tmp_path
+    ):
+        """读回报告回到话题池、待重新沉淀与读不回的日志数；退役话题不回到话题池，它没有完成的
+        最后一次沉淀在之后带着原来的退役原因重新发起。"""
+        _write_log(tmp_path, "live", at=1.0)
+        _write_log(tmp_path, "retired", at=2.0, retired=TriggerReason.MANUAL_SETTLE)
+        (tmp_path / "topics" / "broken.jsonl").write_bytes(b"{not json\n")
+        runtime, store, working_set = _runtime_with_topic_logs(tmp_path)
+        submitted = []
+
+        async def submit_settlement(task):
+            submitted.append((task.topic_id, task.reason, task.retires_topic))
+            return Mock()
+
+        runtime.local_bus.register(
+            PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, submit_settlement
+        )
+
+        report = await runtime.restore_topic_pool()
+        resident = working_set.select_lru_candidate(_workspace())
+        await runtime.resettle_retired_topics()
+
+        assert (report.restored, report.retired, report.rejected) == (1, 1, 1)
+        assert ([topic.topic_id for topic in store.list_all()], resident) == (["live"], "live")
+        assert submitted == [("retired", TriggerReason.MANUAL_SETTLE, True)]
         completed = runtime._test_runtime_events.events[-1]
         assert (completed.source, completed.status, completed.severity) == (
             "patchouli.restore_topic_pool",
             "completed_with_rejections",
             "error",
         )
-
-    @pytest.mark.asyncio
-    async def test_restore_sets_aside_invalid_topics_and_restores_the_rest(self, tmp_path):
-        """单个话题校验失败（沉淀进度超过交互数）时写进 rejected 文件，其余照常读回。"""
-        path = tmp_path / "topic_pool.json"
-        valid = _settled_topic("valid", last_update=1.0)
-        invalid = _settled_topic("invalid", last_update=2.0).model_dump(mode="json")
-        invalid["settled_interaction_count"] = 5
-        document = {"format_version": 1, "topics": [valid.model_dump(mode="json"), invalid]}
-        path.write_text(json.dumps(document), encoding="utf-8")
-        runtime, store, _ = _runtime_with_topic_pool(tmp_path)
-
-        report = await runtime.restore_topic_pool()
-
-        assert store.list_all() == [valid]
-        rejected = json.loads(Path(report.rejected_file).read_text(encoding="utf-8"))["topics"]
-        assert rejected == [invalid]
-
-    @pytest.mark.asyncio
-    async def test_restore_sets_aside_unreadable_snapshot_and_starts_empty(self, tmp_path):
-        """整份快照读不回时改名为 rejected 文件，话题池从空开始，启动照常继续。"""
-        path = tmp_path / "topic_pool.json"
-        path.write_text("{not json", encoding="utf-8")
-        runtime, store, _ = _runtime_with_topic_pool(tmp_path)
-
-        report = await runtime.restore_topic_pool()
-
-        assert store.list_all() == []
-        assert Path(report.rejected_file).read_text(encoding="utf-8") == "{not json"
 
 
 class TestRuntimeLocalRoutes:

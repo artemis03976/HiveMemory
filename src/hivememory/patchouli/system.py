@@ -221,15 +221,17 @@ class PatchouliSystem(SubsystemProtocol):
         if not self.runtime.local_routes_registered:
             self.runtime.mount_local_routes(self.service)
 
-        # 话题池先于公开路由与交互提交读回：交互与 Gateway 看到的是关闭前的话题池；读回的
-        # 结算执行时，它的话题已经在存储里。
+        # 话题池先于公开路由与交互提交从日志读回：交互与 Gateway 看到的是上次运行留下的
+        # 话题池。
         await self.runtime.restore_topic_pool()
         self._bridge.mount()
         await self._interaction_submission_queue.start()
         # 已结束任务的历史先于保存的工作读回：任务列表合并两者时，同一 ID 以本进程的为准。
         self.runtime.restore_task_history()
         await self.runtime.start_memory_generation_queue()
-        # 上次关闭时保存的生成工作只入队、在后台执行，不拖慢启动。
+        # 退役话题没有完成的最后一次沉淀与上次关闭时保存的生成工作只入队、在后台执行，
+        # 不拖慢启动。
+        await self.runtime.resettle_retired_topics()
         await self.runtime.restore_saved_generation()
 
         if self._scheduler and not self._maintenance_registered:
@@ -241,12 +243,10 @@ class PatchouliSystem(SubsystemProtocol):
             self.unregister_maintenance_tasks(self._scheduler)
             self._maintenance_registered = False
 
-        # interaction work 不可取消；先等待所有已接纳 work 完成，再进入
-        # perception flush，避免 handler 晚于 shutdown settlement 写入。任务进程
-        # 的提交由进程持有，系统关闭时进程服务先于 Patchouli 停止，等待已经在
-        # 那里完成。折叠先行关闭：排空时不再等待摘要模型，沉淀会带走话题的完整 blocks。
-        # 沉淀产生的生成任务不在关闭时执行，与排队中的工作一起保存，下次启动后继续；
-        # 话题池随后写成快照，下次启动时先于它们读回。
+        # interaction work 不可取消；先等待所有已接纳 work 完成，交互在关闭之前写进话题
+        # 的日志。任务进程的提交由进程持有，系统关闭时进程服务先于 Patchouli 停止，等待
+        # 已经在那里完成。折叠先行关闭：排空时不再等待摘要模型。话题随时落盘，关闭时不
+        # 沉淀；排队中的生成工作保存到下次启动继续，还没执行的沉淀不保存，重启后重新沉淀。
         self._interaction_submission_queue.close_compactions()
         await self._interaction_submission_queue.drain_all(timeout=None)
         await self._interaction_submission_queue.stop()

@@ -66,6 +66,11 @@ logger = logging.getLogger(__name__)
 
 # 关闭时保存到磁盘、下次启动后继续的任务，在本进程内以这个原因取消。
 SHUTDOWN_PERSISTED_REASON = "shutdown_persisted"
+# 关闭时还没开始写入的沉淀不保存，以这个原因取消：话题的日志停在上一次完成的沉淀，重启后
+# 由空闲扫描重新沉淀。
+SHUTDOWN_DISCARDED_REASON = "shutdown_discarded"
+# 用户经任务接口取消任务的原因；沉淀被用户取消算作完成，与现在一样不重做。
+_USER_CANCEL_REASON = "user_requested"
 
 
 class _MemoryGenerationIntentConflictError(ValueError):
@@ -291,35 +296,38 @@ class MemoryGenerationTaskController:
     ) -> list[MemoryGenerationResult]:
         """由队列 handler 调用现有的记忆生成数据面。
 
-        本话题的写入记录在话题上。WRITE 与 SETTLE 执行时经 ``topic.get`` 读取话题，把它当前
-        的记录并入请求；结算的请求另带着冻结材料时的那份，话题已经退役时只有这一份。在执行
-        时而不是接纳时读取：同一话题先后派发的写入，前一条完成后，后一条执行时才能看到它。
-        生成 lane 只让同一话题的结算依次执行，写入不按话题排序：结算开始时仍在执行的同话题
-        写入不在记录中，它与被动草稿之间照旧按查重处理。数据面返回后，这次要记下的写入与
-        合并改指经 ``topic.record_writes`` 记回话题，仍在这个 handler 内：同一话题的下一次
-        结算开始时，话题上的记录已经包含它们。话题已经退役时没有地方可记：随退役执行的结算
-        只有冻结材料时的记录，冻结之后才完成的同话题写入（包括排在它前面的同话题沉淀新建的
-        记忆）不在其中，同样按查重处理。
+        本话题生成的记忆记在话题上。WRITE 与 SETTLE 执行时经 ``topic.get_generated_memories`` 读取话题当前的
+        记录并入请求，话题已经退役、日志还在时同样读得到；结算的请求另带着冻结材料时的那份，
+        升级之前保存的结算的话题不在话题池里，只有这一份。在执行时而不是接纳时读取：同一话题
+        先后派发的写入，前一条完成后，后一条执行时才能看到它。生成 lane 只让同一话题的结算
+        依次执行，写入不按话题排序：结算开始时仍在执行的同话题写入不在记录中，它与被动草稿
+        之间照旧按查重处理。数据面返回后，本话题新生成的记忆与合并改指经 ``topic.record_generated_memories``
+        记回话题，仍在这个 handler 内：同一话题的下一次结算开始时，话题上的记录已经包含它们。
         """
 
         if spec.source in {MemoryGenerationSource.SETTLE, MemoryGenerationSource.WRITE}:
-            topic = await self._bus.request(
-                PatchouliLocalRoutes.TOPIC_GET, spec.topic_id, belong_to=spec.belong_to
+            # 同一话题的沉淀按话题顺序键依次执行，前一次在自己的 handler 里记下生成的记忆之后才轮到
+            # 后一次；退役话题的日志只在最后一次沉淀完成、没有未沉淀的交互时才删除，重启时随
+            # 日志重放，所以随退役执行的最后一次沉淀一定读得到排在它前面的沉淀写下的记忆。
+            recorded = await self._bus.request(
+                PatchouliLocalRoutes.TOPIC_GET_GENERATED_MEMORIES,
+                spec.topic_id,
+                belong_to=spec.belong_to,
             )
-            if topic is not None and topic.topic_write_memory_ids:
-                spec = _with_topic_writes(spec, topic.topic_write_memory_ids)
+            if recorded:
+                spec = _with_topic_generated_memories(spec, recorded)
         results: list[MemoryGenerationResult] = await self._bus.request(
             PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC,
             spec,
             on_commit_started=on_commit_started,
         )
-        written, absorbed_into = _topic_writes_of(spec, results)
-        if written or absorbed_into:
+        generated, absorbed_into = _generated_memories_of(spec, results)
+        if generated or absorbed_into:
             await self._bus.request(
-                PatchouliLocalRoutes.TOPIC_RECORD_WRITES,
+                PatchouliLocalRoutes.TOPIC_RECORD_GENERATED_MEMORIES,
                 spec.topic_id,
                 belong_to=spec.belong_to,
-                written=written,
+                generated=generated,
                 absorbed_into=absorbed_into,
             )
         return results
@@ -385,6 +393,7 @@ class MemoryGenerationTaskController:
                 "memory generation work record missing",
                 finished_at=datetime.now(UTC),
             )
+            await self._record_settled_if_completed(entry.spec, snapshot)
             await self._publish_terminal(entry, snapshot)
             return snapshot
 
@@ -403,12 +412,48 @@ class MemoryGenerationTaskController:
             # finalize，失败只影响可观测副作用，不回写通用 work 状态。
             await self._publish_settlements(results)
             await self._submit_nominated_merges(entry.spec, results)
+        await self._record_settled_if_completed(entry.spec, snapshot)
         # 失败已由生成队列的分类器按原因码记录日志；这里只把原因码带进领域终态事件。
         failure = (
             record.last_error if snapshot.status == MemoryGenerationTaskStatus.FAILED else None
         )
         await self._publish_terminal(entry, snapshot, failure=failure)
         return snapshot
+
+    async def _record_settled_if_completed(
+        self, spec: MemoryGenerationTaskSpec, snapshot: MemoryGenerationTask
+    ) -> None:
+        """沉淀到达终态时经 ``topic.record_settled`` 让话题记下进度。
+
+        成功、失败与用户取消都算完成：失败的沉淀不自动重试，取消的不重做。关闭时取消的不算：
+        进度停在上一次完成的位置，重启后这段交互重新沉淀。交互数取冻结材料时话题的全部交互。
+        记不下（磁盘错误）时只记日志：进度没有推进，这段交互以后会再沉淀一次，重复交给查重。
+        """
+        if spec.source != MemoryGenerationSource.SETTLE:
+            return
+        if snapshot.status == MemoryGenerationTaskStatus.CANCELLED:
+            if snapshot.cancel_reason != _USER_CANCEL_REASON:
+                return
+        elif snapshot.status not in {
+            MemoryGenerationTaskStatus.COMPLETED,
+            MemoryGenerationTaskStatus.FAILED,
+        }:
+            return
+        if spec.interaction_input is None:
+            raise RuntimeError("settlement work is missing its frozen interactions")
+        try:
+            await self._bus.request(
+                PatchouliLocalRoutes.TOPIC_RECORD_SETTLED,
+                spec.topic_id,
+                belong_to=spec.belong_to,
+                interaction_count=len(spec.interaction_input.blocks),
+            )
+        except OSError:
+            logger.error(
+                "记下沉淀进度失败: reason=topic_settled_record_failed, topic_id=%s",
+                spec.topic_id,
+                exc_info=True,
+            )
 
     async def _submit_nominated_merges(
         self, spec: MemoryGenerationTaskSpec, results: list[MemoryGenerationResult]
@@ -593,9 +638,11 @@ class MemoryGenerationTaskController:
     async def save_unfinished(self, path: Path) -> SavedWorkReport:
         """把还没执行的工作写进保存文件，供下次启动读回；在 ``stop_dispatch`` 之后调用。
 
-        在跑的任务中，还没开始写入记忆的立即取消，按未执行保存，下次从头执行；已经开始
-        写入的等它写完，结算与提名的合并照常完成，提名的合并入队后一并保存。保存的任务
-        随后以取消结束，原因为 ``shutdown_persisted``。
+        在跑的任务中，还没开始写入记忆的立即取消，按未执行处理；已经开始写入的等它写完，
+        结算与提名的合并照常完成，提名的合并入队后一并保存。未执行的写入、更新与合并写进
+        保存文件，下次从头执行，随后以取消结束，原因为 ``shutdown_persisted``。未执行的沉淀
+        不保存，以 ``shutdown_discarded`` 取消：沉淀进度只在完成时记下，话题的日志停在上一次
+        完成的位置，重启后由空闲扫描重新沉淀。
         """
         running: list[_MemoryTaskEntry] = []
         for entry in list(self._entries.values()):
@@ -603,20 +650,23 @@ class MemoryGenerationTaskController:
                 running.append(entry)
         for entry in running:
             if not self._handle(entry).commit_started:
-                await self.cancel_task(entry.task_id, reason=SHUTDOWN_PERSISTED_REASON)
+                await self.cancel_task(entry.task_id, reason=_shutdown_cancel_reason(entry.spec))
         # 等到结算与合并提名都完成：已在写入的任务提名的合并在这期间入队。
         await self.wait_many([entry.task_id for entry in running])
 
         # 取消与开始写入之间没有原子性：取消送达前已开始写入的任务会写完再结束，
         # 因此以是否开始写入、而不是是否被取消，判断要不要重跑。
         interrupted = {entry.task_id for entry in running if not self._handle(entry).commit_started}
-        to_save: list[_MemoryTaskEntry] = []
+        unfinished: list[_MemoryTaskEntry] = []
         for entry in list(self._entries.values()):
             if entry.task_id in interrupted or await self._work_state(entry) in {
                 WorkState.QUEUED,
                 WorkState.RETRY_WAIT,
             }:
-                to_save.append(entry)
+                unfinished.append(entry)
+        to_save = [
+            entry for entry in unfinished if entry.spec.source != MemoryGenerationSource.SETTLE
+        ]
 
         file_written = False
         if to_save:
@@ -632,9 +682,17 @@ class MemoryGenerationTaskController:
                     len(items),
                     exc_info=True,
                 )
-            queued_ids = [entry.task_id for entry in to_save if entry.task_id not in interrupted]
-            await self.cancel_many(queued_ids, reason=SHUTDOWN_PERSISTED_REASON)
-            await self.wait_many(queued_ids)
+        saved_ids = {entry.task_id for entry in to_save}
+        queued_ids = [entry.task_id for entry in unfinished if entry.task_id not in interrupted]
+        await self.cancel_many(
+            [task_id for task_id in queued_ids if task_id in saved_ids],
+            reason=SHUTDOWN_PERSISTED_REASON,
+        )
+        await self.cancel_many(
+            [task_id for task_id in queued_ids if task_id not in saved_ids],
+            reason=SHUTDOWN_DISCARDED_REASON,
+        )
+        await self.wait_many(queued_ids)
 
         return SavedWorkReport(
             saved_by_source=dict(Counter(entry.spec.source.value for entry in to_save)),
@@ -824,35 +882,42 @@ class MemoryGenerationTaskController:
                 await self._pending_atom_settler.settled(result.settlement)
 
 
+def _shutdown_cancel_reason(spec: MemoryGenerationTaskSpec) -> str:
+    """关闭时取消还没执行的任务的原因：沉淀不保存，其余保存到下次启动继续。"""
+    if spec.source == MemoryGenerationSource.SETTLE:
+        return SHUTDOWN_DISCARDED_REASON
+    return SHUTDOWN_PERSISTED_REASON
+
+
 def _finished_at(task: MemoryGenerationTask) -> datetime:
     """已结束任务的结束时间；领域终态总带结束时间，缺少时以创建时间排序。"""
     return task.finished_at or task.created_at
 
 
-def _with_topic_writes(
-    spec: MemoryGenerationTaskSpec, written: frozenset[str]
+def _with_topic_generated_memories(
+    spec: MemoryGenerationTaskSpec, generated: frozenset[str]
 ) -> MemoryGenerationTaskSpec:
-    """把话题当前的写入记录并入任务规范；结算任务已带有冻结材料时的记录。"""
+    """把本话题当前生成的记忆并入任务规范；结算任务已带有冻结材料时的记录。"""
 
-    ids = spec.request.topic_write_memory_ids | written
-    request = spec.request.model_copy(update={"topic_write_memory_ids": ids})
+    ids = spec.request.topic_generated_memory_ids | generated
+    request = spec.request.model_copy(update={"topic_generated_memory_ids": ids})
     return dataclasses.replace(spec, request=request)
 
 
-def _topic_writes_of(
+def _generated_memories_of(
     spec: MemoryGenerationTaskSpec, results: list[MemoryGenerationResult]
 ) -> tuple[frozenset[str], dict[str, str]]:
-    """一次执行之后要记回话题的写入，以及合并的改指（被吸收的记忆 → 保留的记忆）。
+    """一次执行之后要记回话题的本话题生成的记忆，以及合并的改指（被吸收的记忆 → 保留的记忆）。
 
     - 带 settlement 的结果只来自主动写入链路：WRITE、UPDATE 的结算目标，以及吸收了
       写入新建记忆的合并（结算改指保留的那条）；
     - 不退役的沉淀新建的记忆：话题之后还会再次沉淀，材料仍是全部交互，复述它们的
-      草稿要按本话题的写入处理。触碰与修订的是已有记忆，不是这个话题写下的，不记；
+      草稿要按本话题生成的记忆处理。触碰与修订的是已有记忆，不是这个话题写下的，不记；
     - 合并吸收了记录中的记忆时，记录改为保留的那条：被吸收的在不在记录中，由话题在
       写回时按它最新的记录判断。
     """
     records_creations = spec.source == MemoryGenerationSource.SETTLE and not spec.retires_topic
-    written: set[str] = set()
+    generated: set[str] = set()
     absorbed_into: dict[str, str] = {}
     for result in results:
         if result.absorbed_memory_uuid is not None and result.canonical_uuid is not None:
@@ -864,8 +929,12 @@ def _topic_writes_of(
         else:
             continue
         if memory_id is not None:
-            written.add(memory_id)
-    return frozenset(written), absorbed_into
+            generated.add(memory_id)
+    return frozenset(generated), absorbed_into
 
 
-__all__ = ["SHUTDOWN_PERSISTED_REASON", "MemoryGenerationTaskController"]
+__all__ = [
+    "SHUTDOWN_DISCARDED_REASON",
+    "SHUTDOWN_PERSISTED_REASON",
+    "MemoryGenerationTaskController",
+]

@@ -53,7 +53,7 @@ from hivememory.patchouli.control.memory_generation.saved_work import (
 )
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
+from hivememory.patchouli.runtime.models import RestoredTopicPoolReport
 from hivememory.patchouli.runtime.route_bindings import build_patchouli_route_bindings
 from hivememory.patchouli.runtime.shutdown_drain import (
     restore_completed_severity,
@@ -64,19 +64,17 @@ from hivememory.patchouli.runtime.shutdown_drain import (
     summarize_shutdown_drain_failure,
     summarize_shutdown_drain_result,
     summarize_topic_pool_restore,
-)
-from hivememory.patchouli.runtime.topic_pool import (
-    RestoredTopicPoolReport,
-    SavedTopicPoolReport,
-    restore_topic_pool,
-    save_topic_pool,
+    topic_pool_restore_completed_severity,
+    topic_pool_restore_completed_status,
 )
 
 if TYPE_CHECKING:
+    from hivememory.core.models import TopicData
     from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
     from hivememory.infrastructure.model_service import SingletonModelService
     from hivememory.infrastructure.rerank import FastEmbedRerankerService
     from hivememory.memory_library import MemoryLibrary
+    from hivememory.memory_library.topic_log import TopicRetiredRecord
     from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
@@ -146,6 +144,8 @@ class PatchouliRuntime:
         self._pending_atom_settler = PendingAtomSettler(self._local_bus)
         self._local_routes_registered = False
         self._shutdown_drain_started = False
+        # 读回话题池时已经退役、最后一次沉淀没有完成的话题，等生成队列启动后重新发起。
+        self._retired_topics_to_resettle: list[tuple[TopicData, TopicRetiredRecord]] = []
 
         # 1. 初始化基础设施
         self._init_infrastructure()
@@ -282,7 +282,7 @@ class PatchouliRuntime:
         return unloaded
 
     async def shutdown_drain(self) -> dict[str, Any]:
-        """服务关闭前沉淀全部活跃话题，把还没执行的记忆生成工作与话题池保存到磁盘。"""
+        """服务关闭前把还没执行的记忆生成工作保存到磁盘；话题随时落盘，关闭时不处理。"""
         observer = RuntimeOperationObserver(
             self._runtime_events,
             subsystem="patchouli",
@@ -303,56 +303,39 @@ class PatchouliRuntime:
     async def _run_shutdown_drain(self) -> dict[str, Any]:
         if self._shutdown_drain_started:
             logger.info("shutdown drain 已执行，跳过重复调用")
-            return {
-                "success": True,
-                "perception": TopicShutdownFlushReport(),
-                "generation": SavedWorkReport(),
-                "topic_pool": SavedTopicPoolReport(),
-                "reentrant": True,
-            }
+            return {"success": True, "generation": SavedWorkReport(), "reentrant": True}
 
         self._shutdown_drain_started = True
         logger.info("开始执行 shutdown drain")
 
-        # 先停止取新工作，沉淀产生的任务只入队、不执行，随后连同排队中的工作一起保存，
-        # 下次启动后继续：退出不等待提取与合并的模型调用。保存生成工作时会等已开始写入
-        # 记忆的任务写完，它们的写入先记回话题，话题池最后保存。
+        # 先停止取新工作，再保存排队中的工作，下次启动后继续：退出不等待提取与合并的模型调用。
+        # 还没执行的沉淀不保存：话题的日志停在上一次完成的沉淀，重启后重新沉淀。
         await self._task_controller.stop_dispatch()
-        perception_result = await self.perception_familiar.flush_all_for_shutdown()
         saved = await self._task_controller.save_unfinished(self.saved_generation_path)
-        topic_pool = save_topic_pool(
-            self.topic_pool_path, self.memory_library.short_term.list_all()
-        )
         result = {
-            "success": (saved.saved == 0 or saved.file_written)
-            and (topic_pool.saved == 0 or topic_pool.file_written),
-            "perception": perception_result,
+            "success": saved.saved == 0 or saved.file_written,
             "generation": saved,
-            "topic_pool": topic_pool,
             "reentrant": False,
         }
         logger.info(
-            "shutdown drain 完成: settled_topics=%d, saved_generation=%d, "
-            "waited_for_commit=%d, saved_file_written=%s, saved_topics=%d, "
-            "topic_pool_written=%s",
-            len(perception_result.settled_topic_ids),
+            "shutdown drain 完成: saved_generation=%d, waited_for_commit=%d, "
+            "saved_file_written=%s",
             saved.saved,
             saved.waited_for_commit,
             saved.file_written,
-            topic_pool.saved,
-            topic_pool.file_written,
         )
         return result
 
     @property
-    def topic_pool_path(self) -> Path:
-        """关闭时保存话题池快照的文件；相对路径按工作目录（数据根）解析。"""
-        return Path(self._patchouli_config.shutdown.topic_pool_file)
+    def topic_dir(self) -> Path:
+        """短期话题日志所在的目录；相对路径按工作目录（数据根）解析。"""
+        return Path(self._patchouli_config.perception.topic_dir)
 
     async def restore_topic_pool(self) -> RestoredTopicPoolReport:
-        """读回上次关闭时保存的话题池；在读回任务历史与保存的生成工作之前、接收交互之前调用。
+        """重放话题日志，读回话题池；在挂载公开路由与接收交互之前调用。
 
-        读回的结算执行时，它的话题已经在存储里。
+        没有退役的话题回到存储与驻留；已经退役、最后一次沉淀没有完成的话题留待
+        :meth:`resettle_retired_topics` 在生成队列启动之后重新发起。
         """
         observer = RuntimeOperationObserver(
             self._runtime_events,
@@ -364,22 +347,41 @@ class PatchouliRuntime:
         )
 
         async def restore() -> RestoredTopicPoolReport:
-            return restore_topic_pool(self.topic_pool_path, self.perception_familiar.restore_topics)
+            loaded = self.memory_library.short_term.load()
+            self.perception_familiar.restore_topics(loaded.topics)
+            self._retired_topics_to_resettle = loaded.retired
+            return RestoredTopicPoolReport(
+                restored=len(loaded.topics),
+                retired=len(loaded.retired),
+                rejected=len(loaded.rejected_files),
+            )
 
         report: RestoredTopicPoolReport = await observer.observe(
             restore,
             summarize=summarize_topic_pool_restore,
-            completed_status=restore_completed_status,
-            completed_severity=restore_completed_severity,
+            completed_status=topic_pool_restore_completed_status,
+            completed_severity=topic_pool_restore_completed_severity,
         )
-        if report.read:
+        if report.restored or report.retired or report.rejected:
             logger.info(
-                "已读回上次关闭时保存的话题池: read=%d, restored=%d, rejected=%d",
-                report.read,
+                "已从日志读回话题池: restored=%d, retired=%d, rejected=%d",
                 report.restored,
+                report.retired,
                 report.rejected,
             )
         return report
+
+    async def resettle_retired_topics(self) -> None:
+        """重新发起读回时已退役、最后一次沉淀没有完成的话题的沉淀；在生成队列启动之后调用。"""
+        retired, self._retired_topics_to_resettle = self._retired_topics_to_resettle, []
+        if not retired:
+            return
+        resubmitted = await self.perception_familiar.resettle_retired_topics(retired)
+        logger.info(
+            "已重新发起退役话题的最后一次沉淀: retired=%d, resubmitted=%d",
+            len(retired),
+            resubmitted,
+        )
 
     @property
     def saved_generation_path(self) -> Path:
@@ -463,6 +465,7 @@ class PatchouliRuntime:
         from hivememory.memory_library import (
             AgentProfileStore,
             FileBasedStorageAdapter,
+            JsonlShortTermStorage,
             LongTermMemoryStore,
             MemoryLibrary,
             MidTermMemoryStore,
@@ -470,7 +473,7 @@ class PatchouliRuntime:
             ShortTermMemoryStore,
         )
 
-        short_term = ShortTermMemoryStore()
+        short_term = ShortTermMemoryStore(JsonlShortTermStorage(self.topic_dir))
         mid_term = MidTermMemoryStore(
             primary=QdrantStorageAdapter(self.storage),
             change_publisher=MemoryChangePublisher(self._local_bus),

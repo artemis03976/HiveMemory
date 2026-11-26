@@ -36,6 +36,7 @@ from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import (
@@ -182,7 +183,12 @@ async def chain(tmp_path):
         QdrantStorageAdapter(_VectorStore()), change_publisher=MemoryChangePublisher(local_bus)
     )
     profile_store = AgentProfileStore(tmp_path / "agent_profiles")
-    library = MemoryLibrary(ShortTermMemoryStore(), store, _UnusedPort(), profile_store)
+    library = MemoryLibrary(
+        ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics")),
+        store,
+        _UnusedPort(),
+        profile_store,
+    )
     retrieval = RetrievalFamiliar(_UnusedPort(), library)
     artifacts = ArtifactStore(FilesystemArtifactStorageAdapter(str(tmp_path / "artifacts")))
     generation = MemoryGenerationFamiliar(
@@ -367,7 +373,7 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
         extractor=LLMMemoryExtractor(ExtractorConfig(), llm, DEFAULT_LLM_PARAMS),
         deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
     )
-    short_term = ShortTermMemoryStore()
+    short_term = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     familiar = MemoryGenerationFamiliar(
         generation_engine=engine,
         memory_library=MemoryLibrary(short_term, chain.store, _UnusedPort(), chain.profile_store),

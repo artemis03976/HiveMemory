@@ -20,6 +20,7 @@ from hivememory.components.work_queue import (
 from hivememory.config.patchouli import PerceptionEngineConfig
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.patchouli.control.interaction_submission import (
@@ -71,9 +72,9 @@ def _queue_policy() -> QueuePolicy:
 
 
 @pytest.mark.asyncio
-async def test_interaction_retry_preserves_workspace_and_applies_block_once():
+async def test_interaction_retry_preserves_workspace_and_applies_block_once(tmp_path):
     """捕获 retry 丢失 scope、写错 Workspace 或重复写入 block 的缺陷。"""
-    store = ShortTermMemoryStore()
+    store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     familiar = _build_familiar(store)
 
     scope = make_identity_scope(
@@ -144,9 +145,11 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
 
 
 @pytest.mark.asyncio
-async def test_compaction_runs_after_apply_and_next_same_topic_submission_follows_it() -> None:
+async def test_compaction_runs_after_apply_and_next_same_topic_submission_follows_it(
+    tmp_path,
+) -> None:
     """交互不等折叠即完成；同一话题的下一次提交在折叠写回之后才写入话题。"""
-    store = ShortTermMemoryStore()
+    store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     relay_started = asyncio.Event()
     release_relay = asyncio.Event()
 

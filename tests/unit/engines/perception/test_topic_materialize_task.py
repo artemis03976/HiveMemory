@@ -1,9 +1,9 @@
 """TopicMaterializeTask.from_topic_data() 转换边界单元测试。
 
 字段映射、Workspace 归属传递、binding 快照和 no-material 判断统一由该类方法
-负责；服务与调用方不得重复拼装。最近一次沉淀之后没有新交互时没有材料；有新交互时
-结算冻结全部交互与折叠记录，不只是新增的部分，生成材料仍是与 TopicData 同一派生的
-工作视图。
+负责；服务与调用方不得重复拼装。调用方给出的沉淀位置（已完成与在途的沉淀覆盖到的
+交互数）之后没有新交互时没有材料；有新交互时结算冻结全部交互与折叠记录，不只是新增的部分，
+生成材料仍是与 TopicData 同一派生的工作视图。
 """
 
 from hivememory.core.models import (
@@ -29,7 +29,7 @@ def _block(text="q", *, user_id="u1") -> LogicalBlock:
     )
 
 
-def _topic_data(scope, *, interactions=(), folds=(), bindings=(), settled_interaction_count=0):
+def _topic_data(scope, *, interactions=(), folds=(), bindings=()):
     return TopicData(
         topic_id="topic-1",
         workspace_identity=scope.workspace_identity,
@@ -39,7 +39,6 @@ def _topic_data(scope, *, interactions=(), folds=(), bindings=(), settled_intera
         folds=tuple(folds),
         bindings=tuple(bindings),
         last_update=1.0,
-        settled_interaction_count=settled_interaction_count,
     )
 
 
@@ -53,6 +52,7 @@ class TestFromTopicData:
             belong_to=scope.workspace_identity,
             reason=TriggerReason.MANUAL_SETTLE,
             retires_topic=True,
+            settled_count=0,
         )
 
         assert task is not None
@@ -76,22 +76,24 @@ class TestFromTopicData:
             belong_to=scope.workspace_identity,
             reason=TriggerReason.IDLE_TIMEOUT,
             retires_topic=False,
+            settled_count=0,
         )
 
         assert task.belong_to == scope.workspace_identity
         assert task.belong_to.owner_user_id == "owner"
 
-    def test_topic_without_unsettled_interactions_returns_none(self):
-        """接收过交互、但最近一次沉淀之后没有新交互的话题没有材料。"""
+    def test_topic_covered_by_settled_or_settling_returns_none(self):
+        """沉淀位置覆盖了全部交互时没有材料：在途的沉淀只记在进程内，由调用方给出。"""
         scope = _identity_scope()
-        topic = _topic_data(scope, interactions=(_block("q1"),), settled_interaction_count=1)
+        topic = _topic_data(scope, interactions=(_block("q1"),))
 
         assert (
             TopicMaterializeTask.from_topic_data(
                 topic,
                 belong_to=scope.workspace_identity,
-                reason=TriggerReason.MANUAL_SETTLE,
-                retires_topic=True,
+                reason=TriggerReason.IDLE_TIMEOUT,
+                retires_topic=False,
+                settled_count=1,
             )
             is None
         )
@@ -100,13 +102,14 @@ class TestFromTopicData:
         """再次沉淀时材料仍是全部交互，已沉淀的轮次也在其中。"""
         scope = _identity_scope()
         b1, b2 = _block("q1"), _block("q2")
-        topic = _topic_data(scope, interactions=(b1, b2), settled_interaction_count=1)
+        topic = _topic_data(scope, interactions=(b1, b2))
 
         task = TopicMaterializeTask.from_topic_data(
             topic,
             belong_to=scope.workspace_identity,
             reason=TriggerReason.IDLE_TIMEOUT,
             retires_topic=False,
+            settled_count=1,
         )
 
         assert task.interactions == (b1, b2)
@@ -124,8 +127,9 @@ class TestFromTopicData:
         task = TopicMaterializeTask.from_topic_data(
             topic,
             belong_to=scope.workspace_identity,
-            reason=TriggerReason.SHUTDOWN,
+            reason=TriggerReason.MANUAL_SETTLE,
             retires_topic=True,
+            settled_count=0,
         )
 
         assert task.interactions == (b1, b2, b3)
@@ -149,6 +153,7 @@ class TestFromTopicData:
             belong_to=scope.workspace_identity,
             reason=TriggerReason.LRU_EVICTION,
             retires_topic=True,
+            settled_count=0,
         )
 
         assert task.asset_bindings == (binding,)

@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-11-21
+last_reviewed: 2026-11-25
 ---
 
 # 数据模型与可变性边界
@@ -89,7 +89,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.1 Workspace 坐标与资源键
 
-短期 Topic 的复合键仅在 adapter 内部使用；公共 route 通过 `IdentityScope + topic_id` 访问，Patchouli 内部与 Store/Perception 契约使用 `belong_to: WorkspaceIdentity + topic_id`。
+短期 Topic 按全局 `topic_id` 存放；公共 route 通过 `IdentityScope + topic_id` 访问，Patchouli 内部与 Store/Perception 契约使用 `belong_to: WorkspaceIdentity + topic_id`，存储在读取与写入时核对 Workspace 归属。
 
 `IdentityScope` 只表达一次操作中的 actor 和 Workspace 事实，不把请求、任务或 trace 状态塞入公共身份模型。Topic、Memory、Artifact 和 WorkspaceAsset 的资源访问在相应领域边界组合 WorkspaceIdentity 与资源 ID；其中 `topic_id` 仍按全局唯一身份生成和校验，Workspace 归属由底层存储边界校验。物理复合键本身不复制实体，也不改变由 Patchouli 或 System Store 负责的生命周期。
 
@@ -97,19 +97,17 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.2 Gateway 请求状态
 
-短期 Topic 的 `WorkspaceTopicKey` 不属于公共领域模型或 Store/Perception 契约；这些内部边界统一使用 `belong_to + topic_id`，复合键只由 adapter 构造。
-
 `GatewayExecutionState` 是有意可变的请求级状态，仅由 `GatewayWorkflow` 创建和持有。Step 通过 `GatewayStepResult` 提交更新，由 workflow 校验字段、提交顺序和 finalize 边界；最终只投影为公共 `GatewayProcessResult`，不把内部 state、fallback 细节或 snapshot 暴露给下游。
 
 `GatewayStepResult.updates` 当前只以 `MappingProxyType` 冻结顶层 mapping，嵌套值是否只读依赖各 Step 自己的输出约束。它是私有提交信封，不是通用深度不可变容器。
 
 ### 4.3 Topic 实体与读取模型
 
-短期存储 adapter 直接存储冻结的 `TopicData`，Store 与 Port 只交换不可变 `TopicData` 或 `TopicSnapshot` 快照；执行占用不建模为记录字段，由 TopicWorkingSet 的 lease 表达。
+每个话题是一条只追加的日志（一个 JSON Lines 文件），话题上发生的事各记一条；`TopicData` 是由日志依次套用每条记录组装出来的读取值，短期存储在内存中放池中话题的冻结 `TopicData`，读取方只拿到不可变的 `TopicData` 或 `TopicSnapshot`；执行占用不建模为记录字段，由 TopicWorkingSet 的 lease 表达。日志的记录与套用函数在 `memory_library.topic_log`，存储与 Port 契约见 [MemoryLibrary](../patchouli/memory-library.md#11-短期话题工作台)。
 
 `TopicData` 只存两份原始数据：按接收顺序、只追加的交互记录 `interactions`（`LogicalBlock` tuple），与每次折叠追加一条的折叠记录 `folds`（`TopicFold`：被折叠的块标识、折叠后的摘要与折叠时间）。工作视图 `blocks`、`fold_summary` 与 `total_tokens` 是由二者派生的只读属性，`TopicSnapshot` 的 `block_count`、`total_tokens` 同样指工作视图。构造时校验全部折叠记录依次拼接等于交互记录开头同样数量的块标识；模型拒绝未声明字段。语义与理由见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)。
 
-“不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增 append、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 通过不可变 `TopicData` 快照完成领域更新：读取 → core 话题模型的写函数（`merge_interaction_into_topic` 追加交互，`fold_topic` 追加折叠记录）以完整构造产生新快照 → 整条替换写回；写函数不用 `model_copy`，构造校验因此不会被绕过，互斥由 TopicWorkingSet 的 lease 保证。
+“不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增 append、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 经短期存储的写入方法完成领域更新（`append_interaction` 追加交互，`append_fold` 追加折叠记录等）：存储读当前的读取值 → 用这种记录的套用函数以完整构造产生新值 → 追加一行日志 → 替换内存中的值；套用函数不用 `model_copy`，构造校验因此不会被绕过，互斥由 TopicWorkingSet 的 lease 保证。
 
 ### 4.4 PendingAtom 状态机
 

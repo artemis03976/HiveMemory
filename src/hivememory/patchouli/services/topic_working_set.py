@@ -1,7 +1,7 @@
 """Topic 驻留工作集（Working Set）与占用（lease）表。
 
 ``TopicWorkingSet`` 是短期话题的驻留管理器：维护有限容量的驻留集合（LRU）、
-以 lease 表表达话题占用权，并提供 idle / LRU / shutdown 候选查询。它与
+以 lease 表表达话题占用权、记下在途沉淀，并提供 idle / LRU 候选查询。它与
 ``ShortTermMemoryStore`` 平级协作——Store 持有内容，WorkingSet 只持有索引，
 由上层 Familiar 编排，零外部依赖、可纯单元测试。所有方法均为同步方法且不
 在内部 await，单事件循环内天然串行；跨线程使用需调用方先行串行化。
@@ -34,8 +34,8 @@ class TopicWorkingSet:
     """短期话题的驻留工作集与占用表。
 
     职责：维护 ``max_resident`` 容量的驻留集合与访问顺序（LRU）；以 lease 表
-    表达跨 await 占用权（替代记录字段状态机）；提供 idle / LRU / shutdown 候选
-    查询与容量判断。不职责：不持有 TopicData 内容（在 Store 里）、不调用
+    表达跨 await 占用权（替代记录字段状态机）；记下驻留话题在途沉淀覆盖到的交互数；
+    提供 idle / LRU 候选查询与容量判断。不职责：不持有 TopicData 内容（在 Store 里）、不调用
     Store / Relay / Queue（零外部依赖）、不解释触发原因（由 Familiar 编排）。
     """
 
@@ -53,13 +53,11 @@ class TopicWorkingSet:
         self._resident: OrderedDict[TopicKey, float] = OrderedDict()
         # (workspace, topic_id) -> LeaseToken
         self._leases: dict[TopicKey, LeaseToken] = {}
+        # (workspace, topic_id) -> 在途沉淀覆盖到的交互数：只在进程内，随进程退出而消失，
+        # 重启后日志停在上一次完成的位置，这段交互照样重新沉淀。
+        self._settling: dict[TopicKey, int] = {}
         # 只用于相对时长的可注入时钟；默认单调时钟，不受系统墙钟回拨影响。
         self._clock = clock or time.monotonic
-
-    @property
-    def max_resident(self) -> int:
-        """每个 Workspace 的驻留容量。"""
-        return self._max_resident
 
     # ========== 驻留追踪 ==========
 
@@ -75,11 +73,13 @@ class TopicWorkingSet:
         return resident_count >= self._max_resident
 
     def remove(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """从驻留集合移除话题（settle / evict 完成后调用）。
+        """从驻留集合移除话题（退役 / evict 完成后调用），连同它的在途沉淀。
 
-        lease 不自动清理，持有者完成操作后自行 release；目标未驻留时静默忽略。
+        离开话题池的话题不会再沉淀，在途只用于池中话题判断有没有新交互。lease 不自动清理，
+        持有者完成操作后自行 release；目标未驻留时静默忽略。
         """
         self._resident.pop((belong_to, topic_id), None)
+        self._settling.pop((belong_to, topic_id), None)
 
     # ========== 候选查询 ==========
 
@@ -121,9 +121,22 @@ class TopicWorkingSet:
             and (workspace, topic_id) not in self._leases
         ]
 
-    def list_shutdown_candidates(self) -> list[tuple[WorkspaceIdentity, str]]:
-        """返回全部驻留话题（shutdown 时逐个 settle）；包含正被占用者，由调用方处理。"""
-        return list(self._resident)
+    # ========== 在途沉淀 ==========
+
+    def mark_settling(self, belong_to: WorkspaceIdentity, topic_id: str, count: int) -> None:
+        """记下被生成队列接纳、还没完成的沉淀覆盖到的交互数；同一话题只记最远的位置。"""
+        key = (belong_to, topic_id)
+        self._settling[key] = max(self._settling.get(key, 0), count)
+
+    def settling_count(self, belong_to: WorkspaceIdentity, topic_id: str) -> int:
+        """在途沉淀覆盖到的交互数；没有在途沉淀时为 0。"""
+        return self._settling.get((belong_to, topic_id), 0)
+
+    def clear_settling(self, belong_to: WorkspaceIdentity, topic_id: str, *, up_to: int) -> None:
+        """一次沉淀完成，覆盖到 ``up_to``：不超过它的在途已经完成，清除；更远的仍在途。"""
+        key = (belong_to, topic_id)
+        if self._settling.get(key, 0) <= up_to:
+            self._settling.pop(key, None)
 
     # ========== 占用权（lease） ==========
 

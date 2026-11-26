@@ -29,6 +29,7 @@ from hivememory.memory_library import (
 from hivememory.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.patchouli.application.memory_management_service import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -73,7 +74,7 @@ async def edit_route(tmp_path):
     )
     library = MemoryLibrary(
         agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
-        short_term=ShortTermMemoryStore(),
+        short_term=ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics")),
         mid_term=mid_term,
         long_term=LongTermMemoryStore(
             FileBasedStorageAdapter(archive_dir=str(tmp_path / "archive"), compress=False)

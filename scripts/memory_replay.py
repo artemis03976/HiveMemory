@@ -15,6 +15,8 @@
   轮次，不经过服务端；
 - ``turns-snapshots``：从一个 Workspace 的 Artifact 目录导出交互快照中的轮次，已有数据没有响应
   序号；
+- ``topics``：从一个 Workspace 的 Artifact 目录导出按话题合并的交互记录，每轮带块的写入时间，
+  供按话题回放的试验使用；
 - ``segments``：按不同的每段响应上限切分导出的轮次，统计每轮段数与每段响应数；
 - ``extract-turns``：把导出的轮次按会话拼成生成材料，交给现在的被动提取提示词，每份重复几次，
   记下模型给出的段引用；
@@ -26,6 +28,11 @@
 
 轮次文件每行一轮：``id``、``conversation_id``、``turn_id``、``outcome`` 与以序号 0 的用户
 消息开头的 ``events``（``TurnEvent`` 的 JSON）。
+
+话题文件每行一个话题：``topic_id``、``topic_title``、``topic_summary``、``snapshots``（合并了几份
+交互快照）、``skipped_turns``、``folds``（每次折叠的 ``folded_block_ids``、``summary`` 与
+``folded_at``）与按写入时间排列的 ``turns``；每轮有 ``block_id``、``turn_id``、``created_at``
+（块的写入时间，Unix 秒）、``outcome``、``agent_id`` 与 ``events``。
 """
 
 from __future__ import annotations
@@ -445,6 +452,65 @@ def turns_snapshots(artifacts: Path, out: Path) -> None:
     print(f"turns={len(rows)} skipped={skipped}")
 
 
+def topics(artifacts: Path, out: Path) -> None:
+    """按话题合并交互快照，导出每个话题的完整交互记录，每行一个话题。
+
+    话题的每个记忆生成任务（沉淀、主动写入）在生成之前都保存一份交互快照，各份覆盖的轮次不同、
+    互相重叠，这里按块标识合并，轮次按块的写入时间排序。标题与摘要取最后一份快照；折叠只追加，折叠记录取折叠最多的
+    一份。解码不了的轮次（迁移前的旧记录）只计入 ``skipped_turns``，需要完整记录的试验据此
+    排除这个话题。
+    """
+    snapshots: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+    for path in artifacts.rglob("*.json"):
+        if path.name.startswith("."):
+            continue  # 存储自己的索引文件
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if record.get("artifact_type") == "interaction":
+            snapshots[record["topic_id"]].append(record)
+
+    rows = []
+    for topic_id, records in snapshots.items():
+        records.sort(key=lambda record: record["captured_at"])
+        turns: dict[str, dict[str, Any]] = {}
+        skipped: set[str] = set()
+        for record in records:
+            for turn in record["turns"]:
+                block_id = turn["block_id"]
+                if block_id in turns or block_id in skipped:
+                    continue
+                try:
+                    events = [TurnEvent.model_validate(event) for event in turn["turn_events"]]
+                    validate_turn_events(events)
+                except (ValidationError, ValueError):
+                    skipped.add(block_id)
+                    continue
+                turns[block_id] = {
+                    "block_id": block_id,
+                    "turn_id": turn["turn_id"],
+                    "created_at": float(turn["created_at"]),
+                    "outcome": turn["outcome"],
+                    "agent_id": turn["actor_identity"]["agent_id"],
+                    "events": [event.model_dump(mode="json") for event in events],
+                }
+        latest = records[-1]
+        rows.append(
+            {
+                "topic_id": topic_id,
+                "topic_title": latest["topic_title"],
+                "topic_summary": latest["topic_summary"],
+                "snapshots": len(records),
+                "skipped_turns": len(skipped),
+                "folds": max((record.get("folds") or [] for record in records), key=len),
+                "turns": sorted(turns.values(), key=lambda turn: turn["created_at"]),
+            }
+        )
+    rows.sort(key=lambda row: row["turns"][0]["created_at"] if row["turns"] else 0.0)
+    write_jsonl(out, rows)
+    kept = sum(len(row["turns"]) for row in rows)
+    skipped_total = sum(row["skipped_turns"] for row in rows)
+    print(f"topics={len(rows)} turns={kept} skipped_turns={skipped_total}")
+
+
 def read_turn_events(row: dict[str, Any]) -> list[TurnEvent]:
     return [TurnEvent.model_validate(event) for event in row["events"]]
 
@@ -733,6 +799,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("artifacts", type=Path, help="一个 Workspace 的 Artifact 目录，只读")
     p.add_argument("out", type=Path, help="输出的轮次 jsonl")
 
+    p = commands.add_parser("topics", help="从交互快照导出按话题合并的交互记录")
+    p.add_argument("artifacts", type=Path, help="一个 Workspace 的 Artifact 目录，只读")
+    p.add_argument("out", type=Path, help="输出的话题 jsonl")
+
     p = commands.add_parser("segments", help="按不同的每段响应上限统计切段")
     p.add_argument("turns", type=Path, help="导出的轮次 jsonl")
     p.add_argument("--max-responses", type=int, nargs="+", default=[4, 8, 12, 16])
@@ -767,6 +837,8 @@ def main(argv: list[str] | None = None) -> None:
         turns_claude_code(args.projects, args.out)
     elif args.command == "turns-snapshots":
         turns_snapshots(args.artifacts, args.out)
+    elif args.command == "topics":
+        topics(args.artifacts, args.out)
     elif args.command == "segments":
         segments(args)
     elif args.command == "extract-turns":

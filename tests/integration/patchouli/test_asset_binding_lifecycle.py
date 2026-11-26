@@ -20,6 +20,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
@@ -52,9 +53,9 @@ def _make_ready_asset(asset_store: InMemoryWorkspaceAssetStore, workspace):
     return asset, handle.asset_ref
 
 
-def _make_familiar_with_store():
+def _make_familiar_with_store(tmp_path):
     """组装真实 Familiar + Store（binding 写入走 apply_interaction 真实链路）。"""
-    store = ShortTermMemoryStore()
+    store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     familiar = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=999999),
@@ -72,9 +73,9 @@ def _payload() -> InteractionPayload:
     return make_interaction_payload("q", "a")
 
 
-def test_remove_before_acquire_establishes_no_binding():
+def test_remove_before_acquire_establishes_no_binding(tmp_path):
     asset_store = InMemoryWorkspaceAssetStore()
-    _, store = _make_familiar_with_store()
+    _, store = _make_familiar_with_store(tmp_path)
     workspace = make_workspace_identity(owner_user_id="u1")
     asset, ref = _make_ready_asset(asset_store, workspace)
 
@@ -90,9 +91,9 @@ def test_remove_before_acquire_establishes_no_binding():
 
 
 @pytest.mark.asyncio
-async def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire():
+async def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire(tmp_path):
     asset_store = InMemoryWorkspaceAssetStore()
-    familiar, store = _make_familiar_with_store()
+    familiar, store = _make_familiar_with_store(tmp_path)
     workspace = make_workspace_identity(owner_user_id="u1")
     asset, ref = _make_ready_asset(asset_store, workspace)
 
@@ -125,9 +126,9 @@ async def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire():
 
 
 @pytest.mark.asyncio
-async def test_commit_before_remove_preserves_binding():
+async def test_commit_before_remove_preserves_binding(tmp_path):
     asset_store = InMemoryWorkspaceAssetStore()
-    familiar, store = _make_familiar_with_store()
+    familiar, store = _make_familiar_with_store(tmp_path)
     workspace = make_workspace_identity(owner_user_id="u1")
     asset, ref = _make_ready_asset(asset_store, workspace)
 

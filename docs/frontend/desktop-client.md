@@ -19,7 +19,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/system/configuration.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-25
 ---
 
 # 桌面客户端
@@ -61,7 +61,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 **启动页与窗口**：加载后端页面之前，窗口显示本地的启动页 `desktop/src/starting.html`，由主进程改写其中的状态文字（启动 Qdrant 与后端、等待推理模型，第 7 节）。启动页用与前端相同的深浅两套配色，随 Windows 的深浅色设置切换，不读取页面中保存的主题选择；带品牌标记与进度条，减少动效时进度条停止移动。标题用 Manrope：安装版取打包时复制进程序的文件（第 8 节），用 checkout 运行时取 `frontend/node_modules` 中的同一个文件，两处都没有时回退到系统字体。窗口最小为 1024×640：再小时对话页放不下，右栏与会话列表都已收为抽屉，中间栏仍需 560px。
 
-**关窗与退出**：关窗只隐藏到托盘。从托盘退出时：先销毁窗口（页面持有的事件流与 WebSocket 会让后端等待它们关闭），再关闭后端的 stdin，后端读到 stdin 结束时走与 Ctrl+C 相同的正常关闭；等后端退出后结束 Qdrant。后端退出不设时限、不强制结束。正常关闭只结算话题、不做生成，未执行的生成工作保存到磁盘，通常几秒内完成（[记忆生成](../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)）。Qdrant 先写 WAL 再确认写入，直接结束后下次启动能够恢复。
+**关窗与退出**：关窗只隐藏到托盘。从托盘退出时：先销毁窗口（页面持有的事件流与 WebSocket 会让后端等待它们关闭），再关闭后端的 stdin，后端读到 stdin 结束时走与 Ctrl+C 相同的正常关闭；等后端退出后结束 Qdrant。后端退出不设时限、不强制结束。正常关闭不做生成，未执行的生成工作保存到磁盘，话题本来就随时写在各自的日志里，通常几秒内完成（[记忆生成](../patchouli/generation.md#62-提交阶段关闭时保存与启动时继续)）。Qdrant 先写 WAL 再确认写入，直接结束后下次启动能够恢复。
 
 **Windows 关机与注销**：Windows 不会发出 `before-quit`；窗口收到 `query-session-end` 时推迟会话结束，走同一关闭路径。
 
@@ -109,7 +109,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 
 | 删除 | 保留 |
 |:---|:---|
-| 记忆库（Qdrant 存储）、Artifact、长期归档、关闭时写盘的生成工作、写入句柄、生成任务历史与短期话题池（各含读不回的 rejected 文件）、预设 Agent 的写入标记 | Agent Profile 文件、配置、Provider 密钥、harness 接入凭据、推理模型缓存、日志 |
+| 记忆库（Qdrant 存储）、Artifact、长期归档、短期话题的日志目录、关闭时写盘的生成工作、写入句柄与生成任务历史（各含读不回的 rejected 文件）、预设 Agent 的写入标记 | Agent Profile 文件、配置、Provider 密钥、harness 接入凭据、推理模型缓存、日志 |
 
 步骤：主进程正常关闭后端与 Qdrant，删除 Qdrant 存储目录，再以一次性模式 `python -m hivememory.server --delete-memory-data` 运行后端，按配置删除后端拥有的路径（相对路径按数据根解析），然后重启应用。重启后记忆库为空；预设 Agent 只写入缺少的文件，已有的 Profile 文件不变。只删除上面列出的路径，不删除数据根本身：数据根指向 checkout 时，仓库文件、随仓库发布的 `configs\` 文件与 `.hivememory\dev.env` 都不受影响。
 
@@ -145,7 +145,7 @@ HiveMemory 是个人软件，后端在用户自己的电脑上运行。桌面客
 - **启动页字体**：electron-builder 的 `files` 把前端依赖 `@fontsource-variable/manrope` 中的字体文件复制到程序内启动页旁的 `fonts`，与前端打包进页面的是同一个文件，启动页不另带字体副本。
 - **Qdrant**：取自开发环境 `.hivememory\dev.env` 的 `QDRANT_BIN`，与开发时同一个版本。
 - **安装包**：electron-builder 生成按用户安装的 NSIS 安装包，默认装在 `%LOCALAPPDATA%\Programs\HiveMemory`，版本号取自 `_version.py`。Electron 只带中文与英文两个语言包（`electronLanguages`）。载荷是 zip（`useZip`，关闭差分包），直接解压到安装目录：7z 载荷要先解压到临时目录再复制，一万多个文件多写、多删一遍；不做自动升级，用不上只能配 7z 的差分包。
-- **覆盖安装与卸载前的退出**：electron-builder 的安装程序发现程序在运行时直接结束安装目录下的全部进程，后端与 Qdrant 也在其中，来不及正常关闭。`desktop/installer/installer.nsh` 先以 `--quit` 启动一次程序，请运行中的实例正常退出（后端结算话题、把待生成的工作与写入句柄写盘），等安装目录下的进程都退出，最多 60 秒，再走默认的检查，仍在运行的强制结束。
+- **覆盖安装与卸载前的退出**：electron-builder 的安装程序发现程序在运行时直接结束安装目录下的全部进程，后端与 Qdrant 也在其中，来不及正常关闭。`desktop/installer/installer.nsh` 先以 `--quit` 启动一次程序，请运行中的实例正常退出（后端把待生成的工作与写入句柄写盘），等安装目录下的进程都退出，最多 60 秒，再走默认的检查，仍在运行的强制结束。
 
 不做代码签名：运行安装包时 Windows SmartScreen 会提示，需要选“更多信息”再选“仍要运行”。不做自动升级：用户下载新版安装包覆盖安装，安装程序先请正在运行的 HiveMemory 正常退出；覆盖安装保留数据根与 userData 中的设置。关闭时保存的生成工作在新版本中读不回时进入 rejected 文件，配置中残留已删除的键时启动失败并在错误框中给出原因。
 

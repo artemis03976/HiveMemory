@@ -30,6 +30,7 @@ from hivememory.engines.retrieval.retriever import DenseRetriever
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.memory_library.adapters.short_term import JsonlShortTermStorage
 from hivememory.memory_library.agent_profiles import AgentProfileStore
 from hivememory.memory_library.library import MemoryLibrary
 from hivememory.memory_library.stores import (
@@ -73,7 +74,7 @@ async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermM
         mid_term = MidTermMemoryStore(QdrantStorageAdapter(qdrant, use_sparse=False))
         library = MemoryLibrary(
             agent_profiles=AgentProfileStore(tmp_path / "agent_profiles"),
-            short_term=ShortTermMemoryStore(),
+            short_term=ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics")),
             mid_term=mid_term,
             long_term=LongTermMemoryStore(
                 FileBasedStorageAdapter(archive_dir=str(tmp_path / "archive"))
