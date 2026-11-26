@@ -9,13 +9,17 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from hivememory.config.patchouli import (
+    GenerationTranscriptConfig,
+    LLMSummaryWriterConfig,
+    SimpleSummaryWriterConfig,
+)
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import LogicalBlock
 from hivememory.engines.perception.material import render_turn_text
 from hivememory.i18n import get_fold_summary_prompt_text
 
 if TYPE_CHECKING:
-    from hivememory.config.patchouli import GenerationTranscriptConfig, RelayControllerConfig
     from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 logger = logging.getLogger(__name__)
@@ -230,32 +234,21 @@ class LLMFoldSummaryWriter(FoldSummaryWriter):
         return summary
 
 
-class NoOpFoldSummaryWriter(FoldSummaryWriter):
-    """不写折叠摘要的写作者：折叠后沿用上一次的折叠摘要。"""
-
-    async def generate_summary(
-        self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
-    ) -> str:
-        return previous_summary or ""
-
-
 # ========== 工厂函数 ==========
 
 
 def create_fold_summary_writer(
-    config: "RelayControllerConfig",
+    config: SimpleSummaryWriterConfig | LLMSummaryWriterConfig,
     llm_service: "BaseLLMService | None" = None,
     llm_params: "LLMRequestParams | None" = None,
     *,
-    transcript_config: "GenerationTranscriptConfig",
+    transcript_config: GenerationTranscriptConfig,
 ) -> FoldSummaryWriter:
     """
     按配置创建折叠摘要的写作者
 
-    根据配置类型实例化对应的写作者。
-
     Args:
-        config: 折叠摘要写作者的配置
+        config: 折叠摘要写作者的配置（``simple`` 或 ``llm``）
         llm_service: LLM 服务（可选，用于 LLMFoldSummaryWriter）
         llm_params: 摘要调用的请求参数（可选，用于 LLMFoldSummaryWriter）
         transcript_config: 记忆生成视图的工具结果上限，用模型写摘要时按同一个上限渲染近期事件
@@ -266,43 +259,26 @@ def create_fold_summary_writer(
     Examples:
         >>> from hivememory.config.patchouli import (
         ...     GenerationTranscriptConfig,
-        ...     RelayControllerConfig,
-        ...     SimpleRelayConfig,
+        ...     SimpleSummaryWriterConfig,
         ... )
-        >>> config = RelayControllerConfig(engine=SimpleRelayConfig())
         >>> writer = create_fold_summary_writer(
-        ...     config, transcript_config=GenerationTranscriptConfig()
+        ...     SimpleSummaryWriterConfig(), transcript_config=GenerationTranscriptConfig()
         ... )
         >>> isinstance(writer, RuleFoldSummaryWriter)
         True
     """
-    from hivememory.config.patchouli import (
-        LLMRelayConfig,
-        SimpleRelayConfig,
-    )
-
-    if not config.enable:
-        return NoOpFoldSummaryWriter()
-
-    impl_config = config.engine
-
-    if isinstance(impl_config, SimpleRelayConfig):
-        return RuleFoldSummaryWriter()
-
-    elif isinstance(impl_config, LLMRelayConfig):
+    if isinstance(config, LLMSummaryWriterConfig):
         return LLMFoldSummaryWriter(
             summary_llm=llm_service,
             llm_params=llm_params,
-            summary_timeout_seconds=impl_config.summary_timeout_seconds,
+            summary_timeout_seconds=config.summary_timeout_seconds,
             transcript_config=transcript_config,
         )
-
-    raise ValueError(f"未知的折叠摘要写作者配置类型: {type(impl_config)}")
+    return RuleFoldSummaryWriter()
 
 
 __all__ = [
     "FoldSummaryWriter",
-    "NoOpFoldSummaryWriter",
     "RuleFoldSummaryWriter",
     "LLMFoldSummaryWriter",
     "create_fold_summary_writer",

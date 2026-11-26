@@ -21,7 +21,6 @@ HiveMemory - 帕秋莉感知引擎 (Perception Engine / MMU 算法层)
 from hivememory.engines.perception.fold_summary import (
     FoldSummaryWriter,
     LLMFoldSummaryWriter,
-    NoOpFoldSummaryWriter,
     RuleFoldSummaryWriter,
     create_fold_summary_writer,
 )
@@ -44,7 +43,6 @@ __all__ = [
     "TopicSettleMaterial",
     # 折叠摘要的写作者
     "FoldSummaryWriter",
-    "NoOpFoldSummaryWriter",
     "RuleFoldSummaryWriter",
     "LLMFoldSummaryWriter",
     "create_fold_summary_writer",

@@ -20,7 +20,7 @@ interface PoolSettings {
 }
 
 const POOL_SETTING_PATHS = {
-  capacity: 'patchouli.perception.engine.max_resident_topics',
+  capacity: 'patchouli.perception.max_resident_topics',
   idleTimeoutSeconds: 'patchouli.perception.idle_timeout_seconds',
   foldTokenThreshold: 'patchouli.perception.engine.fold_token_threshold',
   foldRetainBlocks: 'patchouli.perception.engine.fold_retain_recent_blocks',

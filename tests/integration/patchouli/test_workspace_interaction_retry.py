@@ -2,7 +2,7 @@
 
 测试驱动 InteractionSubmissionQueue、真实 InteractionSubmissionHandler 与
 PerceptionFamiliar（Engine + WorkingSet + Store）。retry 在调用感知之前注入确定性
-的瞬态错误；折叠由 Relay 边界控制何时返回。
+的瞬态错误；折叠由折叠摘要写作者的替身控制何时返回。
 """
 
 from __future__ import annotations
@@ -43,14 +43,14 @@ def _build_familiar(
     store: ShortTermMemoryStore,
     *,
     engine: MemoryPerceptionEngine | None = None,
+    fold_summary_writer=None,
 ) -> PerceptionFamiliar:
     """真实感知编排；未指定引擎时使用不触发折叠的默认阈值。"""
     return PerceptionFamiliar(
         engine=engine
-        or MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(fold_token_threshold=999999),
-            fold_summary_writer=Mock(),
-        ),
+        or MemoryPerceptionEngine(config=PerceptionEngineConfig(fold_token_threshold=999999)),
+        fold_summary_writer=fold_summary_writer or Mock(),
+        progress_writer=None,
         store=store,
         working_set=TopicWorkingSet(max_resident=4),
         bus=Mock(request=AsyncMock(return_value=None)),
@@ -150,8 +150,8 @@ async def test_fold_runs_after_apply_and_next_same_topic_submission_follows_it(
 ) -> None:
     """交互不等折叠即完成；同一话题的下一次提交在折叠写回之后才写入话题。"""
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
-    relay_started = asyncio.Event()
-    release_relay = asyncio.Event()
+    summary_started = asyncio.Event()
+    release_summary = asyncio.Event()
 
     summary_calls = 0
 
@@ -161,17 +161,16 @@ async def test_fold_runs_after_apply_and_next_same_topic_submission_follows_it(
         if summary_calls > 1:
             # 第三次提交触发的折叠停在摘要上，由队列停止时取消，不改动话题。
             await asyncio.Event().wait()
-        relay_started.set()
-        await release_relay.wait()
+        summary_started.set()
+        await release_summary.wait()
         return "folded-summary"
 
-    relay = Mock()
-    relay.generate_summary = AsyncMock(side_effect=slow_summary)
+    writer = Mock()
+    writer.generate_summary = AsyncMock(side_effect=slow_summary)
     engine = MemoryPerceptionEngine(
         config=PerceptionEngineConfig(fold_token_threshold=1, fold_retain_recent_blocks=1),
-        fold_summary_writer=relay,
     )
-    familiar = _build_familiar(store, engine=engine)
+    familiar = _build_familiar(store, engine=engine, fold_summary_writer=writer)
     scope = make_identity_scope(user_id="u1", agent_id="a1")
     topic_id = await familiar.receive_interaction(
         _payload("first"),
@@ -197,12 +196,12 @@ async def test_fold_runs_after_apply_and_next_same_topic_submission_follows_it(
         await queue.start()
         second = await queue.submit(submission("i-second", "second"))
         second_outcome = await queue.wait(second, timeout=2)
-        await asyncio.wait_for(relay_started.wait(), timeout=2)
+        await asyncio.wait_for(summary_started.wait(), timeout=2)
         third = await queue.submit(submission("i-third", "third"))
-        release_relay.set()
+        release_summary.set()
         third_outcome = await queue.wait(third, timeout=2)
     finally:
-        release_relay.set()
+        release_summary.set()
         await queue.stop()
 
     assert second_outcome.state is WorkState.SUCCEEDED

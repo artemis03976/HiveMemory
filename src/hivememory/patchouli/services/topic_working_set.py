@@ -25,7 +25,6 @@ class LeaseToken:
 
     belong_to: WorkspaceIdentity
     topic_id: str
-    acquired_at: float
 
 
 @dataclass(slots=True)
@@ -184,7 +183,7 @@ class TopicWorkingSet:
         key = (belong_to, topic_id)
         if key in self._leases:
             return None
-        lease = LeaseToken(belong_to=belong_to, topic_id=topic_id, acquired_at=self._clock())
+        lease = LeaseToken(belong_to=belong_to, topic_id=topic_id)
         self._leases[key] = lease
         return lease
 

@@ -35,8 +35,8 @@ from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
-class _DeterministicRelay:
-    """隔离外部摘要模型，保持 compact 结果可重复。"""
+class _DeterministicSummaryWriter:
+    """隔离外部摘要模型，保持折叠结果可重复。"""
 
     async def generate_summary(self, *, blocks_to_fold, previous_summary=None):
         prefix = f"{previous_summary}|" if previous_summary else ""
@@ -64,18 +64,19 @@ def _payload(user_message: str, assistant_message: str):
 def _topic_boundary(tmp_path, *, max_resident_topics: int = 5, clock: _FakeClock | None = None):
     """组装 Topic 管理所需的真实内部组件（含真实 bus 路由分发）。"""
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
-    relay = _DeterministicRelay()
+    writer = _DeterministicSummaryWriter()
     engine = MemoryPerceptionEngine(
         config=PerceptionEngineConfig(
             fold_token_threshold=999999,
             fold_retain_recent_blocks=1,
         ),
-        fold_summary_writer=relay,
     )
     working_set = TopicWorkingSet(max_resident=max_resident_topics, clock=clock)
     bus = PatchouliBus()
     familiar = PerceptionFamiliar(
         engine=engine,
+        fold_summary_writer=writer,
+        progress_writer=None,
         store=store,
         working_set=working_set,
         bus=bus,

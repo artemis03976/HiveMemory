@@ -1,12 +1,12 @@
 """PerceptionFamiliar 感知链路集成测试（lease 编排架构）。
 
 真实协作：PerceptionFamiliar + MemoryPerceptionEngine + TopicWorkingSet
-+ ShortTermMemoryStore（话题日志写在临时目录）；Relay（LLM 摘要）与
++ ShortTermMemoryStore（话题日志写在临时目录）；折叠摘要的写作者与
 Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用可控时钟。
 
 测试覆盖:
 - receive_interaction: 新建（含提交携带的标题与摘要）/指定话题写入、binding 幂等、busy 拒绝、未知目标
-- LRU 驱逐: 池满驱逐最久未访问话题、busy 候选改选、admission 失败传播
+- 池满时为新话题腾位置: 最久没用的话题退役、busy 候选改选、接纳失败传播
 - 折叠: 应用不在内部折叠、needs_fold 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
   失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已退役时直接结束、未超保留块数不折叠
 - settle_and_retire_topic / delete_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
@@ -20,7 +20,6 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 - 进展记录：停顿超过阈值且有还没整理的交互时排入写一条，写一条只看旧进展记录与还没整理的
   交互，写下之后没有新交互不再排入；失败后同一位置不重试，有新交互后再写；写一条不取 lease，
   生成期间话题退役时这一条不记
-- 感知关闭时无副作用
 """
 
 import asyncio
@@ -85,17 +84,17 @@ def _accept_settlement_task(route, payload):
     )
 
 
-def _folding_relay() -> Mock:
+def _folding_writer() -> Mock:
     """摘要记录每次折叠的块数并在旧摘要上累积，便于断言折叠次数。"""
-    relay = Mock()
-    relay.generate_summary = AsyncMock(
+    writer = Mock()
+    writer.generate_summary = AsyncMock(
         side_effect=lambda blocks_to_fold, previous_summary=None: (
             f"{previous_summary}|folded:{len(blocks_to_fold)}"
             if previous_summary
             else f"folded:{len(blocks_to_fold)}"
         )
     )
-    return relay
+    return writer
 
 
 class _FakeClock:
@@ -117,43 +116,40 @@ def _make_familiar(
     max_resident=5,
     idle_timeout=30,
     engine_config=None,
-    relay=None,
+    summary_writer=None,
     bus=None,
     clock=None,
-    engine="default",
     events: RecordingRuntimeEventSink | None = None,
     pause_seconds=30,
     progress_llm=None,
 ):
     """构造 (familiar, store, working_set, bus) 测试组合。
 
-    Engine（含 RelayController 与写进展记录的 ProgressRecordWriter）/ Store / WorkingSet / Journal
-    为真实对象；模型是边界外的替身，没有给出 ``progress_llm`` 时不写进展记录；时间使用可控时钟。
+    Engine、写进展记录的 ProgressRecordWriter、Store、WorkingSet 与日志为真实对象；折叠摘要的
+    写作者与模型是边界外的替身，没有给出 ``progress_llm`` 时不写进展记录；时间使用可控时钟。
     """
     clock = clock or _FakeClock()
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     working_set = TopicWorkingSet(max_resident=max_resident, clock=clock)
-    if relay is None:
-        relay = Mock()
-        relay.generate_summary = AsyncMock(return_value="test summary")
+    if summary_writer is None:
+        summary_writer = Mock()
+        summary_writer.generate_summary = AsyncMock(return_value="test summary")
     bus = bus or Mock()
     bus.request = AsyncMock(return_value=None)
-    if engine == "default":
-        progress_writer = None
-        if progress_llm is not None:
-            progress_writer = ProgressRecordWriter(
-                progress_llm,
-                DEFAULT_LLM_PARAMS,
-                timeout_seconds=60,
-                transcript_config=GenerationTranscriptConfig(),
-            )
-        engine = MemoryPerceptionEngine(
-            config=engine_config or PerceptionEngineConfig(fold_token_threshold=999999),
-            fold_summary_writer=relay,
-            progress_writer=progress_writer,
+    progress_writer = None
+    if progress_llm is not None:
+        progress_writer = ProgressRecordWriter(
+            progress_llm,
+            DEFAULT_LLM_PARAMS,
+            timeout_seconds=60,
+            transcript_config=GenerationTranscriptConfig(),
         )
     familiar = PerceptionFamiliar(
-        engine=engine,
+        engine=MemoryPerceptionEngine(
+            config=engine_config or PerceptionEngineConfig(fold_token_threshold=999999)
+        ),
+        fold_summary_writer=summary_writer,
+        progress_writer=progress_writer,
         store=store,
         working_set=working_set,
         bus=bus,
@@ -373,7 +369,7 @@ class TestLruRetirement:
             )
 
 
-# ========== 折叠（compact） ==========
+# ========== 折叠 ==========
 
 
 def _fold_every_block_config() -> PerceptionEngineConfig:
@@ -397,7 +393,7 @@ class TestFold:
     async def test_receive_writes_block_without_folding_over_threshold_topic(self, tmp_path):
         """应用只写入 block；话题超过阈值也不在应用内折叠。"""
         familiar, store, _, _ = _make_familiar(
-            tmp_path, engine_config=_fold_every_block_config(), relay=_folding_relay()
+            tmp_path, engine_config=_fold_every_block_config(), summary_writer=_folding_writer()
         )
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
@@ -413,7 +409,7 @@ class TestFold:
     async def test_fold_topic_appends_fold_records_and_keeps_interactions(self, tmp_path):
         """折叠只推进工作视图：交互记录不移除，每次折叠追加一条记录，摘要在上一次之上累积。"""
         familiar, store, _, bus = _make_familiar(
-            tmp_path, engine_config=_fold_every_block_config(), relay=_folding_relay()
+            tmp_path, engine_config=_fold_every_block_config(), summary_writer=_folding_writer()
         )
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
@@ -448,23 +444,23 @@ class TestFold:
             await release.wait()
             return "summary"
 
-        relay = Mock()
-        relay.generate_summary = AsyncMock(side_effect=summarize)
+        writer = Mock()
+        writer.generate_summary = AsyncMock(side_effect=summarize)
         familiar, store, _, _ = _make_familiar(
-            tmp_path, engine_config=_fold_every_block_config(), relay=relay
+            tmp_path, engine_config=_fold_every_block_config(), summary_writer=writer
         )
         scope = _identity_scope()
         workspace = scope.workspace_identity
         store.create(workspace, topic_id="t1")
         await _apply_to_topic(familiar, scope, "t1", "a", "b")
 
-        compaction = asyncio.create_task(familiar.fold_topic(workspace, "t1"))
+        folding = asyncio.create_task(familiar.fold_topic(workspace, "t1"))
         await asyncio.wait_for(summarizing.wait(), timeout=1)
         await familiar.record_generated_memories(
             "t1", belong_to=workspace, generated=frozenset({"m"}), absorbed_into={}
         )
         release.set()
-        await compaction
+        await folding
 
         topic = store.get(workspace, "t1")
         assert (topic.fold_summary, topic.topic_generated_memory_ids) == ("summary", {"m"})
@@ -472,19 +468,19 @@ class TestFold:
     @pytest.mark.asyncio
     async def test_failed_fold_leaves_topic_intact_and_can_fold_again(self, tmp_path):
         """摘要失败时话题原样保留并释放占用，之后的折叠照常完成。"""
-        relay = Mock()
-        relay.generate_summary = AsyncMock(
-            side_effect=[RuntimeError("relay down"), "folded-summary"]
+        writer = Mock()
+        writer.generate_summary = AsyncMock(
+            side_effect=[RuntimeError("summary writer down"), "folded-summary"]
         )
         familiar, store, _, _ = _make_familiar(
-            tmp_path, engine_config=_fold_every_block_config(), relay=relay
+            tmp_path, engine_config=_fold_every_block_config(), summary_writer=writer
         )
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
         await _apply_to_topic(familiar, scope, "t1", "a", "b")
         before = store.get(scope.workspace_identity, "t1")
 
-        with pytest.raises(RuntimeError, match="relay down"):
+        with pytest.raises(RuntimeError, match="summary writer down"):
             await familiar.fold_topic(scope.workspace_identity, "t1")
 
         assert store.get(scope.workspace_identity, "t1") == before
@@ -497,7 +493,7 @@ class TestFold:
     async def test_fold_topic_rejects_topic_held_by_another_use_case(self, tmp_path):
         """话题正被占用（例如沉淀中）时折叠以 busy 拒绝，留待重试，不改动话题。"""
         familiar, store, working_set, _ = _make_familiar(
-            tmp_path, engine_config=_fold_every_block_config(), relay=_folding_relay()
+            tmp_path, engine_config=_fold_every_block_config(), summary_writer=_folding_writer()
         )
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
@@ -515,7 +511,7 @@ class TestFold:
     async def test_fold_topic_ends_without_reviving_retired_topic(self, tmp_path):
         """折叠开始前话题已被沉淀并退役：直接结束，不把话题写回。"""
         familiar, store, _, bus = _make_familiar(
-            tmp_path, engine_config=_fold_every_block_config(), relay=_folding_relay()
+            tmp_path, engine_config=_fold_every_block_config(), summary_writer=_folding_writer()
         )
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
@@ -924,7 +920,7 @@ class TestMaintenance:
             engine_config=PerceptionEngineConfig(
                 fold_token_threshold=10, fold_retain_recent_blocks=1
             ),
-            relay=_folding_relay(),
+            summary_writer=_folding_writer(),
         )
         scope = _identity_scope(user_id="u-fold", agent_id="a-fold")
         topic_id = "NEW_TOPIC"
@@ -1041,7 +1037,7 @@ class TestSettlementProgress:
         assert not _log_exists(tmp_path, topic_id)
 
 
-# ========== 感知关闭（engine=None）==========
+# ========== 进展记录 ==========
 
 
 class _ScheduledEntries:
@@ -1186,23 +1182,6 @@ class TestProgressRecord:
         assert store.get(belong_to, topic_id) is None
         assert retired.topic_id == topic_id
         assert retired.progress_record == ()
-
-
-class TestDisabledPerception:
-    @pytest.mark.asyncio
-    async def test_disabled_engine_has_no_side_effects(self, tmp_path):
-        familiar, store, _, _ = _make_familiar(tmp_path, engine=None)
-        scope = _identity_scope()
-
-        topic_id = await familiar.receive_interaction(
-            _payload(),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            interaction_id="i-1",
-        )
-
-        assert topic_id == "NEW_TOPIC"
-        assert store.list_all() == []
 
 
 @pytest.mark.asyncio

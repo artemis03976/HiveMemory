@@ -104,16 +104,14 @@ patchouli:
     # 话题停顿多少秒后写一条进展记录：以旧进展记录与还没整理的交互原文写出一段总结，
     # 话题池里可以看到；小于空闲时限，空闲时通常已经写过一条
     progress_record_pause_seconds: 1800
+    # 每个 Workspace 同时驻留的话题数；建新话题时池满，最久没用的话题先沉淀再退役
+    max_resident_topics: 5
     engine:
-      enable: true
       fold_token_threshold: 131072
       fold_retain_recent_blocks: 2
-      # 每个 Workspace 同时驻留的话题数；建新话题时池满，最久没用的话题先沉淀再退出话题池
-      max_resident_topics: 5
-      relay:
-        enable: true
-        engine:
-          type: "llm"
+      # 折叠摘要与进展记录的写法：llm 用 patchouli.llm 的模型；simple 按规则写折叠摘要，不写进展记录
+      summary_writer:
+        type: "llm"
 
   generation:
     # 主动生成（WRITE/UPDATE）取话题最近几个 block 与 fold_summary 作为材料

@@ -66,11 +66,11 @@ class _Clock:
         return self.value
 
 
-class _Relay:
+class _SummaryWriter:
     """LLM 折叠端口替身；本测试的阈值不触发折叠。"""
 
     async def generate_summary(self, _blocks, _previous_summary):
-        raise AssertionError("settlement identity test must not compact")
+        raise AssertionError("settlement identity test must not fold")
 
 
 class _Extractor:
@@ -246,9 +246,9 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
     register_topic_routes(bus, store)
     clock = _Clock()
     perception = PerceptionFamiliar(
-        engine=MemoryPerceptionEngine(
-            PerceptionEngineConfig(fold_token_threshold=999999), _Relay()
-        ),
+        engine=MemoryPerceptionEngine(PerceptionEngineConfig(fold_token_threshold=999999)),
+        fold_summary_writer=_SummaryWriter(),
+        progress_writer=None,
         store=store,
         working_set=TopicWorkingSet(clock=clock),
         bus=bus,

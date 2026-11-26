@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MaintenanceTasksConfig(BaseModel):
+    # 检查话题是否空闲到该沉淀；空闲时限由感知配置决定。
     perception_idle_settle_interval_seconds: float = Field(default=30.0)
     enable_perception_idle_settle: bool = Field(default=True)
     # 检查话题是否停顿到该写一条进展记录；停顿阈值由感知配置决定。

@@ -27,7 +27,8 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     storage: { host: '127.0.0.1', collection_name: 'hivememory_main' },
     perception: {
       idle_timeout_seconds: 3600,
-      engine: { max_resident_topics: 5, fold_token_threshold: 131072, fold_retain_recent_blocks: 2 },
+      max_resident_topics: 5,
+      engine: { fold_token_threshold: 131072, fold_retain_recent_blocks: 2 },
     },
     generation: {
       extractor: { enabled: true },

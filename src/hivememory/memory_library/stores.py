@@ -112,15 +112,6 @@ class ShortTermMemoryStore:
                 if topic.workspace_identity == belong_to and (include_empty or topic.has_content)
             ]
 
-    def list_all(self) -> list[TopicData]:
-        """列出全部 Workspace 池中的话题（进程级维护路径使用）。"""
-        with self._lock:
-            return list(self._topics.values())
-
-    def count(self, belong_to: WorkspaceIdentity) -> int:
-        """统计 Workspace 内池中的话题数量。"""
-        return len(self.list_by_workspace(belong_to))
-
     def get_generated_memories(
         self, belong_to: WorkspaceIdentity, topic_id: str
     ) -> frozenset[str] | None:

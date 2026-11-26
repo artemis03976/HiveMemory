@@ -550,8 +550,8 @@ def _wire_process(
 ) -> tuple[MemoryGenerationTaskController, PerceptionFamiliar, ShortTermMemoryStore]:
     """一次运行的 Patchouli：真实感知、生成控制面与数据面，话题日志写在 ``topic_dir``。
 
-    中期库跨运行共用；话题池按启动顺序从同一目录的日志读回。驻留时钟每读一次前进 1000 秒，
-    话题在下一次空闲扫描时总是空闲。
+    中期库跨运行共用；话题池按启动顺序从同一目录的日志读回。驻留时钟每读一次前进 10000 秒，
+    超过缺省的空闲时限，话题在下一次空闲扫描时总是空闲。
     """
     bus = PatchouliBus()
     store = ShortTermMemoryStore(JsonlShortTermStorage(topic_dir))
@@ -559,12 +559,11 @@ def _wire_process(
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, coordinator.submit_settlement)
     _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
     perception = PerceptionFamiliar(
-        engine=MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(fold_token_threshold=999999),
-            fold_summary_writer=Mock(),
-        ),
+        engine=MemoryPerceptionEngine(config=PerceptionEngineConfig(fold_token_threshold=999999)),
+        fold_summary_writer=Mock(),
+        progress_writer=None,
         store=store,
-        working_set=TopicWorkingSet(clock=itertools.count(step=1000).__next__),
+        working_set=TopicWorkingSet(clock=itertools.count(step=10_000).__next__),
         bus=bus,
         config=MemoryPerceptionConfig(),
     )
@@ -740,7 +739,7 @@ async def test_retired_topic_last_settlement_is_resubmitted_after_restart(
 
     assert (kept, extractor.extract.await_count) == (True, 2)
     assert task.status == MemoryGenerationTaskStatus.COMPLETED
-    assert store.list_all() == []
+    assert store.list_by_workspace(_identity_scope().workspace_identity) == []
     assert not (topic_dir / f"{topic_id}.jsonl").exists()
     assert [memory.payload.content for memory in await _stored(memory_library)] == [
         "deploys are now run by hand"

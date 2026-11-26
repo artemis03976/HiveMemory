@@ -57,10 +57,9 @@ def _make_familiar_with_store(tmp_path):
     """组装真实 Familiar + Store（binding 写入走 receive_interaction 真实链路）。"""
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     familiar = PerceptionFamiliar(
-        engine=MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(fold_token_threshold=999999),
-            fold_summary_writer=Mock(),
-        ),
+        engine=MemoryPerceptionEngine(config=PerceptionEngineConfig(fold_token_threshold=999999)),
+        fold_summary_writer=Mock(),
+        progress_writer=None,
         store=store,
         working_set=TopicWorkingSet(),
         bus=Mock(request=AsyncMock(return_value=None)),

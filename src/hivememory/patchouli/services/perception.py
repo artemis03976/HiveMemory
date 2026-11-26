@@ -53,11 +53,12 @@
         ``settling_until`` 中较远的那个之后有没有交互。
     做什么：有新交互：取 lease，冻结全部交互与折叠记录交给生成队列，话题留在池中，访问时间不变。
         从没接收过交互：退役，日志直接删除。其余什么也不做。
-    推进：``settling_until``；生成队列没有为它建任务（材料里没有可生成的轮次）时直接推进
-        ``settled_until``。
+    推进：``settling_until``。协调器在材料里没有可生成的轮次时不建任务，这时直接推进
+        ``settled_until``；工作视图总保留最近几轮，正常不会走到这一支。
     失败：接纳失败（任何异常）时只记日志，话题原样保留，下一轮再看；正被占用时这一轮跳过。
 
-池满时为新话题腾位置（``_retire_lru_for_new_topic``）、手动沉淀并退役（``settle_and_retire_topic``）
+池满时为新话题腾位置（``_retire_lru_for_new_topic``，接收交互或 ``prepare_topic`` 建新话题时）、
+手动沉淀并退役（``settle_and_retire_topic``）
     看什么：``settled_until`` 与 ``settling_until`` 中较远的那个之后有没有交互；池满时还看哪个
         话题最久没用、没有被占用。
     做什么：取 lease；有新交互先沉淀，然后退役：写退役记录，离开话题池，日志保留到最后一次沉淀
@@ -140,8 +141,10 @@ from hivememory.core.models import (
     WorkspaceIdentity,
 )
 from hivememory.core.protocol.models import InteractionPayload
+from hivememory.engines.perception.fold_summary import FoldSummaryWriter
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.perception.models import TopicSettleMaterial, TriggerReason
+from hivememory.engines.perception.progress_record import ProgressRecordWriter
 from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import TopicDeleteResult, TopicSettleResult
@@ -160,8 +163,8 @@ logger = logging.getLogger(__name__)
 class PerceptionFamiliar:
     """感知业务门面：编排话题的存储、驻留记录与算法，规则见模块说明的触发表。
 
-    ``engine=None`` 表示感知关闭（原 ``NullPerceptionLayer`` 语义）：摄入
-    路径无任何存储副作用；维护用例对空存储自然空转。
+    折叠摘要与进展记录的写作者由这里直接持有；``progress_writer`` 为 ``None`` 表示没有写进展
+    记录的模型，话题不写进展记录。
 
     话题的建立、沉淀或退役与不沉淀的删除各发一个 ``topic.*`` 事件；事件只是旁路
     观测，发布失败不影响话题的存储与沉淀。
@@ -170,7 +173,9 @@ class PerceptionFamiliar:
     def __init__(
         self,
         *,
-        engine: MemoryPerceptionEngine | None,
+        engine: MemoryPerceptionEngine,
+        fold_summary_writer: FoldSummaryWriter,
+        progress_writer: ProgressRecordWriter | None,
         store: ShortTermMemoryStore,
         working_set: TopicWorkingSet,
         bus: PatchouliBus,
@@ -178,6 +183,8 @@ class PerceptionFamiliar:
         runtime_events: RuntimeEventPublisher | None = None,
     ) -> None:
         self._engine = engine
+        self._fold_summary_writer = fold_summary_writer
+        self._progress_writer = progress_writer
         self._store = store
         self._working_set = working_set
         self._bus = bus
@@ -215,16 +222,12 @@ class PerceptionFamiliar:
         目标为 ``NEW_TOPIC`` 时以提交携带的标题与摘要建立话题（缺省时用默认标题），后续路由
         依赖候选话题的标题与摘要。
         """
-        if self._engine is None:  # 感知关闭：无任何存储副作用
-            return target_topic_id
-
         logger.debug(
             "PerceptionFamiliar 接收一轮交互: interaction_id=%s target_topic_id=%s",
             interaction_id,
             target_topic_id,
         )
-        await self._retire_lru_for_new_topic(belong_to, target_topic_id)
-        topic_id = self._ensure_topic(
+        topic_id = await self._ensure_topic(
             belong_to,
             target_topic_id,
             created_by="interaction",
@@ -249,7 +252,7 @@ class PerceptionFamiliar:
         finally:
             self._working_set.release(lease)
 
-        self._refresh_residency(belong_to, topic_id)
+        self._working_set.touch(belong_to, topic_id)
         return topic_id
 
     async def prepare_topic(
@@ -259,19 +262,19 @@ class PerceptionFamiliar:
         new_topic_summary: str | None,
         belong_to: WorkspaceIdentity,
     ) -> str:
-        """确保目标短期话题存在（建新话题时池满，先让最久没用的话题退役），返回真实 topic_id。"""
-        if self._engine is None:  # 感知关闭：不创建话题
-            self._refresh_residency(belong_to, target_topic_id)
-            return target_topic_id
-        await self._retire_lru_for_new_topic(belong_to, target_topic_id)
-        topic_id = self._ensure_topic(
+        """为写入预先确定话题：确保目标话题存在并刷新访问时间，返回真实 topic_id。
+
+        与接收交互相同：已有话题必须在池中；``NEW_TOPIC`` 时池满先让最久没用的话题退役，再以
+        给出的标题与摘要建立话题。
+        """
+        topic_id = await self._ensure_topic(
             belong_to,
             target_topic_id,
             created_by="prepare",
             topic_title=new_topic_title,
             topic_summary=new_topic_summary,
         )
-        self._refresh_residency(belong_to, topic_id)
+        self._working_set.touch(belong_to, topic_id)
         return topic_id
 
     # ========== 沉淀 ==========
@@ -421,8 +424,6 @@ class PerceptionFamiliar:
         失败：正被占用时抛出 :class:`TopicBusyError` 留待重试；话题已退役或删除时直接结束。
             写回在摘要返回后一次完成，中途取消或失败都不改动话题。
         """
-        if self._engine is None:  # 感知关闭：不做任何折叠
-            return
         lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:
             raise TopicBusyError(f"topic '{topic_id}' 正忙，无法折叠，可稍后重试")
@@ -434,7 +435,7 @@ class PerceptionFamiliar:
     def _blocks_to_fold(self, topic: TopicData) -> list[LogicalBlock]:
         """工作视图超过折叠阈值时返回保留后缀之前的旧 blocks；未超过或无可折叠前缀时为空。"""
         engine = self._engine
-        if engine is None or topic.is_empty or not engine.should_fold(topic.total_tokens):
+        if topic.is_empty or not engine.should_fold(topic.total_tokens):
             return []
         # 保留块数以 Engine 配置为单一事实源。
         return engine.select_blocks_to_fold(topic.blocks, engine.config.fold_retain_recent_blocks)
@@ -444,9 +445,6 @@ class PerceptionFamiliar:
 
         调用方持有该话题的 lease。被折叠的 blocks 仍留在交互记录中，沉淀时随全部记录冻结。
         """
-        engine = self._engine
-        if engine is None:  # 感知关闭：与接收交互一致，不做任何折叠
-            return
         topic = self._store.get(belong_to, topic_id)
         if topic is None:
             return
@@ -454,7 +452,9 @@ class PerceptionFamiliar:
         if not blocks_to_fold:
             return
         logger.info("工作视图超过折叠阈值，折叠: topic_id=%s", topic_id)
-        summary = await engine.generate_fold_summary(blocks_to_fold, topic.fold_summary)
+        summary = await self._fold_summary_writer.generate_summary(
+            blocks_to_fold, topic.fold_summary
+        )
         # lease 保证等待摘要期间交互记录与折叠记录没变，折叠前缀照样成立。
         written = self._store.append_fold(
             belong_to, topic_id, folded=blocks_to_fold, summary=summary
@@ -474,8 +474,8 @@ class PerceptionFamiliar:
             故障时停顿扫描每一轮都会再排入一次。生成期间话题退役或删除时这一条不记；中途取消或
             进程退出什么也不写。
         """
-        engine = self._engine
-        if engine is None or not engine.writes_progress_record:
+        writer = self._progress_writer
+        if writer is None:
             return
         topic = self._store.get(belong_to, topic_id)
         if topic is None:
@@ -486,7 +486,7 @@ class PerceptionFamiliar:
             return
         covered_until = topic.interaction_count
         try:
-            text = await engine.generate_progress_entry(
+            text = await writer.write_entry(
                 topic.progress_record, covered, first_turn_number=start + 1
             )
         except Exception:
@@ -555,26 +555,16 @@ class PerceptionFamiliar:
 
     # ========== 退役与删除 ==========
 
-    async def _retire_lru_for_new_topic(
-        self, belong_to: WorkspaceIdentity, target_topic_id: str
-    ) -> None:
+    async def _retire_lru_for_new_topic(self, belong_to: WorkspaceIdentity) -> None:
         """池满时为新话题腾位置：让最久没用的话题逐个退役，退役前先沉淀它还没有沉淀的交互。
 
-        看什么：目标是不是新话题；池是否已满；哪个话题最久没用、没有被占用。
+        看什么：池是否已满；哪个话题最久没用、没有被占用。
         做什么：通常只退役一个；驻留容量在两次运行之间调小时，读回的话题超出容量，这里一次
-            退役到池有空位。目标是已有话题时不腾位置，只确认它还在池中。
+            退役到池有空位。
         推进：被退役的话题不再有池中的位置。
-        失败：目标已有话题不在池中时抛出 :class:`ResourceNotFoundError`；候选正被占用时改选其他
-            话题，全部正被占用时抛出 :class:`TopicBusyError`；接纳失败的错误原样抛给调用方。
+        失败：候选正被占用时改选其他话题，全部正被占用时抛出 :class:`TopicBusyError`；接纳失败
+            的错误原样抛给调用方。
         """
-        if target_topic_id != "NEW_TOPIC":
-            if self._store.get(belong_to, target_topic_id) is None:
-                raise ResourceNotFoundError(
-                    details={"resource": "topic", "topic_id": target_topic_id}
-                )
-            return
-        if not self._working_set.needs_eviction(belong_to):
-            return
         attempted: set[str] = set()
         while self._working_set.needs_eviction(belong_to):
             lru_topic_id = self._working_set.select_lru_candidate(belong_to, exclude=attempted)
@@ -664,8 +654,7 @@ class PerceptionFamiliar:
         推进：这里不推进位置。
         失败：话题已有未结束的维护项、维护已关闭或队列已满时排入函数返回假，下一轮再看。
         """
-        engine = self._engine
-        if engine is None or not engine.writes_progress_record:
+        if self._progress_writer is None:
             return []
         scheduled: list[str] = []
         for belong_to, topic_id in self._working_set.list_inactive(
@@ -741,7 +730,7 @@ class PerceptionFamiliar:
 
     # ========== 内部实现 ==========
 
-    def _ensure_topic(
+    async def _ensure_topic(
         self,
         belong_to: WorkspaceIdentity,
         target_topic_id: str,
@@ -750,26 +739,30 @@ class PerceptionFamiliar:
         topic_title: str | None = None,
         topic_summary: str | None = None,
     ) -> str:
-        """确保目标话题存在并返回真实 topic_id；未知目标显式拒绝。
+        """确保目标话题存在并返回真实 topic_id，接收交互与为写入预先确定话题共用。
 
-        ``created_by`` 只用于新建话题的事件：接收交互时建立，或为写入预先确定
-        话题时建立。
+        目标是已有话题时它必须在池中，不在时抛出 :class:`ResourceNotFoundError`；目标为
+        ``NEW_TOPIC`` 时池满先让最久没用的话题退役，再建立话题并登记驻留。``created_by`` 只用于
+        新建话题的事件。
         """
-        if target_topic_id == "NEW_TOPIC":
-            topic = self._store.create(
-                belong_to,
-                topic_title=topic_title or "新建话题",
-                topic_summary=topic_summary or "",
-            )
-            # 创建即入池：避免 Store 有记录而 WorkingSet 不可见的孤儿窗口。
-            self._working_set.touch(belong_to, topic.topic_id)
-            self._topic_events(belong_to, topic.topic_id).emit(
-                RuntimeEventType.TOPIC_CREATED, data={"created_by": created_by}
-            )
-            return topic.topic_id
-        if self._store.get(belong_to, target_topic_id) is None:
-            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": target_topic_id})
-        return target_topic_id
+        if target_topic_id != "NEW_TOPIC":
+            if self._store.get(belong_to, target_topic_id) is None:
+                raise ResourceNotFoundError(
+                    details={"resource": "topic", "topic_id": target_topic_id}
+                )
+            return target_topic_id
+        await self._retire_lru_for_new_topic(belong_to)
+        topic = self._store.create(
+            belong_to,
+            topic_title=topic_title or "新建话题",
+            topic_summary=topic_summary or "",
+        )
+        # 创建即入池：避免 Store 有记录而 WorkingSet 不可见的孤儿窗口。
+        self._working_set.touch(belong_to, topic.topic_id)
+        self._topic_events(belong_to, topic.topic_id).emit(
+            RuntimeEventType.TOPIC_CREATED, data={"created_by": created_by}
+        )
+        return topic.topic_id
 
     @staticmethod
     def _require_leased_topic(written: TopicData | None, topic_id: str) -> None:
@@ -807,15 +800,6 @@ class PerceptionFamiliar:
                 "retired": retired,
             },
         )
-
-    def _refresh_residency(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """更新驻留记录；话题已不存在时不复活陈旧条目。
-
-        以存储为准：话题不在存储中时不登记驻留，驻留记录里不会多出存储里没有的话题。
-        """
-        if self._store.get(belong_to, topic_id) is None:
-            return
-        self._working_set.touch(belong_to, topic_id)
 
 
 __all__ = ["PerceptionFamiliar"]

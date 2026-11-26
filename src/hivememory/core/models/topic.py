@@ -323,9 +323,6 @@ class TopicData(BaseModel):
             return ()
         return self.blocks[-limit:]
 
-    def is_idle(self, timeout_seconds: int) -> bool:
-        return (datetime.now().timestamp() - self.last_update) > timeout_seconds
-
     def to_topic_snapshot(self) -> TopicSnapshot:
         last_turn = None
         if self.blocks:

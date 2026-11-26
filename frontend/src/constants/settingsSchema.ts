@@ -131,7 +131,7 @@ export const ADVANCED_SECTIONS: SettingSectionDef[] = [
     persona: '帕秋莉',
     description: '驻留、遗忘与归档',
     fields: [
-      { path: 'patchouli.perception.engine.max_resident_topics', label: '同时驻留的话题数', description: '超过时最久没用的话题先沉淀再退出话题池', kind: 'number', min: 1, step: 1 },
+      { path: 'patchouli.perception.max_resident_topics', label: '同时驻留的话题数', description: '超过时最久没用的话题先沉淀再退出话题池', kind: 'number', min: 1, step: 1 },
       { path: 'patchouli.lifecycle.vitality_calculator.decay_lambda', label: '遗忘速度', description: '越大，长期不用的记忆生命力下降越快', kind: 'number', step: 0.001, min: 0 },
       { path: 'patchouli.lifecycle.garbage_collector.low_watermark', label: '低于多少生命力时归档', description: '自动归档的阈值', kind: 'number', min: 0, step: 1 },
       { path: 'scheduler.tasks.enable_lifecycle_gc', label: '自动归档', description: '按周期扫描并归档低生命力的记忆', kind: 'switch' },

@@ -15,8 +15,7 @@ import pytest
 
 from hivememory.config.patchouli import (
     GenerationTranscriptConfig,
-    LLMRelayConfig,
-    RelayControllerConfig,
+    LLMSummaryWriterConfig,
 )
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import TurnEvent
@@ -152,7 +151,7 @@ class TestLLMFoldSummaryWriter:
         hanging_llm = Mock()
         hanging_llm.complete = AsyncMock(side_effect=never_returns)
         writer = create_fold_summary_writer(
-            RelayControllerConfig(engine=LLMRelayConfig(summary_timeout_seconds=0.01)),
+            LLMSummaryWriterConfig(summary_timeout_seconds=0.01),
             llm_service=hanging_llm,
             llm_params=DEFAULT_LLM_PARAMS,
             transcript_config=TRANSCRIPT,

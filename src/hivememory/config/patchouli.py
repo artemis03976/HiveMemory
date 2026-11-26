@@ -26,47 +26,49 @@ class QdrantConfig(BaseModel):
 # ========== 感知 ==========
 
 
-class SimpleRelayConfig(BaseModel):
+class SimpleSummaryWriterConfig(BaseModel):
+    """按规则写折叠摘要，不调用模型；这时不写进展记录。"""
+
     type: Literal["simple"] = Field(default="simple")
 
     model_config = ConfigDict(extra="forbid")
 
 
-class LLMRelayConfig(BaseModel):
+class LLMSummaryWriterConfig(BaseModel):
+    """用 ``patchouli.llm`` 的模型写折叠摘要与进展记录；没有配置模型时折叠摘要按规则写。"""
+
     type: Literal["llm"] = Field(default="llm")
     summary_timeout_seconds: float = Field(default=60, gt=0)
 
     model_config = ConfigDict(extra="forbid")
 
 
-class RelayControllerConfig(BaseModel):
-    enable: bool = Field(default=True)
-    engine: SimpleRelayConfig | LLMRelayConfig = Field(
-        default_factory=SimpleRelayConfig,
+class PerceptionEngineConfig(BaseModel):
+    fold_token_threshold: int = Field(default=32768, ge=1)
+    fold_retain_recent_blocks: int = Field(default=2, ge=1)
+    summary_writer: SimpleSummaryWriterConfig | LLMSummaryWriterConfig = Field(
+        default_factory=SimpleSummaryWriterConfig,
         discriminator="type",
+        description="折叠摘要与进展记录的写法：llm 或 simple",
     )
 
     model_config = ConfigDict(extra="forbid")
 
 
-class PerceptionEngineConfig(BaseModel):
-    enable: bool = Field(default=True)
-    fold_token_threshold: int = Field(default=32768, ge=1)
-    fold_retain_recent_blocks: int = Field(default=2, ge=1)
-    max_resident_topics: int = Field(default=5)
-    relay: RelayControllerConfig = Field(default_factory=RelayControllerConfig)
-
-    model_config = ConfigDict(extra="forbid")
-
-
 class MemoryPerceptionConfig(BaseModel):
-    idle_timeout_seconds: int = Field(default=900)
+    idle_timeout_seconds: int = Field(
+        default=3600,
+        description=(
+            "话题多少秒没有访问（接收交互，或为写入预先确定话题）后沉淀：把上次沉淀之后的新交互"
+            "交给记忆生成，话题仍留在话题池；重启后从读回时重新计时"
+        ),
+    )
     progress_record_pause_seconds: int = Field(
         default=1800,
         gt=0,
         description=(
             "话题停顿多少秒后写一条进展记录：自上一条以来有还没整理的交互时，以旧进展记录与这些"
-            "交互的原文写出一段总结"
+            "交互的原文写出一段总结；小于空闲时限，空闲时通常已经写过一条"
         ),
     )
     topic_dir: str = Field(
@@ -75,6 +77,10 @@ class MemoryPerceptionConfig(BaseModel):
             "短期话题日志所在的目录，每个话题一个只追加的文件，话题因此跨过重启与崩溃；"
             "相对路径按工作目录解析"
         ),
+    )
+    max_resident_topics: int = Field(
+        default=5,
+        description=("每个 Workspace 同时驻留的话题数；建新话题时池满，最久没用的话题先沉淀再退役"),
     )
     engine: PerceptionEngineConfig = Field(default_factory=PerceptionEngineConfig)
 
@@ -103,7 +109,7 @@ class GenerationTranscriptConfig(BaseModel):
     """一轮交互材料的截断上限。
 
     只有单条外部工具结果按上限截断；思考、工具参数与一轮的全部条目原样渲染，
-    不受任何总量上限约束。记忆生成视图、LLM 接力摘要与逻辑块的 token 统计
+    不受任何总量上限约束。记忆生成视图、模型写的折叠摘要与逻辑块的 token 统计
     使用同一个上限，折叠阈值因此反映生成实际看到的材料。
     """
 

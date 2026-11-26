@@ -155,11 +155,11 @@ class _Extractor:
         ).model_dump_json()
 
 
-class _Relay:
+class _SummaryWriter:
     """本轮不会达到折叠阈值；意外调用模型边界时直接令测试失败。"""
 
     async def generate_summary(self, *_args: Any) -> str:
-        raise AssertionError("this chat must not compact")
+        raise AssertionError("this chat must not fold")
 
 
 @dataclass
@@ -209,9 +209,9 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         local_bus,
     )
     perception = PerceptionFamiliar(
-        engine=MemoryPerceptionEngine(
-            PerceptionEngineConfig(fold_token_threshold=999999), _Relay()
-        ),
+        engine=MemoryPerceptionEngine(PerceptionEngineConfig(fold_token_threshold=999999)),
+        fold_summary_writer=_SummaryWriter(),
+        progress_writer=None,
         store=short_term,
         # 为多轮会话样本预留话题容量；LRU 退役由资源归属层单独验证。
         working_set=TopicWorkingSet(max_resident=16),

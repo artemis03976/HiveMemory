@@ -59,10 +59,9 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     config.patchouli.perception.engine.fold_token_threshold = 999999
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
     perception = PerceptionFamiliar(
-        engine=MemoryPerceptionEngine(
-            config=config.patchouli.perception.engine,
-            fold_summary_writer=_UnusedSummaryProvider(),
-        ),
+        engine=MemoryPerceptionEngine(config=config.patchouli.perception.engine),
+        fold_summary_writer=_UnusedSummaryProvider(),
+        progress_writer=None,
         store=store,
         working_set=TopicWorkingSet(),
         bus=PatchouliBus(),

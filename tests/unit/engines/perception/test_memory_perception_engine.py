@@ -5,12 +5,9 @@
   整轮渲染材料的估算（工具输出按截断上限计入，能力调用的结果不计入）
 - should_fold: 阈值边界（严格大于）
 - select_blocks_to_fold: 最旧前缀选择、retain 边界、非法 retain 拒绝
-- generate_fold_summary: 委托给持有的 RelayController
 
-纯单元测试：Engine 为唯一真实对象，RelayController 使用 mock。
+纯单元测试：Engine 为唯一真实对象。
 """
-
-from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import ValidationError
@@ -39,17 +36,9 @@ def _block(total_tokens=10) -> LogicalBlock:
     return make_logical_block("q", "a", total_tokens=total_tokens)
 
 
-def _mock_relay():
-    """创建 mock RelayController，用于不涉及摘要生成的测试。"""
-    mock = Mock()
-    mock.generate_summary = AsyncMock(return_value="mocked summary")
-    return mock
-
-
 def _engine(**transcript_limits) -> MemoryPerceptionEngine:
     return MemoryPerceptionEngine(
         config=PerceptionEngineConfig(fold_token_threshold=100),
-        fold_summary_writer=_mock_relay(),
         transcript_config=GenerationTranscriptConfig(**transcript_limits),
     )
 
@@ -152,7 +141,6 @@ class TestShouldFold:
     def test_not_triggered_below_threshold(self):
         engine = MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=100),
-            fold_summary_writer=_mock_relay(),
         )
 
         assert engine.should_fold(99) is False
@@ -160,16 +148,14 @@ class TestShouldFold:
     def test_not_triggered_at_exact_threshold(self):
         engine = MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=100),
-            fold_summary_writer=_mock_relay(),
         )
 
-        # 与旧 is_idle/折叠语义一致：达到阈值不触发，严格大于才触发
+        # 达到阈值不触发，严格大于才触发
         assert engine.should_fold(100) is False
 
     def test_triggered_above_threshold(self):
         engine = MemoryPerceptionEngine(
             config=PerceptionEngineConfig(fold_token_threshold=100),
-            fold_summary_writer=_mock_relay(),
         )
 
         assert engine.should_fold(101) is True
@@ -180,9 +166,7 @@ class TestShouldFold:
 
 class TestSelectBlocksToFold:
     def test_selects_oldest_prefix_and_retains_recent(self):
-        engine = MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(), fold_summary_writer=_mock_relay()
-        )
+        engine = MemoryPerceptionEngine(config=PerceptionEngineConfig())
         blocks = tuple(_block(total_tokens=i) for i in range(3))
 
         folded = engine.select_blocks_to_fold(blocks, retain_recent=2)
@@ -190,39 +174,16 @@ class TestSelectBlocksToFold:
         assert folded == [blocks[0]]  # 只折叠最旧的 1 块
 
     def test_defers_folding_when_retain_covers_all_blocks(self):
-        engine = MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(), fold_summary_writer=_mock_relay()
-        )
+        engine = MemoryPerceptionEngine(config=PerceptionEngineConfig())
         blocks = tuple(_block() for _ in range(3))
 
         assert engine.select_blocks_to_fold(blocks, retain_recent=5) == []
 
     def test_rejects_retain_below_one(self):
-        engine = MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(), fold_summary_writer=_mock_relay()
-        )
+        engine = MemoryPerceptionEngine(config=PerceptionEngineConfig())
 
         with pytest.raises(ValueError, match="retain_recent must be >= 1"):
             engine.select_blocks_to_fold((_block(),), retain_recent=0)
-
-
-# ========== generate_fold_summary：委托 RelayController ==========
-
-
-class TestGenerateFoldSummary:
-    @pytest.mark.asyncio
-    async def test_delegates_to_relay_controller(self):
-        mock_relay = _mock_relay()
-        mock_relay.generate_summary.return_value = "summarized content"
-        engine = MemoryPerceptionEngine(
-            config=PerceptionEngineConfig(), fold_summary_writer=mock_relay
-        )
-        blocks = [_block(), _block()]
-
-        result = await engine.generate_fold_summary(blocks, "previous summary")
-
-        assert result == "summarized content"
-        mock_relay.generate_summary.assert_awaited_once_with(blocks, "previous summary")
 
 
 # ========== 配置契约 ==========

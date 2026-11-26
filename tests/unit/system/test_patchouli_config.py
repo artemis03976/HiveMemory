@@ -5,7 +5,9 @@ from pydantic import ValidationError
 
 from hivememory.config.patchouli import (
     HybridRetrieverConfig,
+    LLMSummaryWriterConfig,
     MemoryGenerationConfig,
+    MemoryPerceptionConfig,
     MemoryRetrievalConfig,
 )
 
@@ -20,8 +22,31 @@ def test_active_generation_material_rejects_negative_block_count() -> None:
         MemoryGenerationConfig(active_recent_blocks=-1)
 
 
+def test_idle_timeout_defaults_to_one_hour() -> None:
+    """代码缺省与随附配置相同，停顿阈值（缺省 1800 秒）因此小于空闲时限。"""
+    config = MemoryPerceptionConfig()
+    assert (config.idle_timeout_seconds, config.progress_record_pause_seconds) == (3600, 1800)
+
+
+def test_max_resident_topics_is_read_from_the_perception_section() -> None:
+    """驻留容量在 perception 段；engine 段的旧位置是未知键，启动时显式失败。"""
+    assert MemoryPerceptionConfig(max_resident_topics=3).max_resident_topics == 3
+    with pytest.raises(ValidationError, match="max_resident_topics"):
+        MemoryPerceptionConfig.model_validate({"engine": {"max_resident_topics": 3}})
+
+
+def test_summary_writer_replaces_the_relay_section() -> None:
+    """折叠摘要与进展记录的写法在 engine.summary_writer；旧的 relay 段是未知键，显式失败。"""
+    config = MemoryPerceptionConfig.model_validate(
+        {"engine": {"summary_writer": {"type": "llm", "summary_timeout_seconds": 5}}}
+    )
+    assert config.engine.summary_writer == LLMSummaryWriterConfig(summary_timeout_seconds=5)
+    with pytest.raises(ValidationError, match="relay"):
+        MemoryPerceptionConfig.model_validate({"engine": {"relay": {"engine": {"type": "llm"}}}})
+
+
 def test_settle_mode_defaults_to_one_shot_and_accepts_only_two_modes() -> None:
-    """旧配置没有这一项时取一次性生成，升级后结算行为不变。"""
+    """旧配置没有这一项时取一次性生成，升级后沉淀行为不变。"""
     assert MemoryGenerationConfig().settle_mode == "one_shot"
     assert MemoryGenerationConfig(settle_mode="librarian").settle_mode == "librarian"
     with pytest.raises(ValidationError, match="settle_mode"):
