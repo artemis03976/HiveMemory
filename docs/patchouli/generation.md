@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # 记忆生成
@@ -142,9 +142,9 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 ### 3.1 Mode A：被动观察 / ARCHIVE
 
-当 idle、LRU 或 manual settle（以及重启后重新发起的退役沉淀）形成 `TopicMaterializeTask` 时，Coordinator 用其中的工作视图（未折叠的 blocks 与 `fold_summary`）构造 GenerationContext，被折叠的轮次只以摘要进入生成；同一任务的 `InteractionArtifactInput` 携带话题的全部交互记录与折叠记录，来源 InteractionArtifact 因此覆盖已折叠的轮次（第 5 节）。没有 turns 时跳过任务。
+话题的沉淀（话题停下后的沉淀扫描、池满腾位置与手动沉淀并退役，以及重启后重新发起的退役沉淀）形成沉淀材料 `TopicSettleMaterial` 时，Coordinator 用其中的工作视图（未折叠的 blocks 与 `fold_summary`）构造 GenerationContext，被折叠的轮次只以摘要进入生成；同一任务的 `InteractionArtifactInput.interactions` 携带话题的全部交互记录，`folds` 携带全部折叠记录，来源 InteractionArtifact 因此覆盖已折叠的轮次（第 5 节）。没有 turns 时跳过任务；工作视图至少保留一轮，正常不会出现。
 
-话题结算有两种生成方式，由 `patchouli.generation.settle_mode` 选择，是用户选项：一次性生成（`one_shot`，默认）与馆长（`librarian`）。一次性生成只调用一次模型，但写之前看不到本话题已经生成的记忆，也看不到库，只能先尽量多地提取，再由查重、触碰、合并提名与命中本话题生成的记忆即丢弃这一串规则补救（第 4 节）；馆长先查看本话题生成的记忆，再检索并阅读库中相关的记忆，只写两者都没有覆盖的内容，代价是一次结算要调用模型数次。两种方式并存，因为馆长明显更慢、开销更大（owner，2026-11-19）；一次性生成按现状冻结，它的重复问题不在这里修补。两者共用 `extractor.enabled` 开关（关闭时都不运行，结算不产生记忆）、结算的发起者与来源裁定（本节末尾）、材料与段引用（第 2 节）、别名分配（第 4.1 节末段）与提交管线（第 5 节）。组合根只在选馆长、提取开启且配置了模型时为引擎装配馆长，引擎有馆长就以馆长结算，否则走一次性生成；两项配置保存后重启生效，关闭时保存的结算任务在下次启动后按当时配置的方式执行。
+话题结算有两种生成方式，由 `patchouli.generation.settle_mode` 选择，是用户选项：一次性生成（`one_shot`，默认）与馆长（`librarian`）。一次性生成只调用一次模型，但写之前看不到本话题已经生成的记忆，也看不到库，只能先尽量多地提取，再由查重、触碰、合并提名与命中本话题生成的记忆即丢弃这一串规则补救（第 4 节）；馆长先查看本话题生成的记忆，再检索并阅读库中相关的记忆，只写两者都没有覆盖的内容，代价是一次结算要调用模型数次。两种方式并存，因为馆长明显更慢、开销更大（owner，2026-11-19）；一次性生成按现状冻结，它的重复问题不在这里修补。两者共用 `extractor.enabled` 开关（关闭时都不运行，结算不产生记忆）、结算的发起者与来源裁定（本节末尾）、材料与段引用（第 2 节）、别名分配（第 4.1 节末段）与提交管线（第 5 节）。组合根只在选馆长、提取开启且配置了模型时为引擎装配馆长，引擎有馆长就以馆长结算，否则走一次性生成；两项配置保存后重启生效。关闭时不保存沉淀任务（第 6.2 节），升级之前的版本保存的沉淀任务读回后按当时配置的方式执行。
 
 #### 一次性生成
 
@@ -191,11 +191,11 @@ Mode A 不捕获 `ModelProviderError`，生成任务以 `model_provider_failed`�
 
 Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内，也与 Import Bus 无关：导入的轮次与主动链路的轮次一样进入话题，之后经 settle 参与 Mode A。它仍作为 Patchouli 后台 memory task 执行。
 
-settle 的各个入口（manual / idle / LRU，以及重启后重新发起的退役沉淀）共享同一发起者裁定：Coordinator 按 `belong_to` 构造 `user_id=owner_user_id`、`agent_id=SYSTEM_AGENT_ID`、`team_id=None` 的 `from_actor`，不继承最后访问者或驱逐触发者。`system` 不属于 Team，也不能成为 PRIVATE policy 的目标，普通读取策略因此把 SETTLE 的查重与馆长的读取限定为本 Workspace 的 PUBLIC 记忆，避免后台结算触碰某个参与 Agent 才可见的 PRIVATE/TEAM 记忆。新建记忆使用 PUBLIC policy、`source_agent_id=SYSTEM_AGENT_ID` 与 `SYSTEM` creation intent；实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。
+沉淀的各个入口（手动沉淀并退役、话题停下后的沉淀扫描、池满腾位置，以及重启后重新发起的退役沉淀）共享同一发起者裁定：Coordinator 按 `belong_to` 构造 `user_id=owner_user_id`、`agent_id=SYSTEM_AGENT_ID`、`team_id=None` 的 `from_actor`，不继承最后访问者或触发池满退役的那一轮的发起者。`system` 不属于 Team，也不能成为 PRIVATE policy 的目标，普通读取策略因此把 SETTLE 的查重与馆长的读取限定为本 Workspace 的 PUBLIC 记忆，避免后台沉淀触碰某个参与 Agent 才可见的 PRIVATE/TEAM 记忆。新建记忆使用 PUBLIC policy、`source_agent_id=SYSTEM_AGENT_ID` 与 `SYSTEM` creation intent；实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。
 
 Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记录发起 Agent 本身（无上下文的主动写入仍由发起 Agent 产出），再合并上下文轮次贡献者。WRITE/UPDATE 保留物化意图的 `from_actor`，按该 actor 的普通 PUBLIC/TEAM/PRIVATE 可见性读取，不能沿用 SETTLE 的 system 身份。Mode C 修订保留已有 `meta.provenance` 的来源主体字段，并把本次生成的贡献者并入已有集合；两条记忆合并时沿用保留记忆的来源主体，贡献者取两者的并集（第 4.1 节）。结果随 MemoryAtom 与对应 MemoryVersionArtifact 持久化。来源与贡献者字段只记录 provenance，不参与读取授权。
 
-四种触发的发起者、SETTLE/WRITE 查重可见性与完整空闲结算持久化由[结算身份集成测试](../../tests/integration/patchouli/test_settlement_identity.py)验证。
+各个入口的发起者、SETTLE/WRITE 查重可见性与话题停下后完整的沉淀持久化由[沉淀身份集成测试](../../tests/integration/patchouli/test_settlement_identity.py)验证。
 
 ### 3.2 Mode B：主动 WRITE
 
@@ -264,7 +264,7 @@ UPDATE 的 ACK 表示意图已被接纳，内容不因模型没能写成编辑�
 
 阈值由 `patchouli.generation.deduplicator` 配置。`SIMILAR` 与 `IDENTICAL` 都作用于命中的已有记忆，Deduplicator 必须随判断返回该记忆；违反这一约定时 GenerationEngine 显式失败，不以缺失的记忆继续构造结果。
 
-查重命中后不改写已有记忆。早先的实现用草稿整体覆盖命中的记忆：同一项目的记忆增多后，同一工作的前后阶段被空闲结算拆到不同话题，后一阶段的草稿连续覆盖前一阶段的记忆，最初的设计决定只剩在版本记录里。现在命中时先把草稿保存为独立的新记忆，再由生成队列中的合并任务把它独有的内容补进命中的记忆。草稿先落库，因此关闭、队列拒绝或合并失败最多留下两条相似的记忆，不会丢失内容。合并与 Mode C 共用编辑集（第 3.4 节），输入不同：Mode C 是一条记忆加修改指令与新材料，合并是保留记忆 M 与被吸收记忆 N 两条正式记忆。
+查重命中后不改写已有记忆。早先的实现用草稿整体覆盖命中的记忆：同一项目的记忆增多后，同一工作的前后阶段落在不同话题（当时话题停下就结束），后一阶段的草稿连续覆盖前一阶段的记忆，最初的设计决定只剩在版本记录里。现在命中时先把草稿保存为独立的新记忆，再由生成队列中的合并任务把它独有的内容补进命中的记忆。草稿先落库，因此关闭、队列拒绝或合并失败最多留下两条相似的记忆，不会丢失内容。合并与 Mode C 共用编辑集（第 3.4 节），输入不同：Mode C 是一条记忆加修改指令与新材料，合并是保留记忆 M 与被吸收记忆 N 两条正式记忆。
 
 合并条件是 M 与 N 的访问策略相同，且对 WRITE 而言 M 不是本话题主动写入结算到的记忆（第 4.2 节）。策略不同的两条记忆合并后会改变一方的可见范围。生成的记忆都是 PUBLIC，策略不同只会出现在经管理入口改过策略的记忆上。不满足条件时 N 是一条普通的新记忆。
 
@@ -292,7 +292,7 @@ Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前
 
 查重与合并本身不区分来源。只按相似度判断时，被动提取会从同一份材料里重新推导出 agent 已经写入的内容，判为相似后并入；合并按新旧定主次，较新的被动草稿成为骨架，把 agent 有意精简掉的风险清单、行号与未决问题带回记忆。同一轮里 agent 有意分开写的几条记忆，也会因相似度越过阈值而互相合并。证据与考虑过的做法见[已归档的收敛 Idea](../archive/ideas/generation-source-convergence.md)第 2、3 节。因此本话题生成的记忆另有一份记录，不分途径：主动写入结算到的记忆，以及本话题此前几次沉淀新建的记忆（同一话题会被沉淀多次，[感知与短期话题](./perception.md#4-触发原因与具名用例)第 4 节）。下面的规则对记录里的记忆一视同仁，是一次性生成重做之前的保障与兼容：
 
-- **记录**：记录是话题的字段 `TopicData.topic_generated_memory_ids`，记在话题的日志上，随话题跨重启，话题退役后保留到它的日志删除，即最后一次沉淀完成（[感知与短期话题](./perception.md#13-话题原始数据与工作视图)第 1.3 节），两种结算方式共用。记下的是：WRITE、UPDATE 的结算目标；不退役的结算（空闲时的沉淀）新建的记忆，触碰与修订的已有记忆不记；合并吸收了记录中的某条时，记录删去被吸收的、改为保留的那条，被吸收的在不在记录中按话题写回时的最新记录判断。数据面返回后，控制器在同一个 handler 内经本地路由 `topic.record_generated_memories` 把这次生成的记忆与改指记回话题，同一话题的下一次结算开始时记录已经包含它们；话题已经退役、日志还在时照样记，话题被删除或日志已经删除时不记。生成结果带 `action`（新建、更新或触碰），合并的结果记为更新。
+- **记录**：记录是话题的字段 `TopicData.topic_generated_memory_ids`，记在话题的日志上，随话题跨重启，话题退役后保留到它的日志删除，即最后一次沉淀完成（[感知与短期话题](./perception.md#13-话题原始数据与工作视图)第 1.3 节），两种生成方式共用。记下的是：WRITE、UPDATE 的结算目标；不退役的沉淀（话题停下后的沉淀）新建的记忆，触碰与修订的已有记忆不记；合并吸收了记录中的某条时，记录删去被吸收的、改为保留的那条，被吸收的在不在记录中按话题写回时的最新记录判断。数据面返回后，控制器在同一个 handler 内经本地路由 `topic.record_generated_memories` 把这次生成的记忆与改指记回话题，同一话题的下一次沉淀开始时记录已经包含它们；话题已经退役、日志还在时照样记，话题被删除或日志已经删除时不记。生成结果带 `action`（新建、更新或触碰），合并的结果记为更新。
 - **传递**：沉淀在 lease 内冻结材料时，把话题当时的记录一起冻结进生成请求（`GenerationRequest.topic_generated_memory_ids`）。WRITE 与 SETTLE 执行时，控制器经本地路由 `topic.get_generated_memories` 读取话题当前的记录并入请求，话题已经退役、日志还在时同样读得到；升级之前的版本保存的结算的话题不在话题池里，只有冻结的那份。读取发生在执行时而不是只在接纳时：同一话题先后派发的写入，前一条完成后，后一条执行时才能看到它。随退役执行的最后一次沉淀因此认得排在它前面的同话题沉淀写下的记忆：同一话题的沉淀按话题顺序键依次执行，前一次在自己的 handler 里记下生成的记忆之后才轮到后一次，退役话题的日志只在最后一次沉淀完成、没有未沉淀的交互时才删除，重启时本话题生成的记忆随日志重放，重新发起的最后一次沉淀同样读得到。
 - **一次性生成（Mode A）**：草稿查重为 IDENTICAL 或 SIMILAR、且命中记录中的记忆时丢弃，不新建、不触碰、不提名合并，只记一行日志。一段话题的草稿全部被丢弃时任务照常成功，没有新记忆，来源 InteractionArtifact 照常保存。被动提取照常运行，写入没有覆盖的事实照常进入记忆。
 - **馆长**：以 `list_generated_memories` 列出记录中 system actor 读得到的记忆，在写之前查看，不按相似度丢弃草稿（第 3.1 节）。
@@ -305,7 +305,7 @@ Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前
 
 MemoryGenerationFamiliar 执行：
 
-1. 尝试捕获 InteractionArtifact：话题结算时覆盖全部交互记录并带折叠记录，主动生成时只有最近的 blocks、没有折叠记录；
+1. 尝试捕获 InteractionArtifact：沉淀时覆盖全部交互记录并带折叠记录，主动生成时只有最近的 blocks、没有折叠记录；
 2. 在提交边界取一次 `now`，调用 GenerationEngine（传入同一时点用于内容日期）得到 outcomes；
 3. 对每个 outcome 依次完成：提交字段分配（UPDATE 递增 version、推进内容时间与衰减基准、重置置信度）→ 构建 creation/version artifacts（强制，`now` 贯通 `changed_at` 与事件时间）→ 挂载 refs/events；
 4. 执行 MidTerm `upsert(atom, recompute_vectors=<embedding 输入是否变化>)`；TOUCH 走受限 `patch_payload`；
@@ -313,7 +313,7 @@ MemoryGenerationFamiliar 执行：
 
 InteractionArtifact 在生成之前捕获，失败只记录 warning、生成照常进行。因此提取失败（包括超窗与截断）、没有产出或结果为 TOUCH 时，原文仍保存在 InteractionArtifact 中，只是没有记忆引用它。一次结算产出的多条记忆共享这一份 InteractionArtifact，各自挂载对它的来源引用。
 
-`InteractionArtifactInput.asset_bindings` 随 settlement task 一起冻结并穿过队列边界；它是 Topic 已确认使用过的资产关系，而不是 Artifact 本身。CREATE/UPDATE 持久化后，Familiar 通过注入的资产读取端口 `WorkspaceAssetReaderPort`，按归属与 `asset_ref` 租借 READY representation、创建独立 DocumentArtifact 并释放租借；失败按 best-effort 跳过，不回滚已提交的 Memory。该端口只接收归属，不携带 actor 或 scope，组合根直接注入资产 Store；详情见[Artifacts 与来源追踪](./artifacts.md)。
+`InteractionArtifactInput.asset_bindings` 随沉淀任务一起冻结并穿过队列边界；它是 Topic 已确认使用过的资产关系，而不是 Artifact 本身。CREATE/UPDATE 持久化后，Familiar 通过注入的资产读取端口 `WorkspaceAssetReaderPort`，按归属与 `asset_ref` 租借 READY representation、创建独立 DocumentArtifact 并释放租借；失败按 best-effort 跳过，不回滚已提交的 Memory。该端口只接收归属，不携带 actor 或 scope，组合根直接注入资产 Store；详情见[Artifacts 与来源追踪](./artifacts.md)。
 
 **版本记录是提交成功的前置条件**：版本存储关闭（NoOp builder）或构建失败时任务直接失败，不发布无历史的新 canonical；canonical upsert 失败同样使任务失败，已写入的版本记录保留为孤立 Artifact。`recompute_vectors` 由提交前后编译出的向量输入文本对比决定：比较的是 MemoryCompiler 的 `DENSE_EMBEDDING` 与 `SPARSE_EMBEDDING` 两份文本，也就是写入时实际编码的内容，而不是一份字段清单。新建总是计算向量；正文、`payload.agent_config` 等不进入向量文本的变化不重算，标签顺序变化会重算。修订、合并写回与手动编辑都按同一规则判断。详见[Artifacts 与来源追踪](./artifacts.md)。
 
@@ -414,7 +414,7 @@ Familiar 把一次任务分成两段：
 2. 在跑的任务中，还没开始提交的立即取消；已开始提交的写完再结束，结算、沉淀进度与合并提名照常完成，提名的合并入队后一并保存。取消与开始提交之间没有原子性，因此以是否开始提交、而不是是否被取消决定要不要重跑，不会重复生成；
 3. 未执行的写入、更新与合并（排队中的，与第 2 步中被取消的）按入队顺序写进 `patchouli.shutdown.pending_work_file`（默认 `.hivememory/pending_generation.json`，相对路径按工作目录解析），先写临时文件再原子替换，没有工作时不写。每项是工作信封的 `kind`、`schema_version` 与规范载荷；
 4. 被保存的任务在本进程内以取消结束，原因 `shutdown_persisted`；其中的 WRITE、UPDATE 不发布写入意图的取消事件，它们在下次启动后还会结算；
-5. 未执行的 SETTLE 不保存，以取消结束，原因 `shutdown_discarded`：沉淀进度只在生成完成时记下（[感知与短期话题](./perception.md#4-触发原因与具名用例)第 4 节），话题的日志停在上一次完成的沉淀，重启后由空闲扫描重新沉淀，随退役执行的沉淀由启动时的读回重新发起（[感知与短期话题](./perception.md#7-维护存储与启动时读回)第 7 节）。话题随时落盘，关闭时不为话题发起沉淀，也不保存话题池。
+5. 未执行的 SETTLE 不保存，以取消结束，原因 `shutdown_discarded`：沉淀进度只在生成完成时记下（[感知与短期话题](./perception.md#4-触发原因与具名用例)第 4 节），话题的日志停在上一次完成的沉淀（`settled_until`），重启后由沉淀扫描重新沉淀，随退役执行的沉淀由启动时的读回重新发起（[感知与短期话题](./perception.md#7-维护存储与启动时读回)第 7 节）。话题随时落盘，关闭时不为话题发起沉淀，也不保存话题池。
 
 文件没写出（例如磁盘错误）时记录 `saved_work_write_failed`，这些工作随进程结束丢失。
 
@@ -447,7 +447,7 @@ CPU 有输出（completed/cancelled/failed）-> 封口 InteractionPayload
 
 Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动任务，也不返回任务列表。提交任务由任务进程持有并以 shield 等待，HTTP/SSE 调用方离开不会中止已经开始的提交；已接纳的交互也不随调用方取消撤回。CPU 失败、取消、进程关闭与失败 CALL 子帧都不撤回此前的显式写入。
 
-主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。有输出轮次的当前交互留在话题中，之后可在 idle/LRU/手动结算时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。写入建立的话题若最终没有接收交互（例如写入后 CPU 没有输出），不被补偿删除，由空闲结算或 LRU 按没有材料的话题结束；已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
+主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。有输出轮次的当前交互留在话题中，之后在话题停下后、池满腾位置或手动沉淀并退役时参与 Mode A；主动保存与被动归档不能通过清空话题相互替代。写入建立的话题若最终没有接收交互（例如写入后 CPU 没有输出），不被补偿删除，在话题停下后的沉淀扫描或池满时按没有材料的话题退役；已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
 
 这条解耦边界是对旧链路实际问题的回应。旧实现曾把 MTP WRITE/UPDATE 当作话题结算理由，执行 `archive + compact + clear`：连续两次 WRITE 时，第二次只能看到已经被压扁的 summary；每次主动写还会额外触发一次 summary，使原始细节在明确保存意图下反复丢失。当前实现直接使用 topic 最近 context，并以 `WriteFocus`/`UpdateFocus` 驱动 Mode B/C；主动生成与被动归档保持两条正交流，主动写入后的 blocks 仍可在之后进入 Mode A。
 
@@ -477,7 +477,7 @@ Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动
 - WRITE 与本话题此前沉淀新建的记忆相似时照常新建、不提名合并，同一话题里可能留下相似的两条，直到一次性生成重做；每次沉淀都读话题的全部材料，多次沉淀的话题每次都调用一次生成；
 - 复述写入但相似度不高于下限的被动草稿照常新建；话题路由错误时（[跨会话话题路由 Todo](../todo/cross-conversation-topic-placement.md)），另一段对话里与这些写入相似的草稿也会被丢弃；被动草稿里比主动写入更细的内容随草稿一起丢弃；
 - 生成材料只截断工具结果，单个轮次没有总量上限，生成也不分片读取：工作视图保留的 blocks 很大时（例如单轮上百次工具调用），结算的提取可能超出模型窗口，任务以 `model_context_window_exceeded` 失败（超窗不重试），原文仍在来源 InteractionArtifact 中但没有记忆引用；
-- Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；关闭时在提交之前被中止、重启后重新沉淀的结算再保存一份来源 InteractionArtifact，前一份没有记忆引用；
+- Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；关闭时在提交之前被中止、重启后重新沉淀的那一次再保存一份来源 InteractionArtifact，前一份没有记忆引用；
 - 馆长不提名合并，只修订读过的记忆：一次性生成留下的相近记忆不会被它合并，两种方式产出的记忆在库中混合；模型没有查到或判断为不重叠的重复照常留下；
 - 同一 Workspace 的两次馆长结算可以同时运行（生成 lane 并发 2），彼此看不到对方暂存的记忆；同一次结算暂存的草稿之间也不查重；
 - 馆长只读中期库中的记忆本身：不读其他话题的原始轨迹（经段引用回到原文需要读取交互快照的组件，现在没有）、冷藏库与版本记录；本话题由 UPDATE 修订过的私有记忆不会被列出；

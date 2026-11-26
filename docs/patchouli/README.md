@@ -109,16 +109,16 @@ GatewayDecision（任务进程持有）
             -> memory_intent.submit -> generation tasks
   -> workspace 任务进程：封口交互记录（InteractionPayload：MTP trace、实际使用的附件）
        -> root API 提交交互 -> patchouli.public.interaction.submit（提交并等待应用）
-            -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
+            -> InteractionSubmissionQueue -> PerceptionFamiliar.receive_interaction
 ```
 
-Patchouli 不参与任务进程的编排：它分别提供检索、话题准备、存储健康、检索命中与交互提交几项公开能力，由任务进程经操作入口或 root API 按顺序调用（[任务进程](../workspace/task-process.md)）；不解析 Profile、不编译记忆、不接触附件，也不运行 Alice。话题按需建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在本轮第一次写入时以 Gateway 的标题与摘要建立，没有写入则提交 `NEW_TOPIC`、在交互应用时建立；建立后没有接收交互的话题不补偿，由空闲结算、LRU 或关闭结算按没有材料的话题结束（[感知与短期话题](./perception.md#3-话题准备与-lru)）。交互提交等待本轮结构化事实成功摄入话题，结局由 root API 交回任务进程，applied 是 Chat 完成的硬成功边界。检索命中由 actor API 在每次检索时记录（含预检索），只做单批去重，不自动 retry，失败不影响检索结果，也不依赖本轮的结局（[记忆检索](./retrieval.md#7-访问与生命力副作用)）。
+Patchouli 不参与任务进程的编排：它分别提供检索、话题准备、存储健康、检索命中与交互提交几项公开能力，由任务进程经操作入口或 root API 按顺序调用（[任务进程](../workspace/task-process.md)）；不解析 Profile、不编译记忆、不接触附件，也不运行 Alice。话题按需建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在本轮第一次写入时以 Gateway 的标题与摘要建立，没有写入则提交 `NEW_TOPIC`、在交互应用时建立；建立后没有接收交互的话题不补偿，话题停下超过沉淀阈值或池满时按没有材料的话题退役（[感知与短期话题](./perception.md#3-话题准备与-lru)）。交互提交等待本轮结构化事实成功摄入话题，结局由 root API 交回任务进程，applied 是 Chat 完成的硬成功边界。检索命中由 actor API 在每次检索时记录（含预检索），只做单批去重，不自动 retry，失败不影响检索结果，也不依赖本轮的结局（[记忆检索](./retrieval.md#7-访问与生命力副作用)）。
 
 Patchouli 的公开路由不保存跨调用的 scope 或身份。任务进程的每次 root 调用在 root API 的方法入口以系统的 root 工作 actor 授权；预检索由执行者经 actor API 以 `memory.search` 授权，没有该操作时不检索。交互提交另收参与者（本轮的执行 Agent），记为交互的发起者。进入提交队列后的交互记录独立携带归属与本轮发起者，调用方取消等待不会撤回已接纳的交互，也不会让它重新依赖调用方的授权。
 
 `WRITE` / `UPDATE` 的 ACK 表示 workspace 已登记意图且生成队列已接纳。Alice 经绑定了线程句柄的提交函数发出操作请求，actor API 在操作内经 `memory_intent.submit` 实时派发；这是主动生成的唯一生产入口。背景取过去 N 个 block 与摘要（`patchouli.generation.active_recent_blocks`，默认 5），不含当前轮；后续执行失败、取消或进程关闭都不撤回写入。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
 
-### 3.2 Import Bus 与话题结算
+### 3.2 Import Bus 与话题的沉淀
 
 Import Bus 是 System 的用例，把外部 harness 已经结束的一轮交互导入记忆网络；按外部会话串行、封口与可重试错误由它负责，查重、Gateway 路由与等待应用在它调用的 root API 方法内完成。它以与任务进程共用的封口函数把整轮记录封口为结构化 `InteractionPayload`，经 root API 交给 Patchouli 的公开路由，不持有提交队列：
 
@@ -127,23 +127,23 @@ Import Bus 是 System 的用例，把外部 harness 已经结束的一轮交互�
 - `patchouli.public.interaction.wait` 等待已接纳、仍在应用的交互，重发时 root API 以它继续等待上一次提交；
 - `patchouli.public.topic.prepare` 为外部 harness 写入时的一轮确认或建立话题。
 
-交互进入 Patchouli 后，Perception 才负责将它变为 `TurnRecord` / `LogicalBlock`，加入目标话题并执行折叠或结算策略。
+交互进入 Patchouli 后，Perception 才负责将它变为 `TurnRecord` / `LogicalBlock`，加入目标话题，并按触发折叠、沉淀或退役。
 
 ```text
 System Import Bus
   -> root API 提交交互 -> patchouli.public.interaction.submit
   -> InteractionSubmissionQueue
-  -> PerceptionFamiliar.apply_interaction
+  -> PerceptionFamiliar.receive_interaction
        -> MemoryPerceptionEngine.build_block（纯算法）
        -> TopicWorkingSet lease + ShortTermMemoryStore
-  -> idle（沉淀，话题留在池中） | LRU | shutdown | manual settle（退役前沉淀）——统一 settle 时序
-  -> TopicMaterializeTask
+  -> 话题停下后的沉淀扫描（话题留在池中） | 池满腾位置 | 手动沉淀并退役（退役前沉淀）——共用 _settle_topic
+  -> TopicSettleMaterial
   -> background Generation task
 ```
 
 Patchouli 不为 Import Bus 运行 Alice，也不重新分析 Gateway。完整入口语义见 [Import Bus](../system/import-bus.md)，提交队列与感知内部设计见[感知与短期话题](./perception.md)。
 
-四种话题结算统一由所属 Workspace 的保留 `system` actor 发起（`user_id` 为 owner、`team_id=None`），不继承最后访问者或驱逐触发者的读取权限。参与交互的 Agent 保留在 turn identity 与贡献者集合中；生成查重因此只消费本 Workspace 的 PUBLIC 记忆，主动 WRITE/UPDATE 则保留提交 actor 的可见性。
+话题的沉淀统一由所属 Workspace 的保留 `system` actor 发起（`user_id` 为 owner、`team_id=None`），不论是话题停下后、池满腾位置、手动还是重启后重新发起的，都不继承最后访问者或触发者的读取权限。参与交互的 Agent 保留在 turn identity 与贡献者集合中；生成查重因此只消费本 Workspace 的 PUBLIC 记忆，主动 WRITE/UPDATE 则保留提交 actor 的可见性。
 
 ### 3.3 检索与上下文编译
 
@@ -184,8 +184,8 @@ RetrievalRequest
 
 Patchouli 向全局调度器注册四个维护任务：
 
-- `perception_idle_flush`：扫描空闲话题，沉淀有新交互的、让从没接收过交互的空话题退役，返回被沉淀或退役的话题 ID；
-- `perception_progress_record`：扫描停顿的话题，为有还没整理的交互的话题在交互提交队列中排入写一条进展记录，返回排入了的话题 ID（[感知与短期话题](./perception.md#7-维护存储与启动时读回)第 7 节）；
+- `perception_settle`：扫描停下超过 `patchouli.perception.settle_after_seconds` 的话题，沉淀有新交互的、让从没接收过交互的空话题退役，返回被沉淀或退役的话题 ID；
+- `perception_progress_record`：扫描停下超过 `progress_record_after_seconds` 的话题（阈值比沉淀的短，两者看同一个访问时间），为有还没整理的交互的话题在交互提交队列中排入写一条进展记录，返回排入了的话题 ID（[感知与短期话题](./perception.md#7-维护存储与启动时读回)第 7 节）；
 - `memory_gardening`：刷新生命力并归档低生命力中期记忆，返回归档数与耗时；
 - `model_idle_unload`：卸载空闲超过各自时限的 `idle_unload` 模型（第 4.1 节），返回本次卸载的模型名。
 
@@ -197,7 +197,7 @@ Patchouli 向全局调度器注册四个维护任务：
 
 - [MemoryLibrary 与存储层](./memory-library.md)：短期、中期、长期和 artifact store 的所有权与状态转移；
 - [Artifacts 与来源追踪](./artifacts.md)：原始交互、外源文档、创建记录和版本快照；
-- [感知与短期话题](./perception.md)：结构化摄入、驻留工作集与 lease、Page Folding 与 settle/compact/evict 具名用例；
+- [感知与短期话题](./perception.md)：结构化摄入、驻留工作集与 lease、话题的位置、折叠、沉淀、退役与删除；
 - [记忆生成](./generation.md)：三种生成模式、控制面/数据面、去重、任务和 PendingAtom settlement；
 - [记忆检索](./retrieval.md)：身份过滤、Dense/Sparse 召回、融合、重排和访问副作用；
 - [记忆生命周期](./lifecycle.md)：生命力、强化事件、gardening、archive 与 revive；

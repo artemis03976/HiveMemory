@@ -24,7 +24,7 @@ related_docs:
   - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-26
 ---
 
 # HiveMemory 当前系统架构
@@ -179,7 +179,7 @@ Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、�
 
 ### 4.3 GlobalMaintenanceScheduler
 
-全局调度器提供统一维护时钟和任务生命周期；子系统注册自己拥有的任务。当前 Patchouli 注册 idle buffer flush 与 memory gardening。调度器只回答“何时运行、如何停止和如何观测”，不回答“怎样整理记忆”，因此不会取得这些任务的业务所有权。
+全局调度器提供统一维护时钟和任务生命周期；子系统注册自己拥有的任务。当前 Patchouli 注册话题的沉淀扫描与进展记录扫描、memory gardening 与推理模型的空闲卸载。调度器只回答“何时运行、如何停止和如何观测”，不回答“怎样整理记忆”，因此不会取得这些任务的业务所有权。
 
 ### 4.4 Local Work Queue Runtime
 

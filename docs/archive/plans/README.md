@@ -19,6 +19,7 @@ last_reviewed: 2026-11-24
 - 短期记忆代码整理：写回由存储层保证，折叠摘要改名，清理遗留：2026-11-25，PR #242；删除前最后版本在 `fc3e7b57`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)
 - 话题的存储介质：每个话题一条只追加的日志，沉淀进度在生成完成时推进：2026-11-25，PR #243；删除前最后版本在 `c1c8f45e`；[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)、[感知与短期话题](../../patchouli/perception.md#7-维护存储与启动时读回)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
 - 话题的进展记录：话题停顿时写一条，话题池展示：2026-11-26，PR #244；删除前最后版本在 `1f89d932`；[感知与短期话题](../../patchouli/perception.md#7-维护存储与启动时读回)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)、[前端管理页面](../../frontend/management-views.md#12-短期话题池)
+- 短期记忆代码可读性整理：统一用词，话题的位置与触发规则写在一处：2026-11-26，尚未合并；删除前最后版本在 `0aed01f3`；[感知与短期话题](../../patchouli/perception.md)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)
 
 ## v0.8.0
 

@@ -17,7 +17,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-26
 ---
 
 # 记忆检索
@@ -54,7 +54,7 @@ RetrievalRequest
 
 RetrievalFamiliar 通过 MemoryLibrary.short_term 返回不可变 `TopicData` 和 `TopicSnapshot`。Gateway 使用按最近访问降序、默认排除空话题的 snapshot 进行路由；前端可以请求包含空话题的完整池。
 
-读取话题是纯读操作（无 touch 语义）：访问追踪与 LRU 顺序由 PerceptionFamiliar 编排的 `TopicWorkingSet` 维护，Store 快照不承载访问时间。手动结算必须指定 Topic，Patchouli 不保存“最近活跃话题”。
+读取话题是纯读操作（无 touch 语义）：访问追踪与 LRU 顺序由 PerceptionFamiliar 编排的 `TopicWorkingSet` 维护，Store 快照不承载访问时间。手动沉淀并退役必须指定话题，Patchouli 不保存“最近活跃话题”。
 
 ### 2.2 中期记忆读取
 

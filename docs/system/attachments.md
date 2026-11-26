@@ -40,7 +40,7 @@ related_docs:
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-26
 ---
 
 # Chat 附件链路
@@ -145,13 +145,13 @@ lease 登记在任务进程的工作集（`ProcessWorkingSet`）中，生命周�
 
 ## 6. Interaction binding
 
-任务进程封口交互记录时，把 `AttachmentCompileResult.used_attachments` 这份有序的实际使用引用快照写入 `InteractionPayload.used_attachments`，经 root API 的提交交互原样提交。进入 submission 后它是该输出的不可变 transport snapshot：retry 重放同一份引用，handler 把这份快照一次性作为 `asset_refs` 形参传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。封口函数由任务进程与 Import Bus 共用；Import Bus 导入的外部交互不携带附件，`used_attachments` 为空，不建立 binding。
+任务进程封口交互记录时，把 `AttachmentCompileResult.used_attachments` 这份有序的实际使用引用快照写入 `InteractionPayload.used_attachments`，经 root API 的提交交互原样提交。进入 submission 后它是该输出的不可变 transport snapshot：retry 重放同一份引用，handler 把这份快照一次性作为 `asset_refs` 形参传给感知的 `receive_interaction`，不回查原始选择、asset 列表或当前 UI 状态。封口函数由任务进程与 Import Bus 共用；Import Bus 导入的外部交互不携带附件，`used_attachments` 为空，不建立 binding。
 
 Perception 在 Interaction 成功 apply 的同一 Topic 快照更新中，把去重后的 `(asset_id, asset_ref)` 写入 `TopicAssetBinding`（按 `asset_id` 幂等，保留首次绑定时间语义）。编译跳过、预算未保留、admission/apply 失败与取消均不建立 binding；上传和解析本身同样不产生 binding。快照中的引用坐标可参与 interaction digest 以防 retry 替换 ref，但正文与 lease 不进入长期载荷。
 
 ## 7. Settlement 与 Artifact promotion
 
-Topic settle 在删除 Topic 前把 `TopicData.bindings` 冻结进 `TopicMaterializeTask`，经既有 queue codec 传入 `InteractionArtifactInput.asset_bindings`；不新增第二份使用明细，也不把正文、representation snapshot、lease_id 或文件字节写入 Topic、task、queue 或 Memory 数据。
+话题沉淀时把 `TopicData.bindings` 冻结进沉淀材料 `TopicSettleMaterial`，经既有 queue codec 传入 `InteractionArtifactInput.asset_bindings`；不新增第二份使用明细，也不把正文、representation snapshot、lease_id 或文件字节写入 Topic、task、queue 或 Memory 数据。
 
 Memory generation 只有在确实产生 CREATE/UPDATE 时才对 task 中的 bindings 做 promotion（TOUCH 与合并任务不提升）：按任务 `belong_to` 与 `binding.asset_ref` acquire READY representation、构建独立 `DocumentArtifact`、释放 lease。Patchouli 与 CPU 分配共用资产 Store 的读取端口，只交出归属；组合根把 Store 直接交给 Patchouli（[WorkspaceAsset](../workspace/assets.md#3-身份与归属)）。提升产物的 `source_uri` 钉住源 asset/representation 标识、revision 与 parser producer/version，`content_hash` 单列，使产物自身锁定来源版本；这是创建独立证据快照，不是把 WorkspaceAsset 原地转换。
 

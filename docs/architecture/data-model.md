@@ -105,9 +105,9 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 每个话题是一条只追加的日志（一个 JSON Lines 文件），话题上发生的事各记一条；`TopicData` 是由日志依次套用每条记录组装出来的读取值，短期存储在内存中放池中话题的冻结 `TopicData`，读取方只拿到不可变的 `TopicData` 或 `TopicSnapshot`；执行占用不建模为记录字段，由 TopicWorkingSet 的 lease 表达。日志的记录与套用函数在 `memory_library.topic_log`，存储与 Port 契约见 [MemoryLibrary](../patchouli/memory-library.md#11-短期话题工作台)。
 
-`TopicData` 只存两份原始数据：按接收顺序、只追加的交互记录 `interactions`（`LogicalBlock` tuple），与每次折叠追加一条的折叠记录 `folds`（`TopicFold`：被折叠的块标识、折叠后的摘要与折叠时间）。工作视图 `blocks`、`fold_summary` 与 `total_tokens` 是由二者派生的只读属性，`TopicSnapshot` 的 `block_count`、`total_tokens` 同样指工作视图。构造时校验全部折叠记录依次拼接等于交互记录开头同样数量的块标识；模型拒绝未声明字段。进展记录 `progress_record`（`TopicProgressEntry` tuple）是对交互记录的整理，只往后追加，构造时校验各条依次覆盖交互记录中相邻的区间；`TopicSnapshot` 带出进展记录、还没有整理的轮数与其中最近至多 3 轮的节选（`TopicTurnExcerpt`）。语义与理由见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)。
+`TopicData` 只存两份原始数据：按接收顺序、只追加的交互记录 `interactions`（`LogicalBlock` tuple），与每次折叠追加一条的折叠记录 `folds`（`TopicFold`：被折叠的块标识、折叠后的摘要与折叠时间）。工作视图 `blocks`、`fold_summary` 与 `total_tokens` 是由二者派生的只读属性，`TopicSnapshot` 的 `block_count`、`total_tokens` 同样指工作视图。构造时校验全部折叠记录依次拼接等于交互记录开头同样数量的块标识；模型拒绝未声明字段。话题的四个“处理到第几轮”的位置并排在读取值上：`interaction_count`、`folded_until`（由折叠记录推出）、`recorded_until`（由进展记录推出）与字段 `settled_until`（日志中 `settled` 记录的 `interaction_count` 套用而来），彼此独立推进；在途沉淀与写进展记录失败的位置只在进程内，记在 `TopicWorkingSet` 每个驻留话题的一条 `ResidentTopic` 上。进展记录 `progress_record`（`TopicProgressEntry` tuple）是对交互记录的整理，只往后追加，构造时校验各条依次覆盖交互记录中相邻的区间；`TopicSnapshot` 带出进展记录、还没有整理的轮数与其中最近至多 3 轮的节选（`TopicTurnExcerpt`）。语义与理由见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)。
 
-“不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增 append、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 经短期存储的写入方法完成领域更新（`append_interaction` 追加交互，`append_fold` 追加折叠记录等）：存储读当前的读取值 → 用这种记录的套用函数以完整构造产生新值 → 追加一行日志 → 替换内存中的值；套用函数不用 `model_copy`，构造校验因此不会被绕过，互斥由 TopicWorkingSet 的 lease 保证。
+“不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增追加、沉淀、退役、删除或摘要更新行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 经短期存储的写入方法完成领域更新（`append_interaction` 追加交互，`append_fold` 追加折叠记录等）：存储读当前的读取值 → 用这种记录的套用函数以完整构造产生新值 → 追加一行日志 → 替换内存中的值；套用函数不用 `model_copy`，构造校验因此不会被绕过，互斥由 TopicWorkingSet 的 lease 保证。
 
 ### 4.4 PendingAtom 状态机
 
@@ -134,7 +134,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 | `InteractionSubmission` | 必需的 `belong_to`、`from_actor`（交互的参与者） | 交互提交与重试；内容由 payload 保存 |
 | `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | 必需的 `belong_to`、`from_actor` | 生成输入与对外任务快照；归属用于观察与取消检查 |
 | `PendingAtomMaterializeTask` | 必需的 `belong_to`、`from_actor` | Patchouli 意图服务根据 `MemoryIntent` 与当次授权身份构造的内部只读生成请求 |
-| `TopicMaterializeTask` / Topic lease | `belong_to` | 结算与占用；不保存最近访问者 |
+| `TopicSettleMaterial` / Topic lease | `belong_to` | 沉淀材料与占用；不保存最近访问者 |
 
 手动与后台 SETTLE 的发起者统一由 `system_actor_for_workspace()` 构造：Workspace owner 用户、`agent_id="system"`、`team_id=None`。参与内容的 Agent 只记入贡献者；WRITE/UPDATE 保留提交 Agent 的身份。资源授权只使用目标归属与当次发起者的 policy，不使用资源来源或贡献者字段。
 
@@ -144,7 +144,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 - `ActorIdentity.session_id` 已删除；历史 Artifact 中 actor 的额外 `session_id` 字段按 Pydantic 的额外字段忽略行为读取，重新输出时不保留。Chat 请求体使用 `session_id` 绑定会话资源；它仍不构造身份，交互提交使用进程关联。
 - Interaction submission codec 为 v7，generation codec 的 `schema_version` 为字符串 `"1.1"`，归属与发起者分别 round-trip；进程内队列只注册当前版本，不提供旧任务 scope payload 的兼容重放。
 - V1 存储数据迁移与 legacy 兼容分支删除已完成：Qdrant 中 Memory payload 只接受 schema v2（`decode_memory_payload` 不再解释缺 `schema_version` 的记录），检索过滤只按 canonical owner/workspace 投影与 v2 actor read policy（`meta.user_id` OR 分支与 legacy visibility 分支已删除），ArtifactStore 不再把仅含 owner 字段的历史文件解释为 `main_workspace` 归属。迁移报告与旧新 ID 映射见归档 Plan（[v0.6.2 V1 Memory Legacy 迁移](../archive/plans/v0.6.2-v1-memory-legacy-migration.md)）。
-- 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 已删除；`ExecutionFrame` 与 `MTPExecutionContext` 不再派生 `.identity` 或 `identity_scope`。`RuntimeScope` 与 `CPUInputManifest` 只保存 `labels: ExecutionLabels`，资源身份由线程记录的工作 actor 与逐次授权决定，CPU 只持有不透明的线程句柄。
+- 读侧兼容属性已收口：`TopicData.user_id`、沉淀材料的 `user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 已删除；`ExecutionFrame` 与 `MTPExecutionContext` 不再派生 `.identity` 或 `identity_scope`。`RuntimeScope` 与 `CPUInputManifest` 只保存 `labels: ExecutionLabels`，资源身份由线程记录的工作 actor 与逐次授权决定，CPU 只持有不透明的线程句柄。
 - Import Bus 的 `ImportConversationKey` 由认证通过的参与者平铺的 `user_id`、`agent_id` 与外部 `source`、外部会话标识组成，只作进程内串行门的稳定命名域，不解释 scope 对象、不参与授权；`MemoryAccessPolicy` 对 `PUBLIC/PRIVATE/TEAM` 的 target 组合校验在模型层完整执行，管理读取（owner-management 语义）跳过 actor 可见性过滤但保留 ownership hard boundary。
 
 ### 4.7 Memory schema 2.1 与受控写入（v0.7.0 A2-P）

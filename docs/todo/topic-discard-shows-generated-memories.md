@@ -12,7 +12,7 @@ code_paths:
 related_docs:
   - ../frontend/management-views.md
   - ../patchouli/perception.md
-last_reviewed: 2026-11-24
+last_reviewed: 2026-11-26
 ---
 
 # 丢弃话题前告知它已经生成的记忆
@@ -20,7 +20,7 @@ last_reviewed: 2026-11-24
 ## 现状与证据
 
 - 结算拆成沉淀与退役之后，话题沉淀后留在话题池，之后还可能再沉淀几次（[感知与短期话题](../patchouli/perception.md#4-触发原因与具名用例)第 4 节）。池中的话题因此可能已经生成过记忆：本话题的主动写入，以及此前几次沉淀新建的记忆。
-- 丢弃话题（`DELETE /api/v1/topics/{id}`，`evict_topic`）只删除话题、不结算。已经被生成队列接纳的沉淀不撤回：接纳即交接，话题的沉淀进度之前的交互照常生成记忆，排队中的沉淀在话题删除之后照常执行；丢弃只让之后的交互不再提炼。
+- 丢弃话题（`DELETE /api/v1/topics/{id}`，`delete_topic`）只删除话题、不沉淀。已经被生成队列接纳的沉淀不撤回：接纳即交接，话题的沉淀进度之前的交互照常生成记忆，排队中的沉淀在话题删除之后照常执行；丢弃只让之后的交互不再提炼。
 - 话题池的丢弃确认（`TopicPool.tsx`）只知道工作视图的片段数与 `hasUnsettledInteractions`，说不出这个话题已经生成了多少条记忆、是哪几条，也说不出是否还有一次沉淀正在生成。
 
 ## 影响

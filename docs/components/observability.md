@@ -21,7 +21,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-11-24
+last_reviewed: 2026-11-26
 ---
 
 # 运行时事件与可观测性
@@ -58,7 +58,7 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 
 1. `memory.task.*` 与 `work.*` 按 `task_id` 归组（Work Queue 的 `task_id` 是 work id）：它们是队列中的任务，有自己的起止：`work.*` 的执行事件在 worker 中发出、trace 为 `system`，`memory.task.*` 沿用提交者的 trace，按 trace 归组会把一个任务拆开或并进提交它的运行。
 2. 其余 `trace_id` 不是 `system` 的事件按 `trace_id` 归组。设置 trace 的运行有三种：chat 任务进程（`task-` 前缀）、一轮导入（`import-`）与一次 MCP 工具调用（`mcp-`）。运行内的 Gateway、Alice、actor 操作与新建话题的事件都从 contextvars 继承所在运行的 trace，不必各自携带运行标识。
-3. 剩下的事件各自是单条运行：`maintenance.task.*`、`system.*`、`subsystem.operation.*`，以及空闲沉淀等不在任何运行内发生的 `topic.*`。
+3. 剩下的事件各自是单条运行：`maintenance.task.*`、`system.*`、`subsystem.operation.*`，以及话题停下后的沉淀等不在任何运行内发生的 `topic.*`。
 
 不同运行之间经 `topic_id` 互相链接：导入或对话写入话题，话题沉淀或退役引起生成任务。生成任务与维护任务不设置 trace。前端的[全局运行页](../frontend/run-view.md)按这些规则把事件展示为运行列表与时间线。同一个 trace 也出现在日志格式中（[System 配置](../system/configuration.md)），一次运行的日志与事件可以互相对应。
 
@@ -114,7 +114,7 @@ System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopp
 
 操作入口对它分派的每一次 actor 操作在结束时发一个 `actor.operation`：预检索、MTP 的检索、读取、RUN、写入、更新与 CALL，以及 MCP 的四个工具，都经过这一处。结局在 `status`：返回为 `completed`；领域错误为 `rejected`，`reason` 是错误码；其他异常为 `failed`。取消不发事件。预检索未获授权时任务进程照常继续，这时仍会留下一条 `rejected`。
 
-Patchouli 感知层在新建话题时发 `topic.created`，在话题以结算结束时发 `topic.settled`（带结算原因与是否提交了生成），不经结算删除时发 `topic.deleted`。准入失败、话题保留时不发 `topic.settled`。话题折叠以 Work Queue 的 `work.*` 出现，不另发话题事件。
+Patchouli 感知层在新建话题时发 `topic.created`，每次沉淀或退役时发 `topic.settled`（带触发原因、是否提交了生成与是否随之退役；在沉淀被生成队列接纳时发出，不等沉淀到达终态），不沉淀、直接删除时发 `topic.deleted`。接纳失败、话题保留时不发 `topic.settled`。话题折叠以 Work Queue 的 `work.*` 出现，不另发话题事件。
 
 这些事件描述状态转换，但不会驱动转换。例如 `maintenance.task.failed` 不自动重试任务，`work.retry_scheduled` 不直接修改 work record，`chat.run.cancelled` 也不由 UI event 反向取消 run；真正的业务控制分别由 scheduler、Work Queue Runtime 和 run registry 负责。
 

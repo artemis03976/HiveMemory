@@ -24,7 +24,7 @@ related_docs:
   - docs/alice/orchestration.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/archive/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-26
 ---
 
 # 身份隔离与执行安全治理
@@ -89,7 +89,7 @@ ExecutionLabels：agent_id/workspace_id 字符串，仅用于提示词、展示�
 
 CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调用方做 Workspace 准入，得到子工作 actor 并登记子线程，子帧的请求按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；子帧的观测标签取子线程描述中的被调用方身份，由线程表生成，仍只用于观测。显式 `context_refs` 由调用方以自己的 READ 读取，只选择共享内容，不签发更广的资源权限。Alice/CPU 的 `RuntimeScope` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签由注册入口或线程表生成并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的 `agent_id`。线程描述携带的操作快照只用于提示词与执行策略，不是授权依据。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
 
-入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（模型见[身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节），应用服务不再解析裸 `user_id`。交互导入（`POST /api/v1/import/turns`）与 MCP 记忆访问（`POST /mcp`）同样没有认证前组装的例外：外部 harness 有自己的接入登记，请求以 `X-Principal-ID` 声明 principal、以 `Authorization: Bearer` 携带接入凭据，网关第一阶段以常量时间比较核对凭据后才承认这个 principal；导入经 `import` adapter 认证，证明来源与参与的 Agent，导入本身由系统以 root 授权执行（不检查 actor 操作白名单，参与的 Agent 不能是 `system`），交互的发起者是参与者；MCP 经 `mcp` adapter 每次工具调用认证一次，只能检索、读取、写入与更新，写入与更新先按白名单授权，通过之后才由系统为这一轮确定话题，被拒的写入不路由、不建立话题、不触发 LRU 结算（[MCP 记忆访问](../../contracts/mcp.md)）。接入凭据是每个外部 principal 一份本地共享密钥，只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；principal 标识接入的 harness，不与 Agent 绑定：同一 harness 可以以不同 Agent 运行，Agent 由经过证明的来源声明；请求头中的用户选择与其他 HTTP 入口一样不做额外证明。非 Agent action 与系统级操作使用单独登记的保留 `system` actor，它是 root 授权唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
+入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（模型见[身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节），应用服务不再解析裸 `user_id`。交互导入（`POST /api/v1/import/turns`）与 MCP 记忆访问（`POST /mcp`）同样没有认证前组装的例外：外部 harness 有自己的接入登记，请求以 `X-Principal-ID` 声明 principal、以 `Authorization: Bearer` 携带接入凭据，网关第一阶段以常量时间比较核对凭据后才承认这个 principal；导入经 `import` adapter 认证，证明来源与参与的 Agent，导入本身由系统以 root 授权执行（不检查 actor 操作白名单，参与的 Agent 不能是 `system`），交互的发起者是参与者；MCP 经 `mcp` adapter 每次工具调用认证一次，只能检索、读取、写入与更新，写入与更新先按白名单授权，通过之后才由系统为这一轮确定话题，被拒的写入不路由、不建立话题、不触发池满时的退役（[MCP 记忆访问](../../contracts/mcp.md)）。接入凭据是每个外部 principal 一份本地共享密钥，只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；principal 标识接入的 harness，不与 Agent 绑定：同一 harness 可以以不同 Agent 运行，Agent 由经过证明的来源声明；请求头中的用户选择与其他 HTTP 入口一样不做额外证明。非 Agent action 与系统级操作使用单独登记的保留 `system` actor，它是 root 授权唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
 
 WorkspaceAsset 的 Store、解析服务与资产端口只接收资产归属，`IdentityScope` 只由操作授权者构造，没有例外（2026-11-06，[归档计划](../../archive/plans/workspace-asset-ownership-split.md)）。
 
@@ -99,7 +99,7 @@ WorkspaceAsset 的 Store、解析服务与资产端口只接收资产归属，`I
 
 Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、MemoryLibrary archive/revive 和 background retry 都必须由最终状态所有者重新验证资源归属与适用的 policy。Patchouli 公开入口从 `IdentityScope` 拆出这两项输入，内部读取以 `from_actor` 为可见性主体；owner-management 只跳过 actor 可见性，不跳过 Workspace 归属。上游检查不能替代下游检查，因为请求可能跨越重试、队列和子系统边界。
 
-生成后台任务的 `from_actor` 是执行该操作的发起者，不是记忆来源字段。WRITE/UPDATE 保留提交者，SETTLE 的手动、空闲、LRU 与关闭触发都由 `system_actor_for_workspace` 构造 `system` actor。`system` 不能成为 PRIVATE target 且无 team，因此查重只看得到 PUBLIC，不把结算内容并入相似的 PRIVATE/TEAM 记忆。四触发与真实生成链证据见 [SETTLE 集成回归](../../../tests/integration/patchouli/test_settlement_identity.py)。
+生成后台任务的 `from_actor` 是执行该操作的发起者，不是记忆来源字段。WRITE/UPDATE 保留提交者，SETTLE 的各个触发（手动沉淀并退役、话题停下后的沉淀扫描、池满腾位置与重启后重新发起的退役沉淀）都由 `system_actor_for_workspace` 构造 `system` actor。`system` 不能成为 PRIVATE target 且无 team，因此查重只看得到 PUBLIC，不把结算内容并入相似的 PRIVATE/TEAM 记忆。四触发与真实生成链证据见 [SETTLE 集成回归](../../../tests/integration/patchouli/test_settlement_identity.py)。
 
 ### 3.3 缓存不承载授权
 

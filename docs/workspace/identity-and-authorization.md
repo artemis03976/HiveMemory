@@ -22,7 +22,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/architecture/data-model.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # 身份与授权
@@ -197,7 +197,7 @@ MCP 工具调用同样是 Agent action：MCP 入口以 (user, `X-Agent-ID` 中�
 
 ### 6.2 后台任务和重试
 
-`InteractionSubmission`、`MemoryGenerationTaskSpec`、`MemoryGenerationTask` 与 `PendingAtomMaterializeTask` 独立保存必需的 `belong_to` 和 `from_actor`，并携带所需的 interaction、intent、topic 或 task ID；`TopicMaterializeTask` 和 Topic working set 的 lease 只保存归属。Topic working set 的驻留记录为 `(WorkspaceIdentity, topic_id) → 最近访问时间`，idle/LRU/shutdown 候选只返回归属与 Topic ID，不保存最近访问者。
+`InteractionSubmission`、`MemoryGenerationTaskSpec`、`MemoryGenerationTask` 与 `PendingAtomMaterializeTask` 独立保存必需的 `belong_to` 和 `from_actor`，并携带所需的 interaction、intent、topic 或 task ID；`TopicSettleMaterial` 和 Topic working set 的 lease 只保存归属。Topic working set 每个驻留话题一条记录，键为 `(WorkspaceIdentity, topic_id)`，值是访问时间、在途沉淀与写进展记录失败的位置；沉淀扫描、进展记录扫描与池满腾位置的候选只返回归属与 Topic ID，不保存最近访问者。
 
 Interaction codec 为 v7，generation codec 的 `schema_version` 为字符串 `"1.1"`，分别完整编码归属与发起者；当前队列是进程内队列，未注册旧 codec。Work Queue 只运输编码后的 payload 和执行状态，不解释 Workspace 领域模型。retry 从 payload 分别恢复身份与领域 ID，再到真正的 Workspace-owned resource 边界执行检查；它不重跑默认 resolver、不读取进程当前 Workspace，也不重新组装 scope。任务 list/get/cancel 以 task 的 `belong_to` 检查目标 Workspace，越域与不存在统一按 not found 处理。
 

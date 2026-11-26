@@ -40,7 +40,7 @@ last_reviewed: 2026-11-26
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
 | `system` / `logging` / `i18n` | `config.app` | server 自身的 principal 标识 `server_principal_id`、预设 Agent 写入标记的路径 `preset_agent_profiles_marker`（默认 `.hivememory/preset_agent_profiles_seeded`，相对工作目录）、插件服务记下各 harness 安装版本的文件 `plugin_install_record`（默认 `.hivememory/plugin_installs.json`，相对工作目录）、是否代为安装插件 `plugin_installation_enabled`（默认关闭，只有桌面安装版以环境变量打开）；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
-| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，perception idle flush、写进展记录的停顿扫描、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
+| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，话题的沉淀扫描（`perception_settle`）与进展记录扫描（`perception_progress_record`）、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | 默认 embedding 模型 | 共享模型能力 |
 | `gateway` | `config.gateway` | 模型选择与生成参数（`llm`）、interceptor、commands、workflow、topic router、query analysis | Gateway |
 | `import_bus` | `config.import_bus` | 导入请求体上限、提交后等待应用的时限 | System Import Bus |
@@ -61,9 +61,9 @@ last_reviewed: 2026-11-26
 
 `import_bus`（`ImportBusConfig`）只有两项：`max_request_bytes`（默认 8 MiB，即 `8388608`，大于 0）是单次导入请求体的字节上限，超出以 413 拒绝；`apply_wait_seconds`（默认 30，大于 0）是提交后等待感知应用完成的时限，超时以可重试的 503 交回。Import Bus 的 Gateway 请求时限与最近轮数沿用 Gateway 配置段。随仓库发布的 `configs/config.yaml` 不含该段，按默认值运行，语义见 [Import Bus](./import-bus.md#7-配置)。
 
-话题折叠的 LLM 摘要以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60，大于 0）为每次调用的时限，只在 `relay.engine.type` 为 `llm` 时存在；超时与提供商失败一样回退为规则摘要。折叠在交互提交队列中以独立工作项执行，这一项决定一次折叠最多占用一个执行槽多久。随仓库发布的 `configs/config.yaml` 不写这一项，按默认值运行，语义见[感知与短期话题](../patchouli/perception.md#5-page-folding)。
+折叠摘要与进展记录的写法由 `patchouli.perception.engine.summary_writer` 决定：`type: llm`（随附配置）用 `patchouli.llm` 的模型写，`type: simple`（代码缺省）按规则写折叠摘要、不写进展记录。`llm` 时另有 `summary_timeout_seconds`（默认 60，大于 0），是每次摘要调用的时限；超时与提供商失败一样回退为规则摘要。折叠在交互提交队列中以独立工作项执行，这一项决定一次折叠最多占用一个执行槽多久。随仓库发布的 `configs/config.yaml` 不写这一项，按默认值运行，语义见[感知与短期话题](../patchouli/perception.md#5-折叠)。
 
-话题停顿 `patchouli.perception.progress_record_pause_seconds`（默认 1800，大于 0）秒之后，有还没整理的交互时写一条进展记录；随仓库发布的 `configs/config.yaml` 写 1800，小于空闲沉淀的 `idle_timeout_seconds`（随附配置 3600）。写一条与 LLM 折叠摘要用同一个模型与时限（`summary_timeout_seconds`），只在 `relay.engine.type` 为 `llm`、且 `patchouli.llm` 配置了模型时写。停顿扫描的周期与开关在 `scheduler.tasks.perception_progress_record_interval_seconds`（默认 30 秒）与 `enable_perception_progress_record`（默认开启）；关闭该任务时不写进展记录。语义见[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节。
+话题停下多久按驻留话题的访问时间计（接收交互、为写入预先确定话题与启动读回都会刷新它），沉淀与写进展记录两个阈值都看它：话题停下 `patchouli.perception.settle_after_seconds`（代码缺省与随附配置都是 3600）秒之后，把上次沉淀之后的新交互交给记忆生成，话题仍留在话题池；停下 `progress_record_after_seconds`（默认 1800，大于 0，随附配置 1800）秒之后，有还没整理的交互时写一条进展记录，这个阈值比沉淀的短，沉淀时通常已经写过一条。写一条与用模型写的折叠摘要用同一个模型与时限（`summary_timeout_seconds`），只在 `summary_writer.type` 为 `llm`、且 `patchouli.llm` 配置了模型时写。两个扫描的周期与开关在 `scheduler.tasks.perception_settle_interval_seconds`、`enable_perception_settle` 与 `perception_progress_record_interval_seconds`、`enable_perception_progress_record`（周期默认 30 秒，默认开启）；关闭对应任务时不再沉淀或不写进展记录。`patchouli.perception.max_resident_topics`（默认 5，随附配置 5）是每个 Workspace 同时驻留的话题数：建新话题时池满，最久没用的话题先沉淀再退役。语义见[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节。
 
 推理模型的驻留方式按模型配置：`shared.embedding.default` 与 `patchouli.retrieval.reranker` 各有 `residency` 与 `idle_timeout_seconds`。`residency` 取 `resident`（加载后一直驻留到进程结束）或 `idle_unload`（空闲超过时限即卸载，下一次使用时重新加载），两处默认都是 `idle_unload`；`idle_timeout_seconds` 是空闲时限（大于 0），嵌入模型默认 1800 秒、重排模型默认 600 秒。检查周期与开关在 `scheduler.tasks.model_idle_unload_interval_seconds`（默认 60 秒）与 `enable_model_idle_unload`（默认开启）；关闭该任务时模型不卸载。内存充足的机器可以把两处 `residency` 设为 `resident`。语义见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
 
@@ -85,9 +85,11 @@ last_reviewed: 2026-11-26
 
 会话升级后 `session_id` 实际绑定资源；缺省仍自动新建。SSE 首个事件回传会话 ID，done 以 `topic_id` 标注本轮材料归属；`topic_info` 与 `pool_topics` 已删除。Interaction codec 5 增加 `outcome`，旧版本不重放；会话仅在内存中，后端重启后前端需重新新建。
 
+升级注意（短期话题配置改名）：`patchouli.perception.idle_timeout_seconds` 改名为 `settle_after_seconds`，`progress_record_pause_seconds` 改名为 `progress_record_after_seconds`；`engine.max_resident_topics` 移到 `patchouli.perception.max_resident_topics`；`engine.relay` 改为 `engine.summary_writer`，去掉它的 `enable` 与中间的 `engine` 一层，`type` 直接写在 `summary_writer` 下；`engine.enable` 删除，感知总是开启。调度器的 `perception_idle_flush_interval_seconds`、`enable_perception_idle_flush` 改名为 `perception_settle_interval_seconds`、`enable_perception_settle`。个人覆盖文件或环境变量中留有旧键时，因未知键启动失败，需要改为新键或删除；随附配置已改。
+
 升级注意（语言设置改名）：`i18n.default_language` 改名为 `i18n.language`，类型收紧为 `zh` 或 `en`；个人覆盖文件或环境变量中留有旧键时启动失败，错误指出新键。Agent 图纸不再携带语言，存量图纸中的 `language` 键在读取时忽略。
 
-升级注意（配置未知键）：各配置段改为拒绝未知键，存量 YAML 或 `HIVEMEMORY__*` 环境变量中写错的键会让启动失败。同时删除了从未生效的键：`i18n.fallback_language`、`i18n.supported_languages`、`shared.embedding.*.batch_size`、`normalize_embeddings`、`dimension`（集合向量维度由嵌入模型决定）、`patchouli.storage.deployment`、`data_dir`、`binary_path`（及旧环境变量 `QDRANT__DEPLOYMENT`、`QDRANT__DATA_DIR`、`QDRANT__BINARY_PATH`）、`patchouli.perception.scan_interval_seconds`（扫描间隔由 `scheduler.tasks.perception_idle_flush_interval_seconds` 决定）、`patchouli.generation.deduplicator.enable_vitality_tracking`、`patchouli.lifecycle.vitality_calculator.max_access_boost`、`points_per_access`、`alice.koakuma.execution_timeout_seconds`、`tool_cache_size` 与 `gateway.commands.unknown_command_policy`，需要从配置中移除。示例配置中位置写错的 `patchouli.perception.engine.idle_timeout_seconds` 已移到 `patchouli.perception.idle_timeout_seconds`（此前该值被忽略、按默认 900 秒运行），残留的 `gateway.analyzer` 段已删除。
+升级注意（配置未知键）：各配置段改为拒绝未知键，存量 YAML 或 `HIVEMEMORY__*` 环境变量中写错的键会让启动失败。同时删除了从未生效的键：`i18n.fallback_language`、`i18n.supported_languages`、`shared.embedding.*.batch_size`、`normalize_embeddings`、`dimension`（集合向量维度由嵌入模型决定）、`patchouli.storage.deployment`、`data_dir`、`binary_path`（及旧环境变量 `QDRANT__DEPLOYMENT`、`QDRANT__DATA_DIR`、`QDRANT__BINARY_PATH`）、`patchouli.perception.scan_interval_seconds`（扫描间隔由 `scheduler.tasks.perception_settle_interval_seconds` 决定）、`patchouli.generation.deduplicator.enable_vitality_tracking`、`patchouli.lifecycle.vitality_calculator.max_access_boost`、`points_per_access`、`alice.koakuma.execution_timeout_seconds`、`tool_cache_size` 与 `gateway.commands.unknown_command_policy`，需要从配置中移除。示例配置中位置写错的 `patchouli.perception.engine.idle_timeout_seconds` 已移到 `patchouli.perception.idle_timeout_seconds`（此前该值被忽略、按默认 900 秒运行），残留的 `gateway.analyzer` 段已删除。
 
 ### 1.1 访问登记文件
 
@@ -207,7 +209,7 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 | 区域 | 字段 |
 |:---|:---|
 | 检索 | `patchouli.retrieval.retriever.top_k`；混合检索的 `retriever.dense.score_threshold`、`enable_time_decay`、`time_decay_days` |
-| 话题与生成 | `patchouli.perception.idle_timeout_seconds`；`patchouli.generation.deduplicator.high_similarity_threshold`、`low_similarity_threshold` |
+| 话题与生成 | `patchouli.perception.settle_after_seconds`；`patchouli.generation.deduplicator.high_similarity_threshold`、`low_similarity_threshold` |
 | 生命周期 | `patchouli.lifecycle.garbage_collector.low_watermark` |
 | 编译 | `memory_compiler.retrieval_context.strategy.max_memory_tokens`；`attachment_compiler.max_total_context_chars` |
 | Alice | `alice.compaction.enabled`、`trigger_ratio`；`alice.runtime.max_loop_iterations`、`default_context_window` |

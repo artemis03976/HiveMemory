@@ -20,7 +20,7 @@ related_ideas:
 related_docs:
   - docs/archive/plans/v0.7.2-generation-material-and-raw-evidence.md
   - docs/archive/todo/generation-material-filtering-and-truncation.md
-last_reviewed: 2026-11-24
+last_reviewed: 2026-11-26
 ---
 
 # 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
@@ -63,7 +63,7 @@ last_reviewed: 2026-11-24
 | Session | [ConversationSessionService](../../src/hivememory/workspace/sessions/service.py)按封口顺序保存 `ConversationTurn` 与 payload 深拷贝；有容量限制，同会话只允许一个进程认领；删除不级联 Topic/Memory，关闭时清空（[会话资源](../workspace/sessions.md)） | 进程内记录，没有编辑、回退、分支或会话持久化；保存范围受 payload 与生产者实际输出约束 |
 | 主动交接 | [交互封口](../../src/hivememory/core/protocol/sealing.py)组装 `InteractionPayload`；任务进程对有输出的 completed/cancelled/failed 封口、写入会话并提交交互 | 只在轮次封口时交接；Session 写入与 Patchouli 应用不是跨系统原子事务 |
 | Topic | [PerceptionFamiliar](../../src/hivememory/patchouli/services/perception.py)按顺序保存全部交互记录与折叠记录，工作视图由二者派生，折叠只推进工作视图 | 话题是进程内状态，异常退出可能丢失未结算的交互记录；结算前保存全部记录，没有容量上限或背压（[感知与短期话题](../patchouli/perception.md)） |
-| 结算与生成 | [TopicMaterializeTask](../../src/hivememory/engines/perception/models.py)冻结全部记录，不按入口价值标记筛选；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`；主动写入取话题的折叠摘要与最近几个 block | 生成读取工作视图，不读取已折叠的原文；模型选择不能证明全部资料已保存 |
+| 沉淀与生成 | [TopicSettleMaterial](../../src/hivememory/engines/perception/models.py)冻结全部记录，不按入口价值标记筛选；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`；主动写入取话题的折叠摘要与最近几个 block | 生成读取工作视图，不读取已折叠的原文；模型选择不能证明全部资料已保存 |
 | 来源 Artifact | [InteractionArtifactBuilder](../../src/hivememory/engines/artifacts/interaction.py)冻结交到它的全部记录，覆盖已折叠的轮次；来源 InteractionArtifact 在生成之前捕获 | 捕获是 best-effort，不能据此宣称完整证据必然保存；强制写入的 Memory version artifact 是另一项承诺 |
 
 Session 与 Topic 都是进程内资源；Artifact 已有文件保存能力，这不等于前面两层具备重启恢复。
