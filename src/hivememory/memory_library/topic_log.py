@@ -86,7 +86,8 @@ class TopicFoldRecord(BaseModel):
 
 
 class TopicSettledRecord(BaseModel):
-    """一次沉淀完成：这次沉淀覆盖到第几个交互。
+    """一次沉淀完成：这次沉淀覆盖到第几个交互（``interaction_count``，套用后成为话题的
+    ``settled_until``；字段名是日志格式的一部分，不随读取值的名字改变）。
 
     在生成完成时记下，而不是在生成队列接纳时：接纳之后进程退出，生成随进程丢失，进度停在
     上一次完成的位置，重启后这段交互照样会沉淀。
@@ -232,8 +233,8 @@ def apply_settled(topic: TopicData, record: TopicSettledRecord) -> TopicData:
     后完成也不会把进度拉回去。沉淀不是一次写入，话题的空闲计时与展示的最后写入时间都不因
     它变化。
     """
-    settled = max(topic.settled_interaction_count, record.interaction_count)
-    return TopicData.model_validate({**dict(topic), "settled_interaction_count": settled})
+    settled_until = max(topic.settled_until, record.interaction_count)
+    return TopicData.model_validate({**dict(topic), "settled_until": settled_until})
 
 
 def apply_generated_memories(topic: TopicData, record: TopicGeneratedMemoriesRecord) -> TopicData:

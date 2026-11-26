@@ -200,13 +200,13 @@ class ShortTermMemoryStore:
         return self._append(belong_to, topic_id, record, apply_fold)
 
     def append_settled(
-        self, belong_to: WorkspaceIdentity, topic_id: str, *, interaction_count: int
+        self, belong_to: WorkspaceIdentity, topic_id: str, *, settled_until: int
     ) -> TopicData | None:
-        """记下一次沉淀完成、覆盖到第几个交互。
+        """记下一次沉淀完成、覆盖到第几个交互；话题的 ``settled_until`` 只往前推进。
 
         退役话题的日志在最后一次沉淀完成之前还在，这次写入同样记到它的日志上。
         """
-        record = TopicSettledRecord(at=_now(), interaction_count=interaction_count)
+        record = TopicSettledRecord(at=_now(), interaction_count=settled_until)
         return self._append(belong_to, topic_id, record, apply_settled, include_retired=True)
 
     def append_generated_memories(

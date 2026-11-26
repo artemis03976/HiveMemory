@@ -162,7 +162,7 @@ class PatchouliLocalRoutes:
 
     @route("generation.submit_settlement")
     async def GENERATION_SUBMIT_SETTLEMENT(
-        payload: TopicSettleMaterial,
+        material: TopicSettleMaterial,
     ) -> MemoryGenerationTask | None:
         """将话题的沉淀材料转为 SETTLE 任务，统一以归属对应的 system 为发起者。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
@@ -276,9 +276,9 @@ class PatchouliLocalRoutes:
 
     @route("topic.record_settled")
     async def TOPIC_RECORD_SETTLED(
-        topic_id: str, *, belong_to: WorkspaceIdentity, interaction_count: int
+        topic_id: str, *, belong_to: WorkspaceIdentity, settled_until: int
     ) -> None:
-        """一次沉淀完成，在话题的日志中记下它覆盖到的交互数；话题已被删除时不记。"""
+        """一次沉淀到达终态，在话题的日志中记下它覆盖到第几轮；话题已被删除时不记。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("topic.list_active")

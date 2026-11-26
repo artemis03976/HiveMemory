@@ -52,7 +52,7 @@ class TestFromTopicData:
             belong_to=scope.workspace_identity,
             reason=TriggerReason.MANUAL_SETTLE,
             retires_topic=True,
-            settled_count=0,
+            settled_until=0,
         )
 
         assert task is not None
@@ -76,7 +76,7 @@ class TestFromTopicData:
             belong_to=scope.workspace_identity,
             reason=TriggerReason.IDLE_TIMEOUT,
             retires_topic=False,
-            settled_count=0,
+            settled_until=0,
         )
 
         assert task.belong_to == scope.workspace_identity
@@ -93,7 +93,7 @@ class TestFromTopicData:
                 belong_to=scope.workspace_identity,
                 reason=TriggerReason.IDLE_TIMEOUT,
                 retires_topic=False,
-                settled_count=1,
+                settled_until=1,
             )
             is None
         )
@@ -109,7 +109,7 @@ class TestFromTopicData:
             belong_to=scope.workspace_identity,
             reason=TriggerReason.IDLE_TIMEOUT,
             retires_topic=False,
-            settled_count=1,
+            settled_until=1,
         )
 
         assert task.interactions == (b1, b2)
@@ -129,7 +129,7 @@ class TestFromTopicData:
             belong_to=scope.workspace_identity,
             reason=TriggerReason.MANUAL_SETTLE,
             retires_topic=True,
-            settled_count=0,
+            settled_until=0,
         )
 
         assert task.interactions == (b1, b2, b3)
@@ -153,7 +153,7 @@ class TestFromTopicData:
             belong_to=scope.workspace_identity,
             reason=TriggerReason.LRU_EVICTION,
             retires_topic=True,
-            settled_count=0,
+            settled_until=0,
         )
 
         assert task.asset_bindings == (binding,)

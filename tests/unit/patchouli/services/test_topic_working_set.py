@@ -1,12 +1,12 @@
-"""TopicWorkingSet 驻留工作集单元测试。
+"""TopicWorkingSet 单元测试：驻留话题的进程内记录与占用表。
 
 测试覆盖:
 - LRU 顺序: touch 刷新排序、候选按最久未访问选择、Workspace 隔离
-- 占用权: acquire 互斥（含同 Workspace 不同执行者）、过期令牌释放被忽略
-- 候选查询: idle 超时过滤、占用过滤、显式 now
+- 占用权: acquire 互斥（含同 Workspace 不同执行者）、不要求驻留、过期令牌释放被忽略
+- 候选查询: 超时过滤、占用过滤、显式 now
 - 容量: needs_eviction 的上限判断与 Workspace 隔离
-- 在途沉淀: 只记最远的位置，较早的沉淀完成时不清除更远的在途
-- 移除: remove 清除驻留与在途沉淀、不清理 lease
+- 在途沉淀与写进展记录失败的位置: 只记最远的在途、刷新访问不改位置、只记在驻留话题上
+- 移除: 驻留记录整条删除（访问时间与两个位置一起消失），不清理 lease
 """
 
 import pytest
@@ -203,7 +203,7 @@ class TestCandidateQueries:
         # 返回的坐标只携带归属，后台维护无需保存访问者。
         assert candidates[0][0].workspace_id == "main_workspace"
 
-        clock.advance(100)  # topic-2 恰好达到超时阈值，仍未空闲（与 is_idle 的严格大于一致）
+        clock.advance(100)  # topic-2 恰好达到超时阈值，仍未空闲（严格大于）
         assert [topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100)] == ["topic-1"]
 
     def test_idle_candidates_exclude_leased_topics(self):
@@ -268,40 +268,76 @@ class TestCandidateQueries:
         assert ws.list_inactive(timeout_seconds=0) == []
 
 
-# ========== 在途沉淀 ==========
+# ========== 在途沉淀与写进展记录失败的位置 ==========
 
 
-class TestSettling:
+class TestPositions:
     def test_earlier_completion_keeps_the_furthest_settling_position(self):
         """同一话题先后接纳两次沉淀：较早的完成时更远的仍在途，更远的完成后才清除。"""
         ws, _ = _make_working_set()
         belong_to = _identity_scope().workspace_identity
+        ws.touch(belong_to, "topic-1")
         ws.mark_settling(belong_to, "topic-1", 2)
         ws.mark_settling(belong_to, "topic-1", 5)
 
-        ws.clear_settling(belong_to, "topic-1", up_to=2)
-        still_settling = ws.settling_count(belong_to, "topic-1")
-        ws.clear_settling(belong_to, "topic-1", up_to=5)
+        ws.clear_settling(belong_to, "topic-1", settled_until=2)
+        still_settling = ws.settling_until(belong_to, "topic-1")
+        ws.clear_settling(belong_to, "topic-1", settled_until=5)
 
-        assert (still_settling, ws.settling_count(belong_to, "topic-1")) == (5, 0)
+        assert (still_settling, ws.settling_until(belong_to, "topic-1")) == (5, 0)
+
+    def test_touch_refreshes_access_but_keeps_both_positions(self):
+        """再次访问只刷新访问时间：在途沉淀与写进展记录失败的位置照旧。"""
+        ws, clock = _make_working_set()
+        belong_to = _identity_scope().workspace_identity
+        ws.touch(belong_to, "topic-1")
+        ws.mark_settling(belong_to, "topic-1", 3)
+        ws.mark_progress_failed(belong_to, "topic-1", 2)
+        clock.advance(200)
+
+        ws.touch(belong_to, "topic-1")
+
+        assert ws.list_inactive(timeout_seconds=100) == []
+        assert (
+            ws.settling_until(belong_to, "topic-1"),
+            ws.progress_failed_until(belong_to, "topic-1"),
+        ) == (3, 2)
+
+    def test_positions_are_only_kept_for_resident_topics(self):
+        """不驻留的话题不会再被沉淀或写进展记录：两个位置都不记，读出 0。"""
+        ws, _ = _make_working_set()
+        belong_to = _identity_scope().workspace_identity
+
+        ws.mark_settling(belong_to, "retired", 3)
+        ws.mark_progress_failed(belong_to, "retired", 2)
+
+        assert (
+            ws.settling_until(belong_to, "retired"),
+            ws.progress_failed_until(belong_to, "retired"),
+        ) == (0, 0)
 
 
 # ========== 驻留移除 ==========
 
 
 class TestRemoval:
-    def test_remove_drops_residency_and_settling_but_keeps_lease(self):
+    def test_remove_drops_the_whole_resident_record_but_keeps_lease(self):
+        """退役或删除后，访问时间、在途沉淀与写进展记录失败的位置一起消失；lease 仍由持有者释放。"""
         ws, _ = _make_working_set(max_resident=1)
-        scope = _identity_scope()
+        belong_to = _identity_scope().workspace_identity
+        ws.touch(belong_to, "topic-1")
+        ws.mark_settling(belong_to, "topic-1", 3)
+        ws.mark_progress_failed(belong_to, "topic-1", 2)
+        ws.acquire(belong_to, "topic-1")
 
-        ws.touch(scope.workspace_identity, "topic-1")
-        ws.mark_settling(scope.workspace_identity, "topic-1", 3)
-        ws.acquire(scope.workspace_identity, "topic-1")
-        ws.remove(scope.workspace_identity, "topic-1")
+        ws.remove(belong_to, "topic-1")
 
-        assert ws.needs_eviction(scope.workspace_identity) is False  # 驻留已移除
-        assert ws.settling_count(scope.workspace_identity, "topic-1") == 0
-        assert ws.acquire(scope.workspace_identity, "topic-1") is None  # lease 不随 remove 清理
+        assert ws.needs_eviction(belong_to) is False  # 驻留记录已删除
+        assert (
+            ws.settling_until(belong_to, "topic-1"),
+            ws.progress_failed_until(belong_to, "topic-1"),
+        ) == (0, 0)
+        assert ws.acquire(belong_to, "topic-1") is None  # lease 不随 remove 清理
 
     def test_remove_unknown_topic_is_silent(self):
         ws, _ = _make_working_set(max_resident=1)

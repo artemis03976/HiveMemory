@@ -212,17 +212,16 @@ class PerceptionFamiliar:
                 self._working_set.remove(belong_to, topic_id)  # 清理陈旧驻留条目
                 return False, None
             # 冻结材料：字段转换与 no-material 判断收口在数据模型内。
-            task = TopicSettleMaterial.from_topic_data(
+            material = TopicSettleMaterial.from_topic_data(
                 topic,
                 belong_to=belong_to,
                 reason=reason,
                 retires_topic=retire,
-                settled_count=max(
-                    topic.settled_interaction_count,
-                    self._working_set.settling_count(belong_to, topic_id),
+                settled_until=max(
+                    topic.settled_until, self._working_set.settling_until(belong_to, topic_id)
                 ),
             )
-            if task is None:  # 已沉淀与在途的沉淀覆盖了全部交互，不触发生成
+            if material is None:  # 已沉淀与在途的沉淀覆盖了全部交互，不触发生成
                 if not retire:
                     return False, None
                 self._retire_topic(belong_to, topic_id, reason)
@@ -234,7 +233,7 @@ class PerceptionFamiliar:
             # admission：lease 持有期间等待 Generation queue 接纳。
             try:
                 generation_task = await self._bus.request(
-                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, task
+                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, material
                 )
             except Exception:
                 if raise_on_admission_failure:
@@ -248,11 +247,11 @@ class PerceptionFamiliar:
                 return False, None
 
             # lease 持有期间交互记录不会变化，冻结的交互数就是这次沉淀覆盖到的位置。
-            settled_count = len(task.interactions)
+            settling_until = len(material.interactions)
             if generation_task is None:
-                self._store.append_settled(belong_to, topic_id, interaction_count=settled_count)
+                self._store.append_settled(belong_to, topic_id, settled_until=settling_until)
             else:
-                self._working_set.mark_settling(belong_to, topic_id, settled_count)
+                self._working_set.mark_settling(belong_to, topic_id, settling_until)
             if retire:
                 self._retire_topic(belong_to, topic_id, reason)
             self._emit_topic_settled(
@@ -380,17 +379,17 @@ class PerceptionFamiliar:
         topic = self._store.get(belong_to, topic_id)
         if topic is None:
             return
-        start = topic.recorded_interaction_count
+        start = topic.recorded_until
         covered = topic.interactions[start:]
         if not covered:
             return
-        covered_until = len(topic.interactions)
+        covered_until = topic.interaction_count
         try:
             text = await engine.generate_progress_entry(
                 topic.progress_record, covered, first_turn_number=start + 1
             )
         except Exception:
-            self._working_set.mark_progress_entry_failed(belong_to, topic_id, covered_until)
+            self._working_set.mark_progress_failed(belong_to, topic_id, covered_until)
             raise
         written = self._store.append_progress_entry(
             belong_to, topic_id, text=text, covered=covered, covered_until=covered_until
@@ -437,17 +436,17 @@ class PerceptionFamiliar:
         return self._store.get_generated_memories(belong_to, topic_id)
 
     async def record_settled(
-        self, topic_id: str, *, belong_to: WorkspaceIdentity, interaction_count: int
+        self, topic_id: str, *, belong_to: WorkspaceIdentity, settled_until: int
     ) -> None:
-        """一次沉淀完成：在日志中记下它覆盖到的交互数，清除不超过它的在途。
+        """一次沉淀到达终态：在日志中记下它覆盖到第几轮，清除不超过它的在途沉淀。
 
         话题在池中时读取值随之更新。话题已经退役、日志还在时照样记下；这一次完成之后再没有
         未沉淀的交互，就是最后一次沉淀完成，随即删除日志。话题已被手动删除、或日志已经删除
         时不记。不取 lease：沉淀进度与交互和折叠互不相交。
         """
-        self._working_set.clear_settling(belong_to, topic_id, up_to=interaction_count)
+        self._working_set.clear_settling(belong_to, topic_id, settled_until=settled_until)
         retired = self._store.get(belong_to, topic_id) is None
-        topic = self._store.append_settled(belong_to, topic_id, interaction_count=interaction_count)
+        topic = self._store.append_settled(belong_to, topic_id, settled_until=settled_until)
         if topic is not None and retired and not topic.has_unsettled_interactions:
             self._store.delete(belong_to, topic_id)
 
@@ -559,11 +558,10 @@ class PerceptionFamiliar:
             topic = self._store.get(belong_to, topic_id)
             if topic is None:
                 continue
-            interaction_count = len(topic.interactions)
-            if topic.recorded_interaction_count == interaction_count:
+            if topic.recorded_until == topic.interaction_count:
                 continue
-            if self._working_set.progress_entry_failed_until(belong_to, topic_id) >= (
-                interaction_count
+            if self._working_set.progress_failed_until(belong_to, topic_id) >= (
+                topic.interaction_count
             ):
                 continue
             if await schedule_progress_entry(belong_to, topic_id):
@@ -593,17 +591,17 @@ class PerceptionFamiliar:
         resubmitted = 0
         for topic, retired_record in retired:
             belong_to = topic.workspace_identity
-            task = TopicSettleMaterial.from_topic_data(
+            material = TopicSettleMaterial.from_topic_data(
                 topic,
                 belong_to=belong_to,
                 reason=retired_record.reason,
                 retires_topic=True,
-                settled_count=topic.settled_interaction_count,
+                settled_until=topic.settled_until,
             )
-            assert task is not None  # 读回时只交来还有未沉淀交互的话题
+            assert material is not None  # 读回时只交来还有未沉淀交互的话题
             try:
                 generation_task = await self._bus.request(
-                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, task
+                    PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, material
                 )
             except (WorkQueueCapacityError, WorkQueueStoppedError):
                 logger.warning(
@@ -615,7 +613,7 @@ class PerceptionFamiliar:
                 continue
             if generation_task is None:
                 await self.record_settled(
-                    topic.topic_id, belong_to=belong_to, interaction_count=len(task.interactions)
+                    topic.topic_id, belong_to=belong_to, settled_until=len(material.interactions)
                 )
             resubmitted += 1
         return resubmitted

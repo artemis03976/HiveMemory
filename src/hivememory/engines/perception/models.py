@@ -113,20 +113,21 @@ class TopicSettleMaterial(BaseModel):
         belong_to: WorkspaceIdentity,
         reason: TriggerReason,
         retires_topic: bool,
-        settled_count: int,
+        settled_until: int,
     ) -> TopicSettleMaterial | None:
-        """从冻结 TopicData 构造生成交接任务；``settled_count`` 之后没有新交互时返回 None。
+        """从冻结 TopicData 构造沉淀材料；``settled_until`` 之后没有新交互时返回 None。
 
-        ``settled_count`` 是已经完成与仍在途的沉淀覆盖到的交互数，由调用方给出：在途的沉淀只记
-        在进程内，话题的读取值只有已经完成的进度。``belong_to`` 必须由调用方显式传入。字段映射
-        和 no-material 判断集中在此，服务与调用方不得重复拼装。
+        ``settled_until`` 是已经完成与仍在途的沉淀中较远的那个覆盖到第几轮，由调用方给出：在途的
+        沉淀只记在进程内，话题的读取值只有已经完成的位置。它只决定有没有材料，不切分材料。
+        ``belong_to`` 必须由调用方显式传入。字段映射和没有材料的判断集中在此，服务与调用方不得
+        重复拼装。
         """
         # 有新交互时冻结全部交互，不只是新增的部分：生成在完整材料上判断，此前沉淀
         # 出的记忆由生成侧记作本话题生成的记忆，复述它们的草稿在那里处理。
         # 全部交互都进入沉淀，不在入口按用户消息筛选：只看用户消息会把"请提交"
         # "继续"这类消息背后的整轮实现丢掉。一轮有没有长期价值，由生成阶段在完整
         # 材料上判断。
-        if len(topic_data.interactions) <= settled_count:
+        if topic_data.interaction_count <= settled_until:
             return None
 
         return cls(

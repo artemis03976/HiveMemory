@@ -446,7 +446,7 @@ class MemoryGenerationTaskController:
                 PatchouliLocalRoutes.TOPIC_RECORD_SETTLED,
                 spec.topic_id,
                 belong_to=spec.belong_to,
-                interaction_count=len(spec.interaction_input.interactions),
+                settled_until=len(spec.interaction_input.interactions),
             )
         except OSError:
             logger.error(

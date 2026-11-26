@@ -87,7 +87,7 @@ class TestConstructionValidation:
         with pytest.raises(ValidationError, match="前缀"):
             _topic(interactions=(b1, b2), folds=(_fold(b2, summary="s"),))
 
-    def test_settled_count_cannot_exceed_interactions(self):
+    def test_settled_until_cannot_exceed_interactions(self):
         with pytest.raises(ValidationError, match="沉淀覆盖的交互数"):
             TopicData(
                 topic_id="t1",
@@ -95,7 +95,7 @@ class TestConstructionValidation:
                 topic_title="title",
                 interactions=(_block("q1"),),
                 last_update=1.0,
-                settled_interaction_count=2,
+                settled_until=2,
             )
 
 

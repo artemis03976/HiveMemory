@@ -1040,7 +1040,7 @@ async def test_shutdown_saves_unexecuted_work_but_not_settlements(tmp_path):
             merge.task_id: (cancelled, SHUTDOWN_PERSISTED_REASON),
             queued_settle.task_id: (cancelled, SHUTDOWN_DISCARDED_REASON),
         }
-        settled = {topic_id: topic.settled_interaction_count for topic_id, topic in topics.items()}
+        settled = {topic_id: topic.settled_until for topic_id, topic in topics.items()}
         assert settled == {"ta": 1, "tb": 0, "td": 0}
         # 保存的写入下次启动后还会结算，不发布写入意图的取消。
         bus.publish.assert_not_awaited()
@@ -1077,7 +1077,7 @@ async def test_settlement_reaching_a_terminal_state_records_its_progress(ending)
     finally:
         await controller.stop()
 
-    assert topics["t1"].settled_interaction_count == 2
+    assert topics["t1"].settled_until == 2
 
 
 @pytest.mark.asyncio

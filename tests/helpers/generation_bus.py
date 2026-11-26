@@ -58,7 +58,7 @@ def make_generation_bus(
             if topic_id in table:
                 table[topic_id] = apply_settled(
                     table[topic_id],
-                    TopicSettledRecord(at=0.0, interaction_count=kwargs["interaction_count"]),
+                    TopicSettledRecord(at=0.0, interaction_count=kwargs["settled_until"]),
                 )
             return None
         return await run(route, *args, **kwargs)

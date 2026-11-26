@@ -665,9 +665,7 @@ class TestNamedUseCases:
 
         result = await familiar.delete_topic(scope.workspace_identity, topic_id)
 
-        await familiar.record_settled(
-            topic_id, belong_to=scope.workspace_identity, interaction_count=1
-        )
+        await familiar.record_settled(topic_id, belong_to=scope.workspace_identity, settled_until=1)
 
         assert result.removed is True
         assert store.get(scope.workspace_identity, topic_id) is None
@@ -762,8 +760,8 @@ class TestMaintenance:
         flushed = await familiar.scan_idle_topics_once()
 
         assert flushed == [stale_id]
-        assert store.get(scope.workspace_identity, stale_id).settled_interaction_count == 1
-        assert store.get(scope.workspace_identity, fresh_id).settled_interaction_count == 0
+        assert store.get(scope.workspace_identity, stale_id).settled_until == 1
+        assert store.get(scope.workspace_identity, fresh_id).settled_until == 0
         # 访问时间没有被沉淀刷新：话题仍在驻留集合中，也仍是空闲候选。
         assert working_set.list_inactive(30) == [(scope.workspace_identity, stale_id)]
         route, settlement = bus.request.await_args.args
@@ -881,7 +879,7 @@ class TestMaintenance:
         assert bus.request.await_count == 2
         settlement = bus.request.await_args.args[1]
         assert [block.user_message for block in settlement.interactions] == ["1", "2"]
-        assert store.get(scope.workspace_identity, topic_id).settled_interaction_count == 2
+        assert store.get(scope.workspace_identity, topic_id).settled_until == 2
 
     @pytest.mark.asyncio
     async def test_scan_idle_retires_empty_topic_without_generation(self, tmp_path):
@@ -982,14 +980,14 @@ class TestSettlementProgress:
         clock.advance(100)
         assert await familiar.scan_idle_topics_once() == []
 
-        await familiar.record_settled(topic_id, belong_to=workspace, interaction_count=1)
+        await familiar.record_settled(topic_id, belong_to=workspace, settled_until=1)
         reloaded = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
         reloaded.load()
         await _apply_to_topic(familiar, scope, topic_id, "2")
         clock.advance(100)
 
-        assert in_flight.settled_interaction_count == 0
-        assert reloaded.get(workspace, topic_id).settled_interaction_count == 1
+        assert in_flight.settled_until == 0
+        assert reloaded.get(workspace, topic_id).settled_until == 1
         assert await familiar.scan_idle_topics_once() == [topic_id]
         assert bus.request.await_count == 2
 
@@ -1013,7 +1011,7 @@ class TestSettlementProgress:
             topic_id, belong_to=workspace
         )
         kept = _log_exists(tmp_path, topic_id)
-        await familiar.record_settled(topic_id, belong_to=workspace, interaction_count=1)
+        await familiar.record_settled(topic_id, belong_to=workspace, settled_until=1)
 
         assert (store.get(workspace, topic_id), kept) == (None, True)
         assert generated_while_retired == {"m"}
@@ -1036,7 +1034,7 @@ class TestSettlementProgress:
 
         result = await familiar.settle_and_retire_topic(workspace, topic_id)
         kept = _log_exists(tmp_path, topic_id)
-        await familiar.record_settled(topic_id, belong_to=workspace, interaction_count=1)
+        await familiar.record_settled(topic_id, belong_to=workspace, settled_until=1)
 
         assert (result.generation_submitted, bus.request.await_count) == (False, 1)
         assert (store.get(workspace, topic_id), kept) == (None, True)

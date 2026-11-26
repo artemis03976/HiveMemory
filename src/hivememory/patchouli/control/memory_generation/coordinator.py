@@ -57,7 +57,7 @@ class MemoryGenerationCoordinator:
         # 生成材料只有工具结果按配置的上限截断，感知的 token 统计使用同一个上限。
         self._transcript_builder = GenerationTranscriptBuilder(transcript_config)
 
-    async def submit_settlement(self, payload: TopicSettleMaterial) -> MemoryGenerationTask | None:
+    async def submit_settlement(self, material: TopicSettleMaterial) -> MemoryGenerationTask | None:
         """将话题的沉淀材料转为 SETTLE 任务，统一以归属对应的 system 为发起者。
 
         生成材料是话题的工作视图；来源记录冻结全部交互记录与折叠记录，覆盖
@@ -65,32 +65,32 @@ class MemoryGenerationCoordinator:
         升级之前的版本保存的沉淀的话题不在话题池里，执行时只有这一份。
         """
         gen_context = self._transcript_builder.build_context(
-            payload.blocks,
-            fold_summary=payload.fold_summary,
+            material.blocks,
+            fold_summary=material.fold_summary,
         )
         if not gen_context.turns:
             logger.debug("Empty conversation turn, skipping passive generation")
             return None
 
         spec = MemoryGenerationTaskSpec(
-            belong_to=payload.belong_to,
-            from_actor=system_actor_for_workspace(payload.belong_to),
-            topic_id=payload.topic_id,
-            label=payload.topic_id,
+            belong_to=material.belong_to,
+            from_actor=system_actor_for_workspace(material.belong_to),
+            topic_id=material.topic_id,
+            label=material.topic_id,
             source=MemoryGenerationSource.SETTLE,
             request=GenerationRequest(
                 context=gen_context,
-                topic_generated_memory_ids=payload.topic_generated_memory_ids,
+                topic_generated_memory_ids=material.topic_generated_memory_ids,
             ),
             interaction_input=self._build_interaction_input(
-                topic_id=payload.topic_id,
-                topic_title=payload.topic_title,
-                topic_summary=payload.topic_summary,
-                interactions=payload.interactions,
-                folds=payload.folds,
-                asset_bindings=payload.asset_bindings,
+                topic_id=material.topic_id,
+                topic_title=material.topic_title,
+                topic_summary=material.topic_summary,
+                interactions=material.interactions,
+                folds=material.folds,
+                asset_bindings=material.asset_bindings,
             ),
-            retires_topic=payload.retires_topic,
+            retires_topic=material.retires_topic,
         )
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,

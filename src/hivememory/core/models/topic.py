@@ -139,16 +139,20 @@ class TopicFold(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-def topic_working_blocks(
-    interactions: Sequence[LogicalBlock], folds: Sequence[TopicFold]
-) -> tuple[LogicalBlock, ...]:
-    """工作视图：最后一次折叠之后的交互记录。
+def topic_folded_until(folds: Sequence[TopicFold]) -> int:
+    """折叠到第几轮：全部折叠记录覆盖的交互数。
 
     每次折叠的都是当时工作视图的前缀，全部折叠记录因此恰好覆盖交互记录开头
     同样数量的块。
     """
-    folded_count = sum(len(fold.folded_block_ids) for fold in folds)
-    return tuple(interactions[folded_count:])
+    return sum(len(fold.folded_block_ids) for fold in folds)
+
+
+def topic_working_blocks(
+    interactions: Sequence[LogicalBlock], folds: Sequence[TopicFold]
+) -> tuple[LogicalBlock, ...]:
+    """工作视图：最后一次折叠之后的交互记录。"""
+    return tuple(interactions[topic_folded_until(folds) :])
 
 
 def topic_fold_summary(folds: Sequence[TopicFold]) -> str:
@@ -164,8 +168,17 @@ class TopicData(BaseModel):
     与 ``total_tokens``）由二者派生、不单独存储：分开存储的副本需要在每次写入与
     折叠时维持“工作视图是交互记录的后缀”，派生不会失去一致。
 
-    ``settled_interaction_count`` 是已经完成的沉淀覆盖到的交互数：话题空闲时只沉淀、不结束，
-    之后还会接收交互，下一次沉淀据此判断有没有新内容。
+    话题的日志中有四个“处理到第几轮”的位置，都是交互记录的前缀长度（覆盖到的交互数），
+    并排在这里：
+
+    - ``interaction_count``：话题接收了几轮交互；
+    - ``folded_until``：折叠到第几轮，由折叠记录推出，工作视图从这里开始；
+    - ``recorded_until``：进展记录写到第几轮，由最后一条进展记录推出；
+    - ``settled_until``：已经完成的沉淀覆盖到第几轮。
+
+    后三个都不超过 ``interaction_count``，彼此独立推进，谁也不等谁，也都不切分材料：沉淀
+    总是冻结全部交互与折叠记录，生成材料始终是完整的工作视图；进展记录只决定下一条从哪一轮
+    写起。进程内还有两个位置（在途沉淀与写进展记录失败的位置），在 ``TopicWorkingSet``。
 
     ``topic_generated_memory_ids`` 是本话题生成的正式记忆，随话题的日志保存，话题退役后保留到
     日志删除；同一话题之后的写入与沉淀据此不改写、不复述它们。
@@ -194,7 +207,7 @@ class TopicData(BaseModel):
     last_update: float
     model_used: str = ""
 
-    settled_interaction_count: int = Field(default=0, ge=0)
+    settled_until: int = Field(default=0, ge=0)
     topic_generated_memory_ids: frozenset[str] = Field(
         default_factory=frozenset,
         description=(
@@ -227,7 +240,7 @@ class TopicData(BaseModel):
     @model_validator(mode="after")
     def _settled_within_interactions(self) -> TopicData:
         """交互记录只追加，沉淀覆盖的交互数不会超过话题接收过的交互数。"""
-        if self.settled_interaction_count > len(self.interactions):
+        if self.settled_until > self.interaction_count:
             raise ValueError("沉淀覆盖的交互数不能超过交互记录的长度")
         return self
 
@@ -252,6 +265,21 @@ class TopicData(BaseModel):
                 raise ValueError("进展记录的一条指回的区间与它覆盖的交互不一致")
             start = entry.covered_until
         return self
+
+    @property
+    def interaction_count(self) -> int:
+        """话题接收了几轮交互。"""
+        return len(self.interactions)
+
+    @property
+    def folded_until(self) -> int:
+        """折叠到第几轮：工作视图从这一轮之后开始。"""
+        return topic_folded_until(self.folds)
+
+    @property
+    def recorded_until(self) -> int:
+        """进展记录写到第几轮：最后一条的覆盖位置，还没有写过一条时为 0。"""
+        return self.progress_record[-1].covered_until if self.progress_record else 0
 
     @property
     def blocks(self) -> tuple[LogicalBlock, ...]:
@@ -288,12 +316,7 @@ class TopicData(BaseModel):
     @property
     def has_unsettled_interactions(self) -> bool:
         """最近一次沉淀之后是否接收过新的交互；没有接收过交互的话题为假。"""
-        return len(self.interactions) > self.settled_interaction_count
-
-    @property
-    def recorded_interaction_count(self) -> int:
-        """进展记录覆盖到的交互数：最后一条的覆盖位置，还没有写过一条时为 0。"""
-        return self.progress_record[-1].covered_until if self.progress_record else 0
+        return self.interaction_count > self.settled_until
 
     def recent_blocks(self, limit: int) -> tuple[LogicalBlock, ...]:
         if limit <= 0:
@@ -312,9 +335,7 @@ class TopicData(BaseModel):
                 assistant=last_block.reply_text,
             )
         # 还没有整理的交互读交互记录，不读工作视图：被折叠的轮次也可能还没有写进进展记录。
-        first_excerpt = max(
-            self.recorded_interaction_count, len(self.interactions) - UNRECORDED_TURN_EXCERPTS
-        )
+        first_excerpt = max(self.recorded_until, self.interaction_count - UNRECORDED_TURN_EXCERPTS)
         unrecorded_turns = tuple(
             TopicTurnExcerpt(
                 turn_number=index + 1,
@@ -336,7 +357,7 @@ class TopicData(BaseModel):
             last_update=self.last_update,
             has_unsettled_interactions=self.has_unsettled_interactions,
             progress_record=self.progress_record,
-            unrecorded_turn_count=len(self.interactions) - self.recorded_interaction_count,
+            unrecorded_turn_count=self.interaction_count - self.recorded_until,
             unrecorded_turns=unrecorded_turns,
         )
 
@@ -350,5 +371,6 @@ __all__ = [
     "TopicSnapshot",
     "TopicTurnExcerpt",
     "topic_fold_summary",
+    "topic_folded_until",
     "topic_working_blocks",
 ]

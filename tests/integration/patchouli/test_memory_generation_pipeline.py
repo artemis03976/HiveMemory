@@ -646,13 +646,13 @@ async def test_restart_reads_topics_back_and_resettles_what_shutdown_dropped(
         await controller.stop()
 
     assert saved.saved == 0
-    assert (restored.settled_interaction_count, len(restored.interactions)) == (1, 2)
+    assert (restored.settled_until, len(restored.interactions)) == (1, 2)
     assert len(restored.topic_generated_memory_ids) == 1
     assert extractor.extract.await_count == 2
     assert [memory.payload.content for memory in await _stored(memory_library)] == [
         "deploys are now run by hand"
     ]
-    assert store.get(_identity_scope().workspace_identity, topic_id).settled_interaction_count == 3
+    assert store.get(_identity_scope().workspace_identity, topic_id).settled_until == 3
 
 
 def _gated_extractor(release: asyncio.Event, started: asyncio.Event) -> AsyncMock:
@@ -802,10 +802,10 @@ async def test_crash_keeps_completed_progress_and_redoes_the_settlement_in_fligh
         await crashed.cancel_many(running, reason="shutdown_timeout")
         await crashed.stop()
 
-    assert (restored.settled_interaction_count, len(restored.interactions)) == (1, 2)
+    assert (restored.settled_until, len(restored.interactions)) == (1, 2)
     assert second_run.extract.await_count == 1
     assert "and staging?" in second_run.extract.call_args.args[0]
-    assert store.get(_identity_scope().workspace_identity, topic_id).settled_interaction_count == 2
+    assert store.get(_identity_scope().workspace_identity, topic_id).settled_until == 2
 
 
 def _draft(title: str, content: str) -> ExtractedMemoryDraft:
