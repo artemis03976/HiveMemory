@@ -54,7 +54,7 @@ def _build_familiar(
         store=store,
         working_set=TopicWorkingSet(max_resident=4),
         bus=Mock(request=AsyncMock(return_value=None)),
-        config=SimpleNamespace(idle_timeout_seconds=900),
+        config=SimpleNamespace(settle_after_seconds=900),
     )
 
 

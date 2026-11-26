@@ -63,7 +63,7 @@ def _make_familiar_with_store(tmp_path):
         store=store,
         working_set=TopicWorkingSet(),
         bus=Mock(request=AsyncMock(return_value=None)),
-        config=SimpleNamespace(idle_timeout_seconds=900),
+        config=SimpleNamespace(settle_after_seconds=900),
     )
     return familiar, store
 

@@ -357,7 +357,7 @@ class InteractionSubmissionHandler(
         """仅重试已明确分类、且可复用同一 interaction identity 的失败。
 
         维护项只在话题正被占用时重试（只有折叠取 lease）；其他失败结束这个维护项，话题保持
-        原样：下一次写入该话题时重新判断是否需要折叠，停顿扫描在话题有新交互后再写进展记录。
+        原样：下一次写入该话题时重新判断是否需要折叠，进展记录扫描在话题有新交互后再写。
         """
         if context.kind == TopicMaintenanceCodec.kind:
             if isinstance(error, TopicBusyError):
@@ -416,7 +416,7 @@ def _ended_without_success(state: WorkState) -> bool:
 class InteractionSubmissionQueue:
     """Patchouli 交互摄入 lane 的轻量业务队列。
 
-    提供 ``maintenance`` 时，交互应用后话题需要折叠就排入一个折叠项，停顿扫描经
+    提供 ``maintenance`` 时，交互应用后话题需要折叠就排入一个折叠项，进展记录扫描经
     :meth:`schedule_progress_entry` 排入写一条进展记录；不提供时只应用交互，不维护话题。
     同一话题同时至多一个未结束的维护项。交互应用的时限由 ``apply_timeout_seconds`` 施加，
     lane 的默认策略不设统一时限，维护的时限由各自的模型调用承担。
@@ -516,9 +516,9 @@ class InteractionSubmissionQueue:
         )
 
     async def schedule_progress_entry(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
-        """为停顿的话题排入写一条进展记录；排入了返回真。
+        """为停下够久的话题排入写一条进展记录；排入了返回真。
 
-        话题已有未结束的维护项、维护已关闭或队列已满时返回假，停顿扫描下一轮再看。
+        话题已有未结束的维护项、维护已关闭或队列已满时返回假，进展记录扫描下一轮再看。
         """
         return await self._schedule_maintenance(
             TopicMaintenance(belong_to=belong_to, topic_id=topic_id, task="progress_entry")

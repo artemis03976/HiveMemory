@@ -345,7 +345,7 @@ def test_settlement_saved_as_1_2_reads_back_without_segments_and_cannot_cite() -
 
 
 def test_work_saved_as_1_3_reads_back_with_every_settlement_retiring() -> None:
-    """当前版本保存的空闲沉淀原样读回、不退役；升级前以 1.3 保存的工作不带 retires_topic：
+    """当前版本保存的、话题停下后的沉淀原样读回、不退役；升级前以 1.3 保存的工作不带 retires_topic：
     那时每次结算都结束话题，结算读回为退役，其余来源读回为不退役。"""
     queue = MemoryGenerationQueue(AsyncMock())
     settlement = replace(_spec(topic_id="topic-old"), source=MemoryGenerationSource.SETTLE)

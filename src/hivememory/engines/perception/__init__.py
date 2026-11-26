@@ -6,7 +6,7 @@ HiveMemory - 帕秋莉感知引擎 (Perception Engine / MMU 算法层)
     一轮交互材料的解析与渲染（记忆生成视图、折叠摘要与 token 统计共用），
     折叠摘要与进展记录的写作者，以及沉淀材料与触发原因模型。
 
-    话题路由、占用（lease）、沉淀、退役、删除与 LRU / 空闲维护由
+    话题路由、占用（lease）、沉淀、退役、删除与两个扫描由
     ``PerceptionFamiliar``（Patchouli 服务层）编排；本包不持有
     Store / Journal / Queue，也不导入 ``hivememory.patchouli.*``，保持
     patchouli -> engines 的单向依赖，可被其他 runtime 复用。

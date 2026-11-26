@@ -80,7 +80,7 @@ def _topic_boundary(tmp_path, *, max_resident_topics: int = 5, clock: _FakeClock
         store=store,
         working_set=working_set,
         bus=bus,
-        config=SimpleNamespace(idle_timeout_seconds=900),
+        config=SimpleNamespace(settle_after_seconds=900),
     )
     library = MemoryLibrary(
         short_term=store, mid_term=Mock(), long_term=Mock(), agent_profiles=Mock()

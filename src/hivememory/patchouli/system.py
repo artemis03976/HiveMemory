@@ -187,13 +187,13 @@ class PatchouliSystem(SubsystemProtocol):
         scheduler.register(
             MaintenanceTaskSpec(
                 owner=self._MAINTENANCE_OWNER,
-                name="perception_idle_settle",
-                interval_seconds=tasks_config.perception_idle_settle_interval_seconds,
-                enabled=tasks_config.enable_perception_idle_settle,
+                name="perception_settle",
+                interval_seconds=tasks_config.perception_settle_interval_seconds,
+                enabled=tasks_config.enable_perception_settle,
             ),
-            self.runtime.perception_familiar.scan_idle_topics_once,
+            self.runtime.perception_familiar.scan_for_settle_once,
         )
-        # 停顿扫描只挑出该写一条进展记录的话题，写一条经交互提交队列排在话题的提交之间。
+        # 进展记录扫描只挑出该写一条进展记录的话题，写一条经交互提交队列排在话题的提交之间。
         scheduler.register(
             MaintenanceTaskSpec(
                 owner=self._MAINTENANCE_OWNER,
@@ -202,7 +202,7 @@ class PatchouliSystem(SubsystemProtocol):
                 enabled=tasks_config.enable_perception_progress_record,
             ),
             partial(
-                self.runtime.perception_familiar.scan_paused_topics_once,
+                self.runtime.perception_familiar.scan_for_progress_record_once,
                 self._interaction_submission_queue.schedule_progress_entry,
             ),
         )

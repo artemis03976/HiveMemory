@@ -629,7 +629,7 @@ def _events_until(events: list[str], last: str) -> list[str]:
 
 
 async def _start_maintenance(queue, task: str, topic_id: str) -> None:
-    """让话题有一个维护项：折叠由一次写入之后排入，写进展记录由停顿扫描排入。"""
+    """让话题有一个维护项：折叠由一次写入之后排入，写进展记录由进展记录扫描排入。"""
     if task == "fold":
         first = await queue.submit(_topic_submission(f"i-first-{topic_id}", "first", topic_id))
         await queue.wait(first, timeout=2)

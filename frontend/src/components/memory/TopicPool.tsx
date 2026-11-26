@@ -13,18 +13,18 @@ import type { Topic, TopicProgressEntry, TopicTurnExcerpt } from '@/types';
 /** 话题池的规则取自主配置；读不到时页面只显示话题本身，不写具体数值。 */
 interface PoolSettings {
   capacity: number;
-  idleTimeoutSeconds: number;
+  settleAfterSeconds: number;
   foldTokenThreshold: number;
   foldRetainBlocks: number;
-  progressPauseSeconds: number;
+  progressRecordAfterSeconds: number;
 }
 
 const POOL_SETTING_PATHS = {
   capacity: 'patchouli.perception.max_resident_topics',
-  idleTimeoutSeconds: 'patchouli.perception.idle_timeout_seconds',
+  settleAfterSeconds: 'patchouli.perception.settle_after_seconds',
   foldTokenThreshold: 'patchouli.perception.engine.fold_token_threshold',
   foldRetainBlocks: 'patchouli.perception.engine.fold_retain_recent_blocks',
-  progressPauseSeconds: 'patchouli.perception.progress_record_pause_seconds',
+  progressRecordAfterSeconds: 'patchouli.perception.progress_record_after_seconds',
 } as const;
 
 /** 剩余时间在这之内时，自动沉淀以警示色标出。 */
@@ -78,7 +78,7 @@ function turnRange(entry: TopicProgressEntry): string {
 }
 
 /** 还没有整理的轮次的节选；后端只交出最近几轮，更早的只写出轮数。 */
-export function UnrecordedTurnList({ turns, total, pause }: { turns: TopicTurnExcerpt[]; total: number; pause: string }) {
+export function UnrecordedTurnList({ turns, total, recordAfter }: { turns: TopicTurnExcerpt[]; total: number; recordAfter: string }) {
   const earlier = total - turns.length;
   return (
     <div className="flex flex-col gap-2">
@@ -100,7 +100,7 @@ export function UnrecordedTurnList({ turns, total, pause }: { turns: TopicTurnEx
           )}
         </div>
       ))}
-      <span className="text-xs leading-relaxed text-fg-3">{pause}，这些轮会整理成新的一条进展记录</span>
+      <span className="text-xs leading-relaxed text-fg-3">{recordAfter}，这些轮会整理成新的一条进展记录</span>
     </div>
   );
 }
@@ -111,7 +111,7 @@ export function UnrecordedTurnList({ turns, total, pause }: { turns: TopicTurnEx
  * 进展记录只往后追加，最后一条覆盖到的位置之后就是还没有整理的原始交互；还没有写过一条时，
  * 话题的进展就是全部原始交互。展开的状态属于这一个话题，切换话题时由调用方以 key 重置。
  */
-function ProgressSection({ topic, pauseSeconds, now }: { topic: Topic; pauseSeconds: number | null; now: number }) {
+function ProgressSection({ topic, recordAfterSeconds, now }: { topic: Topic; recordAfterSeconds: number | null; now: number }) {
   const [unrecordedOpen, setUnrecordedOpen] = useState(false);
   const entries = topic.progressRecord;
   const recorded = entries.length > 0 ? entries[entries.length - 1].toTurn : 0;
@@ -120,7 +120,7 @@ function ProgressSection({ topic, pauseSeconds, now }: { topic: Topic; pauseSeco
   const summary = entries.length === 0
     ? `还没有进展记录 · ${unrecorded} 轮没有整理`
     : `${entries.length} 条进展记录 · ${unrecorded === 0 ? `已整理全部 ${totalTurns} 轮` : `已整理 ${recorded} / ${totalTurns} 轮`}`;
-  const pause = pauseSeconds !== null ? `话题停顿 ${Math.round(pauseSeconds / 60)} 分钟后` : '话题停顿一段时间后';
+  const recordAfter = recordAfterSeconds !== null ? `话题停下 ${Math.round(recordAfterSeconds / 60)} 分钟后` : '话题停下一段时间后';
 
   return (
     <section aria-label="话题的进展" className="flex flex-col gap-2">
@@ -137,7 +137,7 @@ function ProgressSection({ topic, pauseSeconds, now }: { topic: Topic; pauseSeco
             </span>
             <span className="flex flex-col gap-1">
               <b className="text-sm font-semibold text-fg">还没有进展记录</b>
-              <span className="text-[13px] leading-relaxed text-fg-2">{pause}写下第一条。在那之前，话题的进展就是这些还没有整理的轮次。</span>
+              <span className="text-[13px] leading-relaxed text-fg-2">{recordAfter}写下第一条。在那之前，话题的进展就是这些还没有整理的轮次。</span>
             </span>
           </div>
         )}
@@ -180,7 +180,7 @@ function ProgressSection({ topic, pauseSeconds, now }: { topic: Topic; pauseSeco
                 <ChevronRight className={`h-3.5 w-3.5 transition-transform ${unrecordedOpen ? 'rotate-90' : ''}`} strokeWidth={2.4} aria-hidden="true" />
                 还有 {unrecorded} 轮没有整理
               </button>
-              {unrecordedOpen && <UnrecordedTurnList turns={topic.unrecordedTurns} total={unrecorded} pause={pause} />}
+              {unrecordedOpen && <UnrecordedTurnList turns={topic.unrecordedTurns} total={unrecorded} recordAfter={recordAfter} />}
             </div>
           </div>
         ) : (
@@ -314,7 +314,7 @@ export function TopicDetail({ topic, settings, settleMinutes, now, onReference, 
               <p className="text-[15px] leading-relaxed text-fg">{topic.topicSummary}</p>
             </div>
           )}
-          {hasProgress && <ProgressSection key={topic.id} topic={topic} pauseSeconds={settings?.progressPauseSeconds ?? null} now={now} />}
+          {hasProgress && <ProgressSection key={topic.id} topic={topic} recordAfterSeconds={settings?.progressRecordAfterSeconds ?? null} now={now} />}
           {topic.foldSummary && (
             <div className="flex flex-col gap-2">
               <span className="text-xs font-semibold text-fg-3">较早内容的摘要</span>
@@ -369,7 +369,7 @@ export function TopicDetail({ topic, settings, settleMinutes, now, onReference, 
                 {settleMinutes > 0 ? `约 ${settleMinutes} 分钟后` : '即将沉淀'}
               </span>
               <span className="text-xs leading-relaxed text-fg-3">
-                空闲 {Math.round(settings.idleTimeoutSeconds / 60)} 分钟后，新内容沉淀为长期记忆，话题仍留在池中；继续在这个话题里对话会重新计时
+                话题停下 {Math.round(settings.settleAfterSeconds / 60)} 分钟后，新内容沉淀为长期记忆，话题仍留在池中；继续在这个话题里对话会重新计时
               </span>
             </SideCard>
           )}
@@ -403,7 +403,7 @@ export default function TopicPool({ tabs }: { tabs: ReactNode }) {
 
   const selected = topics.find((t) => t.id === selectedTopicId) ?? topics[0];
   const settleMinutes = (topic: Topic) =>
-    settings ? minutesUntilAutoSettle(topic, settings.idleTimeoutSeconds, now) : null;
+    settings ? minutesUntilAutoSettle(topic, settings.settleAfterSeconds, now) : null;
 
   const settle = async (topic: Topic) => {
     try {
@@ -452,7 +452,7 @@ export default function TopicPool({ tabs }: { tabs: ReactNode }) {
         <span className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-fg-3">
           <Info className="h-[15px] w-[15px] shrink-0" aria-hidden="true" />
           <span>
-            {settings ? `话题空闲 ${Math.round(settings.idleTimeoutSeconds / 60)} 分钟时` : '话题空闲一段时间后'}，新内容会沉淀为长期记忆，话题仍留在池中；池满需要腾出位置时，最久没用的话题先沉淀再退出
+            {settings ? `话题停下 ${Math.round(settings.settleAfterSeconds / 60)} 分钟时` : '话题停下一段时间后'}，新内容会沉淀为长期记忆，话题仍留在池中；池满需要腾出位置时，最久没用的话题先沉淀再退出
           </span>
         </span>
         <button
@@ -479,7 +479,7 @@ export default function TopicPool({ tabs }: { tabs: ReactNode }) {
               </span>
               <h2 className="font-manrope text-[22px] font-extrabold text-fg">短期话题池是空的</h2>
               <p className="leading-7 text-fg-2">
-                对话开始后，相关的几轮会聚成一个话题暂存在这里。话题空闲时，帕秋莉把新的内容沉淀为长期记忆，话题仍留在池中；池满或手动结算时，话题沉淀后离开话题池。
+                对话开始后，相关的几轮会聚成一个话题暂存在这里。话题停下一段时间后，帕秋莉把新的内容沉淀为长期记忆，话题仍留在池中；池满或手动结算时，话题沉淀后离开话题池。
               </p>
               <button
                 onClick={() => setActiveNavTab('chat')}

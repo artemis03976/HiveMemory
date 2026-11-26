@@ -10,14 +10,14 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 - 折叠: 应用不在内部折叠、needs_fold 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
   失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已退役时直接结束、未超保留块数不折叠
 - settle_and_retire_topic / delete_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
-- scan_idle_topics_once：空闲只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
-  从没接收过交互的空话题空闲时直接退役；折叠后沉淀携带被折叠的轮次
+- scan_for_settle_once：话题停下够久时只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
+  从没接收过交互的空话题停下够久时直接退役；折叠后沉淀携带被折叠的轮次
 - 沉淀进度在生成完成时推进：接纳后只记在途，在途期间不重复沉淀同一段，完成后日志记下进度；
   协调器没有建任务时立即记下
 - 退役与删除：退役话题的日志保留到最后一次沉淀完成再删除，其间照样记下与交出本话题生成的记忆；
   没有未完成沉淀的退役与手动删除立即删除日志
 - 本话题生成的记忆不取 lease：折叠等待摘要、沉淀等待接纳期间记下的生成的记忆在写回之后仍在
-- 进展记录：停顿超过阈值且有还没整理的交互时排入写一条，写一条只看旧进展记录与还没整理的
+- 进展记录：话题停下超过阈值且有还没整理的交互时排入写一条，写一条只看旧进展记录与还没整理的
   交互，写下之后没有新交互不再排入；失败后同一位置不重试，有新交互后再写；写一条不取 lease，
   生成期间话题退役时这一条不记
 """
@@ -114,13 +114,13 @@ def _make_familiar(
     tmp_path,
     *,
     max_resident=5,
-    idle_timeout=30,
+    settle_after=30,
     engine_config=None,
     summary_writer=None,
     bus=None,
     clock=None,
     events: RecordingRuntimeEventSink | None = None,
-    pause_seconds=30,
+    progress_record_after=30,
     progress_llm=None,
 ):
     """构造 (familiar, store, working_set, bus) 测试组合。
@@ -154,7 +154,7 @@ def _make_familiar(
         working_set=working_set,
         bus=bus,
         config=SimpleNamespace(
-            idle_timeout_seconds=idle_timeout, progress_record_pause_seconds=pause_seconds
+            settle_after_seconds=settle_after, progress_record_after_seconds=progress_record_after
         ),
         runtime_events=RuntimeEventPublisher(events) if events is not None else None,
     )
@@ -590,11 +590,11 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_settle_and_retire_retires_settled_topic_without_generation(self, tmp_path):
-        """空闲时已沉淀完成、之后没有新交互的话题，手动沉淀并退役时直接退役，不再生成，日志立即删除。"""
+        """停下后已沉淀完成、之后没有新交互的话题，手动沉淀并退役时直接退役，不再生成，日志立即删除。"""
         events = RecordingRuntimeEventSink()
         clock = _FakeClock()
         familiar, store, _, bus = _make_familiar(
-            tmp_path, idle_timeout=30, clock=clock, events=events
+            tmp_path, settle_after=30, clock=clock, events=events
         )
         scope = _identity_scope()
         topic_id = await familiar.receive_interaction(
@@ -604,13 +604,13 @@ class TestNamedUseCases:
             interaction_id="i-1",
         )
         clock.advance(100)
-        assert await familiar.scan_idle_topics_once() == [topic_id]
+        assert await familiar.scan_for_settle_once() == [topic_id]
 
         result = await familiar.settle_and_retire_topic(scope.workspace_identity, topic_id)
 
         assert result.generation_submitted is False
         assert result.generation_task_id is None
-        assert bus.request.await_count == 1  # 只有空闲时的那次沉淀
+        assert bus.request.await_count == 1  # 只有停下后的那次沉淀
         assert store.get(scope.workspace_identity, topic_id) is None
         assert not _log_exists(tmp_path, topic_id)  # 沉淀都已完成，日志随退役删除
         assert _topic_events(events)[-1] == (
@@ -725,18 +725,18 @@ class TestNamedUseCases:
         assert store.get(scope.workspace_identity, topic_id) is None
 
 
-# ========== 空闲维护 ==========
+# ========== 沉淀扫描 ==========
 
 
 class TestMaintenance:
     @pytest.mark.asyncio
-    async def test_scan_idle_settles_timed_out_topic_and_keeps_it_in_pool(self, tmp_path):
-        """空闲沉淀之后话题仍在存储与驻留中，访问时间不变；协调器没有建任务时没有可等的完成，
+    async def test_scan_for_settle_settles_timed_out_topic_and_keeps_it_in_pool(self, tmp_path):
+        """停下后沉淀，话题仍在存储与驻留中，访问时间不变；协调器没有建任务时没有可等的完成，
         立即记下覆盖到的交互数。"""
         events = RecordingRuntimeEventSink()
         clock = _FakeClock()
         familiar, store, working_set, bus = _make_familiar(
-            tmp_path, idle_timeout=30, clock=clock, events=events
+            tmp_path, settle_after=30, clock=clock, events=events
         )
         scope = _identity_scope()
         stale_id = await familiar.receive_interaction(
@@ -753,12 +753,12 @@ class TestMaintenance:
             interaction_id="i-2",
         )
 
-        flushed = await familiar.scan_idle_topics_once()
+        flushed = await familiar.scan_for_settle_once()
 
         assert flushed == [stale_id]
         assert store.get(scope.workspace_identity, stale_id).settled_until == 1
         assert store.get(scope.workspace_identity, fresh_id).settled_until == 0
-        # 访问时间没有被沉淀刷新：话题仍在驻留集合中，也仍是空闲候选。
+        # 访问时间没有被沉淀刷新：话题仍在驻留集合中，也仍是沉淀扫描的候选。
         assert working_set.list_inactive(30) == [(scope.workspace_identity, stale_id)]
         route, settlement = bus.request.await_args.args
         assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
@@ -778,7 +778,7 @@ class TestMaintenance:
     async def test_writes_recorded_while_awaiting_admission_survive_the_settlement(self, tmp_path):
         """沉淀等待生成队列接纳期间记下的生成的记忆，接纳之后仍在话题上。"""
         clock = _FakeClock()
-        familiar, store, _, bus = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
+        familiar, store, _, bus = _make_familiar(tmp_path, settle_after=30, clock=clock)
         scope = _identity_scope()
         workspace = scope.workspace_identity
         topic_id = await familiar.receive_interaction(
@@ -798,7 +798,7 @@ class TestMaintenance:
         bus.request = AsyncMock(side_effect=admit)
         clock.advance(100)
 
-        scan = asyncio.create_task(familiar.scan_idle_topics_once())
+        scan = asyncio.create_task(familiar.scan_for_settle_once())
         await asyncio.wait_for(admitting.wait(), timeout=1)
         await familiar.record_generated_memories(
             topic_id, belong_to=workspace, generated=frozenset({"m"}), absorbed_into={}
@@ -809,9 +809,9 @@ class TestMaintenance:
         assert store.get(workspace, topic_id).topic_generated_memory_ids == {"m"}
 
     @pytest.mark.asyncio
-    async def test_scan_idle_skips_leased_topic(self, tmp_path):
+    async def test_scan_for_settle_skips_leased_topic(self, tmp_path):
         clock = _FakeClock()
-        familiar, store, working_set, _ = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
+        familiar, store, working_set, _ = _make_familiar(tmp_path, settle_after=30, clock=clock)
         scope = _identity_scope()
         topic_id = await familiar.receive_interaction(
             _payload(),
@@ -822,15 +822,15 @@ class TestMaintenance:
         clock.advance(100)
         working_set.acquire(scope.workspace_identity, topic_id)
 
-        flushed = await familiar.scan_idle_topics_once()
+        flushed = await familiar.scan_for_settle_once()
 
         assert flushed == []
         assert store.get(scope.workspace_identity, topic_id) is not None
 
     @pytest.mark.asyncio
-    async def test_scan_idle_admission_failure_skips_and_preserves(self, tmp_path):
+    async def test_scan_for_settle_admission_failure_skips_and_preserves(self, tmp_path):
         clock = _FakeClock()
-        familiar, store, _, bus = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
+        familiar, store, _, bus = _make_familiar(tmp_path, settle_after=30, clock=clock)
         scope = _identity_scope()
         topic_id = await familiar.receive_interaction(
             _payload(),
@@ -841,19 +841,19 @@ class TestMaintenance:
         clock.advance(100)
         bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
 
-        flushed = await familiar.scan_idle_topics_once()
+        flushed = await familiar.scan_for_settle_once()
 
-        # idle 维护不向上传播；话题与沉淀进度不变，下一轮重试
+        # 沉淀扫描不向上传播；话题与沉淀进度不变，下一轮重试
         assert flushed == []
         assert store.get(scope.workspace_identity, topic_id).has_unsettled_interactions is True
         bus.request = AsyncMock(return_value=None)
-        assert await familiar.scan_idle_topics_once() == [topic_id]
+        assert await familiar.scan_for_settle_once() == [topic_id]
 
     @pytest.mark.asyncio
-    async def test_scan_idle_settles_again_only_after_new_interactions(self, tmp_path):
-        """同一段空闲不重复沉淀；话题接收新交互后再次空闲，沉淀覆盖到最新一轮。"""
+    async def test_scan_for_settle_settles_again_only_after_new_interactions(self, tmp_path):
+        """话题停下的同一段时间里不重复沉淀；接收新交互后再次停下够久，沉淀覆盖到最新一轮。"""
         clock = _FakeClock()
-        familiar, store, _, bus = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
+        familiar, store, _, bus = _make_familiar(tmp_path, settle_after=30, clock=clock)
         scope = _identity_scope()
         topic_id = await familiar.receive_interaction(
             _payload("1"),
@@ -862,15 +862,15 @@ class TestMaintenance:
             interaction_id="i-1",
         )
         clock.advance(100)
-        assert await familiar.scan_idle_topics_once() == [topic_id]
+        assert await familiar.scan_for_settle_once() == [topic_id]
 
         clock.advance(100)
-        assert await familiar.scan_idle_topics_once() == []
+        assert await familiar.scan_for_settle_once() == []
         assert bus.request.await_count == 1
 
         await _apply_to_topic(familiar, scope, topic_id, "2")
         clock.advance(100)
-        assert await familiar.scan_idle_topics_once() == [topic_id]
+        assert await familiar.scan_for_settle_once() == [topic_id]
 
         assert bus.request.await_count == 2
         settlement = bus.request.await_args.args[1]
@@ -878,18 +878,18 @@ class TestMaintenance:
         assert store.get(scope.workspace_identity, topic_id).settled_until == 2
 
     @pytest.mark.asyncio
-    async def test_scan_idle_retires_empty_topic_without_generation(self, tmp_path):
-        """为写入预先建立、从没接收过交互的空话题，空闲时直接退役，不生成。"""
+    async def test_scan_for_settle_retires_empty_topic_without_generation(self, tmp_path):
+        """为写入预先建立、从没接收过交互的空话题，停下够久时直接退役，不生成。"""
         events = RecordingRuntimeEventSink()
         clock = _FakeClock()
         familiar, store, working_set, bus = _make_familiar(
-            tmp_path, idle_timeout=30, clock=clock, events=events
+            tmp_path, settle_after=30, clock=clock, events=events
         )
         scope = _identity_scope()
         topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
 
         clock.advance(100)
-        flushed = await familiar.scan_idle_topics_once()
+        flushed = await familiar.scan_for_settle_once()
 
         assert flushed == [topic_id]
         bus.request.assert_not_awaited()
@@ -907,14 +907,12 @@ class TestMaintenance:
         )
 
     @pytest.mark.asyncio
-    async def test_idle_settlement_after_folding_carries_folded_turns_with_working_view(
-        self, tmp_path
-    ):
+    async def test_settle_scan_after_folding_carries_folded_turns_with_working_view(self, tmp_path):
         """折叠过的话题沉淀时，任务携带全部交互与折叠记录，生成材料仍是工作视图。"""
         clock = _FakeClock()
         familiar, store, _, bus = _make_familiar(
             tmp_path,
-            idle_timeout=30,
+            settle_after=30,
             clock=clock,
             max_resident=2,
             engine_config=PerceptionEngineConfig(
@@ -941,7 +939,7 @@ class TestMaintenance:
         bus.request.side_effect = _accept_settlement_task
         clock.advance(100)
 
-        assert await familiar.scan_idle_topics_once() == [topic_id]
+        assert await familiar.scan_for_settle_once() == [topic_id]
 
         bus.request.assert_awaited_once()
         route, settlement = bus.request.await_args.args
@@ -960,10 +958,10 @@ class TestMaintenance:
 class TestSettlementProgress:
     @pytest.mark.asyncio
     async def test_accepted_settlement_stays_in_flight_until_generation_completes(self, tmp_path):
-        """接纳之后只记在途：日志中的进度不动，在途期间空闲扫描不再沉淀同一段；生成完成后日志
-        记下进度、在途清除，此后接收新交互的话题再次空闲时照常沉淀。"""
+        """接纳之后只记在途：日志中的进度不动，在途期间沉淀扫描不再沉淀同一段；生成完成后日志
+        记下进度、在途清除，此后接收新交互的话题再次停下够久时照常沉淀。"""
         clock = _FakeClock()
-        familiar, store, _, bus = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
+        familiar, store, _, bus = _make_familiar(tmp_path, settle_after=30, clock=clock)
         bus.request.side_effect = _accept_settlement_task
         scope = _identity_scope()
         workspace = scope.workspace_identity
@@ -971,10 +969,10 @@ class TestSettlementProgress:
             _payload("1"), belong_to=workspace, from_actor=scope.actor_identity
         )
         clock.advance(100)
-        assert await familiar.scan_idle_topics_once() == [topic_id]
+        assert await familiar.scan_for_settle_once() == [topic_id]
         in_flight = store.get(workspace, topic_id)
         clock.advance(100)
-        assert await familiar.scan_idle_topics_once() == []
+        assert await familiar.scan_for_settle_once() == []
 
         await familiar.record_settled(topic_id, belong_to=workspace, settled_until=1)
         reloaded = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
@@ -984,7 +982,7 @@ class TestSettlementProgress:
 
         assert in_flight.settled_until == 0
         assert reloaded.get(workspace, topic_id).settled_until == 1
-        assert await familiar.scan_idle_topics_once() == [topic_id]
+        assert await familiar.scan_for_settle_once() == [topic_id]
         assert bus.request.await_count == 2
 
     @pytest.mark.asyncio
@@ -1018,7 +1016,7 @@ class TestSettlementProgress:
     async def test_retiring_while_a_settlement_is_in_flight_waits_for_it(self, tmp_path):
         """在途的沉淀已经覆盖全部交互时退役不再生成，日志保留到这次在途的沉淀完成。"""
         clock = _FakeClock()
-        familiar, store, _, bus = _make_familiar(tmp_path, idle_timeout=30, clock=clock)
+        familiar, store, _, bus = _make_familiar(tmp_path, settle_after=30, clock=clock)
         bus.request.side_effect = _accept_settlement_task
         scope = _identity_scope()
         workspace = scope.workspace_identity
@@ -1026,7 +1024,7 @@ class TestSettlementProgress:
             _payload("1"), belong_to=workspace, from_actor=scope.actor_identity
         )
         clock.advance(100)
-        await familiar.scan_idle_topics_once()
+        await familiar.scan_for_settle_once()
 
         result = await familiar.settle_and_retire_topic(workspace, topic_id)
         kept = _log_exists(tmp_path, topic_id)
@@ -1041,7 +1039,7 @@ class TestSettlementProgress:
 
 
 class _ScheduledEntries:
-    """停顿扫描排入维护项的替身：记下排入的话题，总是排入成功。"""
+    """进展记录扫描排入维护项的替身：记下排入的话题，总是排入成功。"""
 
     def __init__(self) -> None:
         self.topics: list[str] = []
@@ -1053,13 +1051,13 @@ class _ScheduledEntries:
 
 class TestProgressRecord:
     @pytest.mark.asyncio
-    async def test_paused_topic_gets_entries_over_its_unrecorded_turns(self, tmp_path):
-        """停顿且有还没整理的交互时排入；写一条只看旧进展记录与还没整理的交互，写下之后没有新交互
-        就不再排入。没停顿的话题与空话题不排入。"""
+    async def test_stopped_topic_gets_entries_over_its_unrecorded_turns(self, tmp_path):
+        """停下够久且有还没整理的交互时排入；写一条只看旧进展记录与还没整理的交互，写下之后没有新交互
+        就不再排入。没停下够久的话题与空话题不排入。"""
         clock = _FakeClock()
         llm = ScriptedLLMService('{"entry": "讨论了发布顺序"}', '{"entry": "定下先发 staging"}')
         familiar, store, _, _ = _make_familiar(
-            tmp_path, clock=clock, pause_seconds=30, progress_llm=llm
+            tmp_path, clock=clock, progress_record_after=30, progress_llm=llm
         )
         scope = _identity_scope()
         belong_to = scope.workspace_identity
@@ -1073,25 +1071,25 @@ class TestProgressRecord:
                 interaction_id=f"i-{message}",
             )
 
-        paused = await apply("q1")
-        await apply("q2", paused)
+        stopped = await apply("q1")
+        await apply("q2", stopped)
         await familiar.prepare_topic("NEW_TOPIC", None, None, belong_to)  # 空话题
         clock.advance(100)
         await apply("fresh")
         first_scan = _ScheduledEntries()
-        assert await familiar.scan_paused_topics_once(first_scan) == [paused]
-        await familiar.write_progress_entry(belong_to, paused)
+        assert await familiar.scan_for_progress_record_once(first_scan) == [stopped]
+        await familiar.write_progress_entry(belong_to, stopped)
         clock.advance(100)
         after_entry = _ScheduledEntries()
-        await familiar.scan_paused_topics_once(after_entry)
-        await apply("q3", paused)
+        await familiar.scan_for_progress_record_once(after_entry)
+        await apply("q3", stopped)
         clock.advance(100)
-        await familiar.scan_paused_topics_once(_ScheduledEntries())
-        await familiar.write_progress_entry(belong_to, paused)
+        await familiar.scan_for_progress_record_once(_ScheduledEntries())
+        await familiar.write_progress_entry(belong_to, stopped)
 
-        topic = store.get(belong_to, paused)
-        assert first_scan.topics == [paused]
-        assert paused not in after_entry.topics
+        topic = store.get(belong_to, stopped)
+        assert first_scan.topics == [stopped]
+        assert stopped not in after_entry.topics
         assert [(entry.text, entry.covered_until) for entry in topic.progress_record] == [
             ("讨论了发布顺序", 2),
             ("定下先发 staging", 3),
@@ -1111,7 +1109,7 @@ class TestProgressRecord:
             '{"entry": "讨论了发布顺序"}',
         )
         familiar, store, _, _ = _make_familiar(
-            tmp_path, clock=clock, pause_seconds=30, progress_llm=llm
+            tmp_path, clock=clock, progress_record_after=30, progress_llm=llm
         )
         scope = _identity_scope()
         belong_to = scope.workspace_identity
@@ -1122,12 +1120,12 @@ class TestProgressRecord:
             interaction_id="i-1",
         )
         clock.advance(100)
-        assert await familiar.scan_paused_topics_once(_ScheduledEntries()) == [topic_id]
+        assert await familiar.scan_for_progress_record_once(_ScheduledEntries()) == [topic_id]
 
         with pytest.raises(ModelProviderError):
             await familiar.write_progress_entry(belong_to, topic_id)
         clock.advance(100)
-        retried_at_same_position = await familiar.scan_paused_topics_once(_ScheduledEntries())
+        retried_at_same_position = await familiar.scan_for_progress_record_once(_ScheduledEntries())
         await familiar.receive_interaction(
             _payload("q2"),
             belong_to=belong_to,
@@ -1136,7 +1134,7 @@ class TestProgressRecord:
             interaction_id="i-2",
         )
         clock.advance(100)
-        after_new_turn = await familiar.scan_paused_topics_once(_ScheduledEntries())
+        after_new_turn = await familiar.scan_for_progress_record_once(_ScheduledEntries())
         await familiar.write_progress_entry(belong_to, topic_id)
 
         assert retried_at_same_position == []

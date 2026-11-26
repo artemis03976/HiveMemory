@@ -461,7 +461,7 @@ class TestMemoryGenerationTaskController:
         assert topics["topic_b"].topic_generated_memory_ids == {"other"}
 
     @pytest.mark.asyncio
-    async def test_idle_settlement_records_only_the_memories_it_created(self):
+    async def test_settle_scan_records_only_the_memories_it_created(self):
         """不退役的沉淀执行后只把这次新建的记忆记回话题；触碰与修订的是已有记忆，不是这个话题
         写下的，不记。同一话题的下一次沉淀读得到它们。"""
         replies = {

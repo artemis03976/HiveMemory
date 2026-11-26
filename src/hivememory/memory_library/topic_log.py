@@ -230,7 +230,7 @@ def apply_settled(topic: TopicData, record: TopicSettledRecord) -> TopicData:
     """推进沉淀进度，只往前：不改内容与最近写入时间。
 
     同一话题的沉淀按接纳顺序执行，用户取消排队中的沉淀时完成的顺序可能颠倒，较早的沉淀
-    后完成也不会把进度拉回去。沉淀不是一次写入，话题的空闲计时与展示的最后写入时间都不因
+    后完成也不会把进度拉回去。沉淀不是一次写入，话题停下多久的计时与展示的最后写入时间都不因
     它变化。
     """
     settled_until = max(topic.settled_until, record.interaction_count)

@@ -551,7 +551,7 @@ def _wire_process(
     """一次运行的 Patchouli：真实感知、生成控制面与数据面，话题日志写在 ``topic_dir``。
 
     中期库跨运行共用；话题池按启动顺序从同一目录的日志读回。驻留时钟每读一次前进 10000 秒，
-    超过缺省的空闲时限，话题在下一次空闲扫描时总是空闲。
+    超过缺省的沉淀阈值，话题在下一次沉淀扫描时总是停下够久。
     """
     bus = PatchouliBus()
     store = ShortTermMemoryStore(JsonlShortTermStorage(topic_dir))
@@ -611,7 +611,7 @@ async def test_restart_reads_topics_back_and_resettles_what_shutdown_dropped(
     memory_library, artifact_engine, tmp_path
 ):
     """正常关闭后用同一目录重启：话题连同本话题生成的记忆与沉淀进度读回，新交互写进同一个话题；关闭时
-    排队中的沉淀没有保存，重启后的空闲扫描重新沉淀它，复述第一次沉淀所建记忆的草稿被丢弃。"""
+    排队中的沉淀没有保存，重启后的沉淀扫描重新沉淀它，复述第一次沉淀所建记忆的草稿被丢弃。"""
     topic_dir = tmp_path / "topics"
     work_path = tmp_path / "pending_generation.json"
     extractor = AsyncMock()
@@ -621,15 +621,15 @@ async def test_restart_reads_topics_back_and_resettles_what_shutdown_dropped(
     ]
     engine = _extraction_engine(memory_library, extractor)
 
-    # 第一次运行：第一轮空闲时沉淀完成；第二轮之后关闭，这次沉淀被接纳时生成队列已停止取工作。
+    # 第一次运行：第一轮停下后沉淀完成；第二轮之后关闭，这次沉淀被接纳时生成队列已停止取工作。
     controller, perception, _ = _wire_process(memory_library, engine, artifact_engine, topic_dir)
     await controller.start()
     topic_id = await _apply(perception, "how do we deploy now")
-    await perception.scan_idle_topics_once()
+    await perception.scan_for_settle_once()
     await controller.wait_all()
     await _apply(perception, "and staging?", topic_id)
     await controller.stop_dispatch()
-    await perception.scan_idle_topics_once()
+    await perception.scan_for_settle_once()
     saved = await controller.save_unfinished(work_path)
     await controller.stop()
 
@@ -639,7 +639,7 @@ async def test_restart_reads_topics_back_and_resettles_what_shutdown_dropped(
     try:
         restored = store.get(_identity_scope().workspace_identity, topic_id)
         await _apply(perception, "and production?", topic_id)
-        await perception.scan_idle_topics_once()
+        await perception.scan_for_settle_once()
         await controller.wait_all()
     finally:
         await controller.stop()
@@ -675,7 +675,7 @@ def _gated_extractor(release: asyncio.Event, started: asyncio.Event) -> AsyncMoc
 async def test_last_settlement_of_a_retired_topic_knows_what_earlier_settlements_wrote(
     memory_library, artifact_engine, tmp_path
 ):
-    """空闲时的沉淀还在生成，话题随即被手动沉淀并退役退役：前一次沉淀写下的记忆记到退役话题上，随
+    """停下后的沉淀还在生成，话题随即被手动沉淀并退役：前一次沉淀写下的记忆记到退役话题上，随
     退役执行的最后一次沉淀认得它们，复述它们的草稿按本话题生成的记忆丢弃，不新建、不提名合并。"""
     topic_dir = tmp_path / "topics"
     release, started = asyncio.Event(), asyncio.Event()
@@ -685,7 +685,7 @@ async def test_last_settlement_of_a_retired_topic_knows_what_earlier_settlements
     await controller.start()
     try:
         topic_id = await _apply(perception, "how do we deploy now")
-        await perception.scan_idle_topics_once()
+        await perception.scan_for_settle_once()
         await _apply(perception, "and staging?", topic_id)
         await perception.settle_and_retire_topic(_identity_scope().workspace_identity, topic_id)
         release.set()
@@ -708,7 +708,7 @@ async def test_last_settlement_of_a_retired_topic_knows_what_earlier_settlements
 async def test_retired_topic_last_settlement_is_resubmitted_after_restart(
     memory_library, artifact_engine, tmp_path
 ):
-    """空闲时的沉淀还在生成，话题被手动沉淀并退役退役，前一次沉淀写完之后关闭，最后一次沉淀没有完成：
+    """停下后的沉淀还在生成，话题被手动沉淀并退役，前一次沉淀写完之后关闭，最后一次沉淀没有完成：
     重启后话题不回到话题池，它的最后一次沉淀重新发起，认得前一次沉淀写下、记在退役话题日志上
     的记忆，完成后日志删除。"""
     topic_dir = tmp_path / "topics"
@@ -719,7 +719,7 @@ async def test_retired_topic_last_settlement_is_resubmitted_after_restart(
     controller, perception, _ = _wire_process(memory_library, engine, artifact_engine, topic_dir)
     await controller.start()
     topic_id = await _apply(perception, "how do we deploy now")
-    await perception.scan_idle_topics_once()
+    await perception.scan_for_settle_once()
     [earlier] = await controller.list_tasks()
     await asyncio.wait_for(started.wait(), timeout=5)
     await _apply(perception, "and staging?", topic_id)
@@ -773,10 +773,10 @@ async def test_crash_keeps_completed_progress_and_redoes_the_settlement_in_fligh
     second_run.extract.return_value = []
     try:
         topic_id = await _apply(perception, "how do we deploy now")
-        await perception.scan_idle_topics_once()
+        await perception.scan_for_settle_once()
         await crashed.wait_all()
         await _apply(perception, "and staging?", topic_id)
-        await perception.scan_idle_topics_once()
+        await perception.scan_for_settle_once()
         await asyncio.wait_for(in_flight.wait(), timeout=5)
 
         controller, perception, store = await _start_process(
@@ -787,7 +787,7 @@ async def test_crash_keeps_completed_progress_and_redoes_the_settlement_in_fligh
         )
         try:
             restored = store.get(_identity_scope().workspace_identity, topic_id)
-            await perception.scan_idle_topics_once()
+            await perception.scan_for_settle_once()
             await controller.wait_all()
         finally:
             await controller.stop()
@@ -940,7 +940,7 @@ async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
 async def test_second_settlement_drops_draft_restating_the_first_settlements_memory(
     memory_library, artifact_engine, topic_store
 ):
-    """话题空闲时沉淀、之后再次沉淀：材料仍是全部交互，复述第一次沉淀所建记忆的草稿被丢弃，
+    """话题停下后沉淀、之后再次沉淀：材料仍是全部交互，复述第一次沉淀所建记忆的草稿被丢弃，
     不产生合并任务，库中只有第一次的那条。"""
     bus = PatchouliBus()
     coordinator, controller = _wire_generation_pipeline(bus, topic_store)

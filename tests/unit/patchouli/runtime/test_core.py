@@ -167,7 +167,7 @@ def _runtime_with_topic_logs(tmp_path, *, max_resident=5):
         store=store,
         working_set=working_set,
         bus=runtime.local_bus,
-        config=SimpleNamespace(idle_timeout_seconds=60),
+        config=SimpleNamespace(settle_after_seconds=60),
     )
     return runtime, store, working_set
 

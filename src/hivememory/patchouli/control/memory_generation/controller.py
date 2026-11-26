@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 # 关闭时保存到磁盘、下次启动后继续的任务，在本进程内以这个原因取消。
 SHUTDOWN_PERSISTED_REASON = "shutdown_persisted"
 # 关闭时还没开始写入的沉淀不保存，以这个原因取消：话题的日志停在上一次完成的沉淀，重启后
-# 由空闲扫描重新沉淀。
+# 由沉淀扫描重新沉淀。
 SHUTDOWN_DISCARDED_REASON = "shutdown_discarded"
 # 用户经任务接口取消任务的原因；沉淀被用户取消算作完成，与现在一样不重做。
 _USER_CANCEL_REASON = "user_requested"
@@ -642,7 +642,7 @@ class MemoryGenerationTaskController:
         结算与提名的合并照常完成，提名的合并入队后一并保存。未执行的写入、更新与合并写进
         保存文件，下次从头执行，随后以取消结束，原因为 ``shutdown_persisted``。未执行的沉淀
         不保存，以 ``shutdown_discarded`` 取消：沉淀进度只在完成时记下，话题的日志停在上一次
-        完成的位置，重启后由空闲扫描重新沉淀。
+        完成的位置，重启后由沉淀扫描重新沉淀。
         """
         running: list[_MemoryTaskEntry] = []
         for entry in list(self._entries.values()):

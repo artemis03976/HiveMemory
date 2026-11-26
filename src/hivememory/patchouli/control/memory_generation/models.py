@@ -69,7 +69,7 @@ class MemoryGenerationTaskSpec:
     终态事件携带两者，由 workspace 登记严格匹配；被动生成两者都缺省。
 
     ``retires_topic`` 只属于话题的沉淀：为真表示话题在这次沉淀之后退役，不再接收交互；
-    为假是空闲时的沉淀，话题之后还会再次沉淀。
+    为假是话题停下后的沉淀，话题之后还会再次沉淀。
     """
 
     belong_to: WorkspaceIdentity

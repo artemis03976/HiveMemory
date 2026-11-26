@@ -34,7 +34,7 @@ class TriggerReason(str, Enum):
     与话题日志中退役记录的一部分，不随名字改变。
     """
 
-    IDLE_TIMEOUT = "idle_timeout"  # 空闲超时
+    IDLE_TIMEOUT = "idle_timeout"  # 话题停下超过 settle_after_seconds（值沿用旧名）
     LRU_EVICTION = "lru_eviction"  # 话题池满时最久没用的话题被挤出：先沉淀再退役
     MANUAL_SETTLE = "manual_settle"  # 用户手动沉淀并退役话题
 
@@ -85,7 +85,7 @@ class TopicSettleMaterial(BaseModel):
     )
     retires_topic: bool = Field(
         description=(
-            "这次沉淀之后话题是否随即退役（离开话题池）；空闲时的沉淀为假，话题之后"
+            "这次沉淀之后话题是否随即退役（离开话题池）；话题停下后的沉淀为假，话题之后"
             "还会接收交互、再次沉淀"
         )
     )

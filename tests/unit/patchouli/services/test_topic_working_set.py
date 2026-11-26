@@ -3,7 +3,7 @@
 测试覆盖:
 - LRU 顺序: touch 刷新排序、候选按最久未访问选择、Workspace 隔离
 - 占用权: acquire 互斥（含同 Workspace 不同执行者）、不要求驻留、过期令牌释放被忽略
-- 候选查询: 超时过滤、占用过滤、显式 now
+- 候选查询: 停下多久的阈值过滤、占用过滤、显式 now
 - 容量: needs_eviction 的上限判断与 Workspace 隔离
 - 在途沉淀与写进展记录失败的位置: 只记最远的在途、刷新访问不改位置、只记在驻留话题上
 - 移除: 驻留记录整条删除（访问时间与两个位置一起消失），不清理 lease
@@ -186,11 +186,11 @@ class TestCapacity:
             TopicWorkingSet(max_resident=0)
 
 
-# ========== idle 候选查询 ==========
+# ========== 停下多久的候选查询 ==========
 
 
 class TestCandidateQueries:
-    def test_idle_candidates_only_include_timeout_topics(self):
+    def test_inactive_candidates_only_include_timeout_topics(self):
         ws, clock = _make_working_set()
         scope = _identity_scope()
 
@@ -203,10 +203,10 @@ class TestCandidateQueries:
         # 返回的坐标只携带归属，后台维护无需保存访问者。
         assert candidates[0][0].workspace_id == "main_workspace"
 
-        clock.advance(100)  # topic-2 恰好达到超时阈值，仍未空闲（严格大于）
+        clock.advance(100)  # topic-2 恰好达到阈值，还不算停下够久（严格大于）
         assert [topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100)] == ["topic-1"]
 
-    def test_idle_candidates_exclude_leased_topics(self):
+    def test_inactive_candidates_exclude_leased_topics(self):
         ws, clock = _make_working_set()
         scope = _identity_scope()
 
@@ -219,7 +219,7 @@ class TestCandidateQueries:
 
         assert [topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100)] == ["topic-2"]
 
-    def test_idle_candidates_honor_explicit_now(self):
+    def test_inactive_candidates_honor_explicit_now(self):
         ws, clock = _make_working_set()
         scope = _identity_scope()
 
@@ -227,13 +227,13 @@ class TestCandidateQueries:
         ws.touch(scope.workspace_identity, "topic-1")
         clock.advance(200)
 
-        # 显式 now 早于真实流逝时间时不得误判为空闲
+        # 显式 now 早于真实流逝时间时不得误判为停下够久
         assert ws.list_inactive(timeout_seconds=100, now=touched_at + 50) == []
         assert [
             topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100, now=touched_at + 150)
         ] == ["topic-1"]
 
-    def test_idle_candidates_cover_all_workspaces(self):
+    def test_inactive_candidates_cover_all_workspaces(self):
         ws, clock = _make_working_set()
         scope_a = _identity_scope(user_id="u1", workspace_id="ws_a")
         scope_b = _identity_scope(user_id="u2", workspace_id="ws_b")
@@ -262,7 +262,7 @@ class TestCandidateQueries:
             (scope_agent_a.workspace_identity, "topic-1")
         ]
 
-    def test_idle_candidates_on_empty_working_set(self):
+    def test_inactive_candidates_on_empty_working_set(self):
         ws, _ = _make_working_set()
 
         assert ws.list_inactive(timeout_seconds=0) == []

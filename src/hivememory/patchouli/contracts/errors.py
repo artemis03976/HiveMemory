@@ -34,7 +34,7 @@ class TopicBusyError(DomainError):
     """同一话题的 lease 已被另一个操作持有（接收交互、折叠、沉淀或删除）。
 
     属于可重试的瞬态冲突：Interaction queue 将其分类为瞬态失败，手动 API
-    投影为冲突响应，空闲扫描与池满时腾位置据此跳过或改选候选。
+    投影为冲突响应，沉淀扫描与池满时腾位置据此跳过或改选候选。
     """
 
     code = "patchouli.topic.busy"

@@ -22,10 +22,18 @@ def test_active_generation_material_rejects_negative_block_count() -> None:
         MemoryGenerationConfig(active_recent_blocks=-1)
 
 
-def test_idle_timeout_defaults_to_one_hour() -> None:
-    """代码缺省与随附配置相同，停顿阈值（缺省 1800 秒）因此小于空闲时限。"""
+def test_settle_after_defaults_to_one_hour() -> None:
+    """代码缺省与随附配置相同，写进展记录的阈值（缺省 1800 秒）因此比沉淀的短。"""
     config = MemoryPerceptionConfig()
-    assert (config.idle_timeout_seconds, config.progress_record_pause_seconds) == (3600, 1800)
+    assert (config.settle_after_seconds, config.progress_record_after_seconds) == (3600, 1800)
+
+
+def test_thresholds_are_read_by_their_action_names() -> None:
+    """两个阈值按到点后做的事命名；旧键 idle_timeout_seconds 是未知键，启动时显式失败。"""
+    config = MemoryPerceptionConfig(settle_after_seconds=60, progress_record_after_seconds=30)
+    assert (config.settle_after_seconds, config.progress_record_after_seconds) == (60, 30)
+    with pytest.raises(ValidationError, match="idle_timeout_seconds"):
+        MemoryPerceptionConfig.model_validate({"idle_timeout_seconds": 60})
 
 
 def test_max_resident_topics_is_read_from_the_perception_section() -> None:

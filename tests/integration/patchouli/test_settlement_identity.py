@@ -58,7 +58,7 @@ from tests.helpers.sessions import make_interaction_payload
 
 
 class _Clock:
-    """测试驱动的单调时钟，无需等待真实空闲时间。"""
+    """测试驱动的单调时钟，无需真的等话题停下。"""
 
     value = 0.0
 
@@ -195,10 +195,10 @@ class _WritableVectorStore:
 
 
 @pytest.mark.asyncio
-async def test_idle_settlement_persists_public_memory_without_merging_similar_private(
+async def test_settle_scan_persists_public_memory_without_merging_similar_private(
     tmp_path,
 ) -> None:
-    """完整空闲沉淀链必须新建 PUBLIC，既有高相似 PRIVATE 内容保持不变。"""
+    """话题停下后的完整沉淀链必须新建 PUBLIC，既有高相似 PRIVATE 内容保持不变。"""
     belong_to = WorkspaceIdentity(
         owner_user_id="owner-1", workspace_key="main_workspace", workspace_id="main_workspace"
     )
@@ -252,7 +252,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
         store=store,
         working_set=TopicWorkingSet(clock=clock),
         bus=bus,
-        config=SimpleNamespace(idle_timeout_seconds=5),
+        config=SimpleNamespace(settle_after_seconds=5),
     )
     await controller.start()
     try:
@@ -263,7 +263,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
             interaction_id="idle-interaction",
         )
         clock.value = 6
-        assert await perception.scan_idle_topics_once() == [topic_id]
+        assert await perception.scan_for_settle_once() == [topic_id]
         (task,) = await controller.list_tasks()
         completed = await controller.wait_task(task.task_id, timeout=2)
 

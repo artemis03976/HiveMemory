@@ -6,8 +6,8 @@
 本服务编排它们，不另存状态。
 
 话题离开话题池有两种方式：退役，先沉淀还没有沉淀的交互，日志保留到最后一次沉淀完成；删除，
-不沉淀，日志立即删除。沉淀是把话题的交互交给记忆生成，话题留在话题池。空闲时只沉淀、不退役：
-用户会断断续续地回到同一件事，空闲时退役会把连续的工作切成几个话题。
+不沉淀，日志立即删除。沉淀是把话题的交互交给记忆生成，话题留在话题池。话题停下一段时间后只
+沉淀、不退役：用户会断断续续地回到同一件事，停下就退役会把连续的工作切成几个话题。
 
 话题的位置
 ==========
@@ -20,7 +20,9 @@
 触发表
 ======
 
-每个触发写四项：看什么、做什么、推进哪个位置、失败与关闭时怎样。
+每个触发写四项：看什么、做什么、推进哪个位置、失败与关闭时怎样。写进展记录与沉淀两个触发看的
+都是话题停下多久，即驻留记录的同一个访问时间，只是阈值不同：``progress_record_after_seconds``
+比 ``settle_after_seconds`` 短，沉淀时通常已经写过一条进展记录。
 
 接收一轮交互（``receive_interaction``，交互提交队列调用）
     看什么：目标是不是新话题；新话题时池是否已满。
@@ -30,7 +32,7 @@
     推进：``interaction_count``。
     失败：话题正被占用时以 ``TopicBusyError`` 失败，提交队列稍后重试（有次数上限）；目标话题
         已不在池中时以 ``ResourceNotFoundError`` 失败，提交方可以重新路由后再交。追加这一轮是
-        最后一个可能失败的步骤，失败时这一轮没有写入；已经建立的新话题没有交互，由空闲扫描退役。
+        最后一个可能失败的步骤，失败时这一轮没有写入；已经建立的新话题没有交互，由沉淀扫描退役。
 
 折叠（``fold_topic``，交互提交队列的维护项）
     看什么：工作视图的 token 是否超过折叠阈值，轮数是否多于保留的最近几轮。
@@ -40,11 +42,10 @@
         交互时重新判断。话题正被占用时提交队列重试；已退役或删除时直接结束。关闭时进行中的被
         取消，什么也不写。
 
-停顿（调度任务 ``perception_progress_record`` 调用 ``scan_paused_topics_once`` 排入维护项，
-``write_progress_entry`` 执行）
-    看什么：访问时间超过 ``progress_record_pause_seconds`` 且没有被占用（停顿阈值小于空闲时限，
-        空闲沉淀时通常已经写过一条）；``recorded_until`` 之后有交互；``progress_failed_until``
-        小于 ``interaction_count``。没有写进展记录的模型时不写。
+写进展记录（调度任务 ``perception_progress_record`` 调用 ``scan_for_progress_record_once`` 排入
+维护项，``write_progress_entry`` 执行）
+    看什么：话题停下超过 ``progress_record_after_seconds`` 且没有被占用；``recorded_until`` 之后有
+        交互；``progress_failed_until`` 小于 ``interaction_count``。没有写进展记录的模型时不写。
     做什么：排一项维护；执行时不取 lease，以旧进展记录与 ``recorded_until`` 之后的原文写一条，
         写完才追加；不刷新访问时间。
     推进：``recorded_until``，推进到生成开始时的 ``interaction_count``。
@@ -52,12 +53,12 @@
         都会再排一次；生成期间话题退役或删除时这一条不记。话题已有未结束的维护项、维护已关闭
         或队列已满时这一轮不排。关闭时进行中的被取消，什么也不写。
 
-空闲（调度任务 ``perception_idle_settle`` 调用 ``scan_idle_topics_once``）
-    看什么：访问时间超过 ``idle_timeout_seconds`` 且没有被占用；``settled_until`` 与
+沉淀（调度任务 ``perception_settle`` 调用 ``scan_for_settle_once``）
+    看什么：话题停下超过 ``settle_after_seconds`` 且没有被占用；``settled_until`` 与
         ``settling_until`` 中较远的那个之后有没有交互。
     做什么：有新交互：取 lease，冻结全部交互与折叠记录交给生成队列，话题留在池中，访问时间不变，
-        同一段空闲因此不会反复沉淀。从没接收过交互（为写入预先建立、这一轮却没有交互）：退役，
-        日志直接删除。其余什么也不做。
+        话题停下的同一段时间里因此不会反复沉淀。从没接收过交互（为写入预先建立、这一轮却没有
+        交互）：退役，日志直接删除。其余什么也不做。
     推进：``settling_until``。协调器在材料里没有可生成的轮次时不建任务，这时直接推进
         ``settled_until``；工作视图总保留最近几轮，正常不会走到这一支。
     失败：接纳失败（任何异常）时只记日志，话题原样保留，下一轮再看；正被占用时这一轮跳过。
@@ -104,7 +105,7 @@
         丢弃，已经开始写入的写完并记下位置；话题不沉淀、不另外保存（日志随时落盘）。崩溃时
         进程内的一切同样丢失。
     推进：日志停在上一次记下的位置。
-    失败：重启后池中的话题由空闲扫描重新沉淀，退役的话题在启动时重新发起最后一次沉淀。
+    失败：重启后池中的话题由沉淀扫描重新沉淀，退役的话题在启动时重新发起最后一次沉淀。
 
 lease
 =====
@@ -195,7 +196,7 @@ class PerceptionFamiliar:
         self._store = store
         self._working_set = working_set
         self._bus = bus
-        # 空闲时限在每次扫描时读取，配置对象被原地改写后下一次扫描即按新值判断。
+        # 两个阈值在每次扫描时读取，配置对象被原地改写后下一次扫描即按新值判断。
         self._config = config
         self._events = (runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())).scoped(
             subsystem="patchouli", component="perception"
@@ -286,7 +287,7 @@ class PerceptionFamiliar:
         retire: bool,
         raise_on_admission_failure: bool,
     ) -> tuple[bool, MemoryGenerationTask | None]:
-        """取 lease → 冻结材料 → 等待接纳 → 记下在途或退役；触发规则见模块说明的触发表：空闲、
+        """取 lease → 冻结材料 → 等待接纳 → 记下在途或退役；触发规则见模块说明的触发表：沉淀、
         池满时为新话题腾位置、手动沉淀并退役，三者共用这一段。
 
         ``retire`` 决定接纳之后话题是否退役；``raise_on_admission_failure`` 为假时接纳失败只记
@@ -445,10 +446,10 @@ class PerceptionFamiliar:
     # ========== 进展记录 ==========
 
     async def write_progress_entry(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """写一条进展记录；触发规则见模块说明的触发表：停顿。
+        """写一条进展记录；触发规则见模块说明的触发表：写进展记录。
 
         生成失败时先记下失败的位置，再照常抛出，让这个维护项以失败结束。没有写进展记录的模型时
-        停顿扫描不排，这里直接返回。
+        进展记录扫描不排，这里直接返回。
         """
         writer = self._progress_writer
         if writer is None:
@@ -568,13 +569,13 @@ class PerceptionFamiliar:
 
     # ========== 扫描与启动时读回 ==========
 
-    async def scan_idle_topics_once(self) -> list[str]:
-        """空闲扫描，返回被沉淀或退役的话题；触发规则见模块说明的触发表：空闲。"""
+    async def scan_for_settle_once(self) -> list[str]:
+        """沉淀扫描，返回被沉淀或退役的话题；触发规则见模块说明的触发表：沉淀。"""
         settled: list[str] = []
         for belong_to, topic_id in self._working_set.list_inactive(
-            self._config.idle_timeout_seconds
+            self._config.settle_after_seconds
         ):
-            logger.debug("检测到空闲话题: topic_id=%s", topic_id)
+            logger.debug("话题停下超过沉淀阈值: topic_id=%s", topic_id)
             topic = self._store.get(belong_to, topic_id)
             # 读取与 _settle_topic 取得 lease 之间没有 await，判断时的空话题在 lease 内仍为空。
             retire = topic is not None and topic.is_empty
@@ -592,10 +593,10 @@ class PerceptionFamiliar:
                 settled.append(topic_id)
         return settled
 
-    async def scan_paused_topics_once(
+    async def scan_for_progress_record_once(
         self, schedule_progress_entry: Callable[[WorkspaceIdentity, str], Awaitable[bool]]
     ) -> list[str]:
-        """停顿扫描，返回排入了写一条进展记录的话题；触发规则见模块说明的触发表：停顿。
+        """进展记录扫描，返回排入了写一条进展记录的话题；触发规则见模块说明的触发表：写进展记录。
 
         ``schedule_progress_entry`` 是交互提交队列的排入函数，没有排入时返回假。
         """
@@ -603,7 +604,7 @@ class PerceptionFamiliar:
             return []
         scheduled: list[str] = []
         for belong_to, topic_id in self._working_set.list_inactive(
-            self._config.progress_record_pause_seconds
+            self._config.progress_record_after_seconds
         ):
             topic = self._store.get(belong_to, topic_id)
             if topic is None:

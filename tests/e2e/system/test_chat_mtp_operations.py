@@ -535,7 +535,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
 async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_chat_stack):
     """WRITE 接纳后 CPU 无交互输出并取消，交互不提交，记忆仍经真实生成链落库。
 
-    写入为这一轮建立的话题没有接收交互，关闭流程不删除它，留给空闲沉淀或 LRU
+    写入为这一轮建立的话题没有接收交互，关闭流程不删除它，留给沉淀扫描或 LRU
     回收。各种 CPU 终态下意图都不撤回由任务进程的意图集成测试逐项守护，此处只
     保留端到端代表。
     """

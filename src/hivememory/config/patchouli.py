@@ -56,19 +56,20 @@ class PerceptionEngineConfig(BaseModel):
 
 
 class MemoryPerceptionConfig(BaseModel):
-    idle_timeout_seconds: int = Field(
+    settle_after_seconds: int = Field(
         default=3600,
         description=(
-            "话题多少秒没有访问（接收交互，或为写入预先确定话题）后沉淀：把上次沉淀之后的新交互"
-            "交给记忆生成，话题仍留在话题池；重启后从读回时重新计时"
+            "话题停下多久后沉淀（秒）：按访问时间计（接收交互，或为写入预先确定话题），把上次"
+            "沉淀之后的新交互交给记忆生成，话题仍留在话题池；重启后从读回时重新计时"
         ),
     )
-    progress_record_pause_seconds: int = Field(
+    progress_record_after_seconds: int = Field(
         default=1800,
         gt=0,
         description=(
-            "话题停顿多少秒后写一条进展记录：自上一条以来有还没整理的交互时，以旧进展记录与这些"
-            "交互的原文写出一段总结；小于空闲时限，空闲时通常已经写过一条"
+            "话题停下多久后写一条进展记录（秒）：与沉淀看同一个访问时间，自上一条以来有还没整理的"
+            "交互时，以旧进展记录与这些交互的原文写出一段总结；比 settle_after_seconds 短，沉淀时"
+            "通常已经写过一条"
         ),
     )
     topic_dir: str = Field(
