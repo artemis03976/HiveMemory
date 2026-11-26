@@ -26,9 +26,9 @@ last_reviewed: 2026-11-25
 
 版本目标：短期记忆，摘要见 [ROADMAP](../ROADMAP.md) 第 3.4 节；设计见[短期记忆：话题的进展及其维护](../ideas/short-term-memory-and-context-compaction.md)。
 
-- [话题的进展记录：话题停顿时写一条，话题池展示](./v0.8.1-topic-progress-record.md)：Planned。
+当前没有活动计划。
 
-- 结算拆成沉淀与退役、话题跨重启保存、短期记忆代码整理、话题的存储介质：已完成，见 [Archived Plans](../archive/plans/README.md#v081)。
+- 结算拆成沉淀与退役、话题跨重启保存、短期记忆代码整理、话题的存储介质、话题的进展记录：已完成，见 [Archived Plans](../archive/plans/README.md#v081)。
 
 ## 已发布的版本
 

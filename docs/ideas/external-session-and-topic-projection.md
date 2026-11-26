@@ -33,7 +33,7 @@ last_reviewed: 2026-11-24
 
 外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。压缩机制见[短期记忆](./short-term-memory-and-context-compaction.md)，完整资料保存见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，长 turn 的输入与封口见[专项 Idea](./long-running-agent-intra-turn-context-folding.md)。
 
-**Topic 与会话解耦**：Topic 不再承担上下文的控制，它组织记忆生成的材料，并以话题的工作状态向前台提供“做到哪了”：另一个会话被路由回已有话题、或会话压缩之后推送，只读出、不控制（[短期记忆](./short-term-memory-and-context-compaction.md)第 7 节）。实际使用的对话上下文由 ConversationSession 提供，原样积累，不受外界干涉；CPU 管理派生视图的预算与压缩。Patchouli 通过接收到的交互组织材料，不在生成时反向读取 Session 或 CPU 上下文。
+**Topic 与会话解耦**：Topic 不再承担上下文的控制，它组织记忆生成的材料，并以话题的进展向前台提供“进行到哪一步”：另一个会话被路由回已有话题、或会话压缩之后推送，只读出、不控制（[短期记忆](./short-term-memory-and-context-compaction.md)第 7 节）。实际使用的对话上下文由 ConversationSession 提供，原样积累，不受外界干涉；CPU 管理派生视图的预算与压缩。Patchouli 通过接收到的交互组织材料，不在生成时反向读取 Session 或 CPU 上下文。
 
 ### 0.1 会话模型与 Topic 池
 
