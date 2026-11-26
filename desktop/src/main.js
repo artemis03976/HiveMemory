@@ -1,7 +1,7 @@
 /**
  * HiveMemory 桌面客户端的主进程：托盘常驻，启动并持有本机的 Qdrant 与后端。
  *
- * 关窗只隐藏到托盘；从托盘退出时先请后端正常关闭（结算内存中的话题），等它退出后应用再退出。
+ * 关窗只隐藏到托盘；从托盘退出时先请后端正常关闭（把待生成的工作写盘），等它退出后应用再退出。
  * 管理凭据只在主进程与后端的内存中：经 stdin 交给后端，放进窗口的内存会话，不落盘。
  * 页面由后端提供，只用公开的 HTTP 接口；主进程只做进程管理与原生对话框，不执行页面或远程内容。
  */
@@ -22,7 +22,7 @@ const MAX_DATA_ROOT_LENGTH = 100
 // 登录 Windows 时启动的应用带上这个参数，只进托盘、不弹出窗口。
 const HIDDEN_ARG = '--hidden'
 // 安装程序覆盖安装或卸载之前以这个参数再启动一次：运行中的实例收到后正常退出，
-// 后端结算话题、把待生成的工作写盘，不被安装程序直接结束。
+// 后端把待生成的工作写盘，不被安装程序直接结束。
 const QUIT_ARG = '--quit'
 const PRODUCT_TITLE = `HiveMemory ${app.getVersion()}`
 
@@ -30,7 +30,7 @@ let logDir = null
 let services = null
 let window = null
 let tray = null
-// running → stopping（等待后端结算话题）→ stopped（可以退出）
+// running → stopping（等待后端正常关闭）→ stopped（可以退出）
 let lifecycle = 'running'
 
 function log(message) {
@@ -309,7 +309,7 @@ function createWindow() {
     event.preventDefault()
     win.hide()
   })
-  // Windows 关机、重启或注销时不会发出 before-quit，在这里推迟会话结束，等后端结算话题。
+  // Windows 关机、重启或注销时不会发出 before-quit，在这里推迟会话结束，等后端正常关闭。
   win.on('query-session-end', (event) => {
     log(`Windows 即将结束会话: reasons=${event.reasons}`)
     if (lifecycle !== 'running') return

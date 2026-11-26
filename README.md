@@ -7,7 +7,7 @@
 
 HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是解决长上下文遗忘、跨会话知识无法复用、以及多 Agent 协作中的信息孤岛问题。系统会将对话中的高价值信息沉淀为可检索、可更新、可使用的记忆，并通过统一协议将这些记忆重新注入到后续任务中。
 
-当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 装配 workspace、Gateway、Patchouli 与 Alice 的 v0.8.0 内容基线。v0.7.0 完成了向 Workspace 网络与任务进程架构的演进：任务请求经唯一注册入口登记为任务进程，Agent 的资源操作经 workspace 能力层逐次授权，执行者经 CPU 端口接入、可以替换。v0.7.1 以 plugin 模式接入了第一个外部 harness Claude Code：Claude Code 的对话经 Import Bus 回流进入记忆生成，Claude Code 的 agent 经 MCP 工具检索与读取记忆。v0.7.2 改进生成质量：生成材料不再按单轮截断，结算来源覆盖已折叠的轮次；一个话题一次提取多条记忆；查重命中后先落库、再合并两条相似的记忆，不再整体覆盖；Claude Code 的 agent 也能经 MCP 工具写入与更新记忆。v0.7.3 是主动写入与被动提取收敛的过渡措施：话题结算的被动提取不再改写同一话题中 agent 主动写入的记忆，同一话题的主动写入之间不再合并；主动写入沿用 agent 拟定的标题；生成任务失败带稳定原因码。v0.8.0 升级生成核心：记忆类型收敛，Agent Profile 移出中期库；生成的记忆指向具体的交互轮次；话题结算可选 Patchouli 馆长 agent，先看本话题的写入与库中相关记忆，再新建或修订；修订、主动更新与合并都以编辑集只改变化的部分。同期还提供了 Windows 桌面客户端，并以 plugin 模式接入 Codex 与 pi。
+当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 装配 workspace、Gateway、Patchouli 与 Alice 的 v0.8.0 内容基线。v0.7.0 完成了向 Workspace 网络与任务进程架构的演进：任务请求经唯一注册入口登记为任务进程，Agent 的资源操作经 workspace 能力层逐次授权，执行者经 CPU 端口接入、可以替换。v0.7.1 以 plugin 模式接入了第一个外部 harness Claude Code：Claude Code 的对话经 Import Bus 回流进入记忆生成，Claude Code 的 agent 经 MCP 工具检索与读取记忆。v0.7.2 改进生成质量：生成材料不再按单轮截断，结算来源覆盖已折叠的轮次；一个话题一次提取多条记忆；查重命中后先落库、再合并两条相似的记忆，不再整体覆盖；Claude Code 的 agent 也能经 MCP 工具写入与更新记忆。v0.7.3 是主动写入与被动提取收敛的过渡措施：话题结算的被动提取不再改写同一话题中 agent 主动写入的记忆，同一话题的主动写入之间不再合并；主动写入沿用 agent 拟定的标题；生成任务失败带稳定原因码。v0.8.0 升级生成核心：记忆类型收敛，Agent Profile 移出中期库；生成的记忆指向具体的交互轮次；话题结算可选 Patchouli 馆长 agent，先看本话题生成的记忆与库中相关记忆，再新建或修订；修订、主动更新与合并都以编辑集只改变化的部分。同期还提供了 Windows 桌面客户端，并以 plugin 模式接入 Codex 与 pi。
 
 ## 发布状态
 
