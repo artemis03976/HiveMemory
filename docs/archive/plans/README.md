@@ -14,8 +14,8 @@ last_reviewed: 2026-11-24
 
 ## v0.8.1
 
-- 结算拆成沉淀与退役：空闲时只沉淀，话题留在话题池：2026-11-24，PR #240；删除前最后版本在 `e580a3b4`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[记忆生成](../../patchouli/generation.md#42-本话题的写入)
-- 话题跨重启保存：关闭时保存话题池，本话题的写入记录交还给话题：2026-11-24，PR #241；删除前最后版本在 `bcd3f35f`；[感知与短期话题](../../patchouli/perception.md#7-维护与关闭)、[记忆生成](../../patchouli/generation.md#42-本话题的写入)
+- 结算拆成沉淀与退役：空闲时只沉淀，话题留在话题池：2026-11-24，PR #240；删除前最后版本在 `e580a3b4`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
+- 话题跨重启保存：关闭时保存话题池，本话题的写入记录交还给话题：2026-11-24，PR #241；删除前最后版本在 `bcd3f35f`；[感知与短期话题](../../patchouli/perception.md#7-维护存储与启动时读回)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
 - 短期记忆代码整理：写回由存储层保证，折叠摘要改名，清理遗留：2026-11-25，PR #242；删除前最后版本在 `fc3e7b57`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)
 
 ## v0.8.0
@@ -33,7 +33,7 @@ last_reviewed: 2026-11-24
 - [v0.7.3 版本收尾审计](./v0.7.3-release-closeout-audit.md)：2026-11-04，PR #179；[PROJECT](../../PROJECT.md)
 - [主动写入沿用 agent 的标题](./v0.7.3-write-title-kept.md)：2026-11-03，PR #178；[Patchouli 生成](../../patchouli/generation.md#32-mode-b主动-write)、[MCP 记忆访问](../../contracts/mcp.md#3-工具)
 - [生成任务失败带原因码](./v0.7.3-generation-failure-reason-codes.md)：2026-11-03，PR #177；[Patchouli 生成](../../patchouli/generation.md#61-失败原因码)、[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)
-- [话题内主动写入优先](./v0.7.3-topic-active-write-precedence.md)：2026-11-03，PR #176；[Patchouli 生成](../../patchouli/generation.md#42-本话题的写入)
+- [话题内主动写入优先](./v0.7.3-topic-active-write-precedence.md)：2026-11-03，PR #176；[Patchouli 生成](../../patchouli/generation.md#42-本话题生成的记忆)
 
 ## 版本之外
 

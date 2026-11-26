@@ -91,7 +91,7 @@ last_reviewed: 2026-11-24
 **两条写入路径的相遇**
 
 - 交互材料有意不渲染 WRITE、UPDATE 与 CALL（[交互材料](../../src/hivememory/engines/perception/material.py)）。
-- 话题结算有两种方式，由用户选择（[记忆生成](../patchouli/generation.md#31-mode-a被动观察--archive)第 3.1 节）：一次性生成只看话题材料，不带中期库中的任何记忆，两条路径只在查重时碰面：控制面记下本话题的主动写入已经结算到的正式记忆（`GenerationRequest.topic_write_memory_ids`），被动草稿查重命中其中一条时丢弃；馆长先以工具查看这些记忆，再检索库中相关的记忆，然后只新建，不查重、不修订。
+- 话题结算有两种方式，由用户选择（[记忆生成](../patchouli/generation.md#31-mode-a被动观察--archive)第 3.1 节）：一次性生成只看话题材料，不带中期库中的任何记忆，两条路径只在查重时碰面：控制面记下本话题生成的记忆（`GenerationRequest.topic_generated_memory_ids`），被动草稿查重命中其中一条时丢弃；馆长先以工具查看这些记忆，再检索库中相关的记忆，然后只新建，不查重、不修订。
 - 生成提示词按模式分开（被动、写入、更新、合并，以及馆长），被动一侧用同一份提示词处理所有来源，其中已经有针对 agent 工作过程的规则：思考不作为事实依据，工具调用与结果可以作为事实依据，子 Agent 交回的消息按结论对待（[生成提示词](../../src/hivememory/i18n/prompts.py)）。
 
 **主动写入生成时的材料**

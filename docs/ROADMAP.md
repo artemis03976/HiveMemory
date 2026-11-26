@@ -51,7 +51,7 @@ last_reviewed: 2026-11-24
 | `v0.7.0` | Workspace 网络与任务进程：唯一注册入口、两阶段认证与授权、能力层、执行线程、会话资源、写入意图实时派发、记忆内容版本 | [Workspace](./workspace/README.md)、[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md) |
 | `v0.7.1` | plugin 模式接入 Claude Code：Import Bus 对话回流与 MCP 记忆访问 | [Import Bus](./system/import-bus.md)、[MCP 记忆访问](./contracts/mcp.md)、[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md) |
 | `v0.7.2` | 生成质量：生成材料不再按单轮截断、一个话题提取多条记忆、查重命中后先落库再合并、Claude Code 经 MCP 写入与更新记忆 | [记忆生成](./patchouli/generation.md)、[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md) |
-| `v0.7.3` | 主动写入与被动提取的收敛（过渡措施）：话题内主动写入优先、生成失败带原因码、主动写入沿用 agent 的标题 | [记忆生成](./patchouli/generation.md#42-本话题的写入)、[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
+| `v0.7.3` | 主动写入与被动提取的收敛（过渡措施）：话题内主动写入优先、生成失败带原因码、主动写入沿用 agent 的标题 | [记忆生成](./patchouli/generation.md#42-本话题生成的记忆)、[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
 | `v0.8.0` | 生成核心的升级：记忆类型的收敛、AgentProfileStore、生成的记忆指向交互轮次、馆长 agent 与写入时的编辑集修订；试验场与第一次 HaluMem 评测 | [记忆生成](./patchouli/generation.md)、[收尾审计](./archive/plans/v0.8.0-release-closeout-audit.md) |
 
 各版本的计划见 [Archived Plans](./archive/plans/README.md)。过去文档中的 `v0.5.1` 至 `v0.5.3` 是 v0.5 开发期的内部批次，不是发布标签；旧文档中出现的、后来撤销或改排的版本号（例如 `v0.7.2` Deep Research、`v0.8.x` 产品化窗口）以本文为准，不重写历史。
@@ -69,7 +69,7 @@ last_reviewed: 2026-11-24
 | 记忆类型的收敛 | 去掉 WORK_IN_PROGRESS；CODE_SNIPPET 与 URL_RESOURCE 合并为资源记忆；关闭 RUN 的用户工具路径；已有记忆按 owner 逐条决定迁移 | #225 |
 | AgentProfileStore | Agent Profile 移出中期库，以文件保存并热重载；可用 agent 的列表常驻提示词 | #226 |
 | 生成的记忆指向交互轮次 | 事件记下来自本轮第几次模型响应，段由事件派生，记忆的版本记录引用段 | #228 |
-| 馆长 agent | 话题结算可选馆长：先看本话题的写入与库中相关记忆再写；与一次性生成并存为用户选项 | #231 |
+| 馆长 agent | 话题结算可选馆长：先看本话题生成的记忆与库中相关记忆再写；与一次性生成并存为用户选项 | #231 |
 | 试验场第一版 | 隔离的试验实例与 HaluMem 的驱动、评分器与报告；在 Medium 的 5 个用户上对照一次性生成与馆长；评测之前修复英文提取提示词中的中文 Schema 说明 | #234 |
 | 写入时的更新 | 馆长可以修订读过的记忆；馆长的修订、主动 UPDATE 与查重提名的合并改用编辑集，索引的修改幅度由编辑集的结构限制；三条路径提交前按同一条规则重读与重放；合并按 Workspace 依次执行、沿吸收关系改指 | #236 |
 
@@ -89,7 +89,7 @@ last_reviewed: 2026-11-24
 - 折叠只为材料服务，折叠摘要结构化。
 - 两个使用时点都由系统推送：另一个会话被路由回已有话题时推送工作状态，会话压缩之后只推送工作记录的索引。
 
-设计与开放问题见[短期记忆：话题的工作状态及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役（[感知与短期话题](./patchouli/perception.md#4-触发原因与具名用例)）与话题跨重启保存（同一文档[第 7 节](./patchouli/perception.md#7-维护与关闭)）已完成，工作状态落地之前的短期记忆代码整理也已完成，计划见 [Archived Plans](./archive/plans/README.md#v081)；话题的存储介质改为每个话题一条只追加的日志，计划见[话题的存储介质](./plans/v0.8.1-topic-append-only-log.md)；工作记录建立在它之上，其余部分还没有计划。
+设计与开放问题见[短期记忆：话题的工作状态及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役（[感知与短期话题](./patchouli/perception.md#4-触发原因与具名用例)）与话题跨重启保存（同一文档[第 7 节](./patchouli/perception.md#7-维护存储与启动时读回)）已完成，工作状态落地之前的短期记忆代码整理也已完成，计划见 [Archived Plans](./archive/plans/README.md#v081)；话题的存储介质改为每个话题一条只追加的日志，计划见[话题的存储介质](./plans/v0.8.1-topic-append-only-log.md)；工作记录建立在它之上，其余部分还没有计划。
 
 ## 4. 版本之外的工作与候选方向
 

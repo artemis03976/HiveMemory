@@ -23,7 +23,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/architecture/data-model.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-25
 ---
 
 # 系统边界与所有权
@@ -58,7 +58,7 @@ last_reviewed: 2026-11-18
 
 `IdentityScope` 是一次操作携带的不可变 `ActorIdentity + WorkspaceIdentity`。它由授权点传到资源 owner 的公共边界与 Gateway，只在该操作的调用链内使用。Patchouli 在公共边界拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`，内部调用、引擎、存储、记录和后台任务分别携带所需字段，不继续传递或重建 scope；它不把 Gateway、Patchouli、Alice 或共享 runtime 复制成按 Workspace 分区的实例。
 
-当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore`（`workspace.assets`）是进程级唯一的运行时 working set，由组合根装配并在关闭时最后清空。Topic 的 `topic_id` 在领域上全局唯一，公共调用方通过 `IdentityScope + topic_id` 访问，内部使用 `belong_to + topic_id`；`WorkspaceTopicKey` 只在短期 adapter 内部将 owner/workspace 坐标与 ID 组合起来进行归属校验和物理索引。WorkspaceAssetStore 的旧身份端口与 System 兼容适配器是当前迁移例外（见 [WorkspaceAsset](../workspace/assets.md#3-身份与归属)）。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
+当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore`（`workspace.assets`）是进程级唯一的运行时 working set，由组合根装配并在关闭时最后清空。Topic 的 `topic_id` 在领域上全局唯一，公共调用方通过 `IdentityScope + topic_id` 访问，内部使用 `belong_to + topic_id`；短期存储按全局 `topic_id` 存放话题，读取与写入时核对 Workspace 归属。WorkspaceAssetStore 的旧身份端口与 System 兼容适配器是当前迁移例外（见 [WorkspaceAsset](../workspace/assets.md#3-身份与归属)）。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 

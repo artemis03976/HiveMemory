@@ -22,7 +22,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/architecture/data-model.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-25
 ---
 
 # 身份与授权
@@ -156,12 +156,12 @@ Workspace 资源的最终寻址同时包含 WorkspaceIdentity 和资源 ID。复
 | 资源 | 当前寻址结构 | 主要所有者 |
 |:---|:---|:---|
 | ConversationSession | `WorkspaceIdentity + session_id`，管理入口先做 root 授权 | workspace `ConversationSessionService`（[会话资源](./sessions.md)） |
-| Topic | 公共边界为 `IdentityScope + topic_id`；内部为 `belong_to + topic_id`（adapter 内部为 `WorkspaceTopicKey`） | Patchouli Perception / `ShortTermMemoryStore` |
+| Topic | 公共边界为 `IdentityScope + topic_id`；内部为 `belong_to + topic_id`（存储按全局 `topic_id` 存放，读写时核对归属） | Patchouli Perception / `ShortTermMemoryStore` |
 | Memory | `WorkspaceMemoryKey(workspace_identity, memory_id)` | Patchouli `MidTermMemoryStore` / 长期存储 |
 | Artifact | `WorkspaceArtifactKey(workspace_identity, artifact_id)`；`ArtifactRef` 同时带 WorkspaceIdentity | Patchouli `ArtifactStore` 及其适配器 |
 | WorkspaceAsset | `WorkspaceAssetKey(workspace_identity, asset_id)`；外部使用当前 Store 的 opaque `WorkspaceAssetRef` | workspace 持有的 `WorkspaceAssetStore`（[WorkspaceAsset](./assets.md)） |
 
-`topic_id` 在领域上是全局唯一身份。正常创建路径由统一流程生成新的 UUID，两个 Workspace 可以使用相同标题，但不能把同一个 `topic_id` 作为两个合法 Topic 并存。公共调用方以 `IdentityScope + topic_id` 访问，Patchouli 内部只传 `belong_to + topic_id`；`WorkspaceTopicKey` 仅由短期 adapter 在内部构造，用于归属校验和物理索引。
+`topic_id` 在领域上是全局唯一身份。正常创建路径由统一流程生成新的 UUID，两个 Workspace 可以使用相同标题，但不能把同一个 `topic_id` 作为两个合法 Topic 并存。公共调用方以 `IdentityScope + topic_id` 访问，Patchouli 内部只传 `belong_to + topic_id`；短期存储按全局 `topic_id` 存放话题，读取与写入时核对 Workspace 归属，另一个 Workspace 的同名话题按不存在处理。
 
 ### 5.2 Memory 的归属
 

@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-25
 ---
 
 # 子系统公共契约
@@ -136,7 +136,7 @@ topic.prepare(
 
 为一轮确认或建立目标话题，返回真实话题标识；不检索、不读取记忆。`target_topic_id` 为已有话题时确认它存在并刷新驻留，话题不存在时以 `ResourceNotFoundError` 拒绝；为 `NEW_TOPIC` 时以给出的标题与摘要建立新话题（缺省时使用默认标题），活跃池已满时先按 LRU 结算一个未被占用的话题，候选都被占用时抛 `TopicBusyError`。归属取 scope 的 Workspace。
 
-唯一的生产调用方是 root API 的为一轮确定话题（`RootTopicService.determine_topic`）：任务进程在 PREPARE 确认 Gateway 指向的已有话题，在本轮第一次写入时建立 Gateway 指向的新话题；Import Bus 为外部 harness 写入时的一轮确定话题（第 6 节）。写入需要一个已存在的话题作为派发话题，交互本身不需要：没有写入的轮次以 `NEW_TOPIC` 提交，话题在交互应用时建立（第 3.6 节）。新话题因此只在第一次写入或交互应用时进入话题池，LRU 结算随之发生在这两个时点；建立之后没有接收交互的话题不另行补偿，由空闲结算、LRU 或关闭结算按没有材料的话题结束生命周期（[感知与短期话题](../patchouli/perception.md#3-话题准备与-lru)）。
+唯一的生产调用方是 root API 的为一轮确定话题（`RootTopicService.determine_topic`）：任务进程在 PREPARE 确认 Gateway 指向的已有话题，在本轮第一次写入时建立 Gateway 指向的新话题；Import Bus 为外部 harness 写入时的一轮确定话题（第 6 节）。写入需要一个已存在的话题作为派发话题，交互本身不需要：没有写入的轮次以 `NEW_TOPIC` 提交，话题在交互应用时建立（第 3.6 节）。新话题因此只在第一次写入或交互应用时进入话题池，LRU 结算随之发生在这两个时点；建立之后没有接收交互的话题不另行补偿，由空闲结算或 LRU 按没有材料的话题结束生命周期（[感知与短期话题](../patchouli/perception.md#3-话题准备与-lru)）。
 
 ### 3.3 检索命中与存储健康
 

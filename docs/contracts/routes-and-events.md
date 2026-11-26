@@ -30,7 +30,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-24
+last_reviewed: 2026-11-25
 ---
 
 # 公开路由与事件
@@ -205,7 +205,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `actor.operation` 由操作入口在一次 actor 操作结束时发布，`subsystem=workspace`、`component=operation_entry`；`agent_id` 与 `workspace_id` 是工作 actor 的 Agent 与驻留 Workspace，只作标签，执行线程的提交另带 `process_id`，MCP 的请求级提交没有。`data` 带 `operation`（`WorkspaceOperation` 的值）、`entry`（`thread` 或 `request`）、`duration_ms` 与按操作的摘要：检索为 `result_count`；读取为 `requested_count` 与 `delivered_count`（解析为正式记忆或重定向的数量）；RUN 为 `resolution`（解析结果的 kind）；写入与更新为 `pending_alias`；CALL 为 `callee_agent_id`。`rejected` 的领域错误带受约束的 `details.reason` 时另带 `error_reason`（如同为 `workspace.operation_denied` 的 `operation_not_allowed` 与 `root_required`），`details` 的其余字段不进入事件；`failed` 另带 `error_class`。事件不带检索文本、记忆正文或请求参数。
 
-`topic.*` 由 Patchouli 感知层发布，`subsystem=patchouli`、`component=perception`，信封带 `topic_id` 与 `workspace_id`。`topic.created` 的 `data.created_by` 为 `interaction`（应用交互时建立）或 `prepare`（为写入预先确定话题时建立）；`topic.settled` 的 `data` 带 `reason`（结算原因：`idle_timeout`、`manual_settle`、`shutdown`、`lru_eviction` 等）、`generation_submitted`（最近一次沉淀之后没有新交互、不提交生成时为 false）与 `retired`（这次是否随之退役、离开话题池；空闲与关闭时的沉淀为 false，LRU、手动结算，以及空话题在空闲与关闭时的退役为 true）；`topic.deleted` 是不经结算的删除，`data` 为空。
+`topic.*` 由 Patchouli 感知层发布，`subsystem=patchouli`、`component=perception`，信封带 `topic_id` 与 `workspace_id`。`topic.created` 的 `data.created_by` 为 `interaction`（应用交互时建立）或 `prepare`（为写入预先确定话题时建立）；`topic.settled` 在沉淀被生成队列接纳或话题退役时发布（不是生成完成时），`data` 带 `reason`（结算原因：`idle_timeout`、`manual_settle`、`lru_eviction`）、`generation_submitted`（已完成与在途的沉淀之后没有新交互、不提交生成时为 false）与 `retired`（这次是否随之退役、离开话题池；空闲时的沉淀为 false，LRU、手动结算，以及空话题在空闲时的退役为 true）；`topic.deleted` 是不经结算的删除，`data` 为空。
 
 ### 4.1 投递语义
 
@@ -213,7 +213,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 - 每次 emit 会覆盖 timestamp 并分配递增 sequence；
 - 总线保留有界 ring buffer，支持 replay last 或从 `last_event_id` 后回放；`/runtime-events/stream` 不带回放点的新连接按查询参数 `replay_last`（正整数，缺省 100）回放最近的事件，超过缓冲大小时回放整个缓冲，带回放点的续传回放其后的全部，不受它影响；
 - 找不到客户端提供的 `last_event_id` 时，先生成 `event.stream.gap`；
-- 订阅没有尽头，`/runtime-events/stream` 只在客户端断开或服务器开始关闭时结束（sse-starlette 的 `EventSourceResponse`，与 chat 的流相同），空闲时每 15 秒发送一行 SSE 注释保活，EventSource 会忽略它。服务器关闭时要先等进行中的请求结束才执行应用的关闭流程，流不随关闭结束会让关闭一直停在等待连接上，内存中的话题也就无法结算；
+- 订阅没有尽头，`/runtime-events/stream` 只在客户端断开或服务器开始关闭时结束（sse-starlette 的 `EventSourceResponse`，与 chat 的流相同），空闲时每 15 秒发送一行 SSE 注释保活，EventSource 会忽略它。服务器关闭时要先等进行中的请求结束才执行应用的关闭流程，流不随关闭结束会让关闭一直停在等待连接上，还没执行的生成工作也就无法保存；
 - 每个订阅者队列有界，满时丢弃最旧事件；
 - RuntimeEvent 不承诺跨进程连续、持久化或 exactly-once。
 

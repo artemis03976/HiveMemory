@@ -53,7 +53,7 @@ related_docs:
 
 已有的基础：
 
-- 结算已经把话题的全部交互记录与折叠记录冻结进任务规范，任务进入队列后不再依赖话题本身（[感知与短期话题](../../patchouli/perception.md#7-维护与关闭)）。
+- 结算已经把话题的全部交互记录与折叠记录冻结进任务规范，任务进入队列后不再依赖话题本身（[感知与短期话题](../../patchouli/perception.md#7-维护存储与启动时读回)）。
 - 生成队列的工作信封（`patchouli.memory_generation`，`schema_version` 1.1）把完整的任务规范编码为规范 JSON，解码时拒绝缺字段、多字段与非规范的载荷（[记忆生成](../../patchouli/generation.md)）。
 - 队列的存储经 `WorkStorePort`，目前只有进程内实现；版本化载荷只用于进程内冻结与一致性校验。
 
