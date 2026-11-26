@@ -123,10 +123,12 @@ class MemoryAliasConflictError(WorkspaceDomainError):
 
     alias 是 Memory 与 Agent Profile 的 actor 面向身份，也是派生缓存
     ``(WorkspaceIdentity, alias)`` 资源 key 的唯一性前提。
-    ``details["reason"]`` 区分三种来源：
+    ``details["reason"]`` 区分四种来源：
 
     - ``alias_occupied``：写入前校验发现 alias 已被同 Workspace 的其他
       Memory 占用，本次提交不产生任何 canonical 写入；
+    - ``alias_reserved``：alias 以话题句柄的前缀 ``topic:`` 开头，读取会把它
+      当成话题句柄，同样不产生写入；
     - ``alias_candidates_exhausted``：生成侧消歧后缀全部被占用；
     - ``ambiguous_alias``：精确 alias 查询命中多条（存量或绕过受控写入的
       重名数据），读取 fail closed，不按存储顺序任取其一。

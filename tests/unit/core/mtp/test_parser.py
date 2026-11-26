@@ -123,6 +123,14 @@ class TestMTPParser:
         assert cmd.target.aliases == ["doc_a", "doc_b", "doc_c"]
         assert cmd.target.is_list is True
 
+    def test_parse_target_list_mixes_memory_aliases_and_topic_handles(self, parser: MTPParser):
+        """列表可以同时列出记忆 alias 与话题句柄：句柄中的冒号、井号与 id 的连字符不打断列表。"""
+        topic = "topic:6f1c2d3e-0a1b-4c5d-8e9f-001122334455"
+
+        cmd = parser.parse(f"⟪ READ | [fact_x, {topic}, {topic}#2] | ⟫")
+
+        assert cmd.target.aliases == ["fact_x", topic, f"{topic}#2"]
+
     # --- ARGS 格式 ---
 
     def test_parse_args_kv(self, parser: MTPParser):

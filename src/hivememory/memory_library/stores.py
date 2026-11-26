@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import (
+    TOPIC_HANDLE_PREFIX,
     ActorIdentity,
     LogicalBlock,
     MemoryAtom,
@@ -414,15 +415,21 @@ class MidTermMemoryStore:
         return await self._primary.list_alias_holders(workspace_identity, alias, limit=limit)
 
     async def ensure_alias_available(self, memory: MemoryAtom) -> None:
-        """校验 ``memory`` 的 alias 未被同 Workspace 的其他 Memory 占用。
+        """校验 ``memory`` 的 alias 可以使用：不是话题句柄，也未被同 Workspace 的其他 Memory 占用。
 
         无 alias 的原子不参与唯一性约束；自身已持有该 alias（如保留原 alias
-        的内容更新）视为可用。内容提交路径可在写版本 Artifact 之前调用本方法
-        提前失败，避免冲突时留下孤立记录；``upsert`` 仍会再次校验。
+        的内容更新）视为可用。以 ``topic:`` 开头的 alias 会被读取当成话题句柄，
+        不能使用。内容提交路径可在写版本 Artifact 之前调用本方法提前失败，避免
+        冲突时留下孤立记录；``upsert`` 仍会再次校验。
         """
         alias = memory.index.alias
         if not alias:
             return
+        if alias.startswith(TOPIC_HANDLE_PREFIX):
+            raise MemoryAliasConflictError(
+                "alias 以话题句柄的前缀开头",
+                details={"alias": alias, "memory_id": str(memory.id), "reason": "alias_reserved"},
+            )
         holders = await self.list_alias_holders(memory.workspace_identity, alias)
         others = [holder for holder in holders if holder != memory.id]
         if others:

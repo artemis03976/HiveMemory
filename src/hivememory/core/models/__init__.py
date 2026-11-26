@@ -71,6 +71,7 @@ from .provenance import (
 )
 from .reference import ReferenceResolution
 from .topic import (
+    TOPIC_HANDLE_PREFIX,
     LogicalBlock,
     TopicData,
     TopicFold,
@@ -78,6 +79,9 @@ from .topic import (
     TopicProgressEntry,
     TopicSnapshot,
     TopicTurnExcerpt,
+    format_topic_handle,
+    parse_topic_handle,
+    topic_excerpt,
     topic_fold_summary,
     topic_working_blocks,
 )
@@ -154,6 +158,10 @@ __all__ = [
     "TopicProgressEntry",
     "TopicTurnExcerpt",
     "LogicalBlock",
+    "TOPIC_HANDLE_PREFIX",
+    "format_topic_handle",
+    "parse_topic_handle",
+    "topic_excerpt",
     "topic_fold_summary",
     "topic_working_blocks",
     "FrozenDict",

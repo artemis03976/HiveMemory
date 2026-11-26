@@ -193,7 +193,7 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
     WorkspaceMismatchError: frozenset({"target_workspace_not_resident", "target_owner_mismatch"}),
     ResourceUnavailableError: frozenset({"lifecycle_unavailable"}),
     MemoryAliasConflictError: frozenset(
-        {"alias_occupied", "alias_candidates_exhausted", "ambiguous_alias"}
+        {"alias_occupied", "alias_reserved", "alias_candidates_exhausted", "ambiguous_alias"}
     ),
     InvalidAgentProfileError: frozenset(
         {"invalid_agent_id", "unknown_field", "invalid_value", "unreadable"}

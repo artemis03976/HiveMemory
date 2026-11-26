@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from datetime import datetime
 from uuid import uuid4
@@ -57,7 +58,8 @@ class TopicTurnExcerpt(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-def _excerpt(text: str) -> str:
+def topic_excerpt(text: str) -> str:
+    """话题池节选的长度：超过 ``TURN_EXCERPT_MAX_CHARS`` 时截断并加省略号。"""
     if len(text) <= TURN_EXCERPT_MAX_CHARS:
         return text
     return text[:TURN_EXCERPT_MAX_CHARS] + "…"
@@ -336,8 +338,8 @@ class TopicData(BaseModel):
         unrecorded_turns = tuple(
             TopicTurnExcerpt(
                 turn_number=index + 1,
-                user=_excerpt(block.user_message),
-                assistant=_excerpt(block.reply_text),
+                user=topic_excerpt(block.user_message),
+                assistant=topic_excerpt(block.reply_text),
             )
             for index, block in enumerate(self.interactions[first_excerpt:], start=first_excerpt)
         )
@@ -359,7 +361,31 @@ class TopicData(BaseModel):
         )
 
 
+# 话题句柄是 agent 读话题的引用，与记忆 alias 共用读取入口：``topic:<话题 id>`` 读进展记录的
+# 索引，``topic:<话题 id>#<n>`` 读进展记录第 n 条（从 1 数起）的全文与它覆盖的原文。句柄只由
+# 系统签发（读话题的结果与压缩之后的注入），记忆 alias 不得以这个前缀开头。
+TOPIC_HANDLE_PREFIX = "topic:"
+
+_TOPIC_HANDLE = re.compile(r"topic:([^#\s]+)(?:#([1-9][0-9]*))?")
+
+
+def format_topic_handle(topic_id: str, entry_number: int | None = None) -> str:
+    """话题的句柄；给出条目序号时是进展记录这一条的句柄。"""
+    handle = f"{TOPIC_HANDLE_PREFIX}{topic_id}"
+    return handle if entry_number is None else f"{handle}#{entry_number}"
+
+
+def parse_topic_handle(handle: str) -> tuple[str, int | None] | None:
+    """解析话题句柄，返回话题 id 与条目序号（读索引时为空）；不合语法时返回 ``None``。"""
+    match = _TOPIC_HANDLE.fullmatch(handle)
+    if match is None:
+        return None
+    topic_id, entry = match.groups()
+    return topic_id, int(entry) if entry is not None else None
+
+
 __all__ = [
+    "TOPIC_HANDLE_PREFIX",
     "LogicalBlock",
     "TopicData",
     "TopicFold",
@@ -367,6 +393,9 @@ __all__ = [
     "TopicProgressEntry",
     "TopicSnapshot",
     "TopicTurnExcerpt",
+    "format_topic_handle",
+    "parse_topic_handle",
+    "topic_excerpt",
     "topic_fold_summary",
     "topic_folded_until",
     "topic_working_blocks",
