@@ -187,7 +187,7 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 
 局部 invoke 的 timeout 或 `RecoverableGatewayError` 可以使用该 step 声明的 fallback。其他异常、投影错误和状态不变量错误不属于可恢复调用失败。
 
-指定话题不可用是对用户选择的受控拒绝，不是能力失败：它是 Workspace 领域错误，不进入话题路由续接上一轮的兜底，否则这一轮会悄悄落到用户没有选的话题上。任务进程在 Gateway 阶段以它失败收口，不进入 PREPARE、不提交、不写会话；SSE `error` 事件的 `code` 与 `chat.run.failed` 的 `reason` 都是这个错误码，前端据此提示话题已结算或不在短期话题池中、请重新选择（[Gateway 工作流](../gateway/workflow.md#22-decision-前缀)）。Import Bus 不指定话题，不会遇到它。
+指定话题不可用是对用户选择的受控拒绝，不是能力失败：它是 Workspace 领域错误，不进入话题路由续接上一轮的兜底，否则这一轮会悄悄落到用户没有选的话题上。任务进程在 Gateway 阶段以它失败收口，不进入 PREPARE、不提交、不写会话；SSE `error` 事件的 `code` 与 `chat.run.failed` 的 `reason` 都是这个错误码，前端据此提示话题已不在短期话题池中、请重新选择（[Gateway 工作流](../gateway/workflow.md#22-decision-前缀)）。Import Bus 不指定话题，不会遇到它。
 
 Gateway Context Provider 只包装 `StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`；超时直接交给 workflow。两个分析 Engine 只把 `ModelProviderError`（含超窗）与 `JSONParseError`/显式输出校验失败转换为能力错误；SDK 异常由 LLM 服务在边界转换（第 4.6 节），引擎不识别 SDK 类型。JSON 输出要求只在 SDK 明确报告不支持该参数时去掉格式参数再请求一次，其他失败直接传播。缺失 route、参数接线、投影和未知程序错误不会进入局部 fallback。
 
