@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-rules-and-navigation-by-version
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-27
 ---
 
 # Plans
@@ -26,7 +26,7 @@ last_reviewed: 2026-11-25
 
 版本目标：短期记忆，摘要见 [ROADMAP](../ROADMAP.md) 第 3.4 节；设计见[短期记忆：话题的进展及其维护](../ideas/short-term-memory-and-context-compaction.md)。
 
-当前没有活动计划。
+- [话题折叠的重构](./v0.8.1-topic-fold-refactor.md)：折叠作为系统内部的材料压缩，写进展记录共用工作视图，折叠摘要不再给前台与 Gateway，折叠摘要结构化。
 
 - 结算拆成沉淀与退役、话题跨重启保存、短期记忆代码整理、话题的存储介质、话题的进展记录、短期记忆代码可读性整理、压缩后推送与按句柄拉取、拉取当前话题与压缩后只推指针：已完成，见 [Archived Plans](../archive/plans/README.md#v081)。
 
