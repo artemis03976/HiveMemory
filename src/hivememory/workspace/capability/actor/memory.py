@@ -12,11 +12,13 @@ from hivememory.components.cancellation import join_shielded
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
+    CURRENT_TOPIC_HANDLE,
     MemoryAtom,
     PendingAtom,
     ReferenceResolution,
     UpdateFocus,
     WriteFocus,
+    format_topic_handle,
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -146,8 +148,8 @@ class ActorMemoryService:
 
         二者恰有其一，否则是接线缺陷，以 ``TypeError`` 拒绝。取得派发话题可能要为
         这一轮第一次建立话题，因此排在授权与 UPDATE 的基础冷读之后：被拒的写入
-        不会触发路由、建立话题或 LRU 结算。它也在登记的同步段之前，期间线程
-        结束或进程收到停止时，同步段照常拒绝登记。
+        与读取不会触发路由、建立话题或 LRU 结算。写入时它也在登记的同步段之前，
+        期间线程结束或进程收到停止时，同步段照常拒绝登记。
         """
         if thread is not None and dispatch_topic is None:
             return await self._threads.dispatch_topic(thread)
@@ -294,15 +296,26 @@ class ActorMemoryService:
         request: ResolveReferencesRequest,
         *,
         actor: WorkingActor,
+        dispatch_topic: DispatchTopic | None = None,
     ) -> list[ReferenceResolution]:
         """读取引用（``memory.read``），为本次交付的正式原子逐一记录引用。
 
         逐项结果保留顺序与重复项，引用记录在本请求内按 memory id 去重。
         只处理 atom 或带可读原子的 redirect；缓存命中也记录。记录失败只
         影响日志，不改变读取结果，取消则继续传播给调用方。
+
+        ``topic:current`` 是这一轮所在的话题：请求级提交给出 ``dispatch_topic`` 时，
+        授权之后调用它一次（同一次读取中出现几次都只调用一次），换成真实句柄再
+        解析；确定话题失败时整次读取失败，与写入相同。没有回调时它按不合语法的
+        话题句柄解析为 not_found。引用中没有它时不调用回调，读取不确定话题。
         """
         scope = self._authorize(actor, WorkspaceOperation.MEMORY_READ)
-        return await self._resolve_and_record_citations(list(request.aliases), scope=scope)
+        aliases = list(request.aliases)
+        if dispatch_topic is not None and CURRENT_TOPIC_HANDLE in aliases:
+            topic_id = await self._dispatch_topic(None, dispatch_topic)
+            current = format_topic_handle(topic_id)
+            aliases = [current if alias == CURRENT_TOPIC_HANDLE else alias for alias in aliases]
+        return await self._resolve_and_record_citations(aliases, scope=scope)
 
     async def resolve_run_target(
         self,

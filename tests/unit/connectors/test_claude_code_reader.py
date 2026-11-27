@@ -243,7 +243,7 @@ def test_connector_constants_match_plugin_declarations():
     assert servers[MCP_SERVER_NAME]["headers"]["X-Principal-ID"] == HARNESS.principal_id
     [pre_tool_use] = hooks["PreToolUse"]
     assert pre_tool_use["matcher"] == "|".join(
-        plugin_tool_name(tool) for tool in ("memory_write", "memory_update")
+        plugin_tool_name(tool) for tool in ("memory_write", "memory_update", "memory_read")
     )
     commands = [
         handler["command"]

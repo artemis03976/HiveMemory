@@ -17,14 +17,14 @@ related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/claude-code-plugin.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-26
 ---
 
 # 接入 Codex
 
 仓库中的插件 `hivememory-connector`（`integrations/hivememory/`）同时是 Claude Code 与 Codex 的插件，两者共用连接器与使用手册 skill。在 Codex 中它做三件事：
 
-- **记忆工具**：插件声明 HiveMemory 的 MCP server，Codex 中的 agent 经 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具访问记忆。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件的 hook 在调用前自动补上，模型自己填写的会被覆盖。
+- **记忆工具**：插件声明 HiveMemory 的 MCP server，Codex 中的 agent 经 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具访问记忆。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件的 hook 在调用前自动补上，模型自己填写的会被覆盖。agent 要接上之前的工作时，可以读 `topic:current` 得到这个会话这一轮所在话题的进展记录索引，读之前 hook 同样补上这一轮的信息；插件在会话压缩之后不注入任何内容，只能这样拉取。
 - **对话回流**：Codex 中每一轮结束后，插件把这一轮（用户消息、回复、思考、命令与工具调用及结果、子 Agent 交回的消息）导入 HiveMemory。网络提交在后台进行，HiveMemory 未运行时 Codex 照常工作，未导入的轮次之后按顺序补发。工作原理见 [Import Bus](../system/import-bus.md#10-codex-插件)第 10 节。
 - **使用手册 skill**：`skills/hivememory/SKILL.md` 随插件加载，引导 agent 何时检索、写入与修正记忆。skill 的语言随 HiveMemory 的语言设置：后端每次启动时从插件目录的 `skill-languages/<语言>/SKILL.md` 写入 `skills/hivememory/SKILL.md`（[配置指南](./configuration.md#54-语言)）。Codex 保存的是插件的副本，改语言后要在插件页重新安装一次。
 
@@ -71,7 +71,7 @@ codex plugin add hivememory-connector@hivememory-local
 
 插件的 hook 要经你审阅信任后才运行。安装后第一次打开 Codex 的交互界面时，它提示 “Hooks need review”，选择审阅并信任 `hivememory-connector` 的五个 hook；之后也可以用 `/hooks` 查看与管理。插件内容变化后（例如更新插件），hook 变为“已修改”，需要再次信任。
 
-hook 没有信任时，对话不会回流；写入与更新缺少这一轮的信息，被 HiveMemory 以 `request.turn_required` 拒绝。
+hook 没有信任时，对话不会回流；写入与更新缺少这一轮的信息，被 HiveMemory 以 `request.turn_required` 拒绝，读 `topic:current` 也读不到。
 
 ## 5. 配置
 
@@ -106,6 +106,7 @@ default_tools_approval_mode = "approve"
 ## 8. 使用中的行为
 
 - 写入与更新返回句柄（`draft_`、`rev_` 开头），表示已被接纳、正式记忆仍在后台生成，可以用 `memory_read` 读取。
+- 用户回到之前的工作时，agent 按 skill 读 `topic:current`，得到这一轮所在话题的进展记录索引；第一次读要等 HiveMemory 为这一轮确定话题，这一轮已经写入过时直接沿用。
 - 正常结束的一轮在轮次结束后很快导入；失败的一轮没有结束通知，在下一轮结束、会话结束或下一次打开会话时导入；被中断的一轮按取消导入。
 - 子 Agent 中的写入落在父会话中派生它的那一轮；子 Agent 自己的会话不导入，它交回给父 Agent 的消息随父会话的那一轮导入。
 - 续会话（`codex resume` 或 `codex exec resume`）的新轮次接着导入，之前的轮次不重复导入。
@@ -118,7 +119,7 @@ default_tools_approval_mode = "approve"
 | 记忆工具不出现 | 插件没有安装或已禁用（`codex plugin list`）；HiveMemory 未运行或不在 `127.0.0.1:8769`（第 5 节） |
 | 工具返回 `invalid_credential` | Codex 读到的凭据与 HiveMemory 登记的不一致：多半是安装之后没有完全退出 Codex。完全退出再打开；仍然不行时在插件页点“重新安装” |
 | 导入返回 403 `unknown_principal` | 插件还装着，但 HiveMemory 一侧没有 `harness:codex` 的登记（例如在插件页卸载过）：在插件页重新安装 |
-| 写入或更新返回 `request.turn_required` | hook 没有运行：在 Codex 中用 `/hooks` 确认 `hivememory-connector` 的 hook 已信任且启用；更新插件后需要重新信任 |
+| 写入或更新返回 `request.turn_required`，或读 `topic:current` 时说明需要插件补上这一轮的信息 | hook 没有运行：在 Codex 中用 `/hooks` 确认 `hivememory-connector` 的 hook 已信任且启用；更新插件后需要重新信任 |
 | 写入要求逐次确认，或无头运行时写入失败 | 自己在 `config.toml` 中声明了 `[mcp_servers.hivememory]` 而没有写 `default_tools_approval_mode = "approve"`（第 5 节） |
 | `connector.log` 中没有 `confirmed`，有 `stopped ... status=403` | 凭据或访问登记的问题，同上；连接器保留了进度，修正后补发 |
 | `connector.log` 中什么都没有 | hook 没有运行：检查信任状态；`HIVEMEMORY_PYTHON` 没有设置时，检查命令行中能否运行 `python` |

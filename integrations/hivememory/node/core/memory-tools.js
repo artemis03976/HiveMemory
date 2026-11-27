@@ -17,18 +17,30 @@ export const RECENT_TURNS = 3
 // 一轮过大的内容拖着后续轮次一起超过服务端的请求体上限。
 const RECENT_TEXT_LIMIT = 2000
 
-// 写入与更新工具中由连接器填写的轮次信息参数，与 HiveMemory MCP server 的参数名一致。
+// 写入、更新与读当前话题时由连接器填写的轮次信息参数，与 HiveMemory MCP server 的参数名一致。
 export const TURN_PARAM = 'turn'
+
+// 这个会话这一轮所在话题的句柄，与 HiveMemory 的写法相同。HiveMemory 读它时先为这一轮
+// 确定话题，读取因此也要带上轮次信息。
+export const CURRENT_TOPIC_HANDLE = 'topic:current'
 
 /**
  * 记忆工具对应的 HiveMemory 能力：动词与作用对象所在的参数。
- * `single` 表示作用对象参数是单个 alias，否则是 alias 列表。
+ * `single` 表示作用对象参数是单个 alias，否则是 alias 列表。`needsTurn` 说明什么时候
+ * 要带上这一轮的信息：`always` 每次都要，`current-topic` 只在读当前话题时要。
  */
 export const MEMORY_TOOLS = {
   memory_search: { verb: 'SEARCH' },
-  memory_read: { verb: 'READ', targetParam: 'aliases', single: false },
-  memory_write: { verb: 'WRITE', needsTurn: true },
-  memory_update: { verb: 'UPDATE', targetParam: 'alias', single: true, needsTurn: true },
+  memory_read: { verb: 'READ', targetParam: 'aliases', single: false, needsTurn: 'current-topic' },
+  memory_write: { verb: 'WRITE', needsTurn: 'always' },
+  memory_update: { verb: 'UPDATE', targetParam: 'alias', single: true, needsTurn: 'always' },
+}
+
+/** 这次调用是否要带上这一轮的信息；`args` 是模型给出的参数对象。 */
+export function needsTurn(name, args) {
+  const when = MEMORY_TOOLS[name]?.needsTurn
+  if (when === 'current-topic') return Array.isArray(args.aliases) && args.aliases.includes(CURRENT_TOPIC_HANDLE)
+  return when === 'always'
 }
 
 /**

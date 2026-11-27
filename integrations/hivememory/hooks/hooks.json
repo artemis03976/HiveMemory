@@ -1,9 +1,9 @@
 {
-  "description": "轮次结束、会话开始与结束时登记会话记录并唤醒后台同步，网络提交在脱离 Claude Code 的进程中完成；写入与更新记忆前为工具参数补上当前一轮的信息；会话压缩之后注入这个会话所在话题的进展记录索引。",
+  "description": "轮次结束、会话开始与结束时登记会话记录并唤醒后台同步，网络提交在脱离 Claude Code 的进程中完成；写入与更新记忆、读取当前话题前为工具参数补上当前一轮的信息；会话压缩之后注入这个会话所在话题的指针。",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "mcp__plugin_hivememory-connector_hivememory__memory_write|mcp__plugin_hivememory-connector_hivememory__memory_update",
+        "matcher": "mcp__plugin_hivememory-connector_hivememory__memory_write|mcp__plugin_hivememory-connector_hivememory__memory_update|mcp__plugin_hivememory-connector_hivememory__memory_read",
         "hooks": [
           {
             "type": "command",
@@ -41,7 +41,7 @@
           {
             "type": "command",
             "command": "\"${HIVEMEMORY_PYTHON:-$(command -v python3 || command -v python)}\" \"${CLAUDE_PLUGIN_ROOT}/hivememory_hook.py\" claude-code hook SessionStart",
-            "timeout": 15
+            "timeout": 10
           }
         ]
       }

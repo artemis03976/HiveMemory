@@ -1,4 +1,4 @@
-"""actor Memory 能力入口的读取授权与引用、检索命中副作用测试。"""
+"""actor Memory 能力入口的读取授权与引用、读当前话题时确定话题、检索命中副作用测试。"""
 
 from uuid import uuid4
 
@@ -17,6 +17,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
@@ -270,3 +271,98 @@ class TestActorMemoryService:
 
         assert (result.requested_alias, result.kind) == ("draft", kind)
         assert citations == []
+
+
+class _RecordingReader:
+    """读取视图替身：记录交来的引用，逐项按 not_found 交付。"""
+
+    intents = make_write_intent_registry()
+
+    def __init__(self) -> None:
+        self.requests: list[list[str]] = []
+
+    async def resolve_references(self, aliases, *, scope):
+        self.requests.append(list(aliases))
+        return [ReferenceResolution(kind="not_found", requested_alias=alias) for alias in aliases]
+
+
+class _CountingDispatchTopic:
+    """请求级入口给出的确定话题回调：返回固定话题，或抛出给定的错误；记录调用次数。"""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls = 0
+
+    async def __call__(self) -> str:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return "t1"
+
+
+class TestCurrentTopicRead:
+    """读取中的 ``topic:current``：按需为这一轮确定话题，换成真实句柄再解析。"""
+
+    @pytest_asyncio.fixture
+    async def actor(self):
+        composition = make_access_composition(
+            [make_actor_access_record(owner_user_id="u1", agent_id="test_agent")]
+        )
+        actor = await composition.authenticate(agent_id="test_agent", user_id="u1")
+        return composition, actor
+
+    def _service(self, composition, reader) -> ActorMemoryService:
+        return ActorMemoryService(
+            global_bus=GlobalSystemBus(),
+            operation_authorizer=composition.authorizer,
+            memory_reader=reader,
+            threads=composition.threads,
+        )
+
+    @pytest.mark.asyncio
+    async def test_current_topic_is_determined_once_and_read_by_its_real_handle(self, actor):
+        """同一次读取中出现几次 ``topic:current`` 都只确定一次话题；其余引用的顺序与重复项不变。"""
+        composition, working_actor = actor
+        reader = _RecordingReader()
+        dispatch_topic = _CountingDispatchTopic()
+
+        await self._service(composition, reader).resolve_references(
+            ResolveReferencesRequest(("topic:current", "base", "topic:current")),
+            actor=working_actor,
+            dispatch_topic=dispatch_topic,
+        )
+
+        assert dispatch_topic.calls == 1
+        assert reader.requests == [["topic:t1", "base", "topic:t1"]]
+
+    @pytest.mark.asyncio
+    async def test_read_without_current_topic_never_determines_a_topic(self, actor):
+        """引用中没有 ``topic:current`` 时，即使给出回调也不调用，读取不确定话题。"""
+        composition, working_actor = actor
+        reader = _RecordingReader()
+        dispatch_topic = _CountingDispatchTopic()
+
+        await self._service(composition, reader).resolve_references(
+            ResolveReferencesRequest(("base", "topic:t1")),
+            actor=working_actor,
+            dispatch_topic=dispatch_topic,
+        )
+
+        assert dispatch_topic.calls == 0
+        assert reader.requests == [["base", "topic:t1"]]
+
+    @pytest.mark.asyncio
+    async def test_failed_topic_determination_fails_the_whole_read(self, actor):
+        """确定话题失败（如话题正忙）时整次读取以同一个错误失败，其余引用也不解析。"""
+        composition, working_actor = actor
+        reader = _RecordingReader()
+        dispatch_topic = _CountingDispatchTopic(error=TopicBusyError("话题被占用"))
+
+        with pytest.raises(TopicBusyError):
+            await self._service(composition, reader).resolve_references(
+                ResolveReferencesRequest(("topic:current", "base")),
+                actor=working_actor,
+                dispatch_topic=dispatch_topic,
+            )
+
+        assert reader.requests == []

@@ -32,14 +32,10 @@ from hivememory.workspace.contracts.threads import ExecutionThread, ThreadHandle
 from hivememory.workspace.thread_ports import ExecutionThreadTable
 
 # 写入与更新登记意图后要以派发话题派发：线程提交向线程表取得进程的派发话题，
-# 请求级提交调用入口给出的回调确定话题；其余请求不涉及话题。
+# 请求级提交调用入口给出的回调确定话题；读取只在读当前话题时确定话题，其余
+# 请求不涉及话题。
 _INTENT_REQUESTS: frozenset[type[OperationRequest[Any]]] = frozenset(
     {SubmitWriteIntentRequest, SubmitUpdateIntentRequest}
-)
-# 请求级提交开放检索、读取、写入与更新：RUN 的执行发生在执行单元的环境中，
-# CALL 只属于执行线程。
-_REQUEST_READS: frozenset[type[OperationRequest[Any]]] = frozenset(
-    {RetrieveRequest, ResolveReferencesRequest}
 )
 
 
@@ -110,17 +106,22 @@ class WorkspaceOperationEntry:
     ) -> R:
         """以入口认证得到的工作 actor 提交检索、读取、写入或更新，与线程提交共用同一分派表。
 
-        写入与更新必须给出 ``dispatch_topic``：为这一轮确定派发话题的回调，actor
-        API 在授权之后才调用它，被拒的写入因此不会确定话题；检索与读取不得
-        给出。其余请求类型、或回调与请求类型不符时，在分派前以 ``TypeError``
-        拒绝，没有副作用：外部入口只按这两条规则构造请求，不符即是接线缺陷。
-        工作 actor 只是入口调用链内的局部值，不另做存活判定。
+        ``dispatch_topic`` 是为这一轮确定话题的回调，actor API 在授权之后才调用它，
+        被拒的请求因此不会确定话题：写入与更新必须给出，以它确定派发话题；读取
+        可以给出，只在引用含 ``topic:current`` 时调用；检索不得给出。其余请求类型、
+        或回调与请求类型不符时，在分派前以 ``TypeError`` 拒绝，没有副作用：外部
+        入口只按这些规则构造请求，不符即是接线缺陷。工作 actor 只是入口调用链内
+        的局部值，不另做存活判定。
         """
         request_type = type(request)
-        if request_type in _REQUEST_READS:
+        if request_type is RetrieveRequest:
             if dispatch_topic is not None:
                 raise TypeError(f"{request_type.__name__} does not take a dispatch topic")
             run = partial(self._handlers[request_type], request, actor=actor)
+        elif request_type is ResolveReferencesRequest:
+            run = partial(
+                self._handlers[request_type], request, actor=actor, dispatch_topic=dispatch_topic
+            )
         elif request_type in _INTENT_REQUESTS:
             if dispatch_topic is None:
                 raise TypeError(f"{request_type.__name__} requires a dispatch topic")
@@ -128,6 +129,7 @@ class WorkspaceOperationEntry:
                 self._handlers[request_type], request, actor=actor, dispatch_topic=dispatch_topic
             )
         else:
+            # RUN 的执行发生在执行单元的环境中，CALL 只属于执行线程。
             raise TypeError(f"Unsupported request-level operation: {request_type.__name__}")
         result = await self._events.observe(
             operation_of(request), request, run, actor=actor, entry="request"

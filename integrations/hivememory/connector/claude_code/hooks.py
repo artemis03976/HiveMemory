@@ -1,18 +1,19 @@
-"""Claude Code hooks 的处理：登记会话记录、写结束记录、唤醒后台同步，为写入补上轮次信息，
-并在会话压缩之后注入话题的索引。
+"""Claude Code hooks 的处理：登记会话记录、写结束记录、唤醒后台同步，为写入与读当前话题补上
+轮次信息，并在会话压缩之后注入话题的指针。
 
-hook 只做本地的快速工作（登记、写结束记录、读会话记录），网络提交交给脱离
-Claude Code 的后台同步进程，hook 因此不阻塞 Claude Code，HiveMemory 不可用
-时也不影响它。唯一的例外是压缩之后的一次读取，见 :func:`session_start_context`：
+hook 只做本地的快速工作（登记、写结束记录、读会话记录与连接器状态），网络提交
+交给脱离 Claude Code 的后台同步进程，hook 因此不阻塞 Claude Code，HiveMemory
+不可用时也不影响它：
 
 - ``Stop``：把会话记录中最后一轮记为 ``completed``，再同步这份会话记录；
 - ``StopFailure``（因 API 错误结束，替代 ``Stop``）：最后一轮记为 ``failed``；
 - ``SessionStart``：登记这份会话记录（恢复的会话撤销已结束标记），并补发
   全部已登记会话记录中尚未提交的已结束轮次；来源是压缩（``compact``）时，
-  再读出会话最近一轮所在话题的索引，作为 ``additionalContext`` 输出；
+  再输出会话最近一轮所在话题的指针，见 :func:`session_start_context`；
 - ``SessionEnd``：标记会话已结束，末尾没有结束记录的一轮按中断提交；
-- ``PreToolUse``（只匹配本插件的写入与更新工具）：把当前一轮的信息补进工具
-  参数，HiveMemory 据此在写入时为这一轮确定话题，见 :func:`pre_tool_use`。
+- ``PreToolUse``（只匹配本插件的写入、更新与读取工具）：写入、更新与读当前话题
+  时把当前一轮的信息补进工具参数，HiveMemory 据此为这一轮确定话题，见
+  :func:`pre_tool_use`。
 
 用户中断时 Claude Code 不触发 ``Stop``，被中断的一轮由中断标记、下一轮或
 会话结束判定，在下次同步时补发。``Stop`` 必须同步运行：它在下一条消息
@@ -24,10 +25,9 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from connector.claude_code.reader import ClaudeCodeReader
-from connector.core.client import MemoryReadError
+from connector.claude_code.reader import ClaudeCodeReader, plugin_tool_name
 from connector.core.log import ConnectorLog
-from connector.core.memory_tools import TURN_PARAM
+from connector.core.memory_tools import TURN_PARAM, reads_current_topic
 from connector.core.state import RECENT_TURNS, Outcome, StateStore
 from connector.core.sync import TranscriptSync, turn_info
 
@@ -37,13 +37,14 @@ HOOK_EVENTS = frozenset({"Stop", "StopFailure", "SessionStart", "SessionEnd"})
 # 后台同步的参数，例如 ["sync", "--transcript", path] 或 ["sync", "--all"]。
 Spawn = Callable[[list[str]], None]
 
-# 经 MCP 读取：给出要读的句柄，返回结果文本，没有得到时抛出 MemoryReadError。
-ReadMemory = Callable[[list[str]], str]
+# 压缩之后注入的指针：话题的句柄与一句读法，不含记忆内容。连接器不知道 HiveMemory 的语言
+# 设置，中英文各一句。
+COMPACT_POINTER = (
+    "HiveMemory：可以读取 {handle} 查看这个会话所在的话题进行到哪一步。\n"
+    "HiveMemory: read {handle} to see where this session's topic stands."
+)
 
-# Claude Code 的 additionalContext 每个 hook 至多 10,000 字符，超出时只把前 2,000 字符给模型；
-# 留出截断说明的余量。
-COMPACT_CONTEXT_MAX_CHARS = 9_500
-_TRUNCATED_NOTE = "\n…[truncated by the HiveMemory connector]"
+_MEMORY_READ = plugin_tool_name("memory_read")
 
 
 def handle_hook(
@@ -81,40 +82,37 @@ def handle_hook(
 
 
 def session_start_context(
-    payload: Mapping[str, Any], *, store: StateStore, read_memory: ReadMemory, log: ConnectorLog
+    payload: Mapping[str, Any], *, store: StateStore, log: ConnectorLog
 ) -> dict[str, Any] | None:
-    """压缩之后为会话注入它最近一轮所在话题的进展记录索引，返回 SessionStart 的输出。
+    """压缩之后为会话注入它最近一轮所在话题的指针，返回 SessionStart 的输出。
 
-    只处理来源为 ``compact`` 的 SessionStart：压缩之后模型失去了此前的上下文，话题的
-    进展记录告诉它工作进行到哪一步。话题取自导入确认带回、记在会话记录状态里的最近
-    一个，一轮中间的自动压缩发生时这一轮还没有导入，读的是上一轮所在的话题。
+    只处理来源为 ``compact`` 的 SessionStart：压缩之后模型失去了此前的上下文，指针告诉
+    它读哪个句柄能看到工作进行到哪一步，读不读由它决定。话题取自导入确认带回、记在
+    会话记录状态里的最近一个，一轮中间的自动压缩发生时这一轮还没有导入，指向的是
+    上一轮所在的话题。
 
-    读取成功时，结果原样注入：通常是索引；话题已离开话题池时是 HiveMemory 的过期提示，
-    它指向检索，同样值得模型看到。没有记下话题、请求失败或超时、工具报错时不输出，
-    只写日志，会话照常继续。结果超过 ``COMPACT_CONTEXT_MAX_CHARS`` 时截断并注明。
+    只读连接器状态，不做网络请求，指针不含任何记忆内容。没有记下话题时不输出，只写
+    日志，会话照常继续。
     """
     transcript = payload.get("transcript_path")
     if payload.get("source") != "compact" or not isinstance(transcript, str) or not transcript:
         return None
     state = store.load(transcript)
     if state is None or not state.topic_id:
-        log.write(f"topic index not injected: no topic recorded transcript={transcript}")
+        log.write(f"topic pointer not injected: no topic recorded transcript={transcript}")
         return None
-    try:
-        # 句柄的写法与 HiveMemory 的话题句柄相同。
-        text = read_memory([f"topic:{state.topic_id}"])
-    except MemoryReadError as error:
-        log.write(f"topic index not injected: {error} transcript={transcript}")
-        return None
-    if len(text) > COMPACT_CONTEXT_MAX_CHARS:
-        text = text[:COMPACT_CONTEXT_MAX_CHARS] + _TRUNCATED_NOTE
-    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+    # 句柄的写法与 HiveMemory 的话题句柄相同。
+    pointer = COMPACT_POINTER.format(handle=f"topic:{state.topic_id}")
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": pointer}}
 
 
 def pre_tool_use(
     payload: Mapping[str, Any], *, reader: ClaudeCodeReader, store: StateStore
 ) -> dict[str, Any] | None:
-    """为写入与更新补上当前一轮的信息，返回 PreToolUse 的输出；读不到当前一轮时为 ``None``。
+    """为写入、更新与读当前话题补上当前一轮的信息，返回 PreToolUse 的输出。
+
+    读不到当前一轮时为 ``None``。读取只在作用对象含 ``topic:current`` 时补上，其余
+    读取不需要确定话题，原样放行，同样为 ``None``。
 
     当前一轮是会话记录中最后一条由人发出的消息开启的一轮，子代理中的调用
     同样如此：hook 输入的会话记录路径是主会话的会话记录。后台子代理在下一条
@@ -127,11 +125,14 @@ def pre_tool_use(
     输出原参数加上轮次信息：``updatedInput`` 整体替换工具参数，模型自己填写
     的轮次信息被覆盖。不给权限决定，改写后的参数照常经过 Claude Code 的
     权限评估。只读会话记录与连接器状态，不登记、不唤醒同步，也不做网络请求；
-    返回 ``None`` 时工具调用照常进行，由 HiveMemory 以缺少轮次信息拒绝。
+    读不到当前一轮时工具调用照常进行，由 HiveMemory 以缺少轮次信息拒绝写入与
+    更新，读取中的 ``topic:current`` 读不到。
     """
     transcript = payload.get("transcript_path")
     tool_input = payload.get("tool_input")
     if not isinstance(transcript, str) or not transcript or not isinstance(tool_input, dict):
+        return None
+    if payload.get("tool_name") == _MEMORY_READ and not reads_current_topic(tool_input):
         return None
     state = store.load(transcript)
     turns = reader.read(transcript, state.read_offset if state is not None else 0)

@@ -74,7 +74,7 @@ export function install(pi, env, fetchImpl) {
   let connecting = null
 
   function turnInfo(ctx) {
-    if (current === null) throw new Error('HiveMemory 写入与更新只能在一轮进行中调用')
+    if (current === null) throw new Error('HiveMemory 写入、更新与读取当前话题只能在一轮进行中调用')
     const sessionManager = ctx.sessionManager
     return inFlightTurnInfo(sessionManager.getEntries(), sessionManager.getSessionId(), current)
   }

@@ -25,7 +25,7 @@ export function pluginFailureMessage(
       return `没有找到 ${status.name}，插件可能还留在里面；它已经不能再访问记忆。`;
     }
     if (failure.reason === 'settings_unreadable') {
-      return `${status.name} 的插件已经卸载，但它的设置文件不是有效的 JSON，里面放行 HiveMemory 写入的两条规则没有删除，可以修好文件后手动删掉。`;
+      return `${status.name} 的插件已经卸载，但它的设置文件不是有效的 JSON，里面放行 HiveMemory 记忆工具的规则没有删除，可以修好文件后手动删掉。`;
     }
     return `${status.name} 的卸载命令没有完成，插件可能还留在里面；它已经不能再访问记忆。${dshHint}`;
   }
@@ -35,7 +35,7 @@ export function pluginFailureMessage(
     case 'harness_missing':
       return `没有找到 ${status.name}。装好它之后点“重新检查”，或者按下面的命令手动安装。`;
     case 'settings_unreadable':
-      return `${status.name} 的设置文件不是有效的 JSON，没能写入放行 HiveMemory 写入的规则，安装没有完成。修好下面这个文件后重试。`;
+      return `${status.name} 的设置文件不是有效的 JSON，没能写入放行 HiveMemory 记忆工具的规则，安装没有完成。修好下面这个文件后重试。`;
     case 'command_timeout':
       return '插件命令超过时限没有完成。可以重试，或者按下面的命令手动安装。';
     case 'unexpected_output':

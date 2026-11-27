@@ -13,14 +13,14 @@ related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/claude-code-plugin.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-26
 ---
 
 # 接入 pi
 
 仓库中的插件目录 `integrations/hivememory/` 同时是一个 pi 包：pi 按其中的 `package.json` 加载 HiveMemory 扩展（`node/`）与使用手册 skill。在 pi 中它做三件事：
 
-- **记忆工具**：扩展自己注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：扩展在调用时自动补上，模型看不到这个参数。工具只交给模型直接调用，codemode 中的脚本不能调用它们。
+- **记忆工具**：扩展自己注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：扩展在调用时自动补上，模型看不到这个参数。agent 要接上之前的工作时，可以读 `topic:current` 得到这个会话这一轮所在话题的进展记录索引，读之前扩展同样补上这一轮的信息；扩展在会话压缩之后不注入任何内容，只能这样拉取。工具只交给模型直接调用，codemode 中的脚本不能调用它们。
 - **对话回流**：pi 中每一轮结束后，扩展在会话记录中写一条结束标记（不进入模型上下文），再把这一轮（用户的原始输入、回复、思考、工具调用及结果）导入 HiveMemory。网络提交在后台进行，HiveMemory 未运行时 pi 照常工作，未导入的轮次在下次打开 pi 时补发。工作原理见 [Import Bus](../system/import-bus.md#11-pi-扩展)第 11 节。
 - **使用手册 skill**：`skills/hivememory/SKILL.md` 随包加载，引导 agent 何时检索、写入与修正记忆；也可以用 `/skill:hivememory` 展开它。skill 的语言随 HiveMemory 的语言设置：后端每次启动时从插件目录的 `skill-languages/<语言>/SKILL.md` 写入 `skills/hivememory/SKILL.md`（[配置指南](./configuration.md#54-语言)）。pi 原地读取插件目录，改语言并重启后端之后重新打开 pi 即可。
 
@@ -85,6 +85,7 @@ pi install <插件目录>\hivememory
 ## 7. 使用中的行为
 
 - 写入与更新返回句柄（`draft_`、`rev_` 开头），表示已被接纳、正式记忆仍在后台生成，可以用 `memory_read` 读取。
+- 用户回到之前的工作时，agent 按 skill 读 `topic:current`，得到这一轮所在话题的进展记录索引；第一次读要等 HiveMemory 为这一轮确定话题，这一轮已经写入过时直接沿用。
 - 一轮从发出消息开始，到 pi 不再自动继续为止：运行中追加的消息与排队的后续消息并入同一轮。被中断的一轮按取消导入，模型出错或输出达到上限的一轮按失败导入。
 - 用户消息取你输入的原文：用 `/skill:...` 或提示模板时，导入的是你输入的命令，而不是展开后的正文。
 - `/tree` 回到较早的条目继续时，新的一轮照常导入，离开的分支上已经导入的轮次不撤回；`/fork` 与 `/clone` 出的会话不重复导入复制来的轮次。
@@ -100,7 +101,7 @@ pi install <插件目录>\hivememory
 | 记忆工具不出现 | 扩展没有安装（`pi list`）；HiveMemory 未运行或不在 `HIVEMEMORY_URL` 的地址：`connector.log` 中有 `connect failed`。后端恢复后，下一次发出消息时重新连接 |
 | 工具返回 `invalid_credential` | pi 读到的凭据与 HiveMemory 登记的不一致：多半是终端在安装之前就打开了。重新打开终端与 pi；仍然不行时在插件页点“重新安装” |
 | `connector.log` 中有 `stopped ... reason=unknown_principal` | 扩展还装着，但 HiveMemory 一侧没有 `harness:pi` 的登记（例如在插件页卸载过）：在插件页重新安装 |
-| 写入返回“只能在一轮进行中调用” | 写入工具在一轮之外被调用，例如由其他扩展直接执行；在对话中由模型调用即可 |
+| 写入、更新或读 `topic:current` 返回“只能在一轮进行中调用” | 工具在一轮之外被调用，例如由其他扩展直接执行；在对话中由模型调用即可 |
 | `connector.log` 中有 `stopped ... status=403` 或 `401` | 凭据或访问登记的问题，同上；扩展保留了未导入的轮次，修正后补发 |
 | `connector.log` 中有 `stopped ... kind=retryable` | HiveMemory 暂时不可用；下次打开 pi 时补发 |
 

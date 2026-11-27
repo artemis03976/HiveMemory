@@ -37,9 +37,9 @@ HiveMemory 是用户自有的持久化记忆底座。值得长期保留的东西
 | `memory_write` | 写入一件值得长期保存的事 | `content` 必填，`title` 与 `reason` 也应填写；返回 `draft_` 开头的句柄 |
 | `memory_update` | 修正一条已有记忆 | `alias` 是检索或读取得到的正式 alias，`instruction` 说明怎么改，`content` 可附新正文；返回 `rev_` 开头的句柄 |
 
-写入与更新的参数里如果出现 `turn`，不要填写：它由插件在调用时自动补上。
+写入、更新与读取的参数里如果出现 `turn`，不要填写：它由插件在调用时自动补上。
 
-会话压缩之后，对话开头可能出现插件注入的 HiveMemory 话题索引，列出这个会话所在话题的进展记录。其中 `topic:<id>#n` 是话题句柄：需要某一条的细节时，用 `memory_read` 读它，得到这一条的全文与它覆盖的原文。话题句柄只能读取，不能写入或修正。
+话题是 HiveMemory 为一段讨论或一项工作记下的交互与进展。用户回到之前的工作，或者你不确定一项工作或讨论此前进行到哪一步时，先用 `memory_read` 读 `topic:current`：它是这个会话这一轮所在的话题，读到的是话题的进展记录索引。会话压缩之后，对话开头可能出现 HiveMemory 的指针，写着一个 `topic:<id>` 句柄：需要接上压缩之前的工作时，读其中的句柄。索引中的 `topic:<id>#n` 是进展记录一条的句柄，读它得到这一条的全文与它覆盖的原文。话题句柄只能读取，不能写入或修正。
 
 ## 3. 与 harness 自己的记忆共存
 
@@ -162,7 +162,7 @@ reason:  以后调整调度或排查汇总没有执行时，需要知道这个�
 | "HiveMemory is unreachable"、`import_bus.unavailable`、`workspace.memory.intent.dispatch_rejected` | 暂时不可用，稍后重试一次；仍然失败就继续任务，并告诉用户这件事没有记下 |
 | `workspace.resource.not_found` | alias 写错或记忆已不存在，重新检索 |
 | `workspace.memory.intent.pending_update_not_allowed` | 用句柄做了修正对象，见第 6 节 |
-| `request.turn_required`、"No turn is in progress" | 插件没能为这次写入补上这一轮的信息，重试无效。告诉用户，继续任务 |
+| `request.turn_required`、"No turn is in progress" | 插件没能为这次写入或读取补上这一轮的信息，重试无效。告诉用户，继续任务 |
 | `workspace.admission_denied`、`workspace.operation_denied` | 接入或权限配置问题，重试无效。告诉用户，继续任务 |
 
 ## 8. 一次会话的节奏

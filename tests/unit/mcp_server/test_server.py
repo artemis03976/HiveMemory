@@ -275,16 +275,47 @@ async def test_english_setting_gives_english_instructions_descriptions_and_resul
 
 
 @pytest.mark.asyncio
-async def test_read_rejects_when_no_alias_resolves():
-    """全部 alias 都未解析时返回资源不存在的错误，而不是空结果。"""
+async def test_unresolved_current_topic_is_explained_after_the_unresolved_aliases():
+    """``topic:current`` 未解析（调用没有带轮次信息）时，未解析的列表之后说明它需要插件补上这一轮。"""
     system = _system(
-        _Entry(result=[ReferenceResolution(kind="not_found", requested_alias="missing")])
+        _Entry(
+            result=[
+                ReferenceResolution(kind="not_found", requested_alias="topic:current"),
+                ReferenceResolution(
+                    kind="atom",
+                    requested_alias="deploy_flow",
+                    atom=_atom("deploy_flow", "部署走 CI"),
+                ),
+            ]
+        )
     )
 
     async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
-        result = await session.call_tool("memory_read", {"aliases": ["missing"]})
+        result = await session.call_tool(
+            "memory_read", {"aliases": ["topic:current", "deploy_flow"]}
+        )
 
-    assert tool_error(result)["error"] == "workspace.resource.not_found"
+    assert tool_text(result).endswith(
+        "未找到以下 alias：topic:current\n"
+        "topic:current 需要 HiveMemory 插件补上这一轮的信息，这次读取没有带上，"
+        "读不到这一轮所在的话题；重试不会改变结果。"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("alias", "error"),
+    [("missing", "workspace.resource.not_found"), ("topic:current", "request.turn_required")],
+    ids=["memory", "current-topic"],
+)
+async def test_read_rejects_when_no_alias_resolves(alias, error):
+    """全部 alias 都未解析时返回错误而不是空结果：其中有 ``topic:current`` 时是缺少轮次信息。"""
+    system = _system(_Entry(result=[ReferenceResolution(kind="not_found", requested_alias=alias)]))
+
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
+        result = await session.call_tool("memory_read", {"aliases": [alias]})
+
+    assert tool_error(result)["error"] == error
 
 
 @pytest.mark.asyncio
@@ -350,6 +381,39 @@ async def test_intent_submits_with_a_callback_placing_the_turn_under_one_actor(
     ]
     assert system.operation_entry.calls == [(expected, actor)]
     assert system.operation_entry.dispatch_topics == ["topic-placed"]
+
+
+@pytest.mark.asyncio
+async def test_read_with_turn_hands_a_callback_placing_the_turn_under_one_actor():
+    """带轮次信息的读取把确定话题的回调交给请求级提交：只认证一次，回调以同一个工作 actor 确定话题。"""
+    system = _system(_Entry(result=[ReferenceResolution(kind="not_found", requested_alias="x")]))
+    gateway = system.access_gateway
+
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
+        await session.call_tool("memory_read", {"aliases": ["topic:current"], "turn": _TURN})
+
+    [actor] = gateway.actors
+    assert system.import_bus_service.placements == [
+        (InFlightTurn.model_validate(_TURN), actor, resolve_default_workspace_identity("u1"))
+    ]
+    assert system.operation_entry.calls == [
+        (ResolveReferencesRequest(aliases=("topic:current",)), actor)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_read_without_turn_hands_no_callback():
+    """没有轮次信息的读取照常提交，不带确定话题的回调，也就不确定话题。"""
+    system = _system(_Entry(result=[ReferenceResolution(kind="not_found", requested_alias="x")]))
+
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
+        await session.call_tool("memory_read", {"aliases": ["topic:current"]})
+
+    assert system.operation_entry.calls == [
+        (ResolveReferencesRequest(aliases=("topic:current",)), system.access_gateway.actors[0])
+    ]
+    # 替身入口给出回调就会调用它：没有确定话题即没有回调。
+    assert system.import_bus_service.placements == []
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,7 @@
 
 每个 harness 的安装都可以重复执行：已经装过时改为更新，指向别处的旧安装先移除，
 同一个 harness 里不会同时留下两份 HiveMemory 插件。Claude Code 另在用户设置中放行
-写入与更新两个工具，卸载时删除（见 ``CLAUDE_CODE_ALLOW_RULES``）。
+插件的 ``PreToolUse`` hook 会改写参数的工具，卸载时删除（见 :func:`claude_code_allow_rules`）。
 """
 
 from __future__ import annotations
@@ -57,6 +57,14 @@ class HarnessSettingsError(Exception):
 
     def __init__(self, path: Path) -> None:
         super().__init__(f"harness settings unreadable: {path}")
+        self.path = path
+
+
+class PluginHooksError(Exception):
+    """插件的 hook 声明读不懂，或其中匹配了不是本插件的工具；没有运行任何插件命令。"""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(f"plugin hooks unreadable: {path}")
         self.path = path
 
 
@@ -120,16 +128,42 @@ def _same_path(left: str | Path, right: str | Path) -> bool:
 
 # ---- Claude Code ----
 
-#: 写入前由插件的 PreToolUse hook 补上轮次信息的两个工具。auto 模式审查的是模型写的参数，
-#: hook 改写之后审查不覆盖实际执行的参数，Claude Code 拒绝执行，hook 自己给出放行也一样；
-#: 用户设置中的 allow 规则匹配时不经这次审查。插件自带的设置不能声明权限，所以安装时写进
-#: 用户设置、卸载时删除。检索与读取的参数不被改写，照常经 auto 模式审查。
-CLAUDE_CODE_ALLOW_RULES = tuple(
-    f"mcp__plugin_{PLUGIN_NAME}_hivememory__{tool}" for tool in ("memory_write", "memory_update")
-)
+#: Claude Code 为本插件 MCP server 的工具生成的调用名前缀，后面接工具名。
+CLAUDE_CODE_TOOL_PREFIX = f"mcp__plugin_{PLUGIN_NAME}_hivememory__"
+#: 插件的 Claude Code hook 声明，相对插件目录 ``integrations/``。
+_CLAUDE_CODE_HOOKS = Path("hivememory") / "hooks" / "hooks.json"
+
+
+def claude_code_allow_rules(integrations: Path) -> tuple[str, ...]:
+    """要在用户设置中放行的工具：插件 ``PreToolUse`` hook 匹配的那些，按声明的顺序。
+
+    hook 会为这些工具改写参数（补上轮次信息）。auto 模式审查的是模型写的参数，hook 改写
+    之后审查不覆盖实际执行的参数，Claude Code 拒绝执行，hook 自己给出放行也一样；用户
+    设置中的 allow 规则匹配时不经这次审查。所以放行的就是 hook 匹配的工具，直接从
+    ``hooks.json`` 的 matcher（以 ``|`` 分隔的完整调用名）读出，两者只有这一份清单。
+    插件自带的设置不能声明权限，所以安装时写进用户设置、卸载时删除。
+
+    文件读不懂、形状不对，或匹配了不是本插件 MCP 工具的名字时，以
+    :class:`PluginHooksError` 拒绝，不写任何规则。
+    """
+    path = integrations / _CLAUDE_CODE_HOOKS
+    try:
+        groups = json.loads(path.read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+        tools = [tool for group in groups for tool in group["matcher"].split("|")]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        # 缺键、类型不符（例如 matcher 不是字符串）同样是读不懂。
+        raise PluginHooksError(path) from exc
+    if not tools or not all(
+        tool.startswith(CLAUDE_CODE_TOOL_PREFIX) and tool != CLAUDE_CODE_TOOL_PREFIX
+        for tool in tools
+    ):
+        raise PluginHooksError(path)
+    return tuple(dict.fromkeys(tools))
 
 
 def _install_claude_code(run: CommandRunner, claude: str, integrations: Path) -> None:
+    # 先读出要放行的工具：hook 声明读不懂时不运行任何命令，不留下装了一半的插件。
+    rules = claude_code_allow_rules(integrations)
     listed = _json_output(_checked(run, [claude, "plugin", "marketplace", "list", "--json"]))
     existing = next((m for m in listed if m.get("name") == MARKETPLACE_NAME), None)
     if existing is not None and not _same_path(existing.get("path", ""), integrations):
@@ -143,7 +177,7 @@ def _install_claude_code(run: CommandRunner, claude: str, integrations: Path) ->
         _checked(run, [claude, "plugin", "update", PLUGIN_ID])
     else:
         _checked(run, [claude, "plugin", "install", PLUGIN_ID])
-    _set_claude_code_allow_rules(present=True)
+    _sync_claude_code_allow_rules(rules)
 
 
 def _uninstall_claude_code(run: CommandRunner, claude: str, integrations: Path) -> None:
@@ -153,7 +187,7 @@ def _uninstall_claude_code(run: CommandRunner, claude: str, integrations: Path) 
     listed = _json_output(_checked(run, [claude, "plugin", "marketplace", "list", "--json"]))
     if any(m.get("name") == MARKETPLACE_NAME for m in listed):
         _checked(run, [claude, "plugin", "marketplace", "remove", MARKETPLACE_NAME])
-    _set_claude_code_allow_rules(present=False)
+    _sync_claude_code_allow_rules(())
 
 
 def _claude_code_has_plugin(run: CommandRunner, claude: str) -> bool:
@@ -167,11 +201,13 @@ def _claude_code_settings_path() -> Path:
     return (Path(config_dir) if config_dir else Path.home() / ".claude") / "settings.json"
 
 
-def _set_claude_code_allow_rules(*, present: bool) -> None:
-    """在用户设置的 ``permissions.allow`` 中加入或删除 ``CLAUDE_CODE_ALLOW_RULES``。
+def _sync_claude_code_allow_rules(rules: Sequence[str]) -> None:
+    """让用户设置的 ``permissions.allow`` 中本插件的规则恰好是 ``rules``（卸载时为空）。
 
-    其余设置与规则的顺序原样保留，内容没有变化时不改写文件；删除后空出来的 ``allow``
-    与 ``permissions`` 一并删除。设置文件读不懂时不改动它，抛出 :class:`HarnessSettingsError`。
+    本插件的规则是以 :data:`CLAUDE_CODE_TOOL_PREFIX` 开头的那些：不在 ``rules`` 中的删除
+    （包括插件不再改写参数的工具），缺少的追加在末尾。其余设置与规则的顺序原样保留，
+    内容没有变化时不改写文件；删除后空出来的 ``allow`` 与 ``permissions`` 一并删除。设置
+    文件读不懂时不改动它，抛出 :class:`HarnessSettingsError`。
     """
     path = _claude_code_settings_path()
     settings = _read_settings(path)
@@ -179,10 +215,8 @@ def _set_claude_code_allow_rules(*, present: bool) -> None:
     allow = permissions.get("allow", []) if isinstance(permissions, dict) else None
     if not isinstance(allow, list):
         raise HarnessSettingsError(path)
-    if present:
-        updated = allow + [rule for rule in CLAUDE_CODE_ALLOW_RULES if rule not in allow]
-    else:
-        updated = [rule for rule in allow if rule not in CLAUDE_CODE_ALLOW_RULES]
+    kept = [rule for rule in allow if not _is_plugin_rule(rule) or rule in rules]
+    updated = kept + [rule for rule in rules if rule not in kept]
     if updated == allow:
         return
     if updated:
@@ -195,6 +229,11 @@ def _set_claude_code_allow_rules(*, present: bool) -> None:
             settings.pop("permissions", None)
     content = json.dumps(settings, ensure_ascii=False, indent=2) + "\n"
     write_atomically(path, content.encode("utf-8"))
+
+
+def _is_plugin_rule(rule: object) -> bool:
+    """规则是否属于本插件：放行本插件某个 MCP 工具的规则。用户写的其他形状原样保留。"""
+    return isinstance(rule, str) and rule.startswith(CLAUDE_CODE_TOOL_PREFIX)
 
 
 def _read_settings(path: Path) -> dict[str, Any]:
@@ -427,11 +466,13 @@ __all__ = [
     "CommandResult",
     "CommandFailureReason",
     "CommandRunner",
-    "CLAUDE_CODE_ALLOW_RULES",
+    "CLAUDE_CODE_TOOL_PREFIX",
     "HarnessId",
     "HarnessSettingsError",
     "PluginCommandError",
+    "PluginHooksError",
     "SupportedHarness",
+    "claude_code_allow_rules",
     "harness_by_id",
     "run_command",
 ]

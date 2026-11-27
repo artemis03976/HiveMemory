@@ -5,17 +5,17 @@
  * 工具名就是 HiveMemory 的工具名。每次调用经 MCP 端点转交 HiveMemory，结果的
  * 正文原样交给模型，HiveMemory 的工具错误作为 pi 的工具错误交给模型。
  *
- * 写入与更新必须带上这一轮的信息，HiveMemory 据此在写入时为这一轮确定话题。
- * 扩展在自己的工具执行时，以当前一轮构造轮次信息再交给 HiveMemory：参数 `turn`
- * 从交给模型的 schema 中去掉，模型填写的也会被覆盖。扩展没有加载时这些工具
- * 不存在，模型也就无法绕过它自己填写轮次信息。
+ * 写入、更新与读当前话题（`topic:current`）必须带上这一轮的信息，HiveMemory 据此
+ * 为这一轮确定话题。扩展在自己的工具执行时，以当前一轮构造轮次信息再交给
+ * HiveMemory：参数 `turn` 从交给模型的 schema 中去掉，模型填写的也会被覆盖。
+ * 扩展没有加载时这些工具不存在，模型也就无法绕过它自己填写轮次信息。
  *
  * 工具只交给模型直接调用（`exposure: "model-only"`），codemode 与其他工具不能
  * 调用它们：经其他工具发起的内层调用不进入会话记录，回流时无法给这些调用写
  * 回声标记，HiveMemory 生成时会把取回的记忆再提取一遍。
  */
 
-import { MEMORY_TOOLS, TURN_PARAM } from '../core/memory-tools.js'
+import { MEMORY_TOOLS, TURN_PARAM, needsTurn } from '../core/memory-tools.js'
 
 /**
  * 服务端工具列表中的四个记忆工具，转为 pi 工具定义；缺少任何一个时返回空列表，
@@ -30,7 +30,6 @@ export function memoryToolDefinitions(serverTools, { client, turnInfo }) {
 }
 
 function toolDefinition(tool, { client, turnInfo }) {
-  const memoryTool = MEMORY_TOOLS[tool.name]
   return {
     name: tool.name,
     label: tool.name,
@@ -40,7 +39,7 @@ function toolDefinition(tool, { client, turnInfo }) {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const args = { ...params }
       delete args[TURN_PARAM]
-      if (memoryTool.needsTurn) args[TURN_PARAM] = turnInfo(ctx)
+      if (needsTurn(tool.name, args)) args[TURN_PARAM] = turnInfo(ctx)
       const result = await client.callTool(tool.name, args, signal)
       return { content: toolContent(result.content), details: undefined, isError: result.isError === true }
     },

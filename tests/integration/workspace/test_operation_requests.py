@@ -695,10 +695,10 @@ async def test_request_level_write_and_update_register_without_thread_and_dispat
         (ResolveRunTargetRequest("base"), False),
         # 写入没有确定话题的回调就无处派发。
         (SubmitWriteIntentRequest(WriteFocus(content="正文")), False),
-        # 读取不涉及话题，给出确定话题的回调即是接线错误。
-        (ResolveReferencesRequest(("base",)), True),
+        # 检索不涉及话题，给出确定话题的回调即是接线错误。
+        (RetrieveRequest("查询基础内容"), True),
     ],
-    ids=["run", "write-without-topic", "read-with-topic"],
+    ids=["run", "write-without-topic", "search-with-topic"],
 )
 async def test_request_level_submission_rejects_mismatched_requests_without_side_effects(
     operation_setup, request_, with_dispatch_topic
@@ -717,6 +717,42 @@ async def test_request_level_submission_rejects_mismatched_requests_without_side
     assert harness.registry.size == 0
     assert harness.admission.submissions == []
     assert harness.citations == []
+    assert harness.owner_calls == []
+
+
+@pytest.mark.asyncio
+async def test_request_level_read_of_current_topic_reads_the_topic_the_callback_determines(
+    operation_setup,
+):
+    """请求级读取 ``topic:current``：授权之后、读取之前确定话题，读出的是回调确定的那个话题。"""
+    harness, access = operation_setup
+    actor = await access.authenticate()
+    dispatch_topic = _DispatchTopic(harness, topic_id="t1")
+
+    results = await harness.entry.execute_request(
+        ResolveReferencesRequest(("topic:current", "base")),
+        actor=actor,
+        dispatch_topic=dispatch_topic,
+    )
+
+    assert dispatch_topic.calls == [{"cold_reads": 0, "registered": 0}]
+    assert [item.kind for item in results] == ["topic", "atom"]
+    assert results[0].topic.topic_id == "t1"
+
+
+@pytest.mark.asyncio
+async def test_thread_read_of_current_topic_is_not_found_without_reading_any_topic(
+    operation_setup,
+):
+    """线程提交的读取没有确定话题的回调：``topic:current`` 按 not_found 交付，不读任何话题。"""
+    harness, access = operation_setup
+    thread = await _derive_thread(access)
+
+    (result,) = await harness.entry.execute(
+        ResolveReferencesRequest(("topic:current",)), thread=thread
+    )
+
+    assert result.kind == "not_found"
     assert harness.owner_calls == []
 
 
@@ -756,13 +792,19 @@ async def test_request_level_update_determines_topic_after_base_read_and_before_
             set(WorkspaceOperation),
             ResourceNotFoundError,
         ),
+        (
+            ResolveReferencesRequest(("topic:current",)),
+            set(WorkspaceOperation) - {WorkspaceOperation.MEMORY_READ},
+            OperationDeniedError,
+        ),
     ],
-    ids=["write-denied", "update-denied", "update-base-missing"],
+    ids=["write-denied", "update-denied", "update-base-missing", "current-topic-read-denied"],
 )
-async def test_rejected_request_level_intent_never_determines_a_topic(
+async def test_rejected_request_level_submission_never_determines_a_topic(
     request_, allowed_operations, error_type
 ):
-    """授权拒绝或基础原子不可读的写入与更新不调用确定话题的回调：不路由、不建立话题。"""
+    """授权拒绝或基础原子不可读的写入与更新、未获准读取的 ``topic:current`` 都不调用确定话题的
+    回调：不路由、不建立话题。"""
     access = make_access_composition(
         [make_actor_access_record(allowed_operations=allowed_operations)]
     )

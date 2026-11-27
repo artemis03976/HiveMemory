@@ -246,7 +246,7 @@ POST /api/v1/import/turns
      -> core 共用封口函数 seal_interaction
      -> root API 提交交互（方法入口 root 授权一次，不检查 actor 操作白名单）：
           -> Patchouli interaction.status 查进度：已应用的返回此前已接纳，仍在应用的等待，都不再提交
-          -> 话题：写入时已确定的沿用（第 6.1 节）；否则 Gateway PROCESS (PASSIVE_MEMORY) 只取话题路由，不运行查询分析
+          -> 话题：写入或读当前话题时已确定的沿用（第 6.1 节）；否则 Gateway PROCESS (PASSIVE_MEMORY) 只取话题路由，不运行查询分析
           -> Patchouli interaction.submit：感知队列接纳（参与的 Agent 记为发起者），等待感知应用完成
   -> 按结局确认：accepted / duplicate / skipped，或交回连接器重发
 ```
@@ -269,13 +269,13 @@ POST /api/v1/import/turns
 ```text
 POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、user 与 Agent 声明）
   -> mcp_server：解析声明，经统一认证网关（mcp adapter）认证一次，得到本次调用的工作 actor
-  -> 门面取得的操作入口：请求级提交 execute_request（写入与更新另带确定派发话题的回调）
+  -> 门面取得的操作入口：请求级提交 execute_request（写入、更新与带轮次信息的读取另带确定话题的回调）
   -> actor API：retrieve / resolve_references / submit_write_intent / submit_update_intent（按访问登记白名单逐次授权）
-       写入与更新在授权之后调用回调：门面取得的 Import Bus 服务为这一轮确定话题（系统执行；连接器的 PreToolUse hook 补上轮次信息）
+       写入与更新、读 topic:current 在授权之后调用回调：门面取得的 Import Bus 服务为这一轮确定话题（系统执行；连接器补上轮次信息）
   -> MemoryCompiler 呈现检索与读取结果；写入与更新返回 pending alias
 ```
 
-外部 harness 的任务对 HiveMemory 不可见，不建进程、不派生线程，每次工具调用只认证一次，工作 actor 只留在本次调用内。MCP 入口与 Alice 的 MTP 适配器同为操作适配器：都把协议调用归一为固定类型的操作请求，经同一个操作入口进入同一组 actor API 方法，入口仍是 actor API 唯一的调用方；写入与更新与主动链路共用同一意图登记与生成链路。写入发生在一轮进行之中，而外部 harness 的一轮在 HiveMemory 没有任务进程，Import Bus 因此在写入时经 root API 的“为一轮确定话题”就地确定话题，这一轮结束回流时沿用该话题，写入的话题就是这一轮最终所在的话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。确定话题排在 actor API 的授权之后，没有写入许可的调用不会路由、建立话题或触发 LRU 结算。连接器把插件自身四个工具的调用标为 SEARCH、READ、WRITE、UPDATE 后导入，生成视图对检索与读取只留一行摘要、不渲染写入与更新，经 MCP 取回或显式写入的内容因此不会被再提取一遍。契约见 [MCP 记忆访问](../contracts/mcp.md)。
+外部 harness 的任务对 HiveMemory 不可见，不建进程、不派生线程，每次工具调用只认证一次，工作 actor 只留在本次调用内。MCP 入口与 Alice 的 MTP 适配器同为操作适配器：都把协议调用归一为固定类型的操作请求，经同一个操作入口进入同一组 actor API 方法，入口仍是 actor API 唯一的调用方；写入与更新与主动链路共用同一意图登记与生成链路。写入发生在一轮进行之中，而外部 harness 的一轮在 HiveMemory 没有任务进程，Import Bus 因此在写入时经 root API 的“为一轮确定话题”就地确定话题，这一轮结束回流时沿用该话题，写入的话题就是这一轮最终所在的话题；agent 读当前话题 `topic:current` 时同样先为这一轮确定话题（[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)）。确定话题排在 actor API 的授权之后，没有对应许可的调用不会路由、建立话题或触发 LRU 结算。连接器把插件自身四个工具的调用标为 SEARCH、READ、WRITE、UPDATE 后导入，生成视图对检索与读取只留一行摘要、不渲染写入与更新，经 MCP 取回或显式写入的内容因此不会被再提取一遍。契约见 [MCP 记忆访问](../contracts/mcp.md)。
 
 ## 7. 短期记忆：话题是前台与中期之间由 HiveMemory 持有的一环
 
@@ -291,21 +291,22 @@ POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、us
        进展记录：话题停下一段时间后写一条，每一条指回它覆盖的原文
        沉淀与退役：话题停下更久时把交互交给生成，话题留在池中；池满或手动时沉淀并退役
   -> 中期（Patchouli 生成）：从沉淀材料生成正式记忆，查重、合并
-  -> 读出：agent 经 actor API 的 READ 读话题句柄；Claude Code 压缩会话之后，插件经 MCP 读出话题的索引注入对话开头
+  -> 读出（拉取）：agent 经 actor API 的 READ 读话题句柄或 topic:current；Claude Code 压缩会话之后，插件只推送话题句柄的指针
 ```
 
 - **前台上下文**：controller 模式下，会话资源原样积累一个 Workspace 会话的全部轮次，Alice 每次 run 由它构建预算受限的上下文视图（[会话资源](../workspace/sessions.md)）；plugin 模式下前台上下文完全在 harness 中，HiveMemory 只收到每一轮的记录。
 - **会话压缩**：回答“这个会话下一次推理需要知道什么”。Alice 先减重工具结果，仍超出时以接力摘要覆盖较早的轮次，检查点由会话资源存储与接受，原文不删改（[Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)、[会话资源](../workspace/sessions.md#5-压缩检查点)）；外部 harness 的压缩由 harness 自己完成。
 - **话题**：回答“不在场的人回来时，话题进行到哪一步”。一个话题汇集可能来自多个会话的交互，按内容组织、原文完整；话题的进展是进展记录加还没有整理的原始交互记录，折叠只为生成材料服务（[感知与短期话题](../patchouli/perception.md)）。
 - **沉淀进中期**：沉淀冻结话题的全部交互与折叠记录交给生成，生成写出正式记忆并记下本话题生成的记忆；话题停下够久时只沉淀、不退役，连续的工作因此不被切成几个话题（[记忆生成](../patchouli/generation.md)、[感知与短期话题](../patchouli/perception.md#4-触发原因与具名用例)第 4 节）。
-- **读出**：话题句柄 `topic:<id>` 与 `topic:<id>#<n>` 经同一个 READ（MTP 的 READ、MCP 的 `memory_read`）读出进展记录的索引或一条的全文与原文，授权沿用 `memory.read`（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）。Claude Code 压缩会话之后，插件的 `SessionStart` hook 以 Import Bus 导入结果带回、连接器记下的话题标识读出这个会话最近一轮所在话题的索引，注入对话开头（[Import Bus](../system/import-bus.md#82-hooks)第 8.2 节）。
+- **读出**：回到话题的 agent 需要知道话题进行到哪一步，使用点有两个：另一个会话的消息被路由回已有话题时，与会话压缩之后的短暂失忆窗口。拉取是基线：话题句柄 `topic:<id>` 与 `topic:<id>#<n>` 经同一个 READ（MTP 的 READ、MCP 的 `memory_read`）读出进展记录的索引或一条的全文与原文，授权沿用 `memory.read`；agent 不知道话题 id 时读 `topic:current`，即这个会话这一轮所在的话题（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）。推送只在会话压缩之后、harness 支持时做，而且只推送一个指针：Claude Code 压缩会话之后，插件的 `SessionStart` hook 以 Import Bus 导入结果带回、连接器记下的话题标识，注入这个会话最近一轮所在话题的句柄与一句读法，不推送话题或中期记忆的内容（[Import Bus](../system/import-bus.md#82-hooks)第 8.2 节）。被路由回已有话题时由 agent 拉取，系统不在轮首推送：轮首推送要先在轮首确定话题、再干预前台的上下文，而被动入口能捕捉的时点与能做的干预因 harness 而异。
+- **话题的归属按需确定，每轮至多一次**：plugin 模式下一轮所在的话题在第一次需要它时确定——写入或更新之前、读 `topic:current` 之前与轮次结束导入时，三者经 Import Bus 的同一个“为一轮确定话题”，先到的确定，之后沿用；不单独在轮首路由。归属只是 HiveMemory 内部的记账，不碰前台的上下文（[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)第 4.7 节）。
 
 跨层不变量：
 
 - **会话与话题不共享状态、互不控制**：会话只在每一轮上记下交互实际所在的话题标识，删除或沉淀话题不删除会话；话题不读会话，会话压缩不缩减话题的交互记录，折叠也不替前台减少会话历史。plugin 模式下 HiveMemory 不保存外部会话，连接器只记下最近一轮所在的话题标识。
 - **会话压缩、折叠与进展记录各自回答一个问题、各自触发**：会话压缩由前台的上下文预算触发（Alice 按自己的触发比例，外部 harness 按它自己的规则），回答下一次推理需要什么；折叠由话题工作视图的 token 阈值触发，回答读材料的生成需要保留什么；进展记录由话题停下的时长触发，回答话题进行到哪一步。三者之间没有机制联系：CPU 已压缩某段内容，不证明话题已收到它，也不证明已生成对应的记忆。
 - **Alice 的接力摘要不进入话题**：它不进入 `TurnEvent`、`InteractionPayload`、话题或记忆生成，只是 Alice 的执行视图。
-- **推送是从话题到会话的单向读出**：插件以 agent 的 MCP 调用相同的身份（插件的 principal、凭据与 Agent 声明），经同样的认证与 `memory.read` 授权调用一次 `memory_read`，读取不写话题、不刷新话题的访问时间，也不影响导入；推送不改变话题，话题也不控制前台怎样使用注入的内容。
+- **话题向会话只是单向读出**：推送只有指针，不含记忆内容，由连接器从自己的状态写出，不读话题；内容只经 agent 自己的读取进入前台，读取经认证与 `memory.read` 授权，不写话题、不刷新话题的访问时间，也不影响导入。读 `topic:current` 可能为这一轮确定话题，与写入时相同，这是归属的记账，不改变话题的内容；话题也不控制前台怎样使用读到的内容。
 
 ## 8. 生命周期顺序与设计理由
 
@@ -329,8 +330,8 @@ Gateway -> Patchouli -> Alice -> Scheduler
 - local bus 路由不得成为其他子系统的隐式 API；
 - Gateway 命令结果与普通决策互斥；
 - `PASSIVE_MEMORY` 模式不得产生命令结果；Import Bus 不检索记忆、不返回记忆上下文，只在交互应用完成后确认；
-- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 与 MCP 都经 workspace 的操作入口访问记忆能力，MCP 的请求级提交只能检索、读取、写入与更新，写入与更新的派发话题在授权之后由 Import Bus 为这一轮确定；
-- 交互提交只有一个入口：root API 的提交交互，任务进程与 Import Bus 共用；话题只在第一次写入或交互应用时建立，没有补偿或清理话题的路径；
+- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 与 MCP 都经 workspace 的操作入口访问记忆能力，MCP 的请求级提交只能检索、读取、写入与更新，写入与更新的派发话题、读 `topic:current` 所读的话题在授权之后由 Import Bus 为这一轮确定；
+- 交互提交只有一个入口：root API 的提交交互，任务进程与 Import Bus 共用；话题只在为一轮确定话题（第一次写入，plugin 模式下还有第一次读 `topic:current`）或交互应用时建立，没有补偿或清理话题的路径；
 - 观测事件是旁路信息，不参与业务正确性判断；
 - 当前实现是单进程异步架构，不承诺分布式投递语义。
 

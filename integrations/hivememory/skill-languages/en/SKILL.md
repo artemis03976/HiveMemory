@@ -37,9 +37,9 @@ Tool names end with the names in the table below. A harness may add a prefix; in
 | `memory_write` | Write one thing worth keeping | `content` is required, and `title` and `reason` should also be filled in; returns a handle starting with `draft_` |
 | `memory_update` | Correct an existing memory | `alias` is the formal alias from search or read, `instruction` says how to change it, `content` may carry new text; returns a handle starting with `rev_` |
 
-If a `turn` parameter appears in writes and updates, do not fill it in: the plugin adds it when the call is made.
+If a `turn` parameter appears in writes, updates and reads, do not fill it in: the plugin adds it when the call is made.
 
-After the session is compacted, a HiveMemory topic index injected by the plugin may appear at the start of the conversation, listing the progress record of the topic this session is in. Each `topic:<id>#n` in it is a topic handle: when you need the details of an entry, read it with `memory_read` to get the entry's full text and the original turns it covers. Topic handles can only be read, not written or corrected.
+A topic is where HiveMemory records the turns and progress of a discussion or a piece of work. When the user comes back to earlier work, or you are not sure how far a piece of work or a discussion had got, first read `topic:current` with `memory_read`: it is the topic this turn of the session belongs to, and reading it gives the topic's progress record index. After the session is compacted, a HiveMemory pointer may appear at the start of the conversation with a `topic:<id>` handle in it: when you need to pick up the work from before the compaction, read that handle. Each `topic:<id>#n` in an index is the handle of one progress record entry; reading it gives the entry's full text and the original turns it covers. Topic handles can only be read, not written or corrected.
 
 ## 3. Coexisting with the harness's own memory
 
@@ -163,7 +163,7 @@ When a tool fails it returns a description with an error code. Handle it as foll
 | "HiveMemory is unreachable", `import_bus.unavailable`, `workspace.memory.intent.dispatch_rejected` | Temporarily unavailable; retry once later. If it still fails, continue the task and tell the user this was not recorded |
 | `workspace.resource.not_found` | The alias is wrong or the memory no longer exists; search again |
 | `workspace.memory.intent.pending_update_not_allowed` | A handle was used as the correction target; see section 6 |
-| `request.turn_required`, "No turn is in progress" | The plugin could not add this turn's information to the write; retrying does not help. Tell the user and continue the task |
+| `request.turn_required`, "No turn is in progress" | The plugin could not add this turn's information to the write or read; retrying does not help. Tell the user and continue the task |
 | `workspace.admission_denied`, `workspace.operation_denied` | An access or permission configuration problem; retrying does not help. Tell the user and continue the task |
 
 ## 8. The rhythm of a session

@@ -15,14 +15,14 @@ related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-26
 ---
 
 # 接入 DeepSeek Harness
 
 仓库提供 DeepSeek Harness（`dsh`）插件 `hivememory-connector`（`integrations/hivememory/`，dsh 部分在 `node/dsh/`，与 Claude Code、Codex 和 pi 合用这个插件目录），它是一个 dsh 原生插件，做两件事：
 
-- **记忆工具**：插件启动时从 HiveMemory 取得工具列表与服务说明，在 dsh 中注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具，服务说明作为系统提示词的一节交给 Agent。何时检索与写入由 Agent 自己决定。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件在调用时以 Agent 所在会话的当前一轮自动补上，Agent 看不到也不能填写这个参数。
+- **记忆工具**：插件启动时从 HiveMemory 取得工具列表与服务说明，在 dsh 中注册 `memory_search`（检索）、`memory_read`（按 alias 读取全文）、`memory_write`（写入）与 `memory_update`（修正已有记忆）四个工具，服务说明作为系统提示词的一节交给 Agent。何时检索与写入由 Agent 自己决定。写入与更新需要这一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题：插件在调用时以 Agent 所在会话的当前一轮自动补上，Agent 看不到也不能填写这个参数。agent 要接上之前的工作时，可以读 `topic:current` 得到这个会话这一轮所在话题的进展记录索引，读之前插件同样补上这一轮的信息；插件在会话压缩之后不注入任何内容，只能这样拉取。
 - **对话回流**：dsh 中每一轮对话结束后，插件把这一轮（用户消息、回复、思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。网络提交在后台进行，HiveMemory 未运行时 dsh 照常工作，未导入的轮次之后按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
 
 HiveMemory 的使用手册 skill 在同一个插件目录中维护，内容不区分 harness，安装插件后随插件提供给 dsh（第 4 节）。
@@ -135,7 +135,7 @@ skill `hivememory` 随插件提供，不需要另外复制：插件的配置层�
 | 工具返回 `invalid_credential`，日志的 `stopped` 行带 `status=403 reason=invalid_credential` | dsh 读到的凭据与 HiveMemory 登记的不一致：多半是安装之后没有从托盘退出 dsh 再打开。退出再打开；仍然不行时在插件页点“重新安装”，凭据会重新写入。积压的轮次随后补发 |
 | `stopped` 行带 `reason=unknown_principal` | 插件还装着，但 HiveMemory 一侧没有 `harness:dsh` 的登记（例如在插件页卸载过，或换了一个新的数据目录）：在插件页重新安装 |
 | 工具返回 `operation_not_allowed` | 该 Agent 的访问记录缺少对应的 `memory.*` 操作（第 5 节）：在设置页的“接入与权限”中勾选，立即生效 |
-| 工具返回 `No turn is in progress` | 写入与更新只能在一轮对话进行中调用 |
+| 工具返回 `No turn is in progress` | 写入、更新与读 `topic:current` 只能在一轮对话进行中调用 |
 | 日志中有 `stopped ... kind=retryable` | HiveMemory 暂时不可用或繁忙，进度已保留，之后自动补发 |
 | 日志中有 `rejected`，`rejections.jsonl` 有记录 | 这一轮被服务端拒绝（413、422，或连续三次 500）后跳过，记录中有会话、轮号、状态码与错误码 |
 

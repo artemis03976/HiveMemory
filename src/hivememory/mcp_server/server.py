@@ -3,14 +3,15 @@
 提供检索、读取、写入与更新四个工具。每次工具调用以请求头中的声明（principal、
 接入凭据、用户与具体 Agent）经统一认证网关认证一次，得到的工作 actor 只是
 本次调用内的局部值，经门面取得的操作入口的请求级提交进入 actor API；不建
-进程，不派生线程。写入与更新先经门面取得的 Import Bus 服务为这一轮确定话题，再以
-该话题提交，两步共用同一个工作 actor。工具参数由模型生成，永远不作为身份
-来源；连接器补上的轮次信息只用于确定话题。本入口也不组装 ``IdentityScope``。
+进程，不派生线程。写入与更新经门面取得的 Import Bus 服务为这一轮确定话题，再以
+该话题提交；读取 ``topic:current`` 时同样为这一轮确定话题，再读出它。确定话题在
+actor API 授权之后才进行，与提交共用同一个工作 actor。工具参数由模型生成，永远
+不作为身份来源；连接器补上的轮次信息只用于确定话题。本入口也不组装 ``IdentityScope``。
 """
 
 import logging
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Annotated
 
@@ -26,7 +27,13 @@ from hivememory.components.trace_context import (
 )
 from hivememory.core.access import WorkingActor
 from hivememory.core.errors import ResourceNotFoundError
-from hivememory.core.models import MemoryAtom, PendingAtom, ReferenceResolution, WriteFocus
+from hivememory.core.models import (
+    CURRENT_TOPIC_HANDLE,
+    MemoryAtom,
+    PendingAtom,
+    ReferenceResolution,
+    WriteFocus,
+)
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -111,7 +118,8 @@ def create_mcp_server(
             _log_call("memory_search", headers, started, f"results={len(memories)}")
             return _text_result(result)
 
-    # Claude Code 连接器按参数名把 aliases 归一化为 READ 的作用对象，改名时同步修改它的识别表。
+    # Claude Code 连接器按参数名把 aliases 归一化为 READ 的作用对象，读 topic:current 时按参数名
+    # 填写 turn；改名时同步修改它的识别表。
     @server.tool(
         name="memory_read",
         description=text("read_description"),
@@ -121,14 +129,15 @@ def create_mcp_server(
     async def memory_read(
         aliases: Annotated[list[str], Field(min_length=1, description=text("aliases_description"))],
         ctx: Context,
+        turn: Annotated[InFlightTurn | None, Field(description=text("turn_description"))] = None,
     ) -> CallToolResult:
         started = time.monotonic()
         headers = ctx.headers or {}
         with _call_trace("memory_read"):
             try:
                 system = get_system()
-                results = await _submit(
-                    system, headers, ResolveReferencesRequest(aliases=tuple(aliases))
+                results = await _submit_read(
+                    system, headers, turn, ResolveReferencesRequest(aliases=tuple(aliases))
                 )
                 result, unresolved = _read_text(
                     compiler,
@@ -239,8 +248,8 @@ def _new_server(instructions: str) -> MCPServer:
 def _call_trace(tool: str) -> Iterator[None]:
     """一次工具调用在自己的 trace 中进行。
 
-    actor 操作、写入时确定话题引起的 Gateway 被动路由与新建话题的事件都继承它，
-    归为同一次运行；日志也带上它。外部 agent 在等待结果，按前台工作呈现。
+    actor 操作、写入与读当前话题时确定话题引起的 Gateway 被动路由与新建话题的事件
+    都继承它，归为同一次运行；日志也带上它。外部 agent 在等待结果，按前台工作呈现。
     """
     tokens = set_trace_context(generate_trace_id("mcp"), tool, "foreground")
     try:
@@ -275,9 +284,27 @@ async def _authenticate(system: "HiveMemorySystem", headers: Mapping[str, str]) 
 async def _submit[R](
     system: "HiveMemorySystem", headers: Mapping[str, str], request: OperationRequest[R]
 ) -> R:
-    """检索与读取：认证后经请求级提交分派。"""
+    """检索：认证后经请求级提交分派。"""
     actor = await _authenticate(system, headers)
     return await system.operation_entry.execute_request(request, actor=actor)
+
+
+async def _submit_read(
+    system: "HiveMemorySystem",
+    headers: Mapping[str, str],
+    turn: InFlightTurn | None,
+    request: ResolveReferencesRequest,
+) -> list[ReferenceResolution]:
+    """读取：认证后经请求级提交；带轮次信息时交出确定话题的回调，供读 ``topic:current``。
+
+    actor API 只在引用含 ``topic:current`` 时、授权之后调用回调。没有轮次信息时
+    不带回调，``topic:current`` 按未解析交付，其余引用照常读取。
+    """
+    actor = await _authenticate(system, headers)
+    dispatch_topic = _determine_topic_callback(system, turn, actor) if turn is not None else None
+    return await system.operation_entry.execute_request(
+        request, actor=actor, dispatch_topic=dispatch_topic
+    )
 
 
 async def _submit_intent(
@@ -291,21 +318,32 @@ async def _submit_intent(
     缺少轮次信息时在认证前拒绝，不确定话题也不登记意图：写入必须落在这一轮最终
     所在的话题，不退化为不绑定话题。提交由 actor API 按工作 actor 的操作白名单
     授权，授权之后才调用确定话题的回调，被拒的写入因此不会路由、建立话题或
-    触发 LRU 结算；确定话题由系统执行，与 Agent 的许可无关。目标 Workspace 取
-    工作 actor 驻留的 Workspace，与导入相同。
+    触发 LRU 结算。
     """
     if turn is None:
         raise APIError("request.turn_required")
     actor = await _authenticate(system, headers)
+    return await system.operation_entry.execute_request(
+        request, actor=actor, dispatch_topic=_determine_topic_callback(system, turn, actor)
+    )
+
+
+def _determine_topic_callback(
+    system: "HiveMemorySystem", turn: InFlightTurn, actor: WorkingActor
+) -> Callable[[], Awaitable[str]]:
+    """经 Import Bus 为这一轮确定话题的回调，与读取和写入共用。
+
+    确定话题由系统执行，与 Agent 的许可无关；回调与提交共用同一个工作 actor。
+    目标 Workspace 取工作 actor 驻留的 Workspace，与导入相同。同一轮先到的读取
+    或写入确定话题，之后的沿用它。
+    """
 
     async def determine_topic() -> str:
         return await system.import_bus_service.place_turn(
             turn, actor=actor, target_workspace=actor.workspace
         )
 
-    return await system.operation_entry.execute_request(
-        request, actor=actor, dispatch_topic=determine_topic
-    )
+    return determine_topic
 
 
 def _search_text(
@@ -338,6 +376,9 @@ def _read_text(
 
     哪些解析结果可以交付与 MTP READ 共用 ``readable_source``。话题条目的原文与记忆生成的
     材料使用同一份截断配置。
+
+    ``topic:current`` 只在调用没有带轮次信息时未解析，重试不会改变结果：未解析的 alias
+    之后再说明它需要插件补上这一轮的信息，全部未解析时以缺少轮次信息拒绝。
     """
     blocks: list[str] = []
     unresolved: list[str] = []
@@ -352,10 +393,15 @@ def _read_text(
             requested_alias=requested_alias, transcript_config=transcript
         )
         blocks.append(compiler.compile(source, MemoryCompileTarget.READ_RESULT, options).text)
+    current_unresolved = CURRENT_TOPIC_HANDLE in unresolved
     if not blocks:
+        if current_unresolved:
+            raise APIError("request.turn_required")
         raise ResourceNotFoundError(details={"aliases": unresolved})
     if unresolved:
         blocks.append(get_mcp_text("unresolved", language).format(aliases=", ".join(unresolved)))
+    if current_unresolved:
+        blocks.append(get_mcp_text("current_topic_unresolved", language))
     return "\n".join(blocks), unresolved
 
 

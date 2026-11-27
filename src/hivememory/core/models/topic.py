@@ -366,7 +366,12 @@ class TopicData(BaseModel):
 # 系统签发（读话题的结果与压缩之后的注入），记忆 alias 不得以这个前缀开头。
 TOPIC_HANDLE_PREFIX = "topic:"
 
+# 这个会话这一轮所在的话题：读取时先为这一轮确定话题，再换成真实句柄读出索引。它由 agent
+# 写出、不由系统签发，也不是话题 id 句柄：话题 id 是 uuid4 字符串，不会是 ``current``。
+CURRENT_TOPIC_HANDLE = "topic:current"
+
 _TOPIC_HANDLE = re.compile(r"topic:([^#\s]+)(?:#([1-9][0-9]*))?")
+_CURRENT_TOPIC_ID = CURRENT_TOPIC_HANDLE.removeprefix(TOPIC_HANDLE_PREFIX)
 
 
 def format_topic_handle(topic_id: str, entry_number: int | None = None) -> str:
@@ -376,15 +381,19 @@ def format_topic_handle(topic_id: str, entry_number: int | None = None) -> str:
 
 
 def parse_topic_handle(handle: str) -> tuple[str, int | None] | None:
-    """解析话题句柄，返回话题 id 与条目序号（读索引时为空）；不合语法时返回 ``None``。"""
+    """解析话题句柄，返回话题 id 与条目序号（读索引时为空）；不合语法时返回 ``None``。
+
+    ``topic:current`` 不是话题 id 句柄，同样返回 ``None``；它没有带条目序号的写法。
+    """
     match = _TOPIC_HANDLE.fullmatch(handle)
-    if match is None:
+    if match is None or match.group(1) == _CURRENT_TOPIC_ID:
         return None
     topic_id, entry = match.groups()
     return topic_id, int(entry) if entry is not None else None
 
 
 __all__ = [
+    "CURRENT_TOPIC_HANDLE",
     "TOPIC_HANDLE_PREFIX",
     "LogicalBlock",
     "TopicData",

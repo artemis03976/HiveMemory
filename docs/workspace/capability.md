@@ -22,14 +22,14 @@ last_reviewed: 2026-11-26
 
 # 能力层
 
-能力层是 workspace 对外提供资源能力的地方。它对外有两个互不导入的 API 面：只供保留 `system` 的 root API，与只经操作入口供 actor 使用的 actor API；任务进程另有少量不经能力层的阶段调用。三者都是授权点，能力层的 API 代表谁在执行这项操作：每个方法在入口以执行者调用 `WorkspaceOperationAuthorizer` 的两个授权方法之一——actor 执行期间的操作以 `authorize_agent`，系统级操作以 `authorize_root`（[身份与授权](./identity-and-authorization.md#4-操作授权)）。System 的 Import Bus 服务只认证系统自身、不授权：导入与写入时确定话题都经 root API，由 root 方法在入口授权。
+能力层是 workspace 对外提供资源能力的地方。它对外有两个互不导入的 API 面：只供保留 `system` 的 root API，与只经操作入口供 actor 使用的 actor API；任务进程另有少量不经能力层的阶段调用。三者都是授权点，能力层的 API 代表谁在执行这项操作：每个方法在入口以执行者调用 `WorkspaceOperationAuthorizer` 的两个授权方法之一——actor 执行期间的操作以 `authorize_agent`，系统级操作以 `authorize_root`（[身份与授权](./identity-and-authorization.md#4-操作授权)）。System 的 Import Bus 服务只认证系统自身、不授权：导入，以及写入与读当前话题时确定话题，都经 root API，由 root 方法在入口授权。
 
 ## 1. 三个调用面
 
 | 调用面 | 代码 | 执行者与授权 | 检查（共用的准入与目标检查之外） | 调用方 |
 |:---|:---|:---|:---|:---|
 | actor API | `workspace/capability/actor/` | 执行线程或请求的工作 actor，`authorize_agent`，目标取驻留 Workspace | 访问登记白名单包含该 actor 操作 | 只有操作入口 `WorkspaceOperationEntry`（第 6 节）；执行线程经线程提交（CPU 的请求与任务进程的预检索），MCP 入口经门面取得同一入口的请求级提交 |
-| root API | `workspace/capability/root/` | 请求的 `system`，`authorize_root`，目标由请求给出 | actor 是保留的 `system`；不读取白名单 | 门面暴露给 server 的 HTTP 管理入口；任务进程（话题确认与建立、存储健康与交互提交）；Import Bus 编排器（交互提交与写入时确定话题）；后两者由组合根注入 |
+| root API | `workspace/capability/root/` | 请求的 `system`，`authorize_root`，目标由请求给出 | actor 是保留的 `system`；不读取白名单 | 门面暴露给 server 的 HTTP 管理入口；任务进程（话题确认与建立、存储健康与交互提交）；Import Bus 编排器（交互提交，与写入和读当前话题时确定话题）；后两者由组合根注入 |
 | 阶段调用 | `workspace/process/`（`TaskProcessRunner` 的 Gateway、`CPUAllocator` 的 Profile、可用 agent 列表与附件、注册入口的取消） | `authorize_root` | 不检查 actor 操作 | 任务进程自身的编排（[任务进程](./task-process.md#52-阶段调用)） |
 
 **为什么分成三个调用面**：能力层最初从 System 层的应用服务原样迁入，管理方法与 actor 方法混在同一批服务中，管理能力是可以登记给任何 actor 的普通 operation；actor 一侧的方法也与 actor 能做的事对不齐，任务进程的阶段调用还借用 actor 的 operation，没有检索许可的 Agent 在准备阶段就会失败。现在的划分按“谁在做这件事”区分：
@@ -46,7 +46,7 @@ last_reviewed: 2026-11-26
 
 | operation | MTP 动词 | 请求 | actor API 方法 | 说明 |
 |:---|:---|:---|:---|:---|
-| `memory.read` | READ（CALL 的 `context_refs` 也以此请求逐项解析） | `ResolveReferencesRequest` | `ActorMemoryService.resolve_references` | 交付正式原子时记录引用；也解析话题句柄，读话题不记录引用（[读取视图与写入意图](./read-view-and-write-intents.md#41-话题句柄)） |
+| `memory.read` | READ（CALL 的 `context_refs` 也以此请求逐项解析） | `ResolveReferencesRequest` | `ActorMemoryService.resolve_references` | 交付正式原子时记录引用；也解析话题句柄，读话题不记录引用；请求级提交给出确定话题的回调时，`topic:current` 在授权之后为这一轮确定话题再读（[读取视图与写入意图](./read-view-and-write-intents.md#41-话题句柄)） |
 | `memory.search` | SEARCH | `RetrieveRequest` | `ActorMemoryService.retrieve` | 结果预热原子缓存；为交付的记忆记录检索命中（第 7 节），不记录引用 |
 | `memory.run` | RUN 的记忆目标 | `ResolveRunTargetRequest` | `ActorMemoryService.resolve_run_target` | 交付中立解析结果，不记录引用：解析到的记忆一律被 Actor 的工具运行时以不可运行拒绝；`sys_*` 系统工具在 Alice 本地执行，不经能力层 |
 | `memory.write` | WRITE | `SubmitWriteIntentRequest` | `ActorMemoryService.submit_write_intent` | ACK 表示已登记并被生成队列接纳 |
@@ -90,7 +90,7 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 ## 5. 授权点的共同约定
 
-root API 与阶段调用只接收工作 actor、目标 Workspace 与业务参数；actor API 方法只接收请求对象与工作 actor（写入与更新另带线程句柄或确定派发话题的回调），目标取工作 actor 的驻留 Workspace（第 3 阶段只接受驻留目标）。各方法都在入口先调用对应授权，再用返回的 `IdentityScope` 构造领域对象并调用资源 owner，不向下传工作 actor；授权失败时不触达资源后端。附件上传只使用授权返回的 scope，检索请求由 actor API 用授权返回的 scope 构造。HTTP 管理路由只调用 root API，把请求的工作 actor 与它驻留的 Workspace（作为目标）交给它。
+root API 与阶段调用只接收工作 actor、目标 Workspace 与业务参数；actor API 方法只接收请求对象与工作 actor（写入与更新另带线程句柄或确定派发话题的回调，请求级的读取可以另带确定话题的回调），目标取工作 actor 的驻留 Workspace（第 3 阶段只接受驻留目标）。各方法都在入口先调用对应授权，再用返回的 `IdentityScope` 构造领域对象并调用资源 owner，不向下传工作 actor；授权失败时不触达资源后端。附件上传只使用授权返回的 scope，检索请求由 actor API 用授权返回的 scope 构造。HTTP 管理路由只调用 root API，把请求的工作 actor 与它驻留的 Workspace（作为目标）交给它。
 
 ## 6. 操作入口
 
@@ -98,9 +98,9 @@ root API 与阶段调用只接收工作 actor、目标 Workspace 与业务参数
 
 执行者通过 `workspace.contracts` 的 `OperationRequest` 与提交函数 `OperationSubmitter` 提交操作，提交函数内部持有不透明的线程句柄；任务进程的预检索也以主线程的句柄经同一个 `execute` 提交。`WorkspaceOperationEntry` 实现公共 `OperationEntry`，线程提交只接收线程句柄：`execute` 在分派前调用线程表的 `resolve`，全部 actor 操作因此共用同一个存活判定（[执行线程](./execution-threads.md#3-生命周期与唯一的存活判定)）；线程已结束或进程已收到停止、已经关闭以 `ThreadEndedError` 拒绝，登记的不是这一个句柄以 `ScopeRequiredError` 拒绝，均没有副作用。解析结果带着线程的工作 actor，`execute` 只按请求类型把五项记忆请求与这个工作 actor 直接交给对应的 actor API 方法，不拆参数；写入与更新另带句柄，供登记前的同步段再解析一次线程。actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。CPU 一侧只持有句柄，取不到工作 actor，也就无法调用请求级提交。
 
-请求级提交 `execute_request(request, *, actor, dispatch_topic=None)` 只供 MCP 入口调用，门面以 `operation_entry` 交出同一个入口：外部 harness 的任务对 HiveMemory 不可见，没有进程与线程，每次工具调用由入口认证一次，得到的工作 actor 只在本次调用内交给这里（[MCP 记忆访问](../contracts/mcp.md)）。它接受检索、读取、写入与更新四种请求，与 `execute` 共用同一分派表；可提交的请求类型只写在这一处（[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程句柄)）。写入与更新登记意图后要以一个派发话题派发：线程提交经线程表取得进程这一轮的话题，请求级提交没有线程，由调用方给出 `dispatch_topic`——一个返回派发话题的异步回调。MCP 入口的回调经 Import Bus 为这一轮确定话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。检索与读取不得给出回调，写入与更新必须给出；其余请求类型、或回调与请求类型不符时在分派前以 `TypeError` 拒绝，没有副作用。请求级提交不做存活判定。
+请求级提交 `execute_request(request, *, actor, dispatch_topic=None)` 只供 MCP 入口调用，门面以 `operation_entry` 交出同一个入口：外部 harness 的任务对 HiveMemory 不可见，没有进程与线程，每次工具调用由入口认证一次，得到的工作 actor 只在本次调用内交给这里（[MCP 记忆访问](../contracts/mcp.md)）。它接受检索、读取、写入与更新四种请求，与 `execute` 共用同一分派表；可提交的请求类型只写在这一处（[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程句柄)）。写入与更新登记意图后要以一个派发话题派发：线程提交经线程表取得进程这一轮的话题，请求级提交没有线程，由调用方给出 `dispatch_topic`——一个返回派发话题的异步回调。MCP 入口的回调经 Import Bus 为这一轮确定话题（[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)）。读 `topic:current` 也要这一轮的话题，同一个回调因此也交给读取。写入与更新必须给出回调；读取可以给出，actor API 只在引用含 `topic:current` 时调用它；检索不得给出；其余请求类型、或回调与请求类型不符时在分派前以 `TypeError` 拒绝，没有副作用。请求级提交不做存活判定。
 
-actor API 的写入与更新接收线程句柄或派发话题的回调，二者恰有其一，否则是接线缺陷，以 `TypeError` 拒绝。两条路径的顺序相同：授权，UPDATE 解析基础原子，取得派发话题（线程提交向线程表要，请求级提交调用回调），无挂起点的同步段登记，派发（[读取视图与写入意图](./read-view-and-write-intents.md#3-写入意图登记)）。回调在授权之后才被调用，没有对应许可的写入因此不会路由、建立话题或触发 LRU 结算。给出回调时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同。请求级提交到不了 RUN 与 CALL：经 `execute` 提交需要线程句柄，经 `execute_request` 提交时被类型表拒绝，CALL 的派生先判定调用方存活。
+actor API 的写入与更新接收线程句柄或派发话题的回调，二者恰有其一，否则是接线缺陷，以 `TypeError` 拒绝。两条路径的顺序相同：授权，UPDATE 解析基础原子，取得派发话题（线程提交向线程表要，请求级提交调用回调），无挂起点的同步段登记，派发（[读取视图与写入意图](./read-view-and-write-intents.md#3-写入意图登记)）。回调在授权之后才被调用，没有对应许可的写入因此不会路由、建立话题或触发 LRU 结算。读取不登记意图：`resolve_references` 在 `memory.read` 授权之后、引用含 `topic:current` 时调用回调一次，换成真实句柄再解析（[读取视图与写入意图](./read-view-and-write-intents.md#41-话题句柄)第 4.1 节），未获准的读取同样不会确定话题；线程提交的读取不带回调。给出回调时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同。请求级提交到不了 RUN 与 CALL：经 `execute` 提交需要线程句柄，经 `execute_request` 提交时被类型表拒绝，CALL 的派生先判定调用方存活。
 
 请求只携带操作参数，不暴露工作 actor，也不能切换目标 Workspace、指定 process_id 或派发话题；线程提交的意图登记的 `process_id`、`thread_id` 取自线程表的解析结果，派发话题取自线程表为进程这一轮确定的话题。登记线程不授予操作许可：每个 actor 请求仍按线程的工作 actor 在白名单上授权。
 
@@ -137,4 +137,4 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 - [`workspace/capability/root/`](../../src/hivememory/workspace/capability/root/)（root API）、[`workspace/capability/actor/`](../../src/hivememory/workspace/capability/actor/)（actor API）、[`WorkspaceOperationEntry`](../../src/hivememory/workspace/capability/operations.py)、[`backing.py`](../../src/hivememory/workspace/capability/backing.py)；
 - 公共契约：[`workspace/contracts/operations.py`](../../src/hivememory/workspace/contracts/operations.py)；操作目录：[`core/access.py`](../../src/hivememory/core/access.py)；
-- 测试：`tests/unit/workspace/capability/root/`（含 [`test_interaction.py`](../../tests/unit/workspace/capability/root/test_interaction.py)：提交交互的发起者是参与者，话题来源决定请求的话题与新话题字段，已应用与仍在应用的轮次不再路由与提交，应用失败的重新路由，上一轮的话题按进度续接；[`test_topic.py`](../../tests/unit/workspace/capability/root/test_topic.py)：Gateway 决定不经路由直接确认或建立话题，已应用的轮次返回实际所在的话题，仍在应用的不返回话题）、`tests/unit/workspace/capability/actor/`（含 [`test_memory.py`](../../tests/unit/workspace/capability/actor/test_memory.py)：检索为交付的记忆整批记录命中、scope 来自操作授权，没有结果时不记录，记录失败不改变检索结果）、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权，含提交交互与确定话题：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用，目标不是驻留 Workspace 时先于任何路由拒绝）、[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（含请求级的检索、读取、写入与更新，回调与请求类型不符时的拒绝，更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)（含话题句柄不记引用）、[`test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（只有 SEARCH 的 Agent 完成 chat，预检索按执行者过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）。
+- 测试：`tests/unit/workspace/capability/root/`（含 [`test_interaction.py`](../../tests/unit/workspace/capability/root/test_interaction.py)：提交交互的发起者是参与者，话题来源决定请求的话题与新话题字段，已应用与仍在应用的轮次不再路由与提交，应用失败的重新路由，上一轮的话题按进度续接；[`test_topic.py`](../../tests/unit/workspace/capability/root/test_topic.py)：Gateway 决定不经路由直接确认或建立话题，已应用的轮次返回实际所在的话题，仍在应用的不返回话题）、`tests/unit/workspace/capability/actor/`（含 [`test_memory.py`](../../tests/unit/workspace/capability/actor/test_memory.py)：检索为交付的记忆整批记录命中、scope 来自操作授权，没有结果时不记录，记录失败不改变检索结果；`topic:current` 一次读取只确定一次话题、引用中没有它时不调用回调、确定话题失败时整次读取失败）、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权，含提交交互与确定话题：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用，目标不是驻留 Workspace 时先于任何路由拒绝）、[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（含请求级的检索、读取、写入与更新，回调与请求类型不符时的拒绝，更新在基础冷读之后、登记之前确定话题，请求级读取 `topic:current` 在读取之前确定话题，被拒的请求不确定话题）、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)（含话题句柄不记引用）、[`test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（只有 SEARCH 的 Agent 完成 chat，预检索按执行者过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）。

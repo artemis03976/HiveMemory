@@ -83,8 +83,8 @@ last_reviewed: 2026-11-26
   ├─ 交互记录：完整原文，次级的完整记录；材料变长时折叠（第 6 节）
   └─ 进展记录：只增的条目，每一条指回原文；话题停下时写一条（第 3、4 节）
   │
-  ├─ 推送：另一个会话被路由回来 → 话题的进展；会话压缩之后 → 进展记录的索引（第 7 节）
-  ├─ 拉取：按句柄回查原文（第 7 节）
+  ├─ 推送：会话压缩之后 → 话题句柄的指针（第 7 节）
+  ├─ 拉取：按句柄读话题与原文；被路由回已有话题时读当前话题（第 7 节）
   ├─ 生命周期：停下够久 → 沉淀；容量满或明确结束 → 退役（第 5 节）
   └─ 存储：每个话题一条只追加的日志（第 5 节）
 ```
@@ -93,7 +93,7 @@ last_reviewed: 2026-11-26
 |:---|:---|:---|
 | 交互记录、进展记录、折叠、话题的生命周期与存储 | Patchouli | 第 3～6 节 |
 | 前台读取（拉取）的授权与入口 | Workspace 能力层 | 第 7 节 |
-| 推送的时机与注入 | 连接器、Import Bus 与任务进程 | 第 7 节 |
+| 推送的时机与注入 | 连接器 | 第 7 节 |
 | 会话压缩与检查点 | harness、Alice 与会话资源 | 第 8 节 |
 
 ## 3. 话题的进展
@@ -180,23 +180,21 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 **设计**：
 
-- 短期记忆的目的是让回到话题的 agent 知道话题进行到哪一步：一项工作做到哪了，或一段对话聊到哪了。两个使用点：另一个会话发来的消息被路由回已有话题时；会话压缩完成后，agent 可能处于短暂的失忆窗口。其他时间，正在交互中的 agent 大概率不会突然失忆。
-- 两个时点都由系统把短期记忆注入（推送）进前台的上下文。
-- 拉取与会话压缩之后的推送已经实现：
-  - 拉取：agent 经 actor API 的 READ 按话题句柄读话题，不新增 actor 操作，权限沿用 `memory.read`；句柄的形态、与 alias 的互斥、可见性与结局见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节，alias 的保留前缀见 [MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)第 1.2 节，索引与一条原文的渲染见 [MemoryCompiler](../patchouli/memory-compiler.md#41-话题句柄的读取结果)第 4.1 节；
-  - 压缩之后的推送：Claude Code 压缩会话之后，插件的钩子以导入结果带回、连接器记下的话题标识读出会话最近一轮所在话题的索引并注入；注入什么、为什么只注入索引、注入哪个话题与读不到时怎样，见 [Import Bus](../system/import-bus.md#82-hooks)第 8.2 节，MCP 一侧的约定见 [MCP 记忆访问](../contracts/mcp.md#31-读话题句柄)第 3.1 节；
-  - 推送是从话题到会话的单向读出，见[系统架构概览](../architecture/overview.md#7-短期记忆话题是前台与中期之间由-hivememory-持有的一环)第 7 节的跨层不变量。
-- 候选，第 1 个时点：plugin 模式下，在用户提交时先为这一轮确定话题（root API 的 `determine_topic`，导入时沿用、不再路由）；落在已有话题、且这个会话此前不在它上面时，注入它的进展，会话本来就在这个话题上则不注入。controller 模式下 Gateway 在 PREPARE 阶段先于 CPU 运行，可以直接注入。
-- 候选：注入标明是历史资料、不是指令。用户提交时的注入随这条消息排在历史之后；压缩之后的注入发生在缓存本来已断的时候，由 harness 决定位置（Claude Code 放在对话开头），索引的开头一行已经这样写明。
+- 短期记忆的目的是让回到话题的 agent 知道话题进行到哪一步：一项工作做到哪了，或一段对话聊到哪了。使用点、拉取与推送的分工已经实现：
+  - 两个使用点（被路由回已有话题时、会话压缩之后的失忆窗口），拉取是基线、推送只在会话压缩之后且只推送一个指针、不推送话题或中期记忆的内容，以及为什么不在轮首推送：见[系统架构概览](../architecture/overview.md#7-短期记忆话题是前台与中期之间由-hivememory-持有的一环)第 7 节；
+  - 话题的归属按需确定、每轮至多一次，写入或更新之前、读当前话题之前与轮次结束导入时共用同一个为一轮确定话题：见 [Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)第 4.7 节；
+  - 拉取：agent 经 actor API 的 READ 按话题句柄读话题，不知道话题 id 时读 `topic:current`；句柄的形态、`topic:current` 的确定与替换、与 alias 的互斥、可见性与结局见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节，alias 的保留前缀见 [MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)第 1.2 节，索引与一条原文的渲染见 [MemoryCompiler](../patchouli/memory-compiler.md#41-话题句柄的读取结果)第 4.1 节，MCP 一侧的轮次信息与未解析时的说明见 [MCP 记忆访问](../contracts/mcp.md#31-读话题句柄)第 3.1 节；
+  - 压缩之后的指针：Claude Code 压缩会话之后，插件的钩子以连接器记下的话题写出句柄与一句读法，不发网络请求，见 [Import Bus](../system/import-bus.md#82-hooks)第 8.2 节；
+  - 话题向会话只是单向读出，见[系统架构概览](../architecture/overview.md#7-短期记忆话题是前台与中期之间由-hivememory-持有的一环)第 7 节的跨层不变量。
 - 候选：话题池也签发句柄，在话题池界面显示，需要先出样稿。
-- 长 turn 中压缩常发生在一轮中间，索引能否覆盖这一轮前面的部分，取决于一轮之内写一条（暂缓）与一轮进行中接收已完成的事件。
+- 长 turn 中压缩常发生在一轮中间，读到的索引能否覆盖这一轮前面的部分，取决于一轮之内写一条（暂缓）与一轮进行中接收已完成的事件。
 
 **现状与差距**：
 
-- 拉取与压缩之后的推送已实现（链接见上）；第 1 个时点没有实现：插件没有注册 `UserPromptSubmit`，plugin 模式下用户提交时没有轮前路由。
+- 拉取、`topic:current` 与压缩之后的指针已实现（链接见上）；agent 是否按 skill 去读 `topic:current`、是否读指针中的句柄，要在日常使用里看。
 - 一个外部会话在哪个话题上，只记得最近一轮所在的那一个：连接器为每个会话记下导入结果带回的话题，随状态文件跨过后端重启（[Import Bus](../system/import-bus.md#84-结束判定与游标)第 8.4 节）；后端不保存外部会话。
-- controller 模式下 Alice 的上下文不含话题（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）；Alice 的 MTP READ 能读话题句柄，但没有地方发给它句柄。
-- `determine_topic` 已供任务进程的线程表与 Import Bus 编排器使用，MCP 写入时以它在一轮结束前确定话题（[能力层](../workspace/capability.md)）。日常一次话题路由约 3 秒。
+- controller 模式下 Alice 的上下文不含话题（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）；Alice 的 MTP READ 能读话题句柄，但没有地方发给它句柄，`topic:current` 在 MTP 中按未命中处理。
+- `determine_topic` 已供任务进程的线程表与 Import Bus 编排器使用，MCP 写入与读当前话题时以它在一轮结束前确定话题（[能力层](../workspace/capability.md)）。日常一次话题路由约 3 秒。
 - Claude Code：`UserPromptSubmit` 与 `SessionStart` 都能返回 `additionalContext`；注入只保证交到模型手里，不保证模型会读；`PostCompact` 不能注入。Codex 的钩子是 `SessionStart`、`Stop`、`Interrupt` 与 `SessionEnd`；Codex、pi 与 DeepSeek Harness 的连接器不注入，它们能否注入内容没有核对。
 
 ## 8. 会话压缩（前台一侧）
@@ -206,7 +204,7 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 - 会话提供完整、原样积累的对话历史；CPU 自行压缩派生上下文，会话记录保持原样。Alice 的自动压缩、工具结果减重、增量接力摘要与逐帧输入守卫已经实现，算法见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)。
 - 压缩检查点属于会话资源，不属于 Agent 或 CPU 的进程内状态（[会话资源](../workspace/sessions.md)）。
 - 用户的 `/compact` 对外部 Actor 触发其 harness 的压缩，对 Alice 使用 Alice 自己的实现；手动 `/compact` 要等命令系统接回（[命令 Todo](../todo/conversation-compact-command.md)）。
-- 保留新建、恢复与会话内 compact，不设“新会话接续旧会话”的交接摘要：把旧会话完整历史带入新会话等同恢复。话题的进展按话题推送（第 7 节），不是会话的交接摘要。
+- 保留新建、恢复与会话内 compact，不设“新会话接续旧会话”的交接摘要：把旧会话完整历史带入新会话等同恢复。话题的进展按话题读出（第 7 节），不是会话的交接摘要。
 - 真实 LLM 下接力摘要的事实保留、继续执行的质量与成本还没有评估。
 
 ### 8.2 两边的关系与不变量
@@ -222,10 +220,7 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 ## 9. 开放问题
 
-**第 1 个时点在 plugin 模式下的轮前路由**。要在用户提交时推送，就得先为这一轮确定话题，每条消息多一次路由。
-
-- 选项：每条消息都先路由；只在会话的第一条消息、或会话停顿之后路由；异步路由，限时内没有结果就不注入。
-- 影响：前者延迟最大、覆盖最全；后两者减少延迟，但会漏掉会话进行中被路由回别的话题的情形。
+当前没有阻塞下一份计划的开放问题。
 
 搁置：
 

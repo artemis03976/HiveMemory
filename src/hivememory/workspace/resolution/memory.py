@@ -116,7 +116,8 @@ class MemoryReader:
         """话题句柄：话题读不到（已退役、已删除或不属于这个 Workspace）时按已过期交付。
 
         不合语法的句柄与超出进展记录的条目序号是 not_found：句柄只由系统签发，
-        这两种只会来自抄错的句柄。
+        这两种只会来自抄错的句柄。``topic:current`` 到这里时没有换成真实句柄（这次
+        读取没有确定话题的回调），同样是 not_found。
         """
         parsed = parse_topic_handle(handle)
         if parsed is None:

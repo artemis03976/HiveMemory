@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -113,7 +114,10 @@ def setup(tmp_path, harness_commands):
         actors, operation_authorizer=WorkspaceOperationAuthorizer(actors)
     )
     integrations = tmp_path / "integrations"
-    (integrations / "hivememory").mkdir(parents=True)
+    # Claude Code 的安装从插件的 hooks.json 读出要放行的工具，用仓库中的那一份。
+    hooks = integrations / "hivememory" / "hooks" / "hooks.json"
+    hooks.parent.mkdir(parents=True)
+    shutil.copyfile(harnesses.INTEGRATIONS_DIR / "hivememory" / "hooks" / "hooks.json", hooks)
     runner = _Runner()
     environment = _Environment()
 
