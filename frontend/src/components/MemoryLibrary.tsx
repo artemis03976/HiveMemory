@@ -172,18 +172,15 @@ export default function MemoryLibrary() {
             {semanticStatus === 'done' ? '没有找到语义相关的记忆。' : '未找到记忆数据。'}
           </div>
         ) : (
-          <motion.div 
-            key={`${viewMode}-${sortBy}-${selectedType}-${searchQuery}`}
+          <motion.div
+            // 全部卡片同时淡入，不逐张错开：记忆一多，错开时排在后面的卡片要等好几秒才出现。
+            // key 只随视图模式变化，搜索、排序与类型过滤不重新挂载卡片，也不重放入场动画。
+            key={viewMode}
             initial="hidden"
             animate="visible"
             variants={{
               hidden: { opacity: 0 },
-              visible: { 
-                opacity: 1,
-                transition: {
-                  staggerChildren: 0.05
-                }
-              }
+              visible: { opacity: 1 }
             }}
             className={
               viewMode === 'grid' 
