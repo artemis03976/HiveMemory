@@ -40,7 +40,7 @@ last_reviewed: 2026-11-26
 - **R-1 不分片**：完整材料超出提取模型的窗口时，不按范围分片生成。话题本来就是用来聚合同一语义的片段，再按范围分片生成，相当于人为打散这一结构；按范围分片、再由后台异步 refinement 的做法同样不采用。单个超大轮次照常接收、照常触发话题折叠；生成继续读取话题的工作视图（`fold_summary` 与未折叠的 blocks），完整资料只做保存。
 - **R-2 Topic 完整资料的保全**：Topic 在原始数据上按顺序保存全部接收到的交互记录，以及一份话题折叠的记录，作为之后来源 Artifact 的数据。折叠因此只推进工作视图，不丢弃原文。
 
-现状中的一个缺口：工作视图在单轮上百次工具调用这类情况下仍可能超出提取模型的窗口，任务以 `model_context_window_exceeded` 失败，原文留在来源 InteractionArtifact 中但没有记忆引用它（[记忆生成](../patchouli/generation.md#8-当前限制)第 8 节）；这类材料怎样消费，随[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)的分段一起考虑。
+现状中的一个缺口：工作视图在单轮上百次工具调用这类情况下仍可能超出提取模型的窗口，任务以 `model_context_window_exceeded` 失败，原文留在来源 InteractionArtifact 中但没有记忆引用它（[记忆生成](../patchouli/generation.md#8-当前限制)第 8 节）；这类材料怎样消费，随[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)的分段一起考虑，属于短期记忆 V2。
 
 ## 1. 问题与范围
 

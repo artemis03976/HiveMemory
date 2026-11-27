@@ -23,11 +23,11 @@ last_reviewed: 2026-11-24
 
 本文是面向生产级长时间运行 Agent 的候选设计，不描述当前行为，也不代表近期排期。当前短期话题、Agent runtime、Import Bus、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
 
-话题的进展、一轮之内什么时候写进展记录的一条、在段的边界上折叠，以及会话压缩与话题的关系，集中在[短期记忆](./short-term-memory-and-context-compaction.md)：长 turn 下的短期记忆管理由那份设计一并承担；Session → Topic 完整资料 → Artifact 的原始数据保存链集中在[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。本文只讨论未结束 turn 的事件流接入、语义分段、独立覆盖进度、超大事件和封口恢复，不重复定义进展记录、通用压缩算法或证据存储。
+话题的进展、一轮之内什么时候写进展记录的一条、在段的边界上折叠，以及会话压缩与话题的关系，集中在[短期记忆](./short-term-memory-and-context-compaction.md)：长 turn 下的短期记忆管理由那份设计一并承担，是短期记忆 V2 的内容（V1 以整轮为单位，见该文第 1.5 节），本文是 V2 在事件接收、分段、封口与恢复一侧的候选设计；Session → Topic 完整资料 → Artifact 的原始数据保存链集中在[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。本文只讨论未结束 turn 的事件流接入、语义分段、独立覆盖进度、超大事件和封口恢复，不重复定义进展记录、通用压缩算法或证据存储。
 
 **前台与后台分开**：前台对话与后台的记忆 Topic 管理是两项独立的工作。前台的上下文压缩归 CPU，用户以 `/compact` 触发（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding。本文分别讨论 CPU 的 turn 内执行视图与 Patchouli 的未结束交互资料视图，两边各自推进，不能串成前一级 compact 完成后再交给后一级 folding 的流水线。
 
-**增量接收只服务长 turn**：时间线保留为顺序与身份的骨架，流式降级为按需追平（v0.8 [写入链路 Idea](./memory-flow-write-path.md)第 2.3 节）。轮次结束遥遥无期的长 turn、又有使用者需要更早看到事实，是需要更早送到的情形之一，也是本文的对象：仍保留一轮 Interaction 的概念，Topic 侧接收更原子的输入结构，以免一轮对话或执行过长导致上下文爆炸；当前轮已接收的消息可以作为生成材料，但不等于提前结算（第 10.1 节）。接收这些输入需要 Patchouli 侧先有容器保存关联信息并供生成取出；容器是话题本身，还是第 3.1 节那样单独接收未结束 Interaction 的容器，还没有决定，它属于短期记忆的单位与形态。话题按需建立：第一次写入时建立，否则在接受交互时建立（[外部会话 Idea](./external-session-and-topic-projection.md)第 10 节）。主动写入生成时只有话题已完成的轮次、当前一轮不在其中，这个问题由[写入链路 Idea](./memory-flow-write-path.md)第 2.2 节跟踪。
+**增量接收只服务长 turn**：时间线保留为顺序与身份的骨架，流式降级为按需追平（v0.8 [写入链路 Idea](./memory-flow-write-path.md)第 2.3 节）。轮次结束遥遥无期的长 turn、又有使用者需要更早看到事实，是需要更早送到的情形之一，也是本文的对象：仍保留一轮 Interaction 的概念，Topic 侧接收更原子的输入结构，以免一轮对话或执行过长导致上下文爆炸；当前轮已接收的消息可以作为生成材料，但不等于提前结算（第 10.1 节）。接收这些输入需要 Patchouli 侧先有容器保存关联信息并供生成取出；容器是话题本身，还是第 3.1 节那样单独接收未结束 Interaction 的容器，还没有决定（第 13 节问题 1）；短期记忆的单位是话题，交互按内容跨会话归并进话题。话题按需建立：第一次写入时建立，否则在接受交互时建立（[外部会话 Idea](./external-session-and-topic-projection.md)第 10 节）。主动写入生成时只有话题已完成的轮次、当前一轮不在其中，这个问题由[写入链路 Idea](./memory-flow-write-path.md)第 2.2 节跟踪。
 
 ## 0. 核心判断与升级门槛
 

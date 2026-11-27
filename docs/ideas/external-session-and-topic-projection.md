@@ -28,12 +28,13 @@ last_reviewed: 2026-11-24
 - **已经实现**：ConversationSession 承接 Alice 的会话资源（[会话资源](../workspace/sessions.md)）；主动链路与 Import Bus 共用封口函数，提交同一种 `InteractionPayload`，经 root API 的“提交交互”（[任务进程](../workspace/task-process.md)第 8 节、[Import Bus](../system/import-bus.md)）；话题按需建立（第 10 节）。
 - **仍是候选**：外部输入的事件表达、顺序与封口语义，面向外部的结果查询，以及 controller 模式下的会话交接。
 - **两种接入模式**：plugin 模式的会话归外部 harness 所有；Alice 与 controller 模式的会话由 HiveMemory 发起（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。controller 模式是候选方向。
+- **与短期记忆的关系**：外部会话的接驳是短期记忆在 V1 与 V2 之间统一两种模式的一部分（候选，[短期记忆](./short-term-memory-and-context-compaction.md)第 1.5 节）。
 - **共用的提交模型**：`InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案；外部输入要补的字段细节待定（第 8 节）。
 - 文中“A1”指访问边界：两阶段认证与两阶段授权（[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
 
 外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。压缩机制见[短期记忆](./short-term-memory-and-context-compaction.md)，完整资料保存见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，长 turn 的输入与封口见[专项 Idea](./long-running-agent-intra-turn-context-folding.md)。
 
-**Topic 与会话解耦**：Topic 不再承担上下文的控制，它组织记忆生成的材料，并以话题的进展向前台提供“进行到哪一步”：另一个会话被路由回已有话题、或会话压缩之后推送，只读出、不控制（[短期记忆](./short-term-memory-and-context-compaction.md)第 7 节）。实际使用的对话上下文由 ConversationSession 提供，原样积累，不受外界干涉；CPU 管理派生视图的预算与压缩。Patchouli 通过接收到的交互组织材料，不在生成时反向读取 Session 或 CPU 上下文。
+**Topic 与会话解耦**：Topic 不再承担上下文的控制，它组织记忆生成的材料，并以话题的进展向前台提供“进行到哪一步”：另一个会话被路由回已有话题、或会话压缩之后：plugin 模式下只读出、不控制（[短期记忆](./short-term-memory-and-context-compaction.md)第 7 节）；controller 模式下话题的进展最好直接注入上下文，两种模式的分工见同文第 1.4 节。实际使用的对话上下文由 ConversationSession 提供，原样积累，不受外界干涉；CPU 管理派生视图的预算与压缩。Patchouli 通过接收到的交互组织材料，不在生成时反向读取 Session 或 CPU 上下文。
 
 ### 0.1 会话模型与 Topic 池
 
@@ -388,4 +389,4 @@ Topic 身份、路由关联和资料快照分别交接。主动意图不要求�
 
 写入需要话题，所以由第一次写入建立话题，写入派发即生成的时点不变，话题何时、由谁建立收在一处。不采用的做法：写入挂在这一轮的交互标识上，交互应用到哪个话题，写入就归到哪个话题，写入从不建立话题；它等于先采用按会话时间线切段的短期记忆形态，与已归档的[统一的交互记忆 Idea](../archive/ideas/unified-interaction-memory.md)第 3.3 节的切点设想同向。
 
-短期记忆的单位与形态（话题按内容跨会话归并，还是按会话时间线切段）尚未确定，要在 v1.0 发布前确定；本设计不替它决定。形态改变时，需要重做的是话题的建立时点，以及 Import Bus 在写入时确定话题的路径。
+短期记忆的单位是话题：交互按内容跨会话归并进话题，每个话题一条只追加的日志；按时间线切段由交互记录的推进进度承担，不另按会话切段（[短期记忆 Idea](./short-term-memory-and-context-compaction.md)第 1.2 节）。
