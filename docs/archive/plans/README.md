@@ -22,6 +22,7 @@ last_reviewed: 2026-11-24
 - 短期记忆代码可读性整理：统一用词，话题的位置与触发规则写在一处：2026-11-26，PR #245；删除前最后版本在 `0aed01f3`；[短期记忆](../../architecture/short-term-memory.md)
 - 压缩后推送与按句柄拉取：agent 经 READ 读话题，Claude Code 压缩之后注入进展记录的索引：2026-11-26，PR #246；删除前最后版本在 `ab450ea1`；[MCP 记忆访问](../../contracts/mcp.md)、[架构概览](../../architecture/overview.md)
 - 拉取当前话题与压缩后只推指针：topic:current 按需确定话题，会话压缩之后只推送句柄：2026-11-26，PR #248；删除前最后版本在 `1adeb4d2`；[读取视图与写入意图](../../workspace/read-view-and-write-intents.md)、[架构概览](../../architecture/overview.md)
+- 话题折叠的重构：折叠作为系统内部的材料压缩，写进展记录共用工作视图：2026-11-27，PR 待开；删除前最后版本在 `b8f64a72`；[短期记忆](../../architecture/short-term-memory.md#44-折叠)
 
 ## v0.8.0
 
