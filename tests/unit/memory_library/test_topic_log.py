@@ -3,6 +3,7 @@
 被测对象：``memory_library.topic_log`` 中每种记录的套用函数与 ``replay_topic_log``。
 保护的契约：
 - 接收一轮只追加交互记录、附件按 ``asset_id`` 幂等绑定；折叠只追加一条折叠记录，不移除交互；
+  旧版本的累积摘要读回时清空它之前各条的摘要，拼接出的折叠摘要与旧的工作视图相同；
 - 套用函数的时间取记录的 ``at``，不取当前时间；
 - 沉淀进度只往前，不改写入时间；本话题生成的记忆只改这份记录，合并改指按话题此刻的记录判断；
 - 进展记录只往后追加，各条依次覆盖相邻的区间，不改写入时间；从错误的位置开始或覆盖超过交互数时
@@ -125,20 +126,54 @@ class TestApplyFunctions:
             )
 
     def test_fold_appends_a_record_and_keeps_every_interaction(self):
-        """折叠只追加一条记录并推进工作视图，被折叠的块仍在交互记录中。"""
+        """折叠只追加一条记录并推进工作视图，被折叠的块仍在交互记录中；此前的折叠记录不变，折叠
+        摘要接在它后面。"""
         b1, b2, b3, b4 = (_block(f"q{i}") for i in range(1, 5))
         topic = _topic(interactions=(b1, b2, b3, b4), folds=(_fold(b1, summary="s1"),))
 
         folded = apply_fold(
             topic,
-            TopicFoldRecord(at=7.0, folded_block_ids=(b2.block_id, b3.block_id), summary="s2"),
+            TopicFoldRecord(
+                at=7.0,
+                folded_block_ids=(b2.block_id, b3.block_id),
+                summary="s2",
+                covers_earlier_folds=False,
+            ),
         )
 
         assert folded.interactions == (b1, b2, b3, b4)
-        assert folded.folds[-1] == TopicFold(
-            folded_block_ids=(b2.block_id, b3.block_id), summary="s2", folded_at=7.0
+        assert folded.folds == (
+            _fold(b1, summary="s1"),
+            TopicFold(folded_block_ids=(b2.block_id, b3.block_id), summary="s2", folded_at=7.0),
         )
-        assert (folded.blocks, folded.fold_summary, folded.last_update) == ((b4,), "s2", 7.0)
+        assert (folded.blocks, folded.fold_summary, folded.last_update) == (
+            (b4,),
+            "s1\n\ns2",
+            7.0,
+        )
+
+    def test_old_cumulative_fold_records_replay_to_the_same_working_view(self):
+        """旧版本的折叠记录没有标记、存的是累积摘要：读回时它之前各条的摘要清空，拼接结果与旧的
+        工作视图相同；其后新写的记录只存这一次的摘要，接在后面。日志的行不改写。"""
+        b1, b2, b3, b4 = (_block(f"q{i}") for i in range(1, 5))
+        old_lines = [
+            f'{{"kind":"fold","at":3.0,"folded_block_ids":["{b1.block_id}"],"summary":"s1"}}',
+            f'{{"kind":"fold","at":4.0,"folded_block_ids":["{b2.block_id}"],"summary":"s1+s2"}}',
+        ]
+        records = [
+            _created(),
+            *(TopicInteractionRecord(at=2.0, block=block) for block in (b1, b2, b3, b4)),
+            *(decode_topic_record(line.encode("utf-8")) for line in old_lines),
+            TopicFoldRecord(
+                at=5.0, folded_block_ids=(b3.block_id,), summary="s3", covers_earlier_folds=False
+            ),
+        ]
+
+        topic, _ = replay_topic_log("t1", records)
+
+        assert [fold.summary for fold in topic.folds] == ["", "s1+s2", "s3"]
+        assert topic.fold_summary == "s1+s2\n\ns3"
+        assert topic.blocks == (b4,)
 
     def test_settled_progress_only_moves_forward_without_touching_the_write_time(self):
         """较早接纳的沉淀后完成时不把进度拉回去；沉淀不是一次写入，写入时间不变。"""

@@ -1,13 +1,29 @@
-"""折叠摘要的写作者：话题折叠时，为被折叠的那部分交互写一段摘要。
+"""折叠摘要的写作者：话题折叠时，为这一次被折叠的轮次写一段摘要。
 
-折叠摘要接在上一次的折叠摘要之后，已经折叠的历史因此不会丢失；它是话题工作视图的开头，
-后面跟着没有折叠的交互。写作者无状态，不读写话题：由感知服务在持有话题的 lease 时调用。
+折叠摘要的读者是读话题材料的内部模型：记忆生成与写进展记录，以及下一次折叠本身。每次折叠只
+写这一次的摘要，此前的摘要不交给模型改写；工作视图的折叠摘要由全部折叠记录按顺序拼接。
+
+这一次的摘要有三部分：
+
+- **标题**：覆盖第几轮到第几轮；
+- **判断类的五栏**，由模型以 JSON 写出、代码校验形状后渲染：已定的决定及理由，被否掉的方案、
+  失败的尝试与纠正，确认的事实与结论，用户的偏好与要求，涉及的关键文件及其作用；空的栏不写；
+- **规则抽取的部分**，由代码从被折叠的原文取出，不经过模型：每一轮的用户消息（截断），工具调用
+  参数中的路径与能力调用的作用对象、产出的 alias，失败的工具调用（工具名与结果的第一行），用到
+  的工具；空的一节不写。
+
+没有可用的模型、提供商失败、超时或输出不合格时，这一次的摘要只有标题与规则抽取的部分，并注明
+没有模型写的部分；折叠照常提交，否则工作视图会一直涨。写作者无状态，不读写话题：由感知服务在
+持有话题的 lease 时调用。
 """
 
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from collections.abc import Iterable, Sequence
+from typing import TYPE_CHECKING
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.config.patchouli import (
     GenerationTranscriptConfig,
@@ -15,119 +31,73 @@ from hivememory.config.patchouli import (
     SimpleSummaryWriterConfig,
 )
 from hivememory.core.errors import ModelProviderError
-from hivememory.core.models import LogicalBlock
-from hivememory.engines.perception.material import render_turn_text
+from hivememory.core.models import LogicalBlock, TurnEvent, topic_excerpt
+from hivememory.engines.perception.material import render_numbered_turn
 from hivememory.i18n import get_fold_summary_prompt_text
+from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 logger = logging.getLogger(__name__)
 
+# 工具调用参数中取作路径的键：各 harness 的文件工具用这些名字传文件或目录。
+_PATH_ARGUMENTS = frozenset({"path", "paths", "file_path", "notebook_path", "file", "filename"})
+
 
 class FoldSummaryWriter(ABC):
-    """折叠摘要写作者的基类：以被折叠的交互与上一次的折叠摘要写出新的折叠摘要。"""
+    """折叠摘要写作者的基类：为这一次被折叠的轮次写出这一次的摘要。"""
 
     @abstractmethod
     async def generate_summary(
         self,
-        blocks_to_fold: list[Any],
-        previous_summary: str | None = None,
+        blocks_to_fold: Sequence[LogicalBlock],
+        *,
+        first_turn_number: int,
+        earlier_summary: str,
     ) -> str:
-        """生成摘要（抽象方法）"""
+        """写出这一次的摘要。
+
+        ``first_turn_number`` 是被折叠的第一轮在话题中的轮次号（从 1 开始）；``earlier_summary``
+        是此前各次折叠拼接起来的摘要，只作上下文，不被改写。
+        """
 
 
 class RuleFoldSummaryWriter(FoldSummaryWriter):
-    """
-    按规则写折叠摘要，不调用模型
-
-    使用统计信息生成摘要：
-        - 用户请求数量
-        - 使用的工具列表：能力调用取动词的小写，外部工具取工具名
-        - Token 总数
-        - 最近的用户消息片段
-    """
+    """按规则写折叠摘要，不调用模型：只有标题与规则抽取的部分。"""
 
     async def generate_summary(
-        self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
+        self,
+        blocks_to_fold: Sequence[LogicalBlock],
+        *,
+        first_turn_number: int,
+        earlier_summary: str,
     ) -> str:
-        """
-        生成简单摘要并合并之前的摘要
+        parts = [
+            _fold_title(first_turn_number, len(blocks_to_fold)),
+            _rule_extracted_part(blocks_to_fold, first_turn_number),
+        ]
+        return "\n".join(part for part in parts if part)
 
-        Args:
-            blocks_to_fold: 需要折叠的 LogicalBlock 列表
-            previous_summary: 之前的 fold_summary（如果有）
 
-        Returns:
-            str: 合并后的摘要文本
-        """
-        if not blocks_to_fold:
-            return previous_summary or ""
+class _FoldColumns(BaseModel):
+    """模型写的五栏，字段顺序就是渲染顺序；缺少的栏按空处理，多出的字段使输出不合格。"""
 
-        # 生成新摘要
-        new_summary = self._generate_simple_summary(blocks_to_fold)
+    decisions: list[str] = Field(default_factory=list)
+    rejected: list[str] = Field(default_factory=list)
+    facts: list[str] = Field(default_factory=list)
+    preferences: list[str] = Field(default_factory=list)
+    files: list[str] = Field(default_factory=list)
 
-        # 合并之前的摘要
-        if previous_summary:
-            return f"{previous_summary}\n---\n{new_summary}"
-        else:
-            return new_summary
-
-    def _generate_simple_summary(self, blocks: list[LogicalBlock]) -> str:
-        """
-        生成简单摘要（基于规则）
-
-        Args:
-            blocks: LogicalBlock 列表
-
-        Returns:
-            str: 摘要文本
-        """
-        summary_parts = []
-
-        # 1. 统计用户请求
-        user_messages = [b.user_message for b in blocks if b.user_message]
-
-        if user_messages:
-            summary_parts.append(f"处理了 {len(user_messages)} 个用户请求")
-
-        # 2. 提取使用的工具；无法解析的 MTP 指令没有名字，不计入
-        tool_names = set()
-        for b in blocks:
-            for event in b.turn_events:
-                if event.kind != "tool_call":
-                    continue
-                if event.verb is not None:
-                    tool_names.add(event.verb.lower())
-                elif event.tool_name:
-                    tool_names.add(event.tool_name)
-
-        if tool_names:
-            tools_str = ", ".join(sorted(tool_names))
-            summary_parts.append(f"使用了工具: {tools_str}")
-
-        # 3. 统计 Token
-        total_tokens = sum(b.total_tokens for b in blocks)
-        summary_parts.append(f"共 {total_tokens} tokens")
-
-        # 4. 最后一条用户消息（作为上下文参考）
-        if user_messages:
-            last_message = user_messages[-1][:50]
-            if len(user_messages[-1]) > 50:
-                last_message += "..."
-            summary_parts.append(f"最近: {last_message}")
-
-        return "；".join(summary_parts)
+    model_config = ConfigDict(extra="forbid")
 
 
 class LLMFoldSummaryWriter(FoldSummaryWriter):
-    """
-    用模型写折叠摘要
+    """用模型写折叠摘要的判断类五栏，标题与规则抽取的部分由代码写。
 
-    使用 LLM 生成更智能、更语义化的摘要；没有可用 LLM、提供商失败或摘要调用
-    超时时回退为简单摘要，程序错误与取消不降级。回退的简单摘要接在上一次摘要
-    之后，已经折叠的历史不会丢失。超时回退使一次折叠的耗时有上限，并让话题
-    回到折叠阈值以下，不会在之后每次写入时再触发一次慢折叠。
+    没有可用的模型、提供商失败、摘要调用超时或输出不合格时，这一次的摘要只有标题与规则抽取
+    的部分，并注明没有模型写的部分；程序错误与取消不降级。超时使一次折叠的耗时有上限，折叠照常
+    提交，话题回到折叠阈值以下，不会在之后每次写入时再触发一次慢折叠。
     """
 
     def __init__(
@@ -144,94 +114,162 @@ class LLMFoldSummaryWriter(FoldSummaryWriter):
         Args:
             summary_llm: 用于生成摘要的 LLM 服务（可选）
             llm_params: 由 Librarian 组件 LLM 配置转换的请求参数（可选）
-            summary_timeout_seconds: 每次摘要调用的时限，超时回退为简单摘要
-            transcript_config: 渲染近期事件时工具结果的截断上限，与记忆生成视图相同
+            summary_timeout_seconds: 每次摘要调用的时限，超时只写规则抽取的部分
+            transcript_config: 渲染被折叠轮次时工具结果的截断上限，与记忆生成视图相同
         """
         self.summary_llm = summary_llm
-        self._llm_params = llm_params
+        # 输出只有一个 JSON 对象；提供商不支持 JSON 输出时退回普通补全，照样按文本解析。
+        self._llm_params = (
+            llm_params.model_copy(update={"json_output": True}) if llm_params is not None else None
+        )
         self._summary_timeout_seconds = summary_timeout_seconds
         self._transcript_config = transcript_config
 
     async def generate_summary(
-        self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
+        self,
+        blocks_to_fold: Sequence[LogicalBlock],
+        *,
+        first_turn_number: int,
+        earlier_summary: str,
     ) -> str:
-        """
-        使用 LLM 生成智能摘要并合并之前的摘要
-
-        Args:
-            blocks_to_fold: 需要折叠的 LogicalBlock 列表
-            previous_summary: 之前的 fold_summary（如果有）
-
-        Returns:
-            str: 合并后的摘要文本
-        """
-        if not blocks_to_fold:
-            return previous_summary or ""
-
-        # 生成新摘要（传入 previous_summary 供 LLM 参考）
-        new_summary = await self._generate_llm_summary(blocks_to_fold, previous_summary)
-
-        return new_summary
-
-    def _build_recent_events(self, blocks: list[LogicalBlock]) -> str:
-        """构建 recent_events 文本：各块与记忆生成视图相同的材料，块之间空一行。
-
-        被折叠的块在沉淀前只以摘要存在，近期事件因此保留思考与外部工具过程，
-        不只有问答。
-        """
-        return "\n\n".join(
-            render_turn_text(block.turn_events, self._transcript_config) for block in blocks
+        columns = await self._write_columns(blocks_to_fold, first_turn_number, earlier_summary)
+        model_part = (
+            get_fold_summary_prompt_text("model_part_missing")
+            if columns is None
+            else _render_columns(columns)
         )
+        parts = [
+            _fold_title(first_turn_number, len(blocks_to_fold)),
+            model_part,
+            _rule_extracted_part(blocks_to_fold, first_turn_number),
+        ]
+        return "\n".join(part for part in parts if part)
 
-    async def _generate_llm_summary(
-        self, blocks: list[LogicalBlock], previous_summary: str | None = None
-    ) -> str:
-        """
-        使用 LLM 生成智能摘要
-
-        Args:
-            blocks: LogicalBlock 列表
-            previous_summary: 之前的 fold_summary（供 LLM 合并）
-
-        Returns:
-            str: 摘要文本
-        """
-        # 无 LLM 服务时的回退
+    async def _write_columns(
+        self,
+        blocks: Sequence[LogicalBlock],
+        first_turn_number: int,
+        earlier_summary: str,
+    ) -> _FoldColumns | None:
+        """请模型写这一次的五栏；没有可用的模型、提供商失败、超时或输出不合格时返回 ``None``。"""
         if self.summary_llm is None or self._llm_params is None:
-            logger.warning("summary_llm 未配置，回退到简单摘要")
-            return await RuleFoldSummaryWriter().generate_summary(blocks, previous_summary)
+            logger.warning(
+                "折叠摘要没有可用的模型，只写规则抽取的部分: reason=fold_summary_no_model"
+            )
+            return None
 
-        # 构建近期事件文本
-        recent_events = self._build_recent_events(blocks)
-
-        # 构建用户提示词
-        previous_summary_text = previous_summary or get_fold_summary_prompt_text(
-            "previous_summary_empty"
+        # 被折叠的轮次与记忆生成视图是同一份材料，保留思考与外部工具过程，标上轮次号。
+        folded_turns = "\n\n".join(
+            render_numbered_turn(number, block, self._transcript_config)
+            for number, block in enumerate(blocks, start=first_turn_number)
         )
         user_prompt = get_fold_summary_prompt_text("user_prompt").format(
-            previous_summary=previous_summary_text,
-            recent_events=recent_events,
+            earlier_summary=earlier_summary
+            or get_fold_summary_prompt_text("earlier_summary_empty"),
+            folded_turns=folded_turns,
         )
-
-        # 获取系统提示词（默认回退到全局 i18n 兜底文案）
-        system_prompt = get_fold_summary_prompt_text("system_prompt")
-
-        # 调用 LLM；只有提供商失败与调用超时回退为简单摘要
         messages = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": get_fold_summary_prompt_text("system_prompt")},
             {"role": "user", "content": user_prompt},
         ]
         try:
             async with asyncio.timeout(self._summary_timeout_seconds):
                 completion = await self.summary_llm.complete(messages, self._llm_params)
-        except (TimeoutError, ModelProviderError) as error:
+            return parse_llm_json(completion.text, as_model=_FoldColumns)
+        except (TimeoutError, ModelProviderError, JSONParseError) as error:
             # TimeoutError 来自上面的时限：超过 summary_timeout_seconds 未返回。
-            logger.warning("LLM 摘要生成失败，回退到简单摘要: %r", error)
-            return await RuleFoldSummaryWriter().generate_summary(blocks, previous_summary)
+            logger.warning(
+                "折叠摘要的模型部分没有写成，只写规则抽取的部分: "
+                "reason=fold_summary_model_failed, error_class=%s",
+                type(error).__name__,
+            )
+            return None
 
-        summary = completion.text
-        logger.debug("LLM 摘要生成成功，长度: %s 字符", len(summary))
-        return summary
+
+def _fold_title(first_turn_number: int, turn_count: int) -> str:
+    """这一次摘要的标题：覆盖第几轮到第几轮。"""
+    if turn_count == 1:
+        return get_fold_summary_prompt_text("title_one_turn").format(turn=first_turn_number)
+    return get_fold_summary_prompt_text("title_turns").format(
+        first=first_turn_number, last=first_turn_number + turn_count - 1
+    )
+
+
+def _render_columns(columns: _FoldColumns) -> str:
+    """模型写的五栏，每栏一个小标题加逐条要点；空的栏与空白的要点不写。"""
+    lines: list[str] = []
+    for column, points in columns.model_dump().items():
+        kept = [point.strip() for point in points if point.strip()]
+        if not kept:
+            continue
+        lines.append(get_fold_summary_prompt_text(f"column_{column}"))
+        lines.extend(f"- {point}" for point in kept)
+    return "\n".join(lines)
+
+
+def _rule_extracted_part(blocks: Sequence[LogicalBlock], first_turn_number: int) -> str:
+    """从被折叠的原文按规则取出的部分；空的一节不写。
+
+    用户消息逐轮列出，压成一行后截到与话题池节选相同的长度；路径、作用对象与 alias 按首次出现
+    的顺序去重；失败的工具调用只写结果的第一行，同样截断。
+    """
+    user_messages: list[str] = []
+    identifiers: dict[str, None] = {}
+    failed_calls: list[str] = []
+    tools: dict[str, None] = {}
+    for number, block in enumerate(blocks, start=first_turn_number):
+        message = " ".join(block.user_message.split())
+        if message:
+            user_messages.append(
+                get_fold_summary_prompt_text("rule_user_message").format(
+                    turn=number, message=topic_excerpt(message)
+                )
+            )
+        for event in block.turn_events:
+            if event.kind != "tool_call":
+                continue
+            name = event.tool_name or event.verb
+            if name is None:  # 无法解析的 MTP 指令没有名字，也没有作用对象
+                continue
+            tools[name] = None
+            identifiers.update(dict.fromkeys(_call_identifiers(event)))
+            if event.status == "error":
+                result_lines = (event.result or "").strip().splitlines()
+                failed_calls.append(
+                    get_fold_summary_prompt_text("rule_failed_call").format(
+                        turn=number,
+                        tool=name,
+                        first_line=topic_excerpt(result_lines[0]) if result_lines else "",
+                    )
+                )
+
+    lines: list[str] = []
+    if user_messages:
+        lines.append(get_fold_summary_prompt_text("rule_user_messages"))
+        lines.extend(user_messages)
+    if identifiers:
+        lines.append(get_fold_summary_prompt_text("rule_identifiers"))
+        lines.extend(f"- {identifier}" for identifier in identifiers)
+    if failed_calls:
+        lines.append(get_fold_summary_prompt_text("rule_failed_calls"))
+        lines.extend(failed_calls)
+    if tools:
+        lines.append(get_fold_summary_prompt_text("rule_tools"))
+        lines.append(", ".join(tools))
+    return "\n".join(lines)
+
+
+def _call_identifiers(call: TurnEvent) -> Iterable[str]:
+    """一次调用涉及的标识符：参数中的路径，能力调用的作用对象与产出的 alias。"""
+    for name, value in (call.tool_args or {}).items():
+        if name not in _PATH_ARGUMENTS:
+            continue
+        for path in value if isinstance(value, (list, tuple)) else (value,):
+            if isinstance(path, str) and path:
+                yield path
+    if call.verb is not None:
+        yield from call.targets
+        yield from call.produced_aliases
 
 
 # ========== 工厂函数 ==========
@@ -251,7 +289,7 @@ def create_fold_summary_writer(
         config: 折叠摘要写作者的配置（``simple`` 或 ``llm``）
         llm_service: LLM 服务（可选，用于 LLMFoldSummaryWriter）
         llm_params: 摘要调用的请求参数（可选，用于 LLMFoldSummaryWriter）
-        transcript_config: 记忆生成视图的工具结果上限，用模型写摘要时按同一个上限渲染近期事件
+        transcript_config: 记忆生成视图的工具结果上限，用模型写摘要时按同一个上限渲染被折叠的轮次
 
     Returns:
         FoldSummaryWriter 实例

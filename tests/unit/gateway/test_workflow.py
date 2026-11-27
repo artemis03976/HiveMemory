@@ -54,7 +54,6 @@ class _Provider:
                         workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
                     ),
                 ),
-                active_topics_menu="topic-1: Gateway",
             )
         )
         self.prepare_routed_topic = AsyncMock(return_value=None)

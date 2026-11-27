@@ -188,6 +188,7 @@ _GATEWAY_PROMPT_TEXT_ZH = {
     "topic_router_prompt": """你是 HiveMemory 的话题路由器，只负责选择用户输入所属的话题，不执行查询重写、关键词提取或意图分类。
 
 【活跃话题】
+每行一个话题：topic_id、标题与话题摘要；话题写过进展记录时，最后一项是最近一条进展记录的节选。
 {active_topics_menu}
 
 【当前会话最近轮次】
@@ -235,7 +236,7 @@ intent_type、rewritten_query、search_keywords、sub_intents、reason。""",
 _GATEWAY_PROMPT_TEXT_EN = {
     "topic_router_prompt": """You are HiveMemory's topic router. Only choose the topic for the user input. Do not rewrite queries, extract keywords, or classify intent.
 
-Active topics:
+Active topics (one per line: topic ID, title and topic summary; for a topic with a progress record, the last item is an excerpt of its latest progress entry):
 {active_topics_menu}
 
 Recent turns in the current session:
@@ -280,98 +281,119 @@ intent_type, rewritten_query, search_keywords, sub_intents, reason.""",
     "session_context_empty": "None",
 }
 
+# 折叠摘要：话题的原文超过折叠阈值时，为这一次被折叠的轮次写判断类的五栏（模型以 JSON 输出），
+# 以及渲染这一次的摘要时用到的标题、栏名与规则抽取部分的小标题。
 _FOLD_SUMMARY_PROMPT_TEXT_ZH = {
     "system_prompt": """\
-[系统指令]
-你是 HiveMemory 的状态管理器。
-你的任务是将特定话题的近期交互历史压缩为高密度、结构化的"状态快照"，供 Worker Agent 使用。
+你在为 HiveMemory 的一个话题写折叠摘要。话题是按语义内容聚合在一起的一段交互；话题的原文太长时，较早的轮次被折叠，读话题材料的内部模型（记忆生成，以及写话题进展记录的写作者）在这些轮次上只看得到折叠摘要。它们要从中提取值得长期保存的记忆、整理话题进行到了哪一步，因此摘要要保住它们需要的内容：定下了什么、为什么；试过什么、哪些不行、谁纠正了什么；确认了哪些事实；用户要什么、偏好什么；涉及哪些文件。
 
-[输入数据]
-1. <old_state_summary>: 本批次交互之前的旧状态。
-2. <recent_events>: 最新的对话轮次，按发生顺序列出用户消息、助手正文、思考与工具调用；记忆检索与读取只有一行摘要，外部工具附截断后的结果。
+你会看到：
+- <earlier_summary>：此前各次折叠已经写下的摘要，只作上下文；不改写，也不重复其中已有的内容；
+- <folded_turns>：这一次被折叠的轮次，每一轮标有轮次号，按发生顺序列出用户消息、助手正文、思考与工具调用；记忆检索与读取只有一行摘要，外部工具附截断后的结果。
 
-[压缩规则]
-- 将 <old_state_summary> 与 <recent_events> 合并，生成更新后的状态。
-- 禁止写叙事性文本 (如"用户询问了...")。使用客观、事实性的要点。
-- 严格保留特定标识符：文件路径、变量名、记忆 ID (mem_xxx)、错误代码。不要改写它们。
-- 如果之前的方法失败了，在约束中记录，避免 Agent 重复尝试。
+只为 <folded_turns> 中的轮次写以下五栏，每栏是一组要点：
+- decisions：已定的决定及其理由。agent 提出、用户还没有确认的不算决定；
+- rejected：被否掉的方案、失败的尝试，以及用户或 agent 做出的纠正；
+- facts：确认的事实与结论；
+- preferences：用户表达的偏好与要求；
+- files：改动或用到的关键文件，每个文件一条，写明路径与为什么涉及它；只写关键的文件。
 
-[输出格式规范]
-你必须严格使用以下 Markdown 模板输出：
+写法要求：
+- 每条要点一句话，客观陈述，不写叙事（例如“用户询问了……”）；
+- 文件路径、命令、变量名、记忆 alias、错误码等标识符照原文写，不改写；
+- 每一轮的用户消息、出现过的路径与 alias、失败的工具调用与用到的工具由代码另外逐条列出，不必在五栏中罗列；
+- 只写原文里有的事，不评价，不提建议，不写接下来要做什么；
+- 没有内容的栏输出空列表。
 
-### 1. 核心目标
-(一句话定义本话题的最终目的)
-
-### 2. 系统状态与已完成
-- (已确认的事实、已执行的工具动作、已写入的文件等要点)
-
-### 3. 约束与避坑
-- (用户偏好、失败尝试、需遵守的特定规则等要点)
-
-### 4. 当前焦点
-(1-2 句话说明接下来需要解决或处理的具体问题)""",
+只输出一个 JSON 对象，字段固定为 decisions、rejected、facts、preferences、files，每个字段是字符串列表。""",
     "user_prompt": """\
-<old_state_summary>
-{previous_summary}
-</old_state_summary>
+<earlier_summary>
+{earlier_summary}
+</earlier_summary>
 
-<recent_events>
-{recent_events}
-</recent_events>""",
-    "previous_summary_empty": "无。当前为新话题。",
+<folded_turns>
+{folded_turns}
+</folded_turns>""",
+    "earlier_summary_empty": "无。这是这个话题的第一次折叠。",
+    # 这一次摘要的标题：覆盖第几轮到第几轮。
+    "title_one_turn": "## 第 {turn} 轮",
+    "title_turns": "## 第 {first}–{last} 轮",
+    # 模型写的五栏，字段名与输出 JSON 的字段一致。
+    "column_decisions": "### 已定的决定及理由",
+    "column_rejected": "### 被否掉的方案、失败的尝试与纠正",
+    "column_facts": "### 确认的事实与结论",
+    "column_preferences": "### 用户的偏好与要求",
+    "column_files": "### 涉及的文件及其作用",
+    "model_part_missing": "（这一次没有模型写的部分：模型不可用、调用失败或输出不合格，以下只有规则抽取的内容。）",
+    # 规则抽取的部分，由代码从被折叠的原文取出。
+    "rule_user_messages": "### 用户消息",
+    "rule_user_message": "- 第 {turn} 轮：{message}",
+    "rule_identifiers": "### 文件与标识符",
+    "rule_failed_calls": "### 失败的工具调用",
+    "rule_failed_call": "- 第 {turn} 轮 {tool}：{first_line}",
+    "rule_tools": "### 用到的工具",
 }
 
 _FOLD_SUMMARY_PROMPT_TEXT_EN = {
     "system_prompt": """\
-[System Instruction]
-You are the State Manager of HiveMemory.
-Your task is to compress the recent interaction history of a specific topic into a highly dense, structured "State Snapshot" for the Worker Agent.
+You are writing a fold summary for a HiveMemory topic. A topic is a stretch of interactions grouped together by their semantic content. When a topic's transcript grows too long, its earlier turns are folded, and the internal models that read the topic's material (memory generation, and the writer of the topic's progress record) see only the fold summary for those turns. They extract memories worth keeping long-term and work out how far the topic has gotten, so the summary must keep what they need: what was decided and why; what was tried, what did not work, and who corrected what; which facts were confirmed; what the user wants and prefers; which files were involved.
 
-[Input Data]
-1. <old_state_summary>: The previous state before this recent batch of interactions.
-2. <recent_events>: The latest conversational turns, listing user messages, assistant text, thoughts and tool calls in order; memory searches and reads appear as one-line summaries, external tools with truncated results.
+You will see:
+- <earlier_summary>: the summaries already written by earlier folds, given only as context; do not rewrite them and do not repeat what they already contain;
+- <folded_turns>: the turns folded this time, each marked with its turn number, listing user messages, assistant text, thoughts and tool calls in order; memory searches and reads appear as one-line summaries, external tools with truncated results.
 
-[Compression Rules]
-- MERGE the <old_state_summary> with the <recent_events> to create an updated state.
-- DO NOT write a narrative (e.g., "The user asked..."). Use objective, factual bullet points.
-- STRICTLY PRESERVE specific identifiers: file paths, variable names, memory IDs (mem_xxx), and error codes. Do not paraphrase them.
-- If a previous approach failed, document it in the constraints so the Agent doesn't repeat it.
+Write the following five columns only for the turns in <folded_turns>; each column is a list of points:
+- decisions: decisions that were made and their reasons. Something the agent proposed that the user has not confirmed is not a decision;
+- rejected: approaches that were rejected, attempts that failed, and corrections made by the user or the agent;
+- facts: facts and conclusions that were confirmed;
+- preferences: preferences and requirements the user expressed;
+- files: the key files changed or used, one point per file, giving the path and why it was involved; only the key files.
 
-[Output Format Specification]
-You must strictly output using the following Markdown template:
+Writing requirements:
+- One sentence per point, stated objectively; do not narrate (e.g., "The user asked...");
+- Write identifiers such as file paths, commands, variable names, memory aliases and error codes exactly as in the transcript;
+- Each turn's user message, the paths and aliases that appeared, failed tool calls and the tools used are listed separately by code; do not enumerate them in the five columns;
+- Write only what happened in the transcript; do not evaluate, do not make suggestions, and do not write what to do next;
+- Output an empty list for a column with nothing to say.
 
-### 1. Objective
-(One sentence defining the ultimate goal of this topic)
-
-### 2. System State & Completed
-- (Bullet points of confirmed facts, executed tool actions, written files, etc.)
-
-### 3. Constraints & Pitfalls
-- (Bullet points of user preferences, failed attempts, specific rules to follow)
-
-### 4. Current Focus
-(1-2 sentences explaining exactly what needs to be solved or addressed NEXT)""",
+Output only one JSON object whose fields are exactly decisions, rejected, facts, preferences and files, each a list of strings.""",
     "user_prompt": """\
-<old_state_summary>
-{previous_summary}
-</old_state_summary>
+<earlier_summary>
+{earlier_summary}
+</earlier_summary>
 
-<recent_events>
-{recent_events}
-</recent_events>""",
-    "previous_summary_empty": "None. This is a new topic.",
+<folded_turns>
+{folded_turns}
+</folded_turns>""",
+    "earlier_summary_empty": "None. This is the topic's first fold.",
+    "title_one_turn": "## Turn {turn}",
+    "title_turns": "## Turns {first}–{last}",
+    "column_decisions": "### Decisions and reasons",
+    "column_rejected": "### Rejected approaches, failed attempts and corrections",
+    "column_facts": "### Confirmed facts and conclusions",
+    "column_preferences": "### User preferences and requirements",
+    "column_files": "### Files involved and why",
+    "model_part_missing": "(No model-written part for this fold: the model was unavailable, the call failed or its output was invalid; only the rule-extracted content follows.)",
+    "rule_user_messages": "### User messages",
+    "rule_user_message": "- Turn {turn}: {message}",
+    "rule_identifiers": "### Files and identifiers",
+    "rule_failed_calls": "### Failed tool calls",
+    "rule_failed_call": "- Turn {turn} {tool}: {first_line}",
+    "rule_tools": "### Tools used",
 }
 
-# 进展记录：话题停下够久时，以旧进展记录与还没整理的交互原文写出新的一条。
+# 进展记录：话题停下够久时，以旧进展记录、还没整理的轮次中已折叠部分的摘要与其后的原文写出新的
+# 一条。
 _PROGRESS_RECORD_PROMPT_TEXT_ZH = {
     "system_prompt": """\
 你在为一个进行中的话题总结并编写进展记录。话题是按语义内容聚合在一起的一段交互事件：可能是完成一项工作，也可能是一段讨论或闲聊。进展记录按时间排列、只往后追加，每一条写这个话题自上一条以来有了什么新进展。任何一个希望继续这个话题的人，在阅读进展记录之后，应当能够知道当前话题进行到了哪一步，并自然的将话题继续下去。当使用者需要更详细的背景信息时，你写出的进展记录应当能够起到指引的作用。
 
 话题进入了阶段性总结环节，你会看到：
 - [旧进展记录]：这个话题此前写下的进展记录，只作上下文，不改写，也不重复；
-- [新交互记录原文]：自上一条以来的交互，每一轮标有轮次号。
+- [已折叠轮次的摘要]：自上一条以来的交互较长时，其中较早的轮次已经被折叠，只剩摘要。每条摘要的标题写明它覆盖第几轮到第几轮；一条摘要可能还覆盖旧进展记录已经写过的轮次。没有被折叠的轮次时这一节写“无”；
+- [新交互记录原文]：自上一条以来、没有被折叠的交互原文，每一轮标有轮次号。
 
-请以[旧进展记录]（如有）作为参考，并依据[新交互记录原文]中发生的事件写出新的一条进展记录，用一段话写清：
+请以[旧进展记录]（如有）作为参考，并依据[已折叠轮次的摘要]与[新交互记录原文]中发生的事件写出新的一条进展记录，用一段话写清：
 - 这一段谈了什么、做了什么，得出了什么结果、结论或看法；
 - 用户提出了什么要求、表达了什么想法，定下了什么。agent 提出、用户还没有确认的，写成 agent 的提议，不写成决定；agent 自己的分析与推论，也不写成用户的决定或已经确定的事实。
 
@@ -385,10 +407,15 @@ _PROGRESS_RECORD_PROMPT_TEXT_ZH = {
 [旧进展记录]
 {previous_record}
 
+[已折叠轮次的摘要]
+{folded_summaries}
+
 [新交互记录原文]
 {interactions}""",
     # 话题还没有写过进展记录时，[旧进展记录] 一节写这一句。
     "previous_record_empty": "暂无",
+    # 还没整理的轮次都没有被折叠时，[已折叠轮次的摘要] 一节写这一句。
+    "folded_summaries_empty": "无",
 }
 
 _PROGRESS_RECORD_PROMPT_TEXT_EN = {
@@ -397,9 +424,10 @@ You are summarizing an ongoing topic and writing its progress record. A topic is
 
 The topic has reached a periodic summary. You will see:
 - [Previous progress record]: the progress record written for this topic so far, given only as context; do not rewrite it, and do not repeat it;
-- [New interaction transcript]: the interactions since the previous entry, each turn marked with its turn number.
+- [Summaries of folded turns]: when the interactions since the previous entry are long, their earlier turns have been folded and only summaries remain. The heading of each summary states which turns it covers; a summary may also cover turns the previous progress record already describes. When no turns have been folded this section says "None";
+- [New interaction transcript]: the interactions since the previous entry that have not been folded, each turn marked with its turn number.
 
-Taking the [Previous progress record] (if any) as reference, write a new progress record entry based on the events in the [New interaction transcript], making clear in one paragraph:
+Taking the [Previous progress record] (if any) as reference, write a new progress record entry based on the events in the [Summaries of folded turns] and the [New interaction transcript], making clear in one paragraph:
 - what this stretch talked about and what was done, and what results, conclusions or views came out of it;
 - what the user asked for, what ideas the user expressed, and what was decided. Something the agent proposed that the user has not yet confirmed is written as the agent's proposal, not as a decision; the agent's own analysis and inferences are not written as the user's decisions or as established facts either.
 
@@ -413,10 +441,15 @@ Output only one JSON object: {"entry": "<the text of this entry>"}""",
 [Previous progress record]
 {previous_record}
 
+[Summaries of folded turns]
+{folded_summaries}
+
 [New interaction transcript]
 {interactions}""",
     # 话题还没有写过进展记录时，[Previous progress record] 一节写这一句。
     "previous_record_empty": "None",
+    # 还没整理的轮次都没有被折叠时，[Summaries of folded turns] 一节写这一句。
+    "folded_summaries_empty": "None",
 }
 
 # 会话压缩：历史轮次的结局说明、工具结果减重的线索、接力摘要指令与摘要段落。
@@ -533,7 +566,7 @@ edits 按顺序应用，后一处在前一处的结果上查找原文。每处�
 ## 段标签与引用 (source_segments)
 对话片段的每轮分成若干段，每段之前有一行段标签，例如 [Segment 2.3] 是第 2 轮的第 3 段；第一段从用户消息开始。在每条记忆的 source_segments 中列出支撑它的段，照抄标签中的编号，例如 ["2.3", "2.5"]：
 - 只引用直接支撑这条记忆内容的段（作出决定、给出事实、得出结论或暴露问题的地方），不要把读过的每一段都列上
-- 来自话题状态摘要 [Topic State] 的内容没有段，不引用
+- 来自较早轮次的折叠摘要 [Folded Earlier Turns] 的内容没有段，不引用
 - 片段中没有段标签时输出空列表
 
 ## 拆分粒度
@@ -806,7 +839,7 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
 ## 段标签与引用 (source_segments)
 话题材料的每轮分成若干段，每段之前有一行段标签，例如 [Segment 2.3] 是第 2 轮的第 3 段；第一段从用户消息开始。在每条新记忆与每次修订的 source_segments 中列出支撑它的段，照抄标签中的编号，例如 ["2.3", "2.5"]：
 - 只引用直接支撑这条记忆或这次修订的段（作出决定、给出事实、得出结论或暴露问题的地方），不要把读过的每一段都列上
-- 来自话题状态摘要 [Topic State] 的内容没有段，不引用
+- 来自较早轮次的折叠摘要 [Folded Earlier Turns] 的内容没有段，不引用
 - 材料中没有段标签时输出空列表
 
 ## 拆分粒度
@@ -924,7 +957,7 @@ Never write credentials such as API keys, tokens, passwords, certificates, or se
 ## Segment Labels and Citations (source_segments)
 Each turn of the conversation snippet is split into segments, and each segment is preceded by a label line: [Segment 2.3] is the third segment of turn 2; the first segment starts with the user message. In each memory's source_segments, list the segments that support it, copying the numbers from the labels, such as ["2.3", "2.5"]:
 - Cite only the segments that directly support the memory's content (where a decision was made, a fact was given, a conclusion was reached, or a problem surfaced); do not list every segment you read.
-- Content from the topic state summary [Topic State] has no segment; do not cite it.
+- Content from the summary of folded earlier turns [Folded Earlier Turns] has no segment; do not cite it.
 - If the snippet has no segment labels, output an empty list.
 
 ## Granularity
@@ -1198,7 +1231,7 @@ Never write credentials such as API keys, tokens, passwords, certificates, or se
 ## Segment Labels and Citations (source_segments)
 Each turn of the topic material is split into segments, and each segment is preceded by a label line: [Segment 2.3] is the third segment of turn 2; the first segment starts with the user message. In the source_segments of each new memory and each revision, list the segments that support it, copying the numbers from the labels, such as ["2.3", "2.5"]:
 - Cite only the segments that directly support the memory or the revision (where a decision was made, a fact was given, a conclusion was reached, or a problem surfaced); do not list every segment you read.
-- Content from the topic state summary [Topic State] has no segment; do not cite it.
+- Content from the summary of folded earlier turns [Folded Earlier Turns] has no segment; do not cite it.
 - If the material has no segment labels, output an empty list.
 
 ## Granularity
@@ -1319,7 +1352,7 @@ def get_gateway_prompt_text(key: str, language: str | Language | None = None) ->
 
 
 def get_fold_summary_prompt_text(key: str, language: str | Language | None = None) -> str:
-    """返回中继压缩提示词文案片段。"""
+    """返回写折叠摘要的提示词与渲染这一次摘要时用到的文案片段。"""
     resolved = resolve_language(explicit=language)
     texts = (
         _FOLD_SUMMARY_PROMPT_TEXT_EN if resolved == Language.EN else _FOLD_SUMMARY_PROMPT_TEXT_ZH

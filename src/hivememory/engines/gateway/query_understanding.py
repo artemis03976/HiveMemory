@@ -80,14 +80,15 @@ class QueryUnderstandingEngine:
         return self._validate_result(payload)
 
     def _render_topic_context(self, topic_data: TopicData | None) -> str:
+        """话题背景：标题、话题摘要、最近一条进展记录与工作视图最近几轮，正文按同一上限截断。"""
         if topic_data is None:
             return ""
         lines: list[str] = [f"{topic_data.topic_title}"]
         if topic_data.topic_summary:
             lines.append(topic_data.topic_summary)
-        if topic_data.fold_summary:
-            lines.append(topic_data.fold_summary)
         text_limit = self._config.context_text_limit
+        if topic_data.progress_record:
+            lines.append(f"latest progress: {topic_data.progress_record[-1].text[:text_limit]}")
         for block in topic_data.recent_blocks(self._config.context_block_limit):
             user_text = block.user_message[:text_limit]
             assistant_text = block.reply_text[:text_limit]

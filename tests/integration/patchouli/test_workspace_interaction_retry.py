@@ -155,7 +155,7 @@ async def test_fold_runs_after_apply_and_next_same_topic_submission_follows_it(
 
     summary_calls = 0
 
-    async def slow_summary(blocks_to_fold, previous_summary=None):
+    async def slow_summary(blocks_to_fold, **_context):
         nonlocal summary_calls
         summary_calls += 1
         if summary_calls > 1:

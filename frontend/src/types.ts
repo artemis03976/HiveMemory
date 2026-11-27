@@ -18,8 +18,6 @@ export interface Topic {
   title: string;
   /** 话题在聊什么。 */
   topicSummary?: string;
-  /** 较早内容的摘要：被折叠的那部分交互的摘要，没有折叠时缺省。 */
-  foldSummary?: string;
   lastTurn?: { user: string; assistant: string };
   /** 最近一轮使用的模型；尚未运行过时缺省。 */
   model?: string;

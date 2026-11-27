@@ -120,7 +120,6 @@ def test_private_context_contracts_do_not_duplicate_identity() -> None:
                 workspace_identity=make_identity_scope(user_id="user-1").workspace_identity,
             )
         ],
-        active_topics_menu="topic-1: Gateway",
     )
     context = UserQueryAnalysisContext(
         raw_message="原问题",

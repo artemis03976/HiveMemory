@@ -1,4 +1,4 @@
-/** 短期话题池的估算与显示：话题停下后自动沉淀的剩余时间按秒级配置与毫秒时间戳换算，只对有未沉淀交互的话题计时；详情列出话题的进展并把折叠摘要标为较早内容的摘要，卡片标出进展记录的条数。 */
+/** 短期话题池的估算与显示：话题停下后自动沉淀的剩余时间按秒级配置与毫秒时间戳换算，只对有未沉淀交互的话题计时；详情列出话题的进展；卡片的副标题是最近一条进展记录（还没有写过一条时是话题摘要），并标出进展记录的条数。 */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
@@ -130,30 +130,32 @@ test('展开还没有整理的轮次时列出节选；后端只交出最近几�
   assert.match(html, /话题停下 30 分钟后，这些轮会整理成新的一条进展记录/);
 });
 
-test('话题列表响应的折叠摘要在详情中标为较早内容的摘要，与话题的进展同时显示', async () => {
-  const html = await renderDetail(apiTopic({
-    fold_summary: '前几轮改好了打包步骤',
-    progress_record: [apiEntry('改好了打包步骤', 3, 3)],
-  }));
-
-  assert.match(html, /较早内容的摘要<\/span><p[^>]*>前几轮改好了打包步骤<\/p>/);
-  assert.match(html, /改好了打包步骤<\/p>/);
-});
-
-test('话题卡片标出进展记录的条数，还没有写过一条时不标', async () => {
+async function renderRow(raw) {
   const { createElement } = await import('react');
   const { renderToStaticMarkup } = await import('react-dom/server');
   const { mapTopic } = await vite.ssrLoadModule('/src/services/topicApi.ts');
   const { TopicRow } = await vite.ssrLoadModule('/src/components/memory/TopicPool.tsx');
-  const row = (raw) => {
-    const topic = mapTopic(raw);
-    return renderToStaticMarkup(createElement(TopicRow, {
-      topic, selected: false, settleMinutes: null, now: topic.lastActive, onSelect: () => {},
-    }));
-  };
+  const topic = mapTopic(raw);
+  return renderToStaticMarkup(createElement(TopicRow, {
+    topic, selected: false, settleMinutes: null, now: topic.lastActive, onSelect: () => {},
+  }));
+}
 
-  assert.match(row(apiTopic({ progress_record: [apiEntry('a', 1, 1), apiEntry('b', 3, 2), apiEntry('c', 4, 1)] })), /3 条进展/);
-  assert.doesNotMatch(row(apiTopic({ unrecorded_turn_count: 2 })), /条进展/);
+test('话题卡片的副标题是最近一条进展记录，还没有写过一条时是话题摘要', async () => {
+  const withProgress = await renderRow(apiTopic({
+    topic_summary: '整理打包脚本',
+    progress_record: [apiEntry('改好了打包步骤', 2, 2), apiEntry('定下先发 staging', 3, 1)],
+  }));
+  const withoutProgress = await renderRow(apiTopic({ topic_summary: '整理打包脚本', unrecorded_turn_count: 2 }));
+
+  assert.match(withProgress, /<span class="line-clamp-2[^"]*">定下先发 staging<\/span>/);
+  assert.doesNotMatch(withProgress, /整理打包脚本|改好了打包步骤/);
+  assert.match(withoutProgress, /<span class="line-clamp-2[^"]*">整理打包脚本<\/span>/);
+});
+
+test('话题卡片标出进展记录的条数，还没有写过一条时不标', async () => {
+  assert.match(await renderRow(apiTopic({ progress_record: [apiEntry('a', 1, 1), apiEntry('b', 3, 2), apiEntry('c', 4, 1)] })), /3 条进展/);
+  assert.doesNotMatch(await renderRow(apiTopic({ unrecorded_turn_count: 2 })), /条进展/);
 });
 
 test('tokens 按量级取不同精度', () => {

@@ -36,18 +36,21 @@
 
 折叠（``fold_topic``，交互提交队列的维护项）
     看什么：工作视图的 token 是否超过折叠阈值，轮数是否多于保留的最近几轮。
-    做什么：取 lease，把工作视图除最近几轮外折叠为折叠摘要，追加一条折叠记录；交互记录不变。
+    做什么：取 lease，为工作视图除最近几轮外的轮次写这一次的摘要，追加一条折叠记录；此前的
+        折叠记录与交互记录都不变。
     推进：``folded_until``。
-    失败：摘要模型超时或提供商失败时以规则摘要接上；其他错误使这一项失败、不折叠，下一次接收
-        交互时重新判断。话题正被占用时提交队列重试；已退役或删除时直接结束。关闭时进行中的被
-        取消，什么也不写。
+    失败：摘要模型超时、提供商失败或输出不合格时，这一次的摘要只有标题与规则抽取的部分，折叠
+        照常提交；其他错误使这一项失败、不折叠，下一次接收交互时重新判断。话题正被占用时提交
+        队列重试；已退役或删除时直接结束。关闭时进行中的被取消，什么也不写。
 
 写进展记录（调度任务 ``perception_progress_record`` 调用 ``scan_for_progress_record_once`` 排入
 维护项，``write_progress_entry`` 执行）
     看什么：话题停下超过 ``progress_record_after_seconds`` 且没有被占用；``recorded_until`` 之后有
         交互；``progress_failed_until`` 小于 ``interaction_count``。没有写进展记录的模型时不写。
-    做什么：排一项维护；执行时不取 lease，以旧进展记录与 ``recorded_until`` 之后的原文写一条，
-        写完才追加；不刷新访问时间。
+    做什么：排一项维护；执行时不取 lease，以旧进展记录与 ``recorded_until`` 之后的交互写一条，
+        写完才追加；不刷新访问时间。这些交互的开头已经被折叠时（``recorded_until`` 小于
+        ``folded_until``），被折叠的部分只给覆盖它们的折叠记录的摘要，其后给原文：写进展记录
+        与记忆生成读同一个工作视图，材料长度都由折叠阈值约束。
     推进：``recorded_until``，推进到生成开始时的 ``interaction_count``。
     失败：生成失败时记下 ``progress_failed_until``，有新交互之前不再写，否则提供商故障时每一轮
         都会再排一次；生成期间话题退役或删除时这一条不记。话题已有未结束的维护项、维护已关闭
@@ -423,9 +426,10 @@ class PerceptionFamiliar:
         return engine.select_blocks_to_fold(topic.blocks, engine.config.fold_retain_recent_blocks)
 
     async def _fold_if_needed(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """工作视图超过折叠阈值时生成折叠摘要并追加一条折叠记录。
+        """工作视图超过折叠阈值时写这一次的摘要并追加一条折叠记录。
 
-        调用方持有该话题的 lease。写回在摘要返回之后一次完成，取消或失败时什么都不写。
+        调用方持有该话题的 lease。写作者只看此前的折叠摘要，不改写它；写回在摘要返回之后一次
+        完成，取消或失败时什么都不写。
         """
         topic = self._store.get(belong_to, topic_id)
         if topic is None:
@@ -435,7 +439,9 @@ class PerceptionFamiliar:
             return
         logger.info("工作视图超过折叠阈值，折叠: topic_id=%s", topic_id)
         summary = await self._fold_summary_writer.generate_summary(
-            blocks_to_fold, topic.fold_summary
+            blocks_to_fold,
+            first_turn_number=topic.folded_until + 1,
+            earlier_summary=topic.fold_summary,
         )
         # lease 保证等待摘要期间交互记录与折叠记录没变，折叠前缀照样成立。
         written = self._store.append_fold(
@@ -462,9 +468,14 @@ class PerceptionFamiliar:
         if not covered:
             return
         covered_until = topic.interaction_count
+        # 这一条仍然覆盖 start 之后的全部交互；写它的材料里，已经被折叠的那几轮只有摘要。
+        raw_start = max(start, topic.folded_until)
         try:
             text = await writer.write_entry(
-                topic.progress_record, covered, first_turn_number=start + 1
+                topic.progress_record,
+                topic.interactions[raw_start:],
+                first_turn_number=raw_start + 1,
+                folded_summaries=self._fold_summaries_after(topic, start),
             )
         except Exception:
             self._working_set.mark_progress_failed(belong_to, topic_id, covered_until)
@@ -702,6 +713,21 @@ class PerceptionFamiliar:
             RuntimeEventType.TOPIC_CREATED, data={"created_by": created_by}
         )
         return topic.topic_id
+
+    @staticmethod
+    def _fold_summaries_after(topic: TopicData, position: int) -> list[str]:
+        """覆盖第 ``position`` 轮之后的折叠记录的摘要，按折叠顺序。
+
+        跨过 ``position`` 的一条整条给出：摘要不能按轮切开。更早的折叠记录覆盖的轮次已经写进
+        此前的进展记录，不再给；旧版本的累积摘要读回之后，它之前各条的摘要为空串，同样不给。
+        """
+        summaries: list[str] = []
+        fold_end = 0
+        for fold in topic.folds:
+            fold_end += len(fold.folded_block_ids)
+            if fold_end > position and fold.summary:
+                summaries.append(fold.summary)
+        return summaries
 
     @staticmethod
     def _require_leased_topic(written: TopicData | None, topic_id: str) -> None:

@@ -75,12 +75,20 @@ class TopicInteractionRecord(BaseModel):
 
 
 class TopicFoldRecord(BaseModel):
-    """一次折叠：被折叠的块（当时工作视图的前缀）与折叠后的摘要。"""
+    """一次折叠：被折叠的块（当时工作视图的前缀）与这一次的摘要。
+
+    旧版本写下的记录没有 ``covers_earlier_folds``，读回时取缺省的真：那时每次折叠存的是并入
+    此前各次折叠的累积摘要。现在写下的记录为假，只存这一次被折叠的轮次的摘要。
+    """
 
     kind: Literal["fold"] = "fold"
     at: float = Field(description="折叠的 Unix 时间戳（秒）")
     folded_block_ids: tuple[str, ...] = Field(min_length=1)
     summary: str
+    covers_earlier_folds: bool = Field(
+        default=True,
+        description="摘要是否已经并入此前各次折叠的内容；为真时套用它会清空此前各次折叠的摘要",
+    )
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -216,13 +224,21 @@ def apply_interaction(topic: TopicData, record: TopicInteractionRecord) -> Topic
 def apply_fold(topic: TopicData, record: TopicFoldRecord) -> TopicData:
     """追加一条折叠记录，工作视图从被折叠的块之后开始。
 
-    不移除任何交互记录；被折叠的块不是当前工作视图的前缀时构造校验失败。
+    不移除任何交互记录；被折叠的块不是当前工作视图的前缀时构造校验失败。记录的摘要已经并入
+    此前各次折叠（旧版本的累积摘要）时，此前各条的摘要清为空串，按顺序拼接的折叠摘要因此与
+    旧版本的工作视图相同，之后的折叠接在它后面。日志本身不改写。
     """
+    earlier = topic.folds
+    if record.covers_earlier_folds:
+        earlier = tuple(
+            TopicFold(folded_block_ids=fold.folded_block_ids, summary="", folded_at=fold.folded_at)
+            for fold in earlier
+        )
     fold = TopicFold(
         folded_block_ids=record.folded_block_ids, summary=record.summary, folded_at=record.at
     )
     return TopicData.model_validate(
-        {**dict(topic), "folds": (*topic.folds, fold), "last_update": record.at}
+        {**dict(topic), "folds": (*earlier, fold), "last_update": record.at}
     )
 
 

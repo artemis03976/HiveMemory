@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Hash } from 'lucide-react';
 import { fetchTopics } from '@/services/topicApi';
 import type { DesignatedTopic, Topic } from '@/types';
+import { topicSubtitle } from '@/utils/topicPool';
 
 interface TopicPickerProps {
   onPick: (topic: DesignatedTopic) => void;
@@ -66,9 +67,7 @@ export default function TopicPicker({ onPick, onClose }: TopicPickerProps) {
               <Hash className="h-3 w-3 text-accent" aria-hidden="true" />
               {topic.title || '未命名话题'}
             </span>
-            {(topic.foldSummary || topic.topicSummary) && (
-              <span className="line-clamp-1 text-xs text-fg-3">{topic.foldSummary || topic.topicSummary}</span>
-            )}
+            {topicSubtitle(topic) && <span className="line-clamp-1 text-xs text-fg-3">{topicSubtitle(topic)}</span>}
           </button>
         ))}
       </div>

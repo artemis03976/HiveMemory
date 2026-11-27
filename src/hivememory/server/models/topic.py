@@ -86,7 +86,6 @@ class ActiveTopicResponse(BaseModel):
     topic_id: str
     topic_title: str
     topic_summary: str = ""
-    fold_summary: str = ""
     last_turn: TopicLastTurnResponse | None = None
     block_count: int = 0
     total_tokens: int = 0
@@ -114,7 +113,6 @@ class ActiveTopicResponse(BaseModel):
             topic_id=snapshot.topic_id,
             topic_title=snapshot.topic_title,
             topic_summary=snapshot.topic_summary,
-            fold_summary=snapshot.fold_summary,
             last_turn=TopicLastTurnResponse.from_domain(snapshot.last_turn),
             block_count=snapshot.block_count,
             total_tokens=snapshot.total_tokens,

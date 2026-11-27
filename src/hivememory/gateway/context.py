@@ -10,15 +10,13 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.errors import ResourceUnavailableError, StorageOfflineError, StorageReadError
 from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.gateway.errors import RecoverableGatewayError
-from hivememory.gateway.topic_context import render_topic_snapshots
 from hivememory.patchouli.contracts import PatchouliRoutes
 
 
 class CandidateTopics(BaseModel):
-    """话题路由前可见的候选话题及其提示词菜单。"""
+    """话题路由前可见的候选话题。"""
 
     topic_snapshots: tuple[TopicSnapshot, ...] = Field(default_factory=tuple)
-    active_topics_menu: str = ""
 
     model_config = ConfigDict(frozen=True)
 
@@ -74,10 +72,7 @@ class GlobalBusGatewayContextProvider:
             isinstance(snapshot, TopicSnapshot) for snapshot in snapshots
         ):
             raise TypeError("Patchouli TOPIC_LIST_ACTIVE 违反只读 tuple 契约")
-        return CandidateTopics(
-            topic_snapshots=snapshots,
-            active_topics_menu=render_topic_snapshots(snapshots),
-        )
+        return CandidateTopics(topic_snapshots=snapshots)
 
     async def prepare_routed_topic(
         self,

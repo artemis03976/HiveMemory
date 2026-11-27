@@ -72,7 +72,6 @@ class TopicSnapshot(BaseModel):
     workspace_identity: WorkspaceIdentity
     topic_title: str
     topic_summary: str = ""
-    fold_summary: str = ""
     last_turn: TopicLastTurn | None = None
     total_tokens: int = 0
     block_count: int = 0
@@ -131,7 +130,9 @@ class TopicFold(BaseModel):
     """话题的一次折叠记录。
 
     ``folded_block_ids`` 是这一次被折叠的块，按接收顺序排列，总是折叠当时工作
-    视图的前缀；``summary`` 是折叠后的摘要，已经并入此前各次折叠的内容。
+    视图的前缀；``summary`` 只是这一次被折叠的轮次的摘要，不并入此前各次折叠，此前的
+    摘要也不被改写。旧版本写下的累积摘要读回时，它之前各次折叠的摘要为空串：它们的
+    内容已经包含在这一次的摘要里。
     """
 
     folded_block_ids: tuple[str, ...] = Field(min_length=1)
@@ -158,8 +159,11 @@ def topic_working_blocks(
 
 
 def topic_fold_summary(folds: Sequence[TopicFold]) -> str:
-    """折叠摘要：最后一次折叠的摘要，即被折叠的那部分交互的摘要；没有折叠时为空串。"""
-    return folds[-1].summary if folds else ""
+    """折叠摘要：全部折叠记录的摘要按折叠顺序拼接，空的摘要跳过；没有折叠时为空串。
+
+    每条折叠记录只存这一次的摘要，拼接起来才是被折叠的那部分交互的摘要。
+    """
+    return "\n\n".join(fold.summary for fold in folds if fold.summary)
 
 
 class TopicData(BaseModel):
@@ -290,7 +294,7 @@ class TopicData(BaseModel):
 
     @property
     def fold_summary(self) -> str:
-        """最后一次折叠的摘要，没有折叠时为空串。"""
+        """全部折叠记录的摘要按顺序拼接，没有折叠时为空串。"""
         return topic_fold_summary(self.folds)
 
     @property
@@ -348,7 +352,6 @@ class TopicData(BaseModel):
             workspace_identity=self.workspace_identity,
             topic_title=self.topic_title,
             topic_summary=self.topic_summary,
-            fold_summary=self.fold_summary,
             last_turn=last_turn,
             total_tokens=self.total_tokens,
             block_count=self.block_count,

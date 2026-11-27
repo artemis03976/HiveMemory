@@ -69,7 +69,7 @@ class _Clock:
 class _SummaryWriter:
     """LLM 折叠端口替身；本测试的阈值不触发折叠。"""
 
-    async def generate_summary(self, _blocks, _previous_summary):
+    async def generate_summary(self, _blocks, **_context):
         raise AssertionError("settlement identity test must not fold")
 
 

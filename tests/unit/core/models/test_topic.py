@@ -2,8 +2,8 @@
 
 被测对象：``TopicData`` 以交互记录与折叠记录为原始数据并派生工作视图。
 保护的契约：
-- 工作视图是最后一次折叠之后的交互记录；fold_summary 来自最后一次折叠，没有
-  折叠时为空串；total_tokens 是工作视图之和；
+- 工作视图是最后一次折叠之后的交互记录；fold_summary 按顺序拼接各次折叠的摘要（空的跳过），
+  没有折叠时为空串；total_tokens 是工作视图之和；
 - 折叠记录依次拼接必须等于交互记录的前缀，沉淀覆盖的交互数不超过交互记录的长度，
   否则构造失败；
 - 判空看是否接收过交互：全部折叠、工作视图为空后仍不为空；
@@ -65,17 +65,18 @@ def _fold(*blocks, summary: str) -> TopicFold:
 
 class TestWorkingView:
     def test_working_view_follows_the_last_fold(self):
-        """工作视图从最后一次折叠之后开始，摘要取最后一次折叠，token 只统计工作视图。"""
-        b1, b2, b3, b4 = (_block(f"q{i}", total_tokens=10 * i) for i in range(1, 5))
+        """工作视图从最后一次折叠之后开始，折叠摘要按顺序拼接各次折叠的摘要，空的跳过；token 只
+        统计工作视图。"""
+        b1, b2, b3, b4, b5 = (_block(f"q{i}", total_tokens=10 * i) for i in range(1, 6))
 
         topic = _topic(
-            interactions=(b1, b2, b3, b4),
-            folds=(_fold(b1, summary="s1"), _fold(b2, summary="s2")),
+            interactions=(b1, b2, b3, b4, b5),
+            folds=(_fold(b1, summary=""), _fold(b2, summary="s2"), _fold(b3, summary="s3")),
         )
 
-        assert topic.blocks == (b3, b4)
-        assert topic.fold_summary == "s2"
-        assert topic.total_tokens == 70
+        assert topic.blocks == (b4, b5)
+        assert topic.fold_summary == "s2\n\ns3"
+        assert topic.total_tokens == 90
 
     def test_topic_without_folds_works_on_every_interaction(self):
         b1, b2 = _block("q1", total_tokens=5), _block("q2", total_tokens=7)

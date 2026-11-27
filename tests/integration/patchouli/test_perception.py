@@ -7,8 +7,9 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 测试覆盖:
 - receive_interaction: 新建（含提交携带的标题与摘要）/指定话题写入、binding 幂等、busy 拒绝、未知目标
 - 池满时为新话题腾位置: 最久没用的话题退役、busy 候选改选、接纳失败传播
-- 折叠: 应用不在内部折叠、needs_fold 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
-  失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已退役时直接结束、未超保留块数不折叠
+- 折叠: 应用不在内部折叠、needs_fold 判断、折叠追加只有这一次摘要的折叠记录且不移除交互记录、
+  折叠摘要按顺序拼接、失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已退役时直接结束、
+  未超保留块数不折叠
 - settle_and_retire_topic / delete_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
 - scan_for_settle_once：话题停下够久时只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
   从没接收过交互的空话题停下够久时直接退役；折叠后沉淀携带被折叠的轮次
@@ -18,8 +19,8 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
   没有未完成沉淀的退役与手动删除立即删除日志
 - 本话题生成的记忆不取 lease：折叠等待摘要、沉淀等待接纳期间记下的生成的记忆在写回之后仍在
 - 进展记录：话题停下超过阈值且有还没整理的交互时排入写一条，写一条只看旧进展记录与还没整理的
-  交互，写下之后没有新交互不再排入；失败后同一位置不重试，有新交互后再写；写一条不取 lease，
-  生成期间话题退役时这一条不记
+  交互（其中已经被折叠的只给覆盖它们的折叠记录的摘要），写下之后没有新交互不再排入；失败后同一
+  位置不重试，有新交互后再写；写一条不取 lease，生成期间话题退役时这一条不记
 """
 
 import asyncio
@@ -35,6 +36,7 @@ from hivememory.config.patchouli import GenerationTranscriptConfig, PerceptionEn
 from hivememory.core.errors import ModelProviderError, ResourceNotFoundError
 from hivememory.core.models import WorkspaceAssetRef, system_actor_for_workspace
 from hivememory.core.protocol.models import InteractionPayload
+from hivememory.engines.perception.fold_summary import RuleFoldSummaryWriter
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.perception.models import TriggerReason
 from hivememory.engines.perception.progress_record import ProgressRecordWriter
@@ -85,13 +87,11 @@ def _accept_settlement_task(route, payload):
 
 
 def _folding_writer() -> Mock:
-    """摘要记录每次折叠的块数并在旧摘要上累积，便于断言折叠次数。"""
+    """这一次的摘要写明从第几轮起折叠了几块，以及收到的此前摘要，便于断言折叠记录只存这一次。"""
     writer = Mock()
     writer.generate_summary = AsyncMock(
-        side_effect=lambda blocks_to_fold, previous_summary=None: (
-            f"{previous_summary}|folded:{len(blocks_to_fold)}"
-            if previous_summary
-            else f"folded:{len(blocks_to_fold)}"
+        side_effect=lambda blocks_to_fold, *, first_turn_number, earlier_summary: (
+            f"turn {first_turn_number}+{len(blocks_to_fold)} after [{earlier_summary}]"
         )
     )
     return writer
@@ -372,6 +372,10 @@ class TestLruRetirement:
 # ========== 折叠 ==========
 
 
+# 每轮写入后都折叠时，写入第三轮之后的折叠摘要：前两轮各有一条折叠记录，按顺序拼接。
+FOLDED_TWICE = "turn 1+1 after []\n\nturn 2+1 after [turn 1+1 after []]"
+
+
 def _fold_every_block_config() -> PerceptionEngineConfig:
     """每个 block 都超过阈值、只保留最近 1 块：第二块写入后即有可折叠前缀。"""
     return PerceptionEngineConfig(fold_token_threshold=1, fold_retain_recent_blocks=1)
@@ -407,7 +411,8 @@ class TestFold:
 
     @pytest.mark.asyncio
     async def test_fold_topic_appends_fold_records_and_keeps_interactions(self, tmp_path):
-        """折叠只推进工作视图：交互记录不移除，每次折叠追加一条记录，摘要在上一次之上累积。"""
+        """折叠只推进工作视图：交互记录不移除，每次折叠追加一条只有这一次摘要的记录；写作者收到
+        被折叠的第一轮的轮次号，此前的摘要只作上下文、不被改写，折叠摘要按顺序拼接。"""
         familiar, store, _, bus = _make_familiar(
             tmp_path, engine_config=_fold_every_block_config(), summary_writer=_folding_writer()
         )
@@ -426,8 +431,11 @@ class TestFold:
             (second.block_id,),
         ]
         assert [block.user_message for block in topic.blocks] == ["c"]
-        # 第二次折叠收到第一次的摘要作为 previous_summary，累积成链
-        assert topic.fold_summary == "folded:1|folded:1"
+        assert [fold.summary for fold in topic.folds] == [
+            "turn 1+1 after []",
+            "turn 2+1 after [turn 1+1 after []]",
+        ]
+        assert topic.fold_summary == FOLDED_TWICE
         assert topic.total_tokens == third.total_tokens
         assert familiar.needs_fold(scope.workspace_identity, "t1") is False
         # 折叠只压缩上下文，不触发记忆生成，也不驱逐话题
@@ -439,7 +447,7 @@ class TestFold:
         summarizing = asyncio.Event()
         release = asyncio.Event()
 
-        async def summarize(blocks_to_fold, previous_summary=None):
+        async def summarize(blocks_to_fold, **_context):
             summarizing.set()
             await release.wait()
             return "summary"
@@ -933,7 +941,7 @@ class TestMaintenance:
             await familiar.fold_topic(scope.workspace_identity, topic_id)
 
         folded = store.get(scope.workspace_identity, topic_id)
-        assert folded.fold_summary == "folded:1|folded:1"
+        assert folded.fold_summary == FOLDED_TWICE
         assert [block.user_message for block in folded.blocks] == ["question-2-" * 80]
         assert bus.request.await_count == 0
         bus.request.side_effect = _accept_settlement_task
@@ -948,7 +956,7 @@ class TestMaintenance:
             f"question-{i}-" * 80 for i in range(3)
         ]
         assert len(settlement.folds) == 2
-        assert settlement.fold_summary == "folded:1|folded:1"
+        assert settlement.fold_summary == FOLDED_TWICE
         assert [block.user_message for block in settlement.blocks] == ["question-2-" * 80]
 
 
@@ -1095,9 +1103,57 @@ class TestProgressRecord:
             ("定下先发 staging", 3),
         ]
         second_input = llm.calls[1].messages[1]["content"]
-        assert second_input.startswith("[旧进展记录]\n- 讨论了发布顺序\n\n[新交互记录原文]\n")
+        assert second_input.startswith(
+            "[旧进展记录]\n- 讨论了发布顺序\n\n[已折叠轮次的摘要]\n无\n\n[新交互记录原文]\n"
+        )
         assert "[Turn 3]\n[User]: q3" in second_input
         assert "q1" not in second_input and "q2" not in second_input
+
+    @pytest.mark.asyncio
+    async def test_unrecorded_turns_past_the_fold_boundary_are_written_from_their_summaries(
+        self, tmp_path
+    ):
+        """还没整理的轮次开头已经被折叠时，材料是覆盖它们的折叠记录的摘要（跨过上一条位置的一条
+        整条给出，更早的不给）与折叠之后的原文；这一条仍然覆盖上一条之后的全部轮次。"""
+        llm = ScriptedLLMService('{"entry": "讨论了发布顺序"}', '{"entry": "定下先发 staging"}')
+        familiar, store, _, _ = _make_familiar(
+            tmp_path,
+            engine_config=_fold_every_block_config(),
+            summary_writer=RuleFoldSummaryWriter(),
+            progress_llm=llm,
+        )
+        scope = _identity_scope()
+        belong_to = scope.workspace_identity
+        store.create(belong_to, topic_id="t1")
+        await _apply_to_topic(familiar, scope, "t1", "q1", "q2")
+        await familiar.fold_topic(belong_to, "t1")  # 第 1 轮
+        await familiar.write_progress_entry(belong_to, "t1")  # 覆盖第 1–2 轮
+        await _apply_to_topic(familiar, scope, "t1", "q3", "q4")
+        await familiar.fold_topic(belong_to, "t1")  # 第 2–3 轮，跨过上一条的位置
+        await _apply_to_topic(familiar, scope, "t1", "q5")
+        await familiar.fold_topic(belong_to, "t1")  # 第 4 轮
+
+        await familiar.write_progress_entry(belong_to, "t1")
+
+        topic = store.get(belong_to, "t1")
+        assert (topic.recorded_until, topic.folded_until) == (5, 4)
+        [first, second] = topic.progress_record
+        assert (second.from_turn_id, second.to_turn_id, second.covered_until) == (
+            topic.interactions[2].turn.turn_id,
+            topic.interactions[4].turn.turn_id,
+            5,
+        )
+        first_input = llm.calls[0].messages[1]["content"]
+        assert "[已折叠轮次的摘要]\n## 第 1 轮\n### 用户消息\n- 第 1 轮：q1\n\n" in first_input
+        assert first_input.endswith("[Turn 2]\n[User]: q2\n[Assistant]: answer:q2")
+        second_input = llm.calls[1].messages[1]["content"]
+        assert second_input == (
+            "[旧进展记录]\n- 讨论了发布顺序\n\n"
+            "[已折叠轮次的摘要]\n"
+            "## 第 2–3 轮\n### 用户消息\n- 第 2 轮：q2\n- 第 3 轮：q3\n\n"
+            "## 第 4 轮\n### 用户消息\n- 第 4 轮：q4\n\n"
+            "[新交互记录原文]\n[Turn 5]\n[User]: q5\n[Assistant]: answer:q5"
+        )
 
     @pytest.mark.asyncio
     async def test_failed_entry_is_not_retried_until_the_topic_has_new_turns(self, tmp_path):

@@ -1,7 +1,7 @@
 """一轮交互的材料：从事件集解析出步骤，并渲染为感知层唯一的文本表示。
 
-记忆生成视图、模型写的折叠摘要与逻辑块的 token 统计都使用这里的渲染，输入只有
-满足一轮不变量的事件集与截断配置；同样的输入总得到同样的材料，感知层不另
+记忆生成视图、模型写的折叠摘要、写进展记录与逻辑块的 token 统计都使用这里的渲染，
+输入只有满足一轮不变量的事件集与截断配置；同样的输入总得到同样的材料，感知层不另
 写渲染规则。
 
 **步骤**：用户消息之后的事件按序号就是步骤，每一步是一段助手正文、一段思考、
@@ -37,7 +37,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from hivememory.config.patchouli import GenerationTranscriptConfig
-from hivememory.core.models import TurnEvent, turn_user_message
+from hivememory.core.models import LogicalBlock, TurnEvent, turn_user_message
 
 
 def render_turn_material(
@@ -71,6 +71,20 @@ def format_turn_material(user_message: str, entries: Iterable[str]) -> str:
 def render_turn_text(events: Sequence[TurnEvent], config: GenerationTranscriptConfig) -> str:
     """把一轮事件渲染为完整的材料文本。"""
     return format_turn_material(turn_user_message(events), render_turn_material(events, config))
+
+
+def render_numbered_turn(
+    number: int, block: LogicalBlock, config: GenerationTranscriptConfig
+) -> str:
+    """一轮的材料文本，前面标上它在话题中的轮次号（从 1 开始）。
+
+    结局不是 completed 的轮次在轮首注明，读者不会把没有正常结束的一轮当作已经完成。
+    """
+    lines = [f"[Turn {number}]"]
+    if block.turn.outcome != "completed":
+        lines.append(f"[Outcome: {block.turn.outcome}] This turn did not complete normally.")
+    lines.append(render_turn_text(block.turn_events, config))
+    return "\n".join(lines)
 
 
 def clip_middle(text: str, limit: int) -> str:
@@ -130,6 +144,7 @@ def _bullet(text: str) -> str:
 __all__ = [
     "clip_middle",
     "format_turn_material",
+    "render_numbered_turn",
     "render_turn_material",
     "render_turn_text",
 ]

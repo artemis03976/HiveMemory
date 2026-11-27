@@ -1,46 +1,34 @@
+"""折叠摘要的提示词与渲染文案：两种语言的键与占位符一致，英文文案里没有中文，按语言设置取用。"""
+
+import re
+from string import Formatter
+
 from hivememory.i18n import get_fold_summary_prompt_text
+from hivememory.i18n.prompts import _FOLD_SUMMARY_PROMPT_TEXT_EN, _FOLD_SUMMARY_PROMPT_TEXT_ZH
+
+# CJK 标点、汉字与全角字符；英文文案中出现任何一个，模型都可能跟着用中文写摘要。
+_CJK = re.compile(r"[　-〿一-鿿＀-￯]")
 
 
-def test_fold_summary_system_prompt_default_chinese():
-    prompt = get_fold_summary_prompt_text("system_prompt")
-
-    assert "[系统指令]" in prompt
-    assert "状态快照" in prompt
-    assert "### 1. 核心目标" in prompt
-    assert "### 4. 当前焦点" in prompt
+def _placeholders(text: str) -> list[str]:
+    return sorted(name for _, name, _, _ in Formatter().parse(text) if name)
 
 
-def test_fold_summary_system_prompt_english():
-    prompt = get_fold_summary_prompt_text("system_prompt", language="en")
-
-    assert "[System Instruction]" in prompt
-    assert "State Snapshot" in prompt
-    assert "### 1. Objective" in prompt
-    assert "### 4. Current Focus" in prompt
+def test_both_languages_have_the_same_keys_and_placeholders():
+    """切换语言时每一段文案都在，填入的字段也相同，渲染这一次的摘要不会缺键或缺字段。"""
+    assert {key: _placeholders(text) for key, text in _FOLD_SUMMARY_PROMPT_TEXT_EN.items()} == {
+        key: _placeholders(text) for key, text in _FOLD_SUMMARY_PROMPT_TEXT_ZH.items()
+    }
 
 
-def test_fold_summary_system_prompt_language_alias():
-    prompt = get_fold_summary_prompt_text("system_prompt", language="en-US")
+def test_english_texts_contain_no_chinese():
+    leaking = [key for key, text in _FOLD_SUMMARY_PROMPT_TEXT_EN.items() if _CJK.search(text)]
 
-    assert "[System Instruction]" in prompt
-    assert "### 1. Objective" in prompt
-
-
-def test_fold_summary_user_prompt_template():
-    prompt = get_fold_summary_prompt_text("user_prompt").format(
-        previous_summary="old state",
-        recent_events="new events",
-    )
-
-    assert "<old_state_summary>" in prompt
-    assert "old state" in prompt
-    assert "<recent_events>" in prompt
-    assert "new events" in prompt
+    assert leaking == []
 
 
-def test_fold_summary_previous_summary_empty():
-    assert get_fold_summary_prompt_text("previous_summary_empty") == "无。当前为新话题。"
-    assert (
-        get_fold_summary_prompt_text("previous_summary_empty", language="en")
-        == "None. This is a new topic."
+def test_language_setting_selects_the_texts():
+    assert get_fold_summary_prompt_text("title_turns") == "## 第 {first}–{last} 轮"
+    assert get_fold_summary_prompt_text("title_turns", language="en-US") == (
+        "## Turns {first}–{last}"
     )
