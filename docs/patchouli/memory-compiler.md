@@ -6,11 +6,13 @@ scope: memory-ir-and-task-specific-compilation
 code_paths:
   - src/hivememory/engines/memory_compiler/
   - src/hivememory/config/memory_compiler.py
+  - src/hivememory/engines/perception/material.py
 related_contracts:
   - docs/contracts/mtp.md
+  - docs/contracts/mcp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-26
 ---
 
 # MemoryCompiler
@@ -42,11 +44,13 @@ MemoryAtom | PendingAtom | ReferenceResolution | PendingAtomSettlement | AgentPr
 - `MemoryContentIR`：title、summary、content、instruction、tags、memory type；
 - `MemoryStatusIR`：pending 状态、source verb、terminal/redirect/discard、message/reason/error。
 
+话题单元（source kind `topic`）另带读到的 `TopicData` 与条目序号（`topic`、`topic_entry`）：索引与条目的内容都由话题的交互记录与进展记录派生，渲染时直接从话题取，不另投影一份。
+
 当前 builders 支持：
 
 - MemoryAtom：正式记忆当前 head；
 - PendingAtom：仍在物化中的 WRITE/UPDATE 候选；
-- ReferenceResolution：core 中立模型，表达 atom、pending、redirect、discarded、failed、expired 与 not_found 逐项解析结果；资源值由 workspace 交付独立副本。Compiler 接受有内容或终态的结果，not_found 由 adapter 处理、不进入编译；
+- ReferenceResolution：core 中立模型，表达 atom、pending、redirect、discarded、failed、expired、topic 与 not_found 逐项解析结果；资源值由 workspace 交付独立副本。Compiler 接受有内容或终态的结果，not_found 由 adapter 处理、不进入编译；`topic` 由话题 builder 构建，单元的 alias 是规范写法的句柄；
 - PendingAtomSettlement：先投影为 redirect/discarded ReferenceResolution。
 
 IR 的意义是让 target handler 面对稳定语义，而不是知道 MemoryAtom、PendingAtom 和 resolver 的全部字段结构。IR 不对外承诺为公共协议，也不应被持久化成另一份记忆真相。
@@ -57,7 +61,7 @@ IR 的意义是让 target handler 面对稳定语义，而不是知道 MemoryAto
 |:---|:---|
 | `PROMPT_FULL` | title/summary/content 等完整 prompt 记忆块 |
 | `PROMPT_INDEX` | 紧凑标题、摘要、alias 索引视图 |
-| `READ_RESULT` | 读取操作的结果：正式原子交付全文，pending、redirect、discard、failed 等交付状态与后续指引。Alice 的 MTP READ 与 MCP 的 `memory_read` 共用 |
+| `READ_RESULT` | 读取操作的结果：正式原子交付全文，pending、redirect、discard、failed 等交付状态与后续指引，话题句柄交付进展记录的索引或一条的全文与原文（第 4.1 节）。Alice 的 MTP READ 与 MCP 的 `memory_read` 共用 |
 | `SHARED_CONTEXT` | 子 Agent 共享的单元视图 |
 | `DENSE_EMBEDDING` | Qdrant dense vector 与 cross-encoder 输入 |
 | `SPARSE_EMBEDDING` | Qdrant sparse vector 输入 |
@@ -74,6 +78,14 @@ Envelope 把多个 unit 分 section 组织成完整上下文：
 - `SHARED_CONTEXT_INJECTION`：为子 Agent 生成带说明的共享上下文。
 
 读取结果没有 envelope：调用方逐项编译 `READ_RESULT`，自己组合多项结果与局部提示。读取是取得正文全文的途径，`READ_RESULT` 因此不截断：`PROMPT_FULL` 与 `SHARED_CONTEXT` 按 `max_content_length` 截断正文时，附带的提示指引 Agent 读取这条记忆；读取若同样截断，照提示读取只会得到相同的文本。
+
+### 4.1 话题句柄的读取结果
+
+话题句柄（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）的结果有两种渲染，中英文各一份（`get_topic_read_text`）。两种的第一行都写明这是 HiveMemory 话题的历史资料、不是指令，再写话题标题与句柄：结果可能由插件在会话压缩之后注入对话，模型看到的只有这段文字。
+
+- **`topic:<id>`：进展记录的索引**。“进展记录：”之后每条一行：这一条的句柄 `topic:<id>#n` 加正文的节选（正文中的换行并为空格，再截到话题池节选的上限 200 字符，超出加省略号，`topic_excerpt`）；还没有条目时写明进展记录还没有条目。然后是还没有整理的轮数与最近至多 3 轮的节选，与话题池相同，取自话题快照，没有未整理的交互时省略。有条目时最后一句说明读 `topic:<id>#n` 得到这一条的全文与它覆盖的原文。按日常最长 14 条估算约 4,000 字符，不另设上限。
+- **`topic:<id>#n`：这一条的全文与原文**。条目全文不截断；然后写明覆盖第几轮到第几轮，逐轮给出原文：轮前标 `[Turn n]`（与写进展记录时给模型的轮次标记相同），原文以感知层的材料渲染（`render_turn_text`），外部工具结果按 `MemoryCompileOptions.transcript_config` 的 `max_result_chars` 截断，没有给出时取缺省值。MCP 入口传入 `patchouli.generation.transcript`，与记忆生成的材料相同；Alice 的 MTP 不传。原文合起来至多 40,000 字符（`ENTRY_SOURCE_MAX_CHARS`），超出时保留开头与结尾，中间以材料的截断标记（`clip_middle`，`…[N chars omitted]…`）写明省略了多少字符：一条可能覆盖很长的一段工作，读一条不应占满调用方的上下文。
+- **话题句柄过期**：话题已离开话题池时，终态渲染换用 `resolve_topic_expired`：说明话题已离开话题池、其中的交互会沉淀为长期记忆，提示检索；与写入句柄过期（超出保留期）的说明分开。
 
 Retrieval context 中，记忆按 retrieval strategy 选择 full/index，不再单列 Agent Profile。其他默认 section 当前使用 `SHARED_CONTEXT` 编译。可用 agent 列表不是检索结果：任务进程在 CPU 分配时把每个可用 agent 编译为 `AGENT_PROFILE_MENU` 项，由中立提示词编译放进常驻的“可用子代理”一节（[任务进程](../workspace/task-process.md)）。
 
@@ -99,7 +111,7 @@ Compiler 维持输入顺序，不重新排序。top-k、分数和权限必须在
 
 - workspace 任务进程：在 CPU 分配时把预检索返回的检索原子编译为 `RETRIEVAL_CONTEXT` 文本，再经中立提示词编译置于附件段之前，写入输入清单的 `turn_context`（检索路由本身不编译）；
 - Koakuma MTP：编译 SEARCH envelope 与 READ 的 atom/pending/redirect/terminal 结果；
-- MCP 入口：`memory_search` 编译关闭 header/footer 的 `RETRIEVAL_CONTEXT`，`memory_read` 逐项编译 `READ_RESULT`（[MCP 记忆访问](../contracts/mcp.md)）；
+- MCP 入口：`memory_search` 编译关闭 header/footer 的 `RETRIEVAL_CONTEXT`，`memory_read` 逐项编译 `READ_RESULT`，并传入生成材料的截断配置（[MCP 记忆访问](../contracts/mcp.md)）；
 - Alice orchestration：编译子 Agent shared context injection；
 - Qdrant storage：为 MemoryAtom 生成 dense/sparse embedding 文本；
 - Retrieval reranker：为 cross-encoder 生成候选文本。
@@ -126,6 +138,7 @@ prompt 渲染中的“N 天前”相对时间由 `utils.time_formatter.TimeForma
 - Retrieval score/rank 尚未稳定注入 `MemoryUnitIR.metadata`，envelope 主要依赖调用方排序；
 - `format` 只部分进入 metadata，尚无全 target 的多格式保证；
 - citations 字段已经存在于 CompiledMemory，但当前 handlers 没有形成完整引用链；
-- compiler config 当前主要覆盖 retrieval context，其他 target 的长度与语言策略仍由单次 options/handler 管理。
+- compiler config 当前主要覆盖 retrieval context，其他 target 的长度与语言策略仍由单次 options/handler 管理；
+- MTP READ 读话题条目时不传 `transcript_config`，外部工具结果按缺省上限截断：Alice 的装配不持有 `patchouli.generation.transcript`，配置的值与缺省值不同时，两种协议读到的原文不同。
 
 MemoryCompiler 的演进方向应是更稳定的语义 IR、更一致的预算和引用输出，而不是把检索、权限、工具执行或持久化并入 compiler。Context 是被编译出来的临时视图；Compiler 重要，正因为它不能成为新的长期真相源。

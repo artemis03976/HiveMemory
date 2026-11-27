@@ -12,6 +12,8 @@ code_paths:
   - src/hivememory/workspace/process/
   - src/hivememory/system/application/import_bus_service.py
   - src/hivememory/system/services/import_bus/
+  - src/hivememory/patchouli/services/perception.py
+  - src/hivememory/workspace/resolution/memory.py
   - src/hivememory/gateway/system.py
   - src/hivememory/patchouli/system.py
   - src/hivememory/alice/system.py
@@ -22,6 +24,8 @@ related_docs:
   - docs/workspace/README.md
   - docs/architecture/boundaries.md
   - docs/system/import-bus.md
+  - docs/patchouli/perception.md
+  - docs/workspace/sessions.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
 last_reviewed: 2026-11-26
@@ -273,7 +277,37 @@ POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、us
 
 外部 harness 的任务对 HiveMemory 不可见，不建进程、不派生线程，每次工具调用只认证一次，工作 actor 只留在本次调用内。MCP 入口与 Alice 的 MTP 适配器同为操作适配器：都把协议调用归一为固定类型的操作请求，经同一个操作入口进入同一组 actor API 方法，入口仍是 actor API 唯一的调用方；写入与更新与主动链路共用同一意图登记与生成链路。写入发生在一轮进行之中，而外部 harness 的一轮在 HiveMemory 没有任务进程，Import Bus 因此在写入时经 root API 的“为一轮确定话题”就地确定话题，这一轮结束回流时沿用该话题，写入的话题就是这一轮最终所在的话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。确定话题排在 actor API 的授权之后，没有写入许可的调用不会路由、建立话题或触发 LRU 结算。连接器把插件自身四个工具的调用标为 SEARCH、READ、WRITE、UPDATE 后导入，生成视图对检索与读取只留一行摘要、不渲染写入与更新，经 MCP 取回或显式写入的内容因此不会被再提取一遍。契约见 [MCP 记忆访问](../contracts/mcp.md)。
 
-## 7. 生命周期顺序与设计理由
+## 7. 短期记忆：话题是前台与中期之间由 HiveMemory 持有的一环
+
+长上下文的遗忘与注意力衰减是短期记忆的问题。前台上下文不归 HiveMemory 管：plugin 模式下属于外部 harness，controller 模式下 Alice 有自己的会话压缩；两种模式共有的只有话题这一环。短期记忆因此是一条机制链，HiveMemory 在其中持有话题：
+
+```text
+前台上下文（plugin 模式属于 harness；controller 模式由 Alice 从会话资源构建）
+  -> 会话压缩：harness 自己的压缩，或 Alice 的工具结果减重与接力摘要；Alice 的检查点存进会话资源
+  -> 每一轮结束：任务进程或 Import Bus 经 root API 提交交互，Patchouli 感知把这一轮追加进话题
+  -> 话题（Patchouli 感知，每个话题一条只追加的日志）：
+       交互记录：完整原文，只追加
+       折叠：工作视图超过 token 阈值时折叠旧轮次，只为生成材料服务
+       进展记录：话题停下一段时间后写一条，每一条指回它覆盖的原文
+       沉淀与退役：话题停下更久时把交互交给生成，话题留在池中；池满或手动时沉淀并退役
+  -> 中期（Patchouli 生成）：从沉淀材料生成正式记忆，查重、合并
+  -> 读出：agent 经 actor API 的 READ 读话题句柄；Claude Code 压缩会话之后，插件经 MCP 读出话题的索引注入对话开头
+```
+
+- **前台上下文**：controller 模式下，会话资源原样积累一个 Workspace 会话的全部轮次，Alice 每次 run 由它构建预算受限的上下文视图（[会话资源](../workspace/sessions.md)）；plugin 模式下前台上下文完全在 harness 中，HiveMemory 只收到每一轮的记录。
+- **会话压缩**：回答“这个会话下一次推理需要知道什么”。Alice 先减重工具结果，仍超出时以接力摘要覆盖较早的轮次，检查点由会话资源存储与接受，原文不删改（[Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)、[会话资源](../workspace/sessions.md#5-压缩检查点)）；外部 harness 的压缩由 harness 自己完成。
+- **话题**：回答“不在场的人回来时，话题进行到哪一步”。一个话题汇集可能来自多个会话的交互，按内容组织、原文完整；话题的进展是进展记录加还没有整理的原始交互记录，折叠只为生成材料服务（[感知与短期话题](../patchouli/perception.md)）。
+- **沉淀进中期**：沉淀冻结话题的全部交互与折叠记录交给生成，生成写出正式记忆并记下本话题生成的记忆；话题停下够久时只沉淀、不退役，连续的工作因此不被切成几个话题（[记忆生成](../patchouli/generation.md)、[感知与短期话题](../patchouli/perception.md#4-触发原因与具名用例)第 4 节）。
+- **读出**：话题句柄 `topic:<id>` 与 `topic:<id>#<n>` 经同一个 READ（MTP 的 READ、MCP 的 `memory_read`）读出进展记录的索引或一条的全文与原文，授权沿用 `memory.read`（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）。Claude Code 压缩会话之后，插件的 `SessionStart` hook 以 Import Bus 导入结果带回、连接器记下的话题标识读出这个会话最近一轮所在话题的索引，注入对话开头（[Import Bus](../system/import-bus.md#82-hooks)第 8.2 节）。
+
+跨层不变量：
+
+- **会话与话题不共享状态、互不控制**：会话只在每一轮上记下交互实际所在的话题标识，删除或沉淀话题不删除会话；话题不读会话，会话压缩不缩减话题的交互记录，折叠也不替前台减少会话历史。plugin 模式下 HiveMemory 不保存外部会话，连接器只记下最近一轮所在的话题标识。
+- **会话压缩、折叠与进展记录各自回答一个问题、各自触发**：会话压缩由前台的上下文预算触发（Alice 按自己的触发比例，外部 harness 按它自己的规则），回答下一次推理需要什么；折叠由话题工作视图的 token 阈值触发，回答读材料的生成需要保留什么；进展记录由话题停下的时长触发，回答话题进行到哪一步。三者之间没有机制联系：CPU 已压缩某段内容，不证明话题已收到它，也不证明已生成对应的记忆。
+- **Alice 的接力摘要不进入话题**：它不进入 `TurnEvent`、`InteractionPayload`、话题或记忆生成，只是 Alice 的执行视图。
+- **推送是从话题到会话的单向读出**：插件以 agent 的 MCP 调用相同的身份（插件的 principal、凭据与 Agent 声明），经同样的认证与 `memory.read` 授权调用一次 `memory_read`，读取不写话题、不刷新话题的访问时间，也不影响导入；推送不改变话题，话题也不控制前台怎样使用注入的内容。
+
+## 8. 生命周期顺序与设计理由
 
 启动顺序：
 
@@ -285,7 +319,7 @@ Gateway -> Patchouli -> Alice -> Scheduler
 
 停止顺序的逐步列表与各步约束只由 [System 组合根](../system/composition.md#3-停止顺序)维护，这里只说明它遵循的原则：先拒绝新的认证与维护，等待在途导入完成（提交队列此时仍在运行，已提交的轮次能得到确认）；再关闭在途任务进程并清空会话，随后撤销执行、记忆和入口能力；最后关闭 workspace 读取视图（停止新读并清理派生缓存，不触碰 canonical 数据）并清空进程级 WorkspaceAssetStore。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
 
-## 8. 当前不变量
+## 9. 当前不变量
 
 下面的不变量不是代码风格偏好，而是用来判断新设计是否开始自相矛盾的检查线：
 
@@ -300,7 +334,7 @@ Gateway -> Patchouli -> Alice -> Scheduler
 - 观测事件是旁路信息，不参与业务正确性判断；
 - 当前实现是单进程异步架构，不承诺分布式投递语义。
 
-## 9. 如何发现新的设计矛盾
+## 10. 如何发现新的设计矛盾
 
 评审架构变化时，可以先问以下问题：
 
@@ -315,7 +349,7 @@ Gateway -> Patchouli -> Alice -> Scheduler
 
 关于身份标识和并发复杂度的长期取舍见[ADR-0002：全局唯一身份与按需并发保护](./decisions/0002-unique-identities-and-minimal-concurrency.md)。当前系统把 UUID 生成的领域 ID 视为唯一身份，不为随机碰撞预先建立业务级恢复机制；队列 retry、ordering、状态迁移原子性和跨边界快照仍按各自契约保留。
 
-## 10. 已知限制
+## 11. 已知限制
 
 - 复合意图的下游消费和自定义入口规则不是当前能力；
 - RuntimeEvent 只有进程内有界缓冲，不是耐久审计日志；
@@ -323,12 +357,13 @@ Gateway -> Patchouli -> Alice -> Scheduler
 - 通用持久化 Job Queue、Document Ingestion 与 Deep Research 尚未实现；
 - 发布必须使用与包版本完全匹配的 Git tag，并通过版本一致性和 Release artifact 校验。
 
-## 11. 验证入口
+## 12. 验证入口
 
 - 组合与生命周期：`src/hivememory/system/assembler.py`、`src/hivememory/system/system.py`；
 - 包分层：`tests/unit/architecture/test_package_layers.py`；
 - 主动链路：`src/hivememory/workspace/process/`；
 - Import Bus：`src/hivememory/server/routers/import_bus.py`、`src/hivememory/system/application/import_bus_service.py`、`src/hivememory/system/services/import_bus/`，连接器插件 `integrations/hivememory/`；
+- 短期记忆：`src/hivememory/patchouli/services/perception.py`（话题的触发表）、`src/hivememory/workspace/resolution/memory.py`（话题句柄的解析）、`src/hivememory/engines/memory_compiler/handlers/topic.py`（话题的渲染）、`integrations/hivememory/connector/claude_code/hooks.py`（压缩之后的注入）；
 - 子系统宿主：`src/hivememory/{gateway,patchouli,alice}/system.py`；
 - 主要测试：`tests/unit/system/`、`tests/unit/gateway/`、`tests/e2e/pipeline/`。
 

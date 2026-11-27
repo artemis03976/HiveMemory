@@ -12,6 +12,7 @@ code_paths:
   - src/hivememory/workspace/capability/operations.py
   - src/hivememory/core/models/pending.py
   - src/hivememory/core/models/reference.py
+  - src/hivememory/core/models/topic.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
@@ -23,7 +24,7 @@ related_docs:
   - docs/contracts/mcp.md
   - docs/patchouli/generation.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
-last_reviewed: 2026-11-21
+last_reviewed: 2026-11-26
 ---
 
 # 读取视图与写入意图
@@ -32,7 +33,7 @@ actor 读取经 workspace 读取视图完成，写入意图在正式落库之前
 
 ## 1. 读取视图
 
-`WorkspaceReadView`（`workspace/read_view.py`）聚合 actor 读取路径的三层：L0 写入意图登记、L1 完整原子缓存、L2 经 `CanonicalReadBackend` 冷读并回填。读取视图提供两个读取器：`MemoryReader`（`.memory`）解析引用，`ProfileResolver`（`.profiles`）解析主进程执行者与 CALL 目标的 Profile、列出全部 Profile。它只负责引用定位、交付授权与缓存，不做检索排序、去重或内容解释，也没有写路径。root API 的管理读取不经读取视图（[能力层](./capability.md#4-两种读取视角)）。
+`WorkspaceReadView`（`workspace/read_view.py`）聚合 actor 读取路径的三层：L0 写入意图登记、L1 完整原子缓存、L2 经 `CanonicalReadBackend` 冷读并回填。读取视图提供两个读取器：`MemoryReader`（`.memory`）解析引用（记忆，以及话题句柄，第 4.1 节），`ProfileResolver`（`.profiles`）解析主进程执行者与 CALL 目标的 Profile、列出全部 Profile。它只负责引用定位、交付授权与缓存，不做检索排序、去重或内容解释，也没有写路径。root API 的管理读取不经读取视图（[能力层](./capability.md#4-两种读取视角)）。
 
 语义检索能力预热完整原子缓存：MTP SEARCH、MCP 的检索与任务进程的预检索都经 actor API 的同一个检索方法进入读取视图，结果逐条做归属校验与交付授权后交付，并获得同样的预热。
 
@@ -91,13 +92,24 @@ WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 M
 
 ## 4. 引用解析
 
-`MemoryReader`（`workspace/resolution/memory.py`）统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、expired、atom 与 not_found。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。FAILED 句柄交付时带着失败事件记下的原因码（第 5 节）。
+`MemoryReader`（`workspace/resolution/memory.py`）统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、expired、atom、topic 与 not_found。引用先按形态分派：以 `topic:` 开头的是话题句柄（第 4.1 节），不查写入意图与正式记忆；其余按下文解析。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。FAILED 句柄交付时带着失败事件记下的原因码（第 5 节）。
 
 登记中没有、也不是正式记忆 alias 的 `draft_`、`rev_` 句柄按 expired 交付，说明句柄不存在或已过期：满保留期被删除、升级前发出后重启、进程崩溃丢失以及其他 Workspace 的句柄都是这样，不透露句柄是否存在。正式记忆的 alias 可以在手动创建时任取，因此先查正式记忆，同前缀的正式记忆照常读到；其他找不到的 alias 仍是 not_found。过期不是登记中的状态，只是读取时的解析结果。
 
 登记中存在的别名只按意图解析：取消、对当前 Actor 不可见或缺少结算载荷都得到 not_found，不回落为同名的正式原子。redirect 优先按结算的 `canonical_uuid` 读取，alias 被重新绑定后旧意图不会跟随到另一份资源，只有缺少 UUID 的结算载荷才按 `canonical_alias` 查找。读取正式原子始终返回已提交版本，进行中的 UPDATE 修订只经它自己的 pending 句柄可见。
 
 UPDATE 的基础冷读在取得派发话题与登记的同步段之前完成，冷读跨越线程结束或停止时在同步段拒绝，不产生意图（[执行线程](./execution-threads.md#7-actor-阶段结束与停止)）。引用交付时的 citation 记录属于 actor API（[能力层](./capability.md#7-引用读取的副作用)）。
+
+### 4.1 话题句柄
+
+agent 经同一个 READ 读话题：话题是 READ 的另一种对象，不新增 actor 操作，授权沿用 `memory.read`；读什么由句柄的形态说明，不加显式的 target，MTP、MCP 与连接器的入口因此不变，一次读取可以同时读记忆与话题。
+
+- **形态**：`topic:<话题 id>` 读话题的进展记录索引，`topic:<话题 id>#<n>` 读进展记录第 n 条（从 1 数起）的全文与它覆盖的原文。句柄只由系统签发（读话题的结果、插件在会话压缩之后注入的索引），agent 照抄；格式化与解析只有一对函数 `format_topic_handle` 与 `parse_topic_handle`（`core/models/topic.py`），签发与解析共用。
+- **与 alias 互斥**：记忆的 alias 不能以 `topic:` 开头，中期库在写入之前拒绝（[MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)第 1.2 节）。所以读取器见到这个前缀就只按话题句柄解析，不沿用写入句柄“先查正式记忆”的顺序：同名的记忆不会静默遮住话题。
+- **读出**：经 `CanonicalReadBackend.get_topic` 以本次授权的 scope 调用 Patchouli 的公开路由 `patchouli.public.topic.get_data`。话题只有 Workspace 归属、没有 actor 读取策略，归属由 Patchouli 按 scope 的 Workspace 复查，读取器不另设可见性规则：同一 Workspace 内持有 `memory.read` 即可读，与本话题生成的记忆在 Workspace 内公开一致。话题不经原子缓存，每次读的都是当前的话题。
+- **结局**：读到话题为 `topic`，带读到的 `TopicData` 与条目序号（读索引时为空）；话题读不到为 `expired`：已经退役、已被删除、不属于这个 Workspace 或从未存在都是这样，不透露话题是否存在，Patchouli 只交出话题池中的话题（[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节）。不合语法的句柄与超出进展记录的条目序号是 `not_found`：句柄只由系统签发，这两种只会来自抄错的句柄。
+- **副作用**：读话题不记录引用，也不进入生命周期的命中；`actor.operation` 的交付数把读到的话题计入。RUN 解析到话题时以不可运行拒绝，CALL 的 `context_refs` 跳过话题句柄（[MTP 契约](../contracts/mtp.md#33-run)）。
+- **呈现**：`topic` 与话题句柄的 `expired` 经 MemoryCompiler 的 `READ_RESULT` 编译（[MemoryCompiler](../patchouli/memory-compiler.md#41-话题句柄的读取结果)第 4.1 节）。
 
 ## 5. 派发与结算
 
@@ -119,4 +131,4 @@ UPDATE 的基础冷读在取得派发话题与登记的同步段之前完成，�
 ## 7. 代码与测试入口
 
 - [`WorkspaceReadView`](../../src/hivememory/workspace/read_view.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）、[`MemoryReader`](../../src/hivememory/workspace/resolution/memory.py)、[`ProfileResolver`](../../src/hivememory/workspace/resolution/profile.py)、[`WriteIntentRegistry`](../../src/hivememory/workspace/intents/registry.py)；
-- 测试：[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（线程与请求级提交的登记与派发；请求级的更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_process_intents.py`](../../tests/integration/workspace/test_process_intents.py)（线程提交只有写入确定话题、被拒的写入不确定话题、确定话题期间停止时不登记）、[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)（含写盘读回、保留期与读不回的文件）、[`test_lifecycle.py`](../../tests/unit/system/test_lifecycle.py)（关闭时 Patchouli 停止期间结算的写入先落到登记再写盘）、[`test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)（含进程加载 PRIVATE 图纸而 CALL 仍按调用方可见性拒绝）、[`test_memory_reader.py`](../../tests/unit/workspace/resolution/test_memory_reader.py)（含登记中没有的句柄按已过期交付）、[`test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)（缓存串扰与授权重验，管理读取在命中与冷读两条路径交付 PRIVATE 图纸）、[`test_workspace_intent_subscription.py`](../../tests/integration/system/test_workspace_intent_subscription.py)（组合根装配即读回登记并订阅、关闭即取消订阅）、[`test_inflight_dispatch.py`](../../tests/integration/workspace/test_inflight_dispatch.py)（含结局不明时以同一意图重试、命中原任务）。
+- 测试：[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（线程与请求级提交的登记与派发；请求级的更新在基础冷读之后、登记之前确定话题，被拒的请求不确定话题）、[`test_process_intents.py`](../../tests/integration/workspace/test_process_intents.py)（线程提交只有写入确定话题、被拒的写入不确定话题、确定话题期间停止时不登记）、[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)（含写盘读回、保留期与读不回的文件）、[`test_lifecycle.py`](../../tests/unit/system/test_lifecycle.py)（关闭时 Patchouli 停止期间结算的写入先落到登记再写盘）、[`test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)（含进程加载 PRIVATE 图纸而 CALL 仍按调用方可见性拒绝）、[`test_memory_reader.py`](../../tests/unit/workspace/resolution/test_memory_reader.py)（含登记中没有的句柄按已过期交付；话题句柄按形态分派、与记忆混在一次请求里保持顺序，读不到为已过期，条目越界与不合语法为 not_found，`topic:` 开头的引用不查正式记忆）、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)（话题句柄经公开话题读取路由以授权的 scope 读出、不记引用，别的 Workspace 的话题按已过期交付）、[`test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)（缓存串扰与授权重验，管理读取在命中与冷读两条路径交付 PRIVATE 图纸）、[`test_workspace_intent_subscription.py`](../../tests/integration/system/test_workspace_intent_subscription.py)（组合根装配即读回登记并订阅、关闭即取消订阅）、[`test_inflight_dispatch.py`](../../tests/integration/workspace/test_inflight_dispatch.py)（含结局不明时以同一意图重试、命中原任务）。

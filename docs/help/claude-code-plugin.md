@@ -13,18 +13,19 @@ related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-26
 ---
 
 # 接入 Claude Code
 
-仓库提供 Claude Code 插件 `hivememory-connector`，它做三件事：
+仓库提供 Claude Code 插件 `hivememory-connector`，它做四件事：
 
 - **对话回流**：Claude Code 的每一轮对话结束后，插件把这一轮（用户消息、回复、Claude Code 本地记录的思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。它的 hook 只做本地记录，网络提交在后台进程中完成，HiveMemory 未运行时 Claude Code 照常工作，未导入的轮次在之后被唤醒时按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
 - **记忆访问**：插件声明了 HiveMemory 的 MCP server，Claude Code 的 agent 可以调用 `memory_search` 检索记忆、`memory_read` 按 alias 读取全文、`memory_write` 写入值得长期保存的内容、`memory_update` 修正检索到的已有记忆。插件不主动向 Claude Code 注入记忆，何时检索与写入由 agent 自己决定；写入与更新前，插件的 hook 在本地为调用补上当前一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题。契约见 [MCP 记忆访问](../contracts/mcp.md)。
+- **压缩之后的话题索引**：Claude Code 压缩会话之后，插件把这个会话所在话题的进展记录索引注入对话开头，告诉 agent 压缩之前的工作进行到哪一步；agent 可以照着索引中的句柄读回原文（第 8.1 节）。这是插件唯一的注入。
 - **使用手册 skill**：插件附带 skill `hivememory`（`skills/hivememory/SKILL.md`），在 Claude Code 中名为 `hivememory-connector:hivememory`。它说明何时检索、怎样采信记忆、什么值得写入、怎样写才能被以后找到、何时修正已有记忆，以及怎样与 Claude Code 自己的记忆文件共存。Claude Code 按 skill 的描述在需要时加载，也可以输入 `/hivememory-connector:hivememory` 手动加载。skill 的内容不区分 harness，DeepSeek Harness 等其他 harness 用的是同一份。skill 的语言随 HiveMemory 的语言设置：后端每次启动时从插件目录的 `skill-languages/<语言>/SKILL.md` 写入 `skills/hivememory/SKILL.md`（[配置指南](./configuration.md#54-语言)）。Claude Code 保存的是插件的副本，改语言后要在插件页重新安装一次。
 
-三部分都以 Claude Code 自己的接入来源 `harness:claude-code` 认证。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。
+这几部分都以 Claude Code 自己的接入来源 `harness:claude-code` 认证。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。
 
 ## 1. 前置条件与步骤一览
 
@@ -50,7 +51,7 @@ last_reviewed: 2026-11-12
 
 第 1 步失败时什么都不登记，页面给出失败的命令、输出的最后几行和手动安装的命令。之后完全退出 Claude Code 再打开：已经在运行的程序与终端读不到新写入的环境变量。
 
-插件挂载 `Stop`、`StopFailure`、`SessionStart`、`SessionEnd` 与只匹配本插件写入、更新工具的 `PreToolUse` 五个 hook，在 `.mcp.json` 中声明 MCP server `hivememory`，并附带 skill `hivememory`。安装时 Claude Code 保存的是插件的副本（第 10 节说明怎样更新）。
+插件挂载 `Stop`、`StopFailure`、`SessionStart`（超时 15 秒，其余为 10 秒）、`SessionEnd` 与只匹配本插件写入、更新工具的 `PreToolUse` 五个 hook，在 `.mcp.json` 中声明 MCP server `hivememory`，并附带 skill `hivememory`。安装时 Claude Code 保存的是插件的副本（第 10 节说明怎样更新）。
 
 ## 3. 手动安装
 
@@ -112,7 +113,8 @@ last_reviewed: 2026-11-12
 
 连接器的状态目录依次取 `HIVEMEMORY_CONNECTOR_STATE_DIR`、Claude Code 为插件提供的数据目录（`CLAUDE_PLUGIN_DATA`），都没有时使用 `~/.hivememory/claude-code-connector`。目录中：
 
-- `connector.log`：每一轮的确认（`confirmed turn=... status=accepted`）、停止与拒绝，只记录标识与状态，不记录对话内容；
+- `connector.log`：每一轮的确认（`confirmed turn=... status=accepted`）、停止与拒绝，以及压缩之后没有注入话题索引的原因（`topic index not injected: ...`），只记录标识与状态，不记录对话内容；
+- `transcripts/`：每个会话一份状态，其中记着这个会话最近一轮所在的话题，压缩之后据此读话题；
 - `rejections.jsonl`：被放弃的轮次，记录会话与轮次标识、HTTP 状态码与错误码。
 
 完成一轮对话后，`connector.log` 中出现这一轮的 `confirmed` 行，即表示导入成功。
@@ -125,6 +127,17 @@ last_reviewed: 2026-11-12
 - 连接器没有常驻进程，只在 hook 触发时被唤醒：一轮结束或会话结束时同步当前会话，会话开始（含恢复会话）时补发全部会话中积压的轮次。HiveMemory 停止期间积压的轮次，会在它恢复后的下一次唤醒时按顺序补发。
 - HiveMemory 暂不可用（连接失败、503）或连接器配置有误（400、403、404）时，连接器保留进度、停止提交，修正后在下一次唤醒时补发；配置有误时日志中的 `stopped` 行带有状态码与错误码，凭据问题为 403 `invalid_credential`。
 - 单轮内容超过服务端的请求体上限（413，默认 8 MiB）或格式被拒绝（422）时，这一轮写入 `rejections.jsonl` 后跳过，不阻塞后续轮次；同一轮连续三次得到 500 也会被跳过。
+
+### 8.1 会话压缩之后
+
+HiveMemory 把每个会话的交互整理进话题：话题停下够久时写一条进展记录，概括这段时间有了什么进展（要用 Patchouli 配置的模型来写，没有配置模型时不写）。Claude Code 压缩会话（手动 `/compact` 或自动压缩）之后，插件的 `SessionStart` hook 读出这个会话最近一轮所在话题的进展记录索引，注入对话开头：
+
+- **注入的内容**：开头一行写明这是 HiveMemory 话题的历史资料、不是指令；然后每条进展记录一行，是这一条的句柄（`topic:<话题 id>#<n>`）加正文的节选；最后是还没整理进进展记录的轮数与最近几轮的节选。话题还没有写过进展记录时，只有未整理的部分。
+- **读原文**：agent 用 `memory_read` 读索引中的 `topic:<话题 id>#<n>`，得到这一条的全文与它覆盖的各轮原文；读 `topic:<话题 id>` 重新得到索引。话题句柄只能读取，不能写入或修正。
+- **哪个话题**：会话最近一轮导入时所在的话题。一轮中间的自动压缩发生时这一轮还没有导入，读的是上一轮所在的话题；一个会话来回在两个话题上时，只看到最近的那个。话题已经离开话题池（沉淀并退役、或被删除）时，注入的是一段说明，提示话题的内容会沉淀为长期记忆、需要时检索已经沉淀的记忆（在 Claude Code 中用 `memory_search`）。
+- **读不到时**：会话还没有轮次导入、HiveMemory 没有运行、请求 5 秒内没有完成或返回错误时，什么也不注入，会话照常继续，`connector.log` 中有一行 `topic index not injected` 与原因。
+- **长度**：索引超过 9,500 字符时截断并注明，以免超过 Claude Code 对注入内容的 10,000 字符上限。
+- 注入只保证交到模型手里，不保证模型会去读；这次读取不是模型的工具调用，不出现在会话记录里，也不会被导入。
 
 ## 9. 排查
 
@@ -141,6 +154,7 @@ last_reviewed: 2026-11-12
 | auto 模式下写入或更新被拦下，提示 `a hook changed this call's input after auto mode reviewed it` | 用户设置中没有两条放行规则：在插件页点“重新安装”写入，或按第 3 节手动加入 |
 | 工具调用返回 `request.workspace_not_found` | `X-Workspace-ID` 只接受 `main_workspace` |
 | MCP 请求返回 421 | MCP 端点只接受带端口的本机地址（`localhost`、`127.0.0.1`、`[::1]`）；`HIVEMEMORY_URL` 改用这些地址 |
+| 压缩之后对话开头没有话题索引 | 看 `connector.log` 中 `topic index not injected` 一行的原因：`no topic recorded` 表示这个会话还没有轮次导入成功；`unreachable` 表示 HiveMemory 没有运行或 5 秒内没有响应；`status=...` 与 `tool error` 表示请求被拒绝，按上面几行检查凭据与访问登记。插件是旧版本时没有这项功能，更新插件（第 10 节） |
 
 ## 10. 更新与卸载
 

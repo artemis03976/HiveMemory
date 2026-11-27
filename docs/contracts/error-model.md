@@ -97,7 +97,7 @@ Alice CPU 宿主未启动或已停止时，await `execute()` 抛出 `AliceUnavai
 
 ### 2.3 Import Bus 导入结果
 
-一次导入的正常结果是 `ImportTurnResponse.status`：`accepted`（本次提交且已应用）、`duplicate`（此前已应用）或 `skipped`（用户消息之外没有输出，不提交），并带推导出的 `interaction_id`。Gateway 决定、内部 fallback、提交与等待的过程以及 RuntimeEvent 不进入响应。导入在交互应用完成之后才确认，因此“这一轮暂时无法完成”不是业务终态：Gateway 暂不可用、提交队列拥塞、等待应用超时与应用失败都以错误交回，由连接器按状态码决定保留还是放弃这一轮（第 4.3 节）。
+一次导入的正常结果是 `ImportTurnResponse.status`：`accepted`（本次提交且已应用）、`duplicate`（此前已应用）或 `skipped`（用户消息之外没有输出，不提交），并带推导出的 `interaction_id` 与这一轮所在的话题 `topic_id`（跳过的轮次与结局已超出提交队列保留窗口的重复轮次为空）。Gateway 决定、内部 fallback、提交与等待的过程以及 RuntimeEvent 不进入响应。导入在交互应用完成之后才确认，因此“这一轮暂时无法完成”不是业务终态：Gateway 暂不可用、提交队列拥塞、等待应用超时与应用失败都以错误交回，由连接器按状态码决定保留还是放弃这一轮（第 4.3 节）。
 
 ## 3. MTP 结构化错误
 
@@ -296,7 +296,7 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 |:---|:---|:---|:---|
 | `InvalidMemoryFieldError` | 接收外部输入的 Memory 构造/编辑点（管理创建、外部编辑），包装 Pydantic `ValidationError` | 422 | 调用方提交的字段取值不满足领域约束；内部保留字段诊断，HTTP 返回固定安全提示，与程序错误区分 |
 | `StorageWriteError` | Qdrant 写入路径（`upsert_memory` / `patch_memory_payload` 等） | 5xx | 存储写入失败的结构化表达，与 `StorageOfflineError`/`StorageReadError` 同族；失败沿调用链传播，不能被吞成成功或空结果 |
-| `MemoryAliasConflictError`（`workspace.memory.alias_conflict`） | 中期库 `upsert` 写入前校验、生成侧 `AliasGenerator`、精确 alias 查询 | 409（Memory 管理 HTTP 入口） | 同一 Workspace 中期库内的 alias 唯一性不变量被破坏；`details.reason` 区分 `alias_occupied`（被其他 Memory 占用，本次不写入）、`alias_candidates_exhausted`（消歧候选耗尽）与 `ambiguous_alias`（精确查询命中多条，读取 fail closed） |
+| `MemoryAliasConflictError`（`workspace.memory.alias_conflict`） | 中期库 `upsert` 与手动创建、编辑写版本记录之前的 alias 校验、生成侧 `AliasGenerator`、精确 alias 查询 | 409（Memory 管理 HTTP 入口） | 同一 Workspace 中期库内的 alias 不能使用：`details.reason` 区分 `alias_occupied`（被其他 Memory 占用，本次不写入）、`alias_reserved`（以话题句柄的前缀 `topic:` 开头，本次不写入）、`alias_candidates_exhausted`（消歧候选耗尽）与 `ambiguous_alias`（精确查询命中多条，读取 fail closed） |
 | `MemoryUpdateBaseChangedError`（`workspace.memory.update_base_changed`） | Familiar 修订提交前的重读 | 不经 HTTP 呈现；UPDATE 任务以该原因码失败收尾，写入意图的失败事件带上它，读取句柄时提示重新读取后再更新 | 基础记忆在模型计算修订期间被修改，且改到了编辑集引用的原文，编辑集无法重放到当前版本；修订不写回，期间的修改保留；`details` 带 `memory_id` 与计算时读到的 `base_version` |
 | `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`） | Familiar 的合并路径 | 不经 HTTP 呈现；合并任务以 `merge_aborted.<details.reason>` 失败收尾，任务快照的公开 error 仍是固定说明 | 两条记忆的合并在读取、条件、版本或模型输出上不满足要求，两条记忆都保持不变，不回退为追加或覆盖；`details.reason` 区分 `memory_missing`（任一记忆缺失或对发起者不可见，保留记忆沿吸收关系改指之后也找不到）、`not_mergeable`（访问策略不同，或吸收自身）、`version_changed`（写回前保留记忆的编辑集重放不了，或被吸收记忆的内容版本已变）与 `model_output_invalid`（模型输出为空、无法解析，或编辑集带着错误重试一次后仍不能应用） |
 | `InvalidAgentProfileError`（`workspace.agent_profile.invalid`） | AgentProfileStore 的保存与读取 | 422（Agent 管理 HTTP 入口；`reason` 只公开 `invalid_agent_id`、`unknown_field`、`invalid_value`、`unreadable`） | Agent Profile 的标识或字段不合格：保存时拒绝写入；读取时列出跳过这个文件，按 `agent_id` 解析时转为 `ProfileResolutionError(invalid_config)`；`details.reason` 另有读取文件时的 `missing_frontmatter`、`invalid_frontmatter` |

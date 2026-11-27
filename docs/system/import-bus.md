@@ -105,7 +105,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 - 单个事件的字段规则与一轮的不变量在请求校验阶段执行，与封口时相同：序号重复或回退、调用标识重复、字段出现在不允许的种类上、结局字段不成对，或响应序号只出现在部分事件上、随序号回退时，整轮以 422 拒绝，不等到封口才失败。未升级的连接器仍上传旧的事件形态，它的轮次因此以 422 拒绝并被跳过（第 8.5 节），升级服务端时需要同时重新安装插件。反过来，新连接器的轮次被不认识新字段的旧服务端以 422 拒绝（例如带 `WRITE`、`UPDATE` 事件，或带 `response_index`），连接器把 422 当作这一轮被拒绝并前移游标，这些轮次因此永久丢失：服务端必须先于连接器升级。安装版满足这个顺序：覆盖安装之前先请程序正常退出，链接安装的插件（pi、dsh）随程序目录换成新文件时旧服务端已经停止；复制安装的插件（Claude Code、Codex）由新服务端启动之后重新安装（`PluginService.update_copied_plugins`）。反方向没有问题：仍在运行、还没有重新加载插件的 harness 用旧连接器提交不带响应序号的轮次，新服务端照常接受（整轮一段）。
 - 请求体上限 `import_bus.max_request_bytes` 在框架读取并解析请求体之前判定（自定义路由类 `BodyLimitedRoute`）：声明的 `Content-Length` 超限时不读取请求体，没有声明长度时边读边计数，超限即停止。两种情况都返回 413（`request.body_too_large`），过大且不是合法 JSON 的请求因此也是 413 而不是 422。
 
-成功响应为 200，带推导出的 `interaction_id` 与 `status`：
+成功响应为 200，带推导出的 `interaction_id`、`status` 与这一轮所在的话题 `topic_id`：
 
 | `status` | 含义 |
 |:---|:---|
@@ -113,7 +113,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | `duplicate` | 此前已经提交，现已应用（含本次请求等到上一次提交应用完成） |
 | `skipped` | 该轮没有用户消息之外的事件，与任务进程一样不封口 |
 
-响应不暴露 Gateway 决定、话题或记忆上下文。失败的状态码与可重试性见第 5 节。
+`topic_id` 原样取自 root API 提交交互的结局：这一轮已经应用时就是它实际所在的话题，不论是这次提交的还是此前已接纳的；`skipped` 的轮次没有提交，此前接纳的结局已超出提交队列保留窗口的重复轮次查不到话题，两者都为空。导入一侧不另做判断。话题标识只是句柄：连接器拿它构造话题句柄，在会话压缩之后经 MCP 读话题（第 8.2 节），读取仍要经 MCP 的认证与 `memory.read` 授权。响应不带 Gateway 决定与记忆内容。失败的状态码与可重试性见第 5 节。
 
 ## 4. 认证、授权与编排
 
@@ -296,19 +296,27 @@ Gateway 请求时限（`gateway.workflow.default_request_timeout_ms`，默认 80
 
 ### 8.2 hooks
 
-hook 同步运行但只做本地工作（登记会话记录、写结束记录、读会话记录），网络提交交给脱离 Claude Code 的后台同步进程（独立会话，不继承标准输入输出）。hook 入口无论成败都以 0 退出；只有 `PreToolUse` 在读到当前一轮时向标准输出写一个 JSON 对象，其他事件与任何失败都不写标准输出。连接器的任何失败只进日志，HiveMemory 不可用时不影响 Claude Code。
+hook 同步运行但只做本地工作（登记会话记录、写结束记录、读会话记录），网络提交交给脱离 Claude Code 的后台同步进程（独立会话，不继承标准输入输出）；唯一的例外是会话压缩之后的一次读取（见下文）。hook 入口无论成败都以 0 退出；只有 `PreToolUse` 在读到当前一轮时、`SessionStart` 在压缩之后读到话题时向标准输出写一个 JSON 对象（ASCII 转义），其他事件与任何失败都不写标准输出。连接器的任何失败只进日志，HiveMemory 不可用时不影响 Claude Code。
 
 | hook | 行为 |
 |:---|:---|
 | `Stop` | 把游标之后的最后一轮记为 `completed`，唤醒这份会话记录的同步 |
 | `StopFailure` | 把最后一轮记为 `failed`，唤醒同步 |
-| `SessionStart` | 登记会话记录并撤销已结束标记（恢复的会话继续写入同一份记录），唤醒全部已登记会话记录的同步，补发尚未提交的已结束轮次 |
+| `SessionStart` | 登记会话记录并撤销已结束标记（恢复的会话继续写入同一份记录），唤醒全部已登记会话记录的同步，补发尚未提交的已结束轮次；来源是压缩（`source` 为 `compact`）时，随后读出会话所在话题的进展记录索引并注入（见下文）。超时 15 秒，其余 hook 为 10 秒 |
 | `SessionEnd` | 标记会话已结束，唤醒同步；末尾没有结束记录的一轮按 `cancelled` 提交 |
 | `PreToolUse` | 只匹配本插件写入与更新两个工具的调用名：把当前一轮的信息补进工具参数 `turn`，不登记、不唤醒同步、不做网络请求 |
 
 `Stop` 必须同步运行：它在下一条消息写入之前结束，“最后一轮”才确定是刚结束的那一轮。最后一轮也可以是唤醒开启的续作（第 8.3 节），续作结束时的 `Stop` 为它写结束记录。结束通知在游标之后找不到轮次时（该轮已按超时或会话结束判定并提交）被忽略并写入日志。用户中断时 Claude Code 不触发 `Stop`，被中断的一轮由中断标记、下一轮或会话结束判定。
 
 `PreToolUse` 的当前一轮是会话记录中最后开启的一轮：由人发出的消息开启的，或唤醒开启的续作（第 8.3 节）。它从游标处的最近上文读起，与导入读取的范围相同（尚未登记的会话记录从头读起），以生成导入请求体的同一函数构造 `source`、外部会话与外部轮次标识、用户消息与之前最多三轮，回流时服务端因此推导出同一个交互标识。输出 `hookSpecificOutput.updatedInput`：原参数加上 `turn`，覆盖模型自己填写的值；不给权限决定，改写后的参数照常经过 Claude Code 的权限评估。子代理中的调用得到的会话记录路径是主会话的会话记录，写入落在主会话的当前一轮。读不到当前一轮或任何失败时不输出，工具调用照常进行，由 MCP 入口以 `request.turn_required` 拒绝。
+
+**压缩之后注入话题的索引**。会话压缩之后模型失去了此前的上下文，话题的进展记录告诉它工作进行到哪一步；推送就是 hook 在这个时点替 agent 拉取一次。只注入索引（每一条一句话加上指回原文的句柄），“现在停在哪”交给 Claude Code 自己的压缩摘要：那份摘要按会话组织、没有句柄，索引补上的是按话题的进展与可以回查的原文，别的会话在同一话题上写下的条目也在其中。来源为 `compact` 的 `SessionStart` 在登记与唤醒同步之后，同步地读一次话题：
+
+- 话题取自会话记录状态中的 `topic_id`，即最近一次导入确认带回的话题（第 8.4、8.5 节），也就是会话最近一轮所在的话题；不为外部会话另建“会话到话题”的记录。一轮中间的自动压缩发生时这一轮还没有导入，读的是上一轮所在的话题；一个会话交替在两个话题上时，只看到最近的那个。话题标识随状态文件保存，跨过 HiveMemory 的重启，不依赖提交队列的进程内记录。
+- 以插件 MCP 配置相同的请求头（principal、Bearer 凭据、`X-User-ID`、`X-Agent-ID`）向 `${HIVEMEMORY_URL}/mcp` POST 一次 JSON-RPC `tools/call`，调用 `memory_read` 读 `topic:<话题 id>`，超时 5 秒（[MCP 记忆访问](../contracts/mcp.md#6-连接器调用名轮次信息与回声标记)第 6 节）。
+- 调用成功时，结果文本原样作为 `hookSpecificOutput.additionalContext` 输出：通常是索引；话题已离开话题池时是指向检索的过期说明，同样注入。结果超过 9,500 字符时截断并注明：Claude Code 每个 hook 的 `additionalContext` 至多 10,000 字符，超出时只把开头的预览交给模型。
+- 状态里没有话题（还没有轮次被确认）、请求失败或超时、MCP 返回错误结果时不输出，只在日志中写一行 `topic index not injected` 与原因，会话照常继续。
+- 这次读取不是模型的工具调用，不出现在会话记录里，不影响导入；其他来源（`startup`、`resume`、`clear`、`fork`）的 `SessionStart` 不读话题。
 
 ### 8.3 轮次的切分与映射
 
@@ -325,7 +333,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 ### 8.4 结束判定与游标
 
-状态按会话记录分文件保存：游标（下一次读取的位置，之前的轮次都已确认）、最后确认的轮次标识、最近确认轮次的起点、各轮的结束记录与连续服务器错误次数。多个 hook 进程与同步进程同时运行，每次读改写持该会话记录的状态锁并以替换方式原子写入；同一会话记录的同步另持同步锁，提交期间不持状态锁，hook 不会被同步阻塞。
+状态按会话记录分文件保存：游标（下一次读取的位置，之前的轮次都已确认）、最后确认的轮次标识、最近确认轮次的起点、各轮的结束记录、连续服务器错误次数，以及最近一次确认带回的话题 `topic_id`（第 8.5 节；早于这个字段写下的状态文件照常读回，话题为空）。多个 hook 进程与同步进程同时运行，每次读改写持该会话记录的状态锁并以替换方式原子写入；同一会话记录的同步另持同步锁，提交期间不持状态锁，hook 不会被同步阻塞。
 
 - **结束的判定**：一轮在其后出现下一轮、写入中断标记、已有结束记录或会话已结束时才算结束；仍在进行的末尾一轮不提交。没有 `SessionEnd` 的崩溃会话，末尾超过 30 分钟没有新条目时按 `cancelled` 结束。结局依次取已保存的结束记录（hook 写下的，或上次提交前保存的）、会话记录本身写明的结局（Claude Code 的记录没有，Codex 的有，见第 10.4 节）、以上推断。
 - **末尾一轮是否写完**：结束通知可能先于最后几行写入。末尾一轮已判定结束、但最后一条助手条目的 `stop_reason` 仍是 `tool_use`（尚未正常收尾）时，同步轮询等待会话记录写完（最多约 10 秒）；读取之后会话记录又有新内容时重新读取，不以读取时的旧内容提交；会话已结束或会话记录静止超过等待时限时按读到的内容提交。
@@ -339,7 +347,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 | 结果 | 处理 |
 |:---|:---|
-| 2xx（`accepted`、`duplicate`、`skipped`） | 前进 |
+| 2xx（`accepted`、`duplicate`、`skipped`） | 前进；响应带回话题时记为会话最近所在的话题，没有带回（跳过的轮次、旧版本的服务端）时保留原来的 |
 | 网络错误、429、502、503、504 | 保留游标，停止处理这份会话记录，等下次唤醒 |
 | 413、422（这一轮内容本身的问题） | 写入拒绝记录，前进 |
 | 其他 4xx（凭据未配置或不一致、身份声明、准入、地址或版本不对） | 保留游标，停止处理：这是连接器配置的问题，前进会让后续轮次全部丢失，修正配置后补发 |
@@ -554,7 +562,7 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 
 ## 12. 设计不变量
 
-- Import Bus 不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不写入 ConversationSession；`PASSIVE_MEMORY` 只能得到 Gateway 决定。
+- Import Bus 不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不写入 ConversationSession；`PASSIVE_MEMORY` 只能得到 Gateway 决定。导入结果只带回这一轮所在话题的标识，读话题的内容要经 MCP 的认证与授权。
 - 确认只在感知应用成功之后：`accepted` 与 `duplicate` 都表示这一轮已经应用，应用失败或等待超时都不确认。
 - 查重先于路由：已应用或仍在应用的轮次不再调用 Gateway；只有应用失败的轮次重新路由，并以同一 `interaction_id` 再次提交。没有输出的轮次直接跳过，不查进度。
 - 写入时已确定话题的轮次回流时以该话题提交、不调用 Gateway，写入的话题就是这一轮所在的话题；登记在提交被接纳后才取走。这一轮已经应用后才到达的写入沿用它实际所在的话题，不重新路由。
@@ -566,7 +574,7 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 - 交互记录由共用的 `seal_interaction` 产出，与任务进程的交互记录同形，只以事件表达交互内容；Gateway 决定不进入交互记录，也不得删除原始交互。
 - 编排器不持有提交队列、不注册维护任务；关闭时只等待在途请求，不排空队列。
 - RuntimeEvent 不携带正文，发布失败不改变结果。
-- 连接器只在得到确认，或判定这一轮不可重试并写入拒绝记录之后前进游标；hook 不做网络提交，不阻塞 Claude Code 与 Codex。dsh 插件的水位遵循同一规则，事件监听只做本地工作，不阻塞 dsh。pi 扩展的待提交列表同样只在确认或写入拒绝记录之后移出一轮；结束标记写在会话记录中，网络提交在后台进行，会话关闭时的等待有上限。
+- 连接器只在得到确认，或判定这一轮不可重试并写入拒绝记录之后前进游标；hook 不做网络提交，不阻塞 Claude Code 与 Codex；Claude Code 压缩之后的那一次读取是唯一同步等待网络的 hook 工作，有 5 秒的上限，失败时什么也不注入。dsh 插件的水位遵循同一规则，事件监听只做本地工作，不阻塞 dsh。pi 扩展的待提交列表同样只在确认或写入拒绝记录之后移出一轮；结束标记写在会话记录中，网络提交在后台进行，会话关闭时的等待有上限。
 
 ## 13. 已知限制
 
@@ -579,6 +587,7 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 - 写入时已确定话题的轮次始终没有回流（连接器长期不可用，或 hook 未运行时模型编造了轮次信息）时，登记留到进程重启，写入时建立、没有接收交互的话题由沉淀扫描按没有材料的话题结束。
 - 后台运行的子代理在会话开启下一轮之后（用户发出下一条消息，或 agent 被唤醒）才写入时，写入落在那时的当前一轮：`PreToolUse` 的输入只给出会话当时的当前一轮。dsh 的子 Agent 同样落在顶层会话那时最近的一轮。
 - 第一次写入要等一次 Gateway 路由；同一外部会话的上一轮仍持有串行门等待应用时，还要等它完成。
+- 压缩之后只注入会话最近一轮所在的话题，一个会话交替在两个话题上时，压缩之后只看到最近的那个；话题已退役或被删除时注入的是过期说明，下一轮导入后话题标识才更新。注入只保证交到模型手里，不保证模型会去读；`SessionStart` 在压缩之后同步等待至多 5 秒。只有 Claude Code 的连接器在压缩之后注入：Codex、pi 与 dsh 的连接器不注入，它们的 agent 照样可以经 MCP 读话题句柄。
 - Claude Code 中一次 Monitor 调用可能多次唤醒 agent，每次唤醒都是一轮，续接在同一话题中，交互数随之增加。后台任务运行很久、上一轮的话题已经结算或被驱逐时，唤醒之后的续作新开一个没有标题的话题。派生会话的第一轮只凭交接说明路由，可能落进别的会话的话题。
 - 宿主附加的块只按连接器的表去掉：宿主新附加、尚未加入表的块随用户消息导入，进入话题路由与生成材料；表更新之前已经导入的轮次不改写。
 - Claude Code 的会话记录有时只记下同一条消息并行发出的多个调用中最后一个的结果，其余调用以没有结局的形式导入，生成材料中缺少这些结果；连接器无法补回会话记录没有保存的内容。
@@ -617,13 +626,13 @@ pi 的会话记录是一棵树：条目以 `id` 与 `parentId` 相连，`/tree` 
 
 测试：
 
-- 编排（跳过、路由输入与续接、结局到导入结果的映射与重发、失败分类、串行、事件脱敏、关闭，写入时确定话题、回流沿用与登记的保留、以写入时确定的话题续接与迟到的写入）：`tests/unit/system/services/import_bus/test_ingestor.py`；输入模型、动词与交互标识：`tests/unit/system/services/import_bus/test_models.py`；
-- HTTP 入口（principal 与凭据、声明、准入、413 在解析前判定、503/500 映射）：`tests/unit/server/routers/test_import_bus.py`、`tests/unit/server/test_error_handlers.py`；
+- 编排（跳过、路由输入与续接、结局到导入结果的映射与重发、导入结果带回这一轮所在的话题、失败分类、串行、事件脱敏、关闭，写入时确定话题、回流沿用与登记的保留、以写入时确定的话题续接与迟到的写入）：`tests/unit/system/services/import_bus/test_ingestor.py`；输入模型、动词与交互标识：`tests/unit/system/services/import_bus/test_models.py`；
+- HTTP 入口（principal 与凭据、声明、准入、响应带回话题、413 在解析前判定、503/500 映射）：`tests/unit/server/routers/test_import_bus.py`、`tests/unit/server/test_error_handlers.py`；
 - root 授权与调用位置、系统自身的 principal 的使用位置：`tests/unit/workspace/test_access.py`、`tests/unit/architecture/test_access_boundaries.py`；提交交互（查重先于路由、仍在应用的只等待、失败后重新路由、续接上一轮的话题、路由失败不提交）：`tests/unit/workspace/capability/root/test_interaction.py`；为一轮确定话题（已应用返回实际所在的话题、应用中不返回话题）：`tests/unit/workspace/capability/root/test_topic.py`；root 方法只接受 `system`、目标不是驻留 Workspace 时先于路由拒绝：`tests/integration/workspace/test_root_api_authorization.py`；
 - 封口：`tests/unit/core/protocol/test_seal_interaction.py`；提交队列的状态、等待与失败后重交：`tests/unit/patchouli/control/test_interaction_submission.py`；提交并等待应用的结局、进度与等待：`tests/unit/patchouli/application/test_submission_services.py`；
 - 装配与关闭：`tests/unit/system/application/test_api_services.py`、`tests/unit/system/test_hivememory_system.py`、`tests/unit/system/test_lifecycle.py`；配置：`tests/unit/system/test_config_agent_runtime.py`；
 - 真实队列与感知的协作、交互的发起者是参与者、系统自身的 principal 未登记与目标不是参与者驻留的 Workspace 时的拒绝：`tests/integration/system/test_import_bus_submission.py`；经 MCP 写入后回流落在写入派发的话题：`tests/integration/system/test_mcp_memory_access.py`；离线 E2E：`tests/e2e/system/test_import_turns.py`；
 - 用户消息中宿主附加的块（表中从行首开始的完整块去掉，代码块、粘贴的内容、行内提及与表外的标签保留）：`tests/unit/connectors/test_user_message.py`；
-- 连接器（含唤醒开启的一轮与它的用户消息、由人发出的消息去掉宿主附加的块、子 Agent 交回的事件、上一轮提交之后的续作单独提交、回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal、缺省 Agent、凭据变量与 hook 的解释器变量和插件服务一致、按 harness 取凭据、会话记录写明的结局）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`；Codex（轮次切分、用户消息的拼接与去掉宿主附加的块、事件映射、回声标记与结局、根轮的取得、`PreToolUse` 的输出与子 Agent 归属、扩展长度前缀、清单与插件服务的登记一致、hook 经启动脚本选择解释器）：`tests/unit/connectors/test_codex_reader.py`、`tests/unit/connectors/test_codex_hooks.py`；
+- 连接器（含唤醒开启的一轮与它的用户消息、由人发出的消息去掉宿主附加的块、子 Agent 交回的事件、上一轮提交之后的续作单独提交、回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal、缺省 Agent、凭据变量与 hook 的解释器变量和插件服务一致、按 harness 取凭据、会话记录写明的结局、确认带回的话题记为最近所在的话题与旧状态文件的读回、压缩之后的 `SessionStart` 经 MCP 读话题并注入，其他来源、没有话题、读取失败时不输出，过长时截断）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`；Codex（轮次切分、用户消息的拼接与去掉宿主附加的块、事件映射、回声标记与结局、根轮的取得、`PreToolUse` 的输出与子 Agent 归属、扩展长度前缀、清单与插件服务的登记一致、hook 经启动脚本选择解释器）：`tests/unit/connectors/test_codex_reader.py`、`tests/unit/connectors/test_codex_hooks.py`；
 - dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、水位与补发）：`integrations/hivememory/node/test/dsh-*.test.js`；事件种类是导入接受的，principal、缺省 Agent 与凭据变量和插件服务登记的一致，包清单的入口与 bundle 配置存在、补丁指向的使用手册 skill 目录存在：`tests/unit/connectors/test_deepseek_harness_plugin.py`；
 - pi 扩展（一轮的条目只取结束标记回溯的一段、fork 复制的标记不导入、原始输入、事件映射、回声标记与结局、写入时的轮次信息与之后的导入一致、只交给模型的工具、待提交与补发、关闭时有上限的等待，以及事件处理的整体流程）：`integrations/hivememory/node/test/`，与 dsh 插件的测试和公共部分的测试（提交分类、按 harness 取凭据）一起以 `npm test` 运行（CI 的 `node-connectors` 任务）；共用的记忆工具与 MCP server 的工具名、参数一致，principal、缺省 Agent 与凭据变量和插件服务登记的一致，包清单指向的扩展与 skill 存在：`tests/unit/connectors/test_pi_extension.py`。
