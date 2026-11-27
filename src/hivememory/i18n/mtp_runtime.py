@@ -99,6 +99,10 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Not Runnable] 记忆 '{alias}' 不可通过 RUN 运行：当前不支持运行记忆，RUN 只执行系统工具。\n"
         "Suggestion: 需要执行其中的代码时，请用 READ 取得后自行运行；不要再对记忆使用 RUN。"
     ),
+    "mtp.run.topic_not_runnable": (
+        "[Not Runnable] '{alias}' 是话题句柄，话题不可通过 RUN 运行，只能用 READ 读取。\n"
+        "Suggestion: 请用 READ 读取这个话题句柄。"
+    ),
     "mtp.run.terminal_alias_not_runnable": (
         "[Alias Not Found] 工具 alias '{alias}' 当前不可执行（状态：{status}）。\n"
         "Suggestion: 如果该 handle 已 expired/reclaimed，请使用 SEARCH 查找正式记忆 alias。"
@@ -273,6 +277,11 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "supported; RUN only executes system tools.\n"
         "Suggestion: To execute code from it, use READ to get it and run it yourself; "
         "do not use RUN on memories again."
+    ),
+    "mtp.run.topic_not_runnable": (
+        "[Not Runnable] '{alias}' is a topic handle; topics cannot be run with RUN and can "
+        "only be read with READ.\n"
+        "Suggestion: Use READ to read this topic handle."
     ),
     "mtp.run.terminal_alias_not_runnable": (
         "[Alias Not Found] Tool alias '{alias}' is not runnable (status: {status}).\n"

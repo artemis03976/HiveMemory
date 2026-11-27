@@ -5,7 +5,8 @@
 4xx 与连续三次服务器内部错误写入拒绝记录并前进；结局先于提交写入、重发
 沿用原结局；首次见到的旧会话不回填；游标失效时从最后一个已确认的轮次之后
 继续，找不到该轮时停止处理并写入拒绝记录；并发读改写不损坏状态；凭据只取
-本 harness 自己的环境变量；会话记录写明结局的轮次按该结局直接提交。
+本 harness 自己的环境变量；会话记录写明结局的轮次按该结局直接提交；确认带回的
+话题记为会话最近所在的话题，没有带回时保留原来的，旧状态文件照常读回。
 """
 
 from __future__ import annotations
@@ -158,6 +159,46 @@ def test_client_error_is_recorded_without_content_and_cursor_moves_on(tmp_path):
         "error": "request.body_too_large",
     }
     assert "很长的提问正文" not in json.dumps(rejection, ensure_ascii=False)
+
+
+def test_confirmations_record_the_topic_of_the_latest_turn(tmp_path):
+    """确认带回的话题记为会话最近所在的话题；没有带回话题的确认（跳过的轮次、旧版本的服务端）
+    与被拒绝的轮次保留原来的话题。"""
+    log = _log(tmp_path)
+    for turn_id in ("p1", "p2", "p3", "p4", "p5"):  # p5 仍在进行
+        log.turn(turn_id)
+    transport = FakeTransport(
+        (200, {"status": "accepted", "topic_id": "topic-a"}),
+        (200, {"status": "skipped"}),
+        (422, {"error": "request.validation_failed"}),
+        OSError("connection refused"),
+        (200, {"status": "duplicate", "topic_id": "topic-b"}),
+    )
+    sync, store = _harness(tmp_path, transport)
+    sync.register(str(log.path))
+
+    sync.sync(str(log.path))
+    after_skip_and_rejection = store.load(str(log.path)).topic_id
+    sync.sync(str(log.path))
+
+    assert transport.turn_ids() == ["p1", "p2", "p3", "p4", "p4"]
+    assert after_skip_and_rejection == "topic-a"
+    assert store.load(str(log.path)).topic_id == "topic-b"
+
+
+def test_state_file_written_before_topics_were_recorded_reads_back_without_topic(tmp_path):
+    """旧版本连接器写下的状态文件没有话题字段，照常读回，话题为空。"""
+    log = _log(tmp_path)
+    store = StateStore(tmp_path / "state")
+    store.register(str(log.path), origin="new", offset=0)
+    [state_file] = (tmp_path / "state" / "transcripts").glob("*.json")
+    legacy = json.loads(state_file.read_text(encoding="utf-8"))
+    del legacy["topic_id"]
+    state_file.write_text(json.dumps(legacy), encoding="utf-8")
+
+    state = store.load(str(log.path))
+
+    assert (state.offset, state.topic_id) == (0, None)
 
 
 @pytest.mark.parametrize("status", [400, 403, 404])

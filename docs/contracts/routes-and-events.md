@@ -134,7 +134,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.agent_profile.seed_presets` | `seed_preset_agent_profiles` | 无 | 写入的 `agent_id` 列表；写入缺少的预设 Profile 文件，已有同名文件的跳过，不经授权；只供初次部署 |
 | `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias | 可以执行的 `AgentProfile`；缺失抛 `ResourceNotFoundError`，文件不合格或已停用抛 `ProfileResolutionError`（[错误模型](./error-model.md#45-memory-输入校验与存储错误)） |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
-| `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
+| `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`：只交出话题池中的话题，越域、已退役与已删除的都为 `None`；调用方是 Gateway 与 workspace 读取视图（agent 读话题句柄） |
 | `patchouli.public.topic.prepare` | `TopicManagementService.prepare_topic` | `identity_scope`、`target_topic_id`、新话题的 `new_topic_title` / `new_topic_summary` | 真实话题标识；已有话题确认存在并刷新驻留（不存在抛 `ResourceNotFoundError`），`NEW_TOPIC` 以标题与摘要建立新话题，池满时先按 LRU 结算（候选都被占用抛 `TopicBusyError`）；不检索 |
 | `patchouli.public.topic.settle_and_retire` | `settle_and_retire_topic` | `identity_scope`、`topic_id` | `TopicSettleResult` |
 | `patchouli.public.topic.delete` | `delete_topic` | `identity_scope`、topic id | `TopicDeleteResult` |
@@ -203,7 +203,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取交互的参与者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际所在的话题，`data` 另带 `outcome` 与 `is_new_topic`（写入时已确定话题的轮次取该话题是否为这一轮新建，其余取本次提交是否请求建立新话题）；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
 
-`actor.operation` 由操作入口在一次 actor 操作结束时发布，`subsystem=workspace`、`component=operation_entry`；`agent_id` 与 `workspace_id` 是工作 actor 的 Agent 与驻留 Workspace，只作标签，执行线程的提交另带 `process_id`，MCP 的请求级提交没有。`data` 带 `operation`（`WorkspaceOperation` 的值）、`entry`（`thread` 或 `request`）、`duration_ms` 与按操作的摘要：检索为 `result_count`；读取为 `requested_count` 与 `delivered_count`（解析为正式记忆或重定向的数量）；RUN 为 `resolution`（解析结果的 kind）；写入与更新为 `pending_alias`；CALL 为 `callee_agent_id`。`rejected` 的领域错误带受约束的 `details.reason` 时另带 `error_reason`（如同为 `workspace.operation_denied` 的 `operation_not_allowed` 与 `root_required`），`details` 的其余字段不进入事件；`failed` 另带 `error_class`。事件不带检索文本、记忆正文或请求参数。
+`actor.operation` 由操作入口在一次 actor 操作结束时发布，`subsystem=workspace`、`component=operation_entry`；`agent_id` 与 `workspace_id` 是工作 actor 的 Agent 与驻留 Workspace，只作标签，执行线程的提交另带 `process_id`，MCP 的请求级提交没有。`data` 带 `operation`（`WorkspaceOperation` 的值）、`entry`（`thread` 或 `request`）、`duration_ms` 与按操作的摘要：检索为 `result_count`；读取为 `requested_count` 与 `delivered_count`（解析为正式记忆、重定向或读到话题的数量）；RUN 为 `resolution`（解析结果的 kind）；写入与更新为 `pending_alias`；CALL 为 `callee_agent_id`。`rejected` 的领域错误带受约束的 `details.reason` 时另带 `error_reason`（如同为 `workspace.operation_denied` 的 `operation_not_allowed` 与 `root_required`），`details` 的其余字段不进入事件；`failed` 另带 `error_class`。事件不带检索文本、记忆正文或请求参数。
 
 `topic.*` 由 Patchouli 感知层发布，`subsystem=patchouli`、`component=perception`，信封带 `topic_id` 与 `workspace_id`。`topic.created` 的 `data.created_by` 为 `interaction`（应用交互时建立）或 `prepare`（为写入预先确定话题时建立）；`topic.settled` 在沉淀被生成队列接纳或话题退役时发布（不是生成完成时），`data` 带 `reason`（结算原因：`idle_timeout`、`manual_settle`、`lru_eviction`）、`generation_submitted`（已完成与在途的沉淀之后没有新交互、不提交生成时为 false）与 `retired`（这次是否随之退役、离开话题池；空闲时的沉淀为 false，LRU、手动结算，以及空话题在空闲时的退役为 true）；`topic.deleted` 是不经结算的删除，`data` 为空。
 
@@ -318,7 +318,7 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 
 请求体上限 `import_bus.max_request_bytes`（默认 8 MiB）在框架读取并解析请求体之前判定：声明的 Content-Length 超出时不读取请求体，没有声明时边读边计数，超出即以 413 拒绝，过大且不是合法 JSON 的请求也是 413 而不是 422。
 
-响应为 200，`status` 为 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）或 `skipped`（用户消息之外没有输出，不提交），并带推导出的 `interaction_id`；不暴露 Gateway 决定、话题或记忆上下文。确认只在交互应用完成之后给出（等待时限 `import_bus.apply_wait_seconds`，默认 30 秒）。失败经错误信封区分是否可重试：
+响应为 200，`status` 为 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）或 `skipped`（用户消息之外没有输出，不提交），并带推导出的 `interaction_id` 与这一轮所在的话题 `topic_id`（跳过时为空）；话题标识只是句柄，不暴露 Gateway 决定或记忆上下文，读话题仍要经 MCP 授权。确认只在交互应用完成之后给出（等待时限 `import_bus.apply_wait_seconds`，默认 30 秒）。失败经错误信封区分是否可重试：
 
 | 情况 | 状态码 | `error` / `reason` | 可重试 |
 |:---|:---:|:---|:---:|

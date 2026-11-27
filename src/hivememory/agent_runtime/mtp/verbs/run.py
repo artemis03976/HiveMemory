@@ -31,7 +31,7 @@ async def handle_run(
     - 系统工具: 命中 syscall 注册表的 sys_* 工具在本地执行
     - 记忆别名: 经 ResolveRunTargetRequest 授权并解析，解析到的记忆一律以“不可运行”
       拒绝：能否运行是某一份内容相对某个环境的性质，记忆上没有这项判定，生成链
-      写下的也只是知识，不产出可执行物
+      写下的也只是知识，不产出可执行物；解析到的话题同样拒绝，话题只能 READ
 
     Type B 动作类响应
 
@@ -60,6 +60,11 @@ async def handle_run(
     # 没有 memory.run 的执行者在这里被拒绝。
     # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
     resolved = await context.submit_operation(ResolveRunTargetRequest(alias=alias))
+    if resolved.kind == "topic":
+        raise InvalidArgumentError(
+            message_key="mtp.run.topic_not_runnable",
+            params={"alias": alias},
+        )
     if resolved.kind == "pending":
         raise InvalidArgumentError(
             message_key="mtp.run.pending_not_runnable",

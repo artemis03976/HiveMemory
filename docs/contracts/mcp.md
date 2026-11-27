@@ -16,6 +16,7 @@ code_paths:
   - integrations/hivememory/hooks/hooks.json
   - integrations/hivememory/connector/claude_code/hooks.py
   - integrations/hivememory/connector/claude_code/reader.py
+  - integrations/hivememory/connector/core/client.py
   - integrations/hivememory/codex.mcp.json
   - integrations/hivememory/hooks/codex.json
   - integrations/hivememory/connector/codex/
@@ -29,7 +30,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-26
 ---
 
 # MCP 记忆访问
@@ -72,7 +73,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 | 工具 | 参数 | 归一为 | 授权 | 结果 |
 |:---|:---|:---|:---|:---|
 | `memory_search` | `query`：非空字符串 | `RetrieveRequest(semantic_query=query)` | `memory.search` | 检索上下文信封，每条含 alias、存档时间（记忆的更新时间）与置信度；没有结果时返回“没有检索到相关记忆。”（英文为“No relevant memories found.”），不算错误。为交付的记忆记录检索命中 |
-| `memory_read` | `aliases`：非空的 alias 列表 | `ResolveReferencesRequest(aliases)` | `memory.read` | 按请求顺序逐项交付全文；未解析的 alias 以“未找到以下 alias：…”列在末尾；全部未解析时返回 `workspace.resource.not_found` 错误。交付正式原子时记录 `workspace.reference_read` 引用 |
+| `memory_read` | `aliases`：非空的 alias 列表，可以混有话题句柄 | `ResolveReferencesRequest(aliases)` | `memory.read` | 按请求顺序逐项交付：记忆交付全文，话题句柄交付话题的进展记录索引或一条的全文与原文（第 3.1 节）；未解析的 alias 以“未找到以下 alias：…”列在末尾；全部未解析时返回 `workspace.resource.not_found` 错误。交付正式原子时记录 `workspace.reference_read` 引用，读话题不记录 |
 | `memory_write` | `content`：非空字符串；`title`、`reason` 可选，`title` 由正式记忆沿用（[生成](../patchouli/generation.md#32-mode-b主动-write)第 3.2 节）；`turn` | `SubmitWriteIntentRequest(WriteFocus(content, title, reason))` | `memory.write` | pending alias（`draft_` 开头），写明意图已登记并被生成队列接纳、正式记忆尚未保存，可以用 `memory_read` 读取 |
 | `memory_update` | `alias`：要修正的正式记忆；`instruction`：非空字符串；`content` 可选；`turn` | `SubmitUpdateIntentRequest(base_alias=alias, instruction, content)` | `memory.update` | pending alias（`rev_` 开头），说明同上 |
 
@@ -80,9 +81,18 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 - **轮次信息 `turn`**：写入与更新带一个可选参数 `turn`，类型即 Import Bus 的在途轮次模型（`source`、`external_conversation_id`、`external_turn_id`、`user_message`、`recent_turns`，校验规则与导入请求的同名字段相同）。它由连接器的 `PreToolUse` hook 在调用前填写（第 6 节），参数说明写明不要由模型自行填写。SDK 的工具参数模型会丢弃输入 schema 之外的键，因此它声明在 schema 中，而不是作为隐藏参数。操作请求只携带操作参数，不携带 `turn` 或话题。
 - **编译**：检索结果与 Alice 的 MTP SEARCH 使用同一检索上下文信封与配置的检索策略，但关闭信封的头尾（编译选项 `include_header_footer=False`）：头尾是提示词中预检索上下文的引导，不适用于工具结果。读取以 `READ_RESULT` 目标逐项编译，哪些解析结果可以交付与 MTP READ 共用 `engines.memory_compiler.readable_source`；`memory_read` 用于取得检索结果中摘要之外的全文，`READ_RESULT` 交付正式原子的全文。编译文本中指引下一步操作的句子只写能力，不写任何协议的指令或工具名（[记忆编译](../patchouli/memory-compiler.md)）。
 - **在途句柄**：写入与更新返回的 pending alias 经 `memory_read` 回读时，交付登记中的状态；生成链结算后，读取重定向到正式记忆（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。句柄跨正常重启保留，自写入起保留 7 天（默认）；之后读取交付“句柄不存在或已过期”的说明，不列入未解析的 alias。UPDATE 的基础在排队期间被修改时句柄失败，读取时说明需要重新读取后再更新。
-- **说明文字**：工具说明与 MCP 服务说明（instructions）写明何时检索（回答涉及项目历史、此前的决定或用户偏好的问题之前）、结果是带日期的历史证据（引用前先核实）、仓库中的代码与文档以及 harness 自己的指令与记忆文件优先于检索结果、检索得到的 alias 可以用 `memory_read` 读取全文；何时写入（用户要求记住的事、做出的决定及理由、验证过的结论、偏好与经验，在成立时写入，一次写一件事，只写结果、不把对话或工作的过程复述成记忆）与更新（已有记忆过时或有误，以检索得到的正式 alias 为对象，不能是 `draft_`、`rev_` 句柄）；以及写入与更新返回的是句柄。写入的判据不区分以聊天为主还是长时间执行任务：同一个会话两种情形都可能出现，服务对所有调用方给出同一份说明。主动写入与被动提取写出相似的内容由生成处理（[生成](../patchouli/generation.md#42-本话题生成的记忆)第 4.2 节），说明文字因此不以对话会归档作为少写的理由，也不要求 agent 为避免重复而少写。
+- **说明文字**：工具说明与 MCP 服务说明（instructions）写明何时检索（回答涉及项目历史、此前的决定或用户偏好的问题之前）、结果是带日期的历史证据（引用前先核实）、仓库中的代码与文档以及 harness 自己的指令与记忆文件优先于检索结果、检索得到的 alias 可以用 `memory_read` 读取全文，`memory_read` 也读 `topic:` 开头的话题句柄（来自系统注入的话题索引）；何时写入（用户要求记住的事、做出的决定及理由、验证过的结论、偏好与经验，在成立时写入，一次写一件事，只写结果、不把对话或工作的过程复述成记忆）与更新（已有记忆过时或有误，以检索得到的正式 alias 为对象，不能是 `draft_`、`rev_` 句柄）；以及写入与更新返回的是句柄。写入的判据不区分以聊天为主还是长时间执行任务：同一个会话两种情形都可能出现，服务对所有调用方给出同一份说明。主动写入与被动提取写出相似的内容由生成处理（[生成](../patchouli/generation.md#42-本话题生成的记忆)第 4.2 节），说明文字因此不以对话会归档作为少写的理由，也不要求 agent 为避免重复而少写。
 - **语言**：服务说明、工具与参数描述和结果文本按 HiveMemory 的语言设置给出中文或英文，两份含义一致；工具名、参数名与 `draft_`/`rev_` 前缀不变（[全局 i18n](../system/i18n.md)）。改语言要重启后端，连接中的客户端重新取得说明后才看到新的文字。
 - **标注**：检索与读取标注为只读（MCP 的 `readOnlyHint`），检索会记录命中、读取会记录引用，但都不改变记忆内容；写入不是只读、也不破坏已有内容（`destructiveHint=false`）；更新改写一条已有记忆的当前版本，标注为破坏性。
+
+### 3.1 读话题句柄
+
+`memory_read` 的 `aliases` 中以 `topic:` 开头的是话题句柄：`topic:<话题 id>` 读话题的进展记录索引，`topic:<话题 id>#<n>` 读第 n 条的全文与它覆盖的原文。解析、授权与可见性和 MTP 的 READ 相同，见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节；渲染见 [MemoryCompiler](../patchouli/memory-compiler.md#41-话题句柄的读取结果)第 4.1 节。MCP 一侧的约定：
+
+- 话题已离开话题池（退役或删除）时，读取交付过期说明，提示需要时检索已经沉淀的记忆；它是正常的工具结果，不列入未解析的 alias，也不是 `isError`；
+- 不合语法的句柄与超出进展记录的条目序号算未解析，规则与找不到的 alias 相同；
+- 条目原文中的外部工具结果按 `patchouli.generation.transcript.max_result_chars` 截断，与记忆生成的材料相同；
+- 话题句柄只由系统签发：Claude Code 插件在会话压缩之后经本端点读出话题的索引并注入对话（第 6 节），agent 照着索引中的句柄读原文。
 
 ## 4. 确定话题、操作入口与授权
 
@@ -133,6 +143,8 @@ Claude Code 为插件 MCP 工具生成的调用名为 `mcp__plugin_<插件名>_<
 
 **回声标记**：经 MCP 取回的记忆、写入与更新的内容都会作为普通工具调用留在会话记录里，本轮结束时随对话回流再次导入；生成视图若渲染它们，提取模型会把已有记忆或已显式写入的内容再提取一遍。连接器因此把本插件四个工具的调用归一化为 HiveMemory 能力调用：按上表写 `verb` 与作用对象，不上传调用名，也不上传 `turn`；其他工具写 `tool_name` 与完整参数。`aliases` 不是非空的字符串列表、`alias` 不是非空字符串时（模型传错了参数，MCP server 已以工具错误拒绝这次调用），读取与更新按普通工具写出，避免服务端因缺少作用对象拒绝整轮。Import Bus 接受这四个动词，READ 与 UPDATE 必须带作用对象（[Import Bus](../system/import-bus.md)）。生成视图对 `SEARCH`、`READ` 只渲染 `SEARCH: "查询"` 或 `READ: a, b` 一行摘要，不渲染结果，`WRITE`、`UPDATE` 不渲染，与 Alice 的 MTP 写出同形的事件、渲染相同（[Patchouli 生成](../patchouli/generation.md)）。交互记录与 Artifact 仍保存包括结果在内的原始事件。
 
+**压缩之后读话题**：Claude Code 压缩会话之后，插件的 `SessionStart` hook 以插件 MCP 配置相同的请求头（principal、Bearer 凭据、`X-User-ID`、`X-Agent-ID`）向本端点 POST 一次 JSON-RPC `tools/call`，调用 `memory_read` 读这个会话最近一轮所在话题的 `topic:<话题 id>`，把结果注入对话。端点无状态，这一次请求不先 `initialize`，`Accept` 只需 `application/json`。hook 的这次读取经入口正常认证与授权，是插件代 agent 的一次读取，不是模型的工具调用，不出现在会话记录里，也不随对话回流；话题标识的来源与注入规则见 [Import Bus](../system/import-bus.md#82-hooks)第 8.2 节。
+
 Claude Code 改变命名规则时识别会静默失效，回声恢复，表现为重复记忆；`PreToolUse` 的 matcher 同样失效，写入与更新以缺少轮次信息被拒绝，模型在工具结果中看到错误。连接器单元测试把调用名固定为上表的格式，并核对插件清单、`.mcp.json`、`hooks.json` 的 matcher 与连接器常量一致。工具参数改名时，MCP server、识别表与 matcher 同时修改。
 
 **DeepSeek Harness 插件**：dsh 的工具前置事件不能改写调用参数，上面的 `PreToolUse` 做法在 dsh 中不可行。插件因此不把这个端点配置为 dsh 的通用 MCP server，而是自己注册四个同名的 dsh 原生工具，执行时经本端点调用对应的 MCP 工具：
@@ -170,6 +182,7 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 - pi 的记忆工具不对 codemode 开放，由 codemode 编排的任务不能在脚本中访问记忆。
 - 后台运行的子代理在用户发出下一条消息之后才写入时，写入落在那时的当前一轮，而不是启动它的那一轮：hook 输入只给出会话当时的当前一轮。dsh 的子 Agent 同样落在顶层会话那时最近的一轮。
 - 第一次写入要等一次 Gateway 路由，再等生成队列接纳；同一外部会话的上一轮仍在应用时，还要等它完成。
+- 话题句柄只读得到话题池中的话题：话题退役之后、日志删除之前（最后一次沉淀完成之前）同样按已过期交付。压缩之后注入的索引只保证交到模型手里，不保证模型会去读原文。
 - 写入经过查重：与已有记忆相似时，内容先保存为一条新记忆，之后由合并任务并入已有记忆，`memory_write` 返回的句柄随之改指到保留的记忆；合并完成之前读取句柄得到新建的那条（[记忆生成](../patchouli/generation.md#41-合并任务)）。改指事件丢失时句柄指向已删除的记忆，读不到正式目标。
 
 ## 9. 代码与测试入口
@@ -177,4 +190,4 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 - 入口包：`src/hivememory/mcp_server/server.py`（服务、工具、错误投影与日志）；接入：`src/hivememory/server/app.py`（路由与 lifespan）；声明解析：`src/hivememory/server/deps.py`；错误投影：`src/hivememory/server/error_handlers.py`。
 - 操作入口：`src/hivememory/workspace/capability/operations.py`；确定话题：`src/hivememory/system/application/import_bus_service.py` 与 `src/hivememory/system/services/import_bus/ingestor.py`；编译：`src/hivememory/engines/memory_compiler/`。
 - 插件声明：`integrations/hivememory/.mcp.json`、`integrations/hivememory/hooks/hooks.json`；轮次信息：`integrations/hivememory/connector/claude_code/hooks.py`；回声标记：`integrations/hivememory/connector/claude_code/reader.py`；Codex 的声明：`integrations/hivememory/codex.mcp.json`、`integrations/hivememory/hooks/codex.json`，轮次信息与回声标记：`integrations/hivememory/connector/codex/`；dsh 插件的工具注册与轮次信息：`integrations/hivememory/node/dsh/tools.js`，回声标记：`integrations/hivememory/node/dsh/turns.js`、`integrations/hivememory/node/core/memory-tools.js`；pi 扩展的工具注册：`integrations/hivememory/node/pi/tools.js`，轮次信息与回声标记：`integrations/hivememory/node/pi/turns.js`、`integrations/hivememory/node/core/memory-tools.js`。
-- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用认证一次、写入与更新以确定话题的回调提交、缺少轮次信息与确定话题失败、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取、拒绝，每次工具调用认证一次、写入时确定话题由系统认证执行，被拒的写入不确定话题，以及写入后读到在途句柄、结算后重定向、回流落在写入派发的话题）；`tests/integration/workspace/test_operation_requests.py`（请求级写入与更新、回调与请求类型不符时的拒绝、更新在基础冷读之后与登记之前确定话题、被拒的请求不确定话题）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（Claude Code 与 Codex 的 `PreToolUse` 轮次信息、回声标记与清单一致性，dsh 插件、pi 扩展与本 server 的工具名、参数一致）；`integrations/hivememory/node/test/`（dsh 插件与 pi 扩展的工具注册、轮次信息与回声标记，`npm test`）。
+- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用认证一次、写入与更新以确定话题的回调提交、缺少轮次信息与确定话题失败、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取、拒绝，每次工具调用认证一次、写入时确定话题由系统认证执行，被拒的写入不确定话题，以及写入后读到在途句柄、结算后重定向、回流落在写入派发的话题；一次读取混读话题的索引、条目与记忆，只有记忆记录引用；不初始化会话的一次 JSON-RPC POST 读话题）；`tests/integration/workspace/test_operation_requests.py`（请求级写入与更新、回调与请求类型不符时的拒绝、更新在基础冷读之后与登记之前确定话题、被拒的请求不确定话题）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（Claude Code 与 Codex 的 `PreToolUse` 轮次信息、回声标记与清单一致性，Claude Code 压缩之后的 `SessionStart` 读话题并注入，dsh 插件、pi 扩展与本 server 的工具名、参数一致）；`integrations/hivememory/node/test/`（dsh 插件与 pi 扩展的工具注册、轮次信息与回声标记，`npm test`）。

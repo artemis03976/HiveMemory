@@ -6,7 +6,7 @@ RUN 指令执行链路测试
 测试覆盖:
     1. Target 校验 (通配符/列表/空 target 拒绝)
     2. 系统工具快速路径 (sys_clock, sys_python_repl)
-    3. 记忆别名 (经能力层解析后一律以“不可运行”拒绝、不记录引用)
+    3. 记忆别名 (经能力层解析后一律以“不可运行”拒绝、不记录引用)；话题句柄同样拒绝
 """
 
 import asyncio
@@ -28,6 +28,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import HarnessKoakumaRuntime
+from tests.helpers.sessions import make_topic_data
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
@@ -213,6 +214,21 @@ class TestRunMemoryAlias:
         assert "[Not Runnable]" in result.formatted_response
         assert "不可通过 RUN 运行" in result.formatted_response
         assert koakuma.harness.backing.bus._memory_citations == []
+
+    def test_resolved_topic_is_rejected_as_read_only(self, koakuma):
+        """话题句柄解析到话题时同样不可运行，提示话题只能 READ，不交出话题内容。"""
+        koakuma.harness.backing.topics["t1"] = make_topic_data(
+            workspace_identity=make_identity_scope().workspace_identity,
+            topic_id="t1",
+            turns=[("部署流程", "先跑迁移")],
+            progress=[("确定了部署流程", 1)],
+        )
+
+        result = _execute_mtp(koakuma, "⟪ RUN | topic:t1 | ⟫")
+
+        assert not result.success
+        assert "确定了部署流程" not in result.formatted_response
+        assert "话题不可通过 RUN 运行，只能用 READ 读取" in result.formatted_response
 
     def test_redirected_pending_alias_is_rejected_under_canonical_alias(self, koakuma):
         pending = koakuma.registry.register_write(

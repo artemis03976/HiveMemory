@@ -8,13 +8,21 @@
   否则构造失败；
 - 判空看是否接收过交互：全部折叠、工作视图为空后仍不为空；
 - 快照带进展记录还没有覆盖到的交互中最近至多 3 轮的节选，取自交互记录（被折叠的轮次也算），
-  用户消息与回复各截到固定长度。
+  用户消息与回复各截到固定长度；
+- 话题句柄的格式化与解析互逆，不合语法的句柄解析不出话题。
 """
 
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import TopicData, TopicFold, TopicProgressEntry, TopicTurnExcerpt
+from hivememory.core.models import (
+    TopicData,
+    TopicFold,
+    TopicProgressEntry,
+    TopicTurnExcerpt,
+    format_topic_handle,
+    parse_topic_handle,
+)
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
@@ -147,3 +155,21 @@ class TestSnapshotUnrecordedTurns:
         assert excerpt.turn_number == 2
         assert excerpt.user == "问" * 200 + "…"
         assert excerpt.assistant == "答" * 200 + "…"
+
+
+class TestTopicHandle:
+    @pytest.mark.parametrize("entry_number", [None, 1, 12])
+    def test_parse_reverses_format(self, entry_number):
+        topic_id = "6f1c2d3e-0a1b-4c5d-8e9f-001122334455"
+
+        handle = format_topic_handle(topic_id, entry_number)
+
+        assert parse_topic_handle(handle) == (topic_id, entry_number)
+
+    @pytest.mark.parametrize(
+        "handle",
+        ["topic:", "topic:t1#", "topic:t1#0", "topic:t1#2a", "topic:t1#2#3", "topic:t 1", "fact_x"],
+    )
+    def test_malformed_handles_are_not_parsed(self, handle):
+        """没有话题 id、条目序号不是正整数、带空白或不是话题句柄时解析不出话题。"""
+        assert parse_topic_handle(handle) is None

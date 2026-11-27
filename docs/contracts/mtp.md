@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-18
+last_reviewed: 2026-11-26
 ---
 
 # Memory Tool Protocol (MTP)
@@ -37,7 +37,7 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 - 左右定界符：`⟪` / `⟫`；
 - 分隔符：`|`，仅前两个用于分段，ARGS 内的 `|` 保留为内容；
 - VERB 不区分输入大小写，解析后规范化为大写；
-- TARGET 支持 `*` / `global`、单 alias、`[alias1, alias2]`；
+- TARGET 支持 `*` / `global`、单 alias、`[alias1, alias2]`；列表项可以含 `:`、`#` 与 `-`，因此也可以列出话题句柄（`topic:<id>`、`topic:<id>#<n>`）；
 - ARGS 支持 `key="value"`、可多行的 ``key=`raw content` `` 和 `key=["a", "b"]`；
 - LLM stop sequence 是右定界符；`complete_and_parse` 可以补齐被 stop 截断的右定界符；
 - parser 只解析文本中出现的第一条完整 MTP 指令。
@@ -95,7 +95,8 @@ SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”�
 - 正式 atom 交付正文全文，不截断；
 - 全部 alias 未命中时返回 error；
 - 部分未命中时返回已解析内容，并把缺失 alias 放入 warnings；
-- 提交 `ResolveReferencesRequest`；workspace 对交付的正式 atom 与可读 redirect 目标自动记录 `workspace.reference_read` citation，同次请求按正式 UUID 去重，缓存命中同样计数。
+- 提交 `ResolveReferencesRequest`；workspace 对交付的正式 atom 与可读 redirect 目标自动记录 `workspace.reference_read` citation，同次请求按正式 UUID 去重，缓存命中同样计数；
+- TARGET 也可以是话题句柄，可以与记忆 alias 混在一个列表里：`topic:<id>` 读话题的进展记录索引，`topic:<id>#<n>` 读第 n 条的全文与它覆盖的原文；话题已离开话题池时交付过期说明，不合语法或条目越界按未命中处理；读话题不记录 citation（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）。条目原文中的外部工具结果按缺省的截断上限截断：Alice 的装配不持有生成材料的截断配置。
 
 alias 是运行期稳定称呼，不等于永久 UUID。它让模型使用可读、短小的引用，又允许 Runtime 把同一名称解析为正式 atom、尚未结算的 PendingAtom 或修订后的 redirect。redirect 保留旧称呼的可追踪性，但通过 warning 提醒 Agent 目标已经演化；terminal 状态则防止一个失败或过期意图继续伪装成有效记忆。
 
@@ -112,7 +113,7 @@ READ 列表是协议中显式支持的批量读取，而不是多命令特例。
 1. `sys_*` 工具走 syscall 注册表中注册的 syscall；未注册的 `sys_*` alias 直接返回 `mtp.alias.not_found`，不转为记忆解析；
 2. 其他 alias 经 PendingAtom/正式记忆解析；解析到的记忆一律不可运行。
 
-系统工具不设 Agent 权限，所有已注册的 `sys_*` 对所有 Agent 可用，在 Alice 本地执行、不提交操作请求。记忆目标仍通过 `ResolveRunTargetRequest` 读取，要求 actor 操作 `memory.run`（不要求 `memory.read`），没有 `memory.run` 时由 actor API 拒绝；pending 和 terminal alias 照旧给出各自的提示。解析到的记忆，包括 redirect 指向的正式记忆，都以 `mtp.argument.invalid`（`mtp.run.memory_not_runnable`）拒绝：提示写明当前不支持运行记忆、RUN 只执行系统工具，需要执行其中的代码时用 READ 取得后自行运行。拒绝不构成一次使用，不记录 citation；系统 syscall 不读取正式原子，同样不计数。
+系统工具不设 Agent 权限，所有已注册的 `sys_*` 对所有 Agent 可用，在 Alice 本地执行、不提交操作请求。记忆目标仍通过 `ResolveRunTargetRequest` 读取，要求 actor 操作 `memory.run`（不要求 `memory.read`），没有 `memory.run` 时由 actor API 拒绝；pending 和 terminal alias 照旧给出各自的提示。解析到的记忆，包括 redirect 指向的正式记忆，都以 `mtp.argument.invalid`（`mtp.run.memory_not_runnable`）拒绝：提示写明当前不支持运行记忆、RUN 只执行系统工具，需要执行其中的代码时用 READ 取得后自行运行。拒绝不构成一次使用，不记录 citation；系统 syscall 不读取正式原子，同样不计数。话题句柄解析到话题时同样拒绝，以 `mtp.argument.invalid`（`mtp.run.topic_not_runnable`）提示话题只能 READ。
 
 不运行记忆的理由：能否运行是某一份内容相对某个环境的性质，不是类型的，而记忆上没有这项判定；生成链写下的是知识，不产出可执行物，以前按类型放行的代码记忆基本运行不了。六项 actor 操作与 MTP 动词的对应、`memory.run` 的访问登记都保留，可运行的判定出现时只需放开这一处拒绝。
 
@@ -158,7 +159,7 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 - TARGET 和 `task` 必填；`context_refs` 可选；TARGET 是 agent_id，取自提示词中常驻的可用 agent 列表（已启用且在本 Workspace 有准入的 agent，见[任务进程](../workspace/task-process.md#6-cpu-分配)第 6 节）；
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
 - Alice RunExecutor 通过协程调用栈挂起 caller frame，经调用方句柄的 `derive_child` 提交 `DeriveCallThreadRequest`（workspace 授权 `agent.call`、解析目标图纸并派生子线程）、以调用方的 `ResolveReferencesRequest` 解析共享上下文，递归运行 callee frame，再以 `MTPCallResponse` 回填；
-- 派生要求调用方的 `agent.call`，内置 Profile 也不跳过；被调用方须在本 Workspace 有准入，未准入或为保留的 `system` 时回填 `mtp.permission.denied`（文案键 `mtp.call.agent_unavailable`），不启动子 frame；目标 Profile 已停用（`AgentProfile.enabled` 为假）时，解析图纸即被拒绝，回填同一组 code 与文案键；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
+- 派生要求调用方的 `agent.call`，内置 Profile 也不跳过；被调用方须在本 Workspace 有准入，未准入或为保留的 `system` 时回填 `mtp.permission.denied`（文案键 `mtp.call.agent_unavailable`），不启动子 frame；目标 Profile 已停用（`AgentProfile.enabled` 为假）时，解析图纸即被拒绝，回填同一组 code 与文案键；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；只接受记忆，话题句柄与其他没有可交付记忆的引用一样被跳过并记录日志；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
 - callee frame 以被调用方身份运行：资源操作按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；
 - 子线程随 CALL 返回结束：callee frame 以任何终态收尾、取消沿递归栈清理 CALL，以及派生之后子帧开始运行之前的失败，都同步结束子线程，之后以子线程提交的请求以线程已结束拒绝；子线程已提交的写入不受影响；
 - CALL 只允许 root frame 发起；callee frame 的 `FrameExecutionPolicy` 由被调用方的操作快照翻译并显式移除 CALL，防止递归爆炸；被调用方 Profile 只提供人设与模型参数；
@@ -253,8 +254,8 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 
 ## 8. 验证入口
 
-- parser / filter：`tests/unit/core/mtp/`；
-- verb 链路：`tests/integration/mtp/`；操作入口、引用计数与线程结束边界：`tests/integration/workspace/test_operation_requests.py`、`test_reference_citations.py`；
+- parser / filter：`tests/unit/core/mtp/`（含列表目标混列记忆 alias 与话题句柄）；
+- verb 链路：`tests/integration/mtp/`（含 RUN 拒绝话题句柄）；操作入口、引用计数与线程结束边界：`tests/integration/workspace/test_operation_requests.py`、`test_reference_citations.py`；
 - HTTP 单轮 SEARCH/READ/WRITE/CALL 与真实记忆结算：`tests/e2e/system/test_chat_mtp_operations.py`；
 - alias / PendingAtom：`tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_memory_reader.py` 与 `tests/integration/workspace/test_intent_registry_and_read_cache.py`；
 - CALL：`tests/unit/core/mtp/test_call_response_formatting.py`、Alice RunExecutor/CallContextProvider/CallCoordinator 测试；

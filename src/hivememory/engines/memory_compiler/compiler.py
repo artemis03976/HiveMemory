@@ -12,6 +12,7 @@ from hivememory.engines.memory_compiler.builders import (
     build_memory_atom_ir,
     build_pending_atom_ir,
     build_resolve_result_ir,
+    build_topic_ir,
 )
 from hivememory.engines.memory_compiler.envelopes import compile_envelope_from_ir
 from hivememory.engines.memory_compiler.handlers import compile_unit_from_ir
@@ -212,6 +213,8 @@ class MemoryCompiler:
             return build_agent_profile_ir(source), options
         if isinstance(source, PendingAtom):
             return build_pending_atom_ir(source), options
+        if isinstance(source, ReferenceResolution) and source.kind == "topic":
+            return build_topic_ir(source), options
         if isinstance(source, ReferenceResolution):
             return build_resolve_result_ir(source), options
 
@@ -271,8 +274,8 @@ def readable_source(
 ) -> PendingAtom | ReferenceResolution | MemoryAtom | None:
     """READ 交付给编译器的内容；无可交付内容时返回 ``None``，按未解析提示。
 
-    pending 交付意图句柄；带可读原子的 redirect 与 discarded/failed/expired
-    终态交付解析结果本身；正式原子交付原子；其余（not_found、不可读的
+    pending 交付意图句柄；带可读原子的 redirect、读到的话题与 discarded/failed/
+    expired 终态交付解析结果本身；正式原子交付原子；其余（not_found、不可读的
     redirect、缺失载荷的 pending）都按未解析处理。MTP READ 与 MCP 的读取
     工具共用这一份规则。
     """
@@ -282,7 +285,7 @@ def readable_source(
         return result if result.atom is not None else None
     if result.kind == "atom":
         return result.atom
-    if result.kind in {"discarded", "failed", "expired"}:
+    if result.kind in {"topic", "discarded", "failed", "expired"}:
         return result
     return None
 

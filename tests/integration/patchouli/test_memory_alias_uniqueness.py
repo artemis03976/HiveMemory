@@ -7,7 +7,8 @@
 进程外的 embedding provider 与未参与的生成引擎。
 
 保护的行为：
-- 同 Workspace 重名写入被拒绝且不产生写入；PRIVATE 记忆同样占用 alias；
+- 同 Workspace 重名写入被拒绝且不产生写入；PRIVATE 记忆同样占用 alias；以话题句柄
+  前缀 ``topic:`` 开头的 alias 同样被拒绝；
 - alias 归属跟随当前 canonical 记录：保留原 alias 的更新可提交，改名后旧
   alias 被释放；
 - revive 时 alias 已被新记忆占用则显式失败，归档记录保持原状；
@@ -130,6 +131,23 @@ async def test_duplicate_alias_in_same_workspace_is_rejected_without_write(qdran
         scope.workspace_identity, "fact_shared", from_actor=scope.actor_identity
     )
     assert resolved.id == first.id
+
+
+@pytest.mark.asyncio
+async def test_alias_starting_with_topic_handle_prefix_is_rejected_without_write(qdrant_mid_term):
+    """以 ``topic:`` 开头的 alias 会被读取当成话题句柄：写入被拒绝，原因是 alias 被保留。
+
+    手动创建与编辑在写版本记录之前调用同一项校验（见上方外部创建、编辑的用例）。
+    """
+    store, _ = qdrant_mid_term
+    scope = _scope()
+    memory = _memory(scope, alias="topic:notes")
+
+    with pytest.raises(MemoryAliasConflictError) as exc_info:
+        await store.upsert(memory)
+
+    assert exc_info.value.details["reason"] == "alias_reserved"
+    assert await store.list_alias_holders(scope.workspace_identity, "topic:notes") == []
 
 
 @pytest.mark.asyncio

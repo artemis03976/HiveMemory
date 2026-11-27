@@ -1,4 +1,4 @@
-"""连接器状态：每份会话记录的游标、结束记录与失败计数，以及拒绝记录。
+"""连接器状态：每份会话记录的游标、结束记录、失败计数与最近所在的话题，以及拒绝记录。
 
 状态按会话记录分文件保存在状态目录中。多个 hook 进程与同步进程会同时运行，
 因此每次读改写都持有该会话记录的状态锁，并以写临时文件再替换的方式原子
@@ -41,7 +41,8 @@ class TranscriptState:
     ``last_turn_id`` 是最后一个已确认轮次的标识，游标位置失效时据此重新定位；
     ``context_offsets`` 是最近已确认轮次的起点，用于给 Gateway 附上上文。
     ``end_records`` 记录各轮的结局，先于提交写入，重发沿用同一结局；
-    ``failures`` 记录各轮连续得到服务器内部错误的次数。
+    ``failures`` 记录各轮连续得到服务器内部错误的次数；``topic_id`` 是最近一次
+    确认带回的话题，即会话最近一轮所在的话题，压缩之后据此读出话题的索引。
     """
 
     path: str
@@ -53,19 +54,28 @@ class TranscriptState:
     failures: dict[str, int] = field(default_factory=dict)
     session_ended: bool = False
     blocked: bool = False
+    topic_id: str | None = None
 
     @property
     def read_offset(self) -> int:
         """读取的起点：包含最近已确认轮次，以便为下一轮附上上文。"""
         return min([self.offset, *self.context_offsets])
 
-    def advance(self, *, turn_id: str, turn_start: int, next_offset: int) -> None:
-        """一轮得到确认（或不可重试地被拒绝）后前进游标，并清理该轮的记录。"""
+    def advance(
+        self, *, turn_id: str, turn_start: int, next_offset: int, topic_id: str | None = None
+    ) -> None:
+        """一轮得到确认（或不可重试地被拒绝）后前进游标，并清理该轮的记录。
+
+        确认带回话题时记下它；没有带回（跳过的轮次、被拒绝的轮次、旧版本的服务端）时
+        保留原来的话题。
+        """
         self.offset = next_offset
         self.last_turn_id = turn_id
         self.context_offsets = [*self.context_offsets, turn_start][-RECENT_TURNS:]
         self.end_records.pop(turn_id, None)
         self.failures.pop(turn_id, None)
+        if topic_id:
+            self.topic_id = topic_id
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TranscriptState:

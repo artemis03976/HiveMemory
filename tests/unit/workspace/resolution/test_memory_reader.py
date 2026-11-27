@@ -2,8 +2,9 @@
 
 被测对象：L1 命中不回源且逐次授权、L2 冷读受 Workspace 代次守护（代次变化
 拒绝旧值回填与成功返回）、归属纵深防御、不写负缓存、alias 批读的顺序与
-去重、语义检索的协作预热，以及关闭语义。backing 以内存替身实现（被测
-单元边界之外的 Patchouli），按 backing 契约只返回当前 Actor 可读的原子。
+去重、语义检索的协作预热，以及关闭语义；话题句柄按形态分派到话题读取，读不到为
+已过期、条目越界与不合语法为 not_found。backing 以内存替身实现（被测单元边界之外的
+Patchouli），按 backing 契约只返回当前 Actor 可读的原子与 scope 的 Workspace 中的话题。
 
 resolver 与 backing 位于授权点以下：只流动
 授权点组装的可信 ``IdentityScope``，不接收工作 actor。
@@ -26,6 +27,7 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
+    TopicData,
     UpdateFocus,
     WorkspaceIdentity,
     WriteFocus,
@@ -36,6 +38,7 @@ from hivememory.workspace.cache.epoch import WorkspaceEpochs
 from hivememory.workspace.resolution.guard import ColdReadGuard
 from hivememory.workspace.resolution.memory import MemoryReader
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_topic_data
 from tests.helpers.workspace import make_identity_scope, make_write_intent_registry
 
 A1 = make_identity_scope(user_id="u1", agent_id="a1")
@@ -76,6 +79,7 @@ class _FakeBacking:
 
     def __init__(self) -> None:
         self.atoms: dict[tuple[WorkspaceIdentity, UUID], MemoryAtom] = {}
+        self.topics: dict[str, TopicData] = {}
         self.search_results: list[MemoryAtom] = []
         self.calls = 0
         self.on_fetch: Callable[[], None] | None = None
@@ -118,6 +122,12 @@ class _FakeBacking:
         results = [atom.model_copy(deep=True) for atom in self.search_results]
         self._fetched()
         return results
+
+    async def get_topic(self, topic_id, *, scope):
+        topic = self.topics.get(topic_id)
+        if topic is None or topic.workspace_identity != scope.workspace_identity:
+            return None
+        return topic
 
     async def get_agent_profile(self, agent_alias):  # pragma: no cover
         raise AssertionError("alias resolver 不读取 Profile")
@@ -527,3 +537,52 @@ async def test_update_intent_on_readable_base_stays_visible_to_other_actors():
     result = (await resolver.resolve_references([pending.pending_alias], scope=A2))[0]
 
     assert (result.kind, result.pending.focus.base_uuid) == ("pending", str(base.id))
+
+
+@pytest.mark.asyncio
+async def test_topic_handles_resolve_to_topics_in_request_order_beside_memories():
+    """话题句柄按形态分派：读索引、读条目各得到话题与条目序号，与记忆混在一次请求里时保持顺序。"""
+    backing = _FakeBacking()
+    backing.store(_atom("fact_x"))
+    backing.topics["t1"] = make_topic_data(
+        workspace_identity=MAIN, topic_id="t1", turns=[("q1", "a1")], progress=[("进展", 1)]
+    )
+    resolver, _, _ = _resolver(backing)
+
+    results = await resolver.resolve_references(["topic:t1#1", "fact_x", " topic:t1 "], scope=A2)
+
+    assert [(r.kind, r.topic_entry) for r in results] == [
+        ("topic", 1),
+        ("atom", None),
+        ("topic", None),
+    ]
+    assert [r.topic.topic_id for r in results if r.topic is not None] == ["t1", "t1"]
+
+
+@pytest.mark.asyncio
+async def test_unreadable_topics_are_expired_and_bad_handles_not_found():
+    """话题读不到时（不在话题池、属于别的 Workspace）按已过期交付；条目序号越界与不合语法的句柄
+    是 not_found。以 topic: 开头的引用不查正式记忆，即使存量记忆占用了这个 alias。"""
+    backing = _FakeBacking()
+    backing.store(_atom("topic:legacy"))
+    backing.topics["t1"] = make_topic_data(
+        workspace_identity=MAIN, topic_id="t1", turns=[("q1", "a1")], progress=[("进展", 1)]
+    )
+    backing.topics["foreign"] = make_topic_data(
+        workspace_identity=make_identity_scope(workspace_id="other_workspace").workspace_identity,
+        topic_id="foreign",
+    )
+    resolver, _, _ = _resolver(backing)
+
+    results = await resolver.resolve_references(
+        ["topic:gone", "topic:foreign", "topic:t1#2", "topic:t1#0", "topic:legacy"], scope=A2
+    )
+
+    assert [result.kind for result in results] == [
+        "expired",
+        "expired",
+        "not_found",
+        "not_found",
+        "expired",
+    ]
+    assert [result.topic for result in results] == [None] * 5

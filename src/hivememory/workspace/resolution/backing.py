@@ -14,12 +14,18 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
-from hivememory.core.models import AgentProfile, IdentityScope, MemoryAtom, StoredAgentProfile
+from hivememory.core.models import (
+    AgentProfile,
+    IdentityScope,
+    MemoryAtom,
+    StoredAgentProfile,
+    TopicData,
+)
 from hivememory.core.protocol.models import RetrievalRequest
 
 
 class CanonicalReadBackend(Protocol):
-    """Patchouli canonical/Profile 读取的 backing 端口。
+    """Patchouli canonical/Profile/话题读取的 backing 端口。
 
     不可达或路由缺失时抛出 ``ResourceUnavailableError``；存储错误按原结构化
     错误传播；未知与不可见资源同样返回 ``None`` 或不出现在列表中，不泄露资源是否存在。
@@ -48,6 +54,10 @@ class CanonicalReadBackend(Protocol):
         request: RetrievalRequest,
     ) -> list[MemoryAtom]:
         """语义检索，按领域排序返回完整原子列表。"""
+        ...
+
+    async def get_topic(self, topic_id: str, *, scope: IdentityScope) -> TopicData | None:
+        """读取话题池中属于 scope 的 Workspace 的话题；已退役、已删除或越域时为 ``None``。"""
         ...
 
     async def get_agent_profile(self, agent_alias: str | None) -> AgentProfile:

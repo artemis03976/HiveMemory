@@ -9,6 +9,7 @@ from hivememory.engines.memory_compiler.handlers.common import (
     render_resolve_terminal,
 )
 from hivememory.engines.memory_compiler.handlers.prompt import _render_full_from_ir
+from hivememory.engines.memory_compiler.handlers.topic import render_topic_read
 from hivememory.engines.memory_compiler.ir import MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemoryArtifact,
@@ -33,6 +34,8 @@ def compile_read_result(
         text = _render_full_from_ir(unit, None, options.stale_days, options.language)
     elif unit.identity.source_kind == "pending":
         text = _render_pending_read(unit, options.language)
+    elif unit.identity.source_kind == "topic":
+        text = render_topic_read(unit, options)
     elif is_resolve_terminal(unit):
         text = render_resolve_terminal(unit, options)
     else:

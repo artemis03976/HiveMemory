@@ -1,13 +1,15 @@
-"""Claude Code hooks 的处理：登记会话记录、写结束记录、唤醒后台同步，并为写入补上轮次信息。
+"""Claude Code hooks 的处理：登记会话记录、写结束记录、唤醒后台同步，为写入补上轮次信息，
+并在会话压缩之后注入话题的索引。
 
 hook 只做本地的快速工作（登记、写结束记录、读会话记录），网络提交交给脱离
 Claude Code 的后台同步进程，hook 因此不阻塞 Claude Code，HiveMemory 不可用
-时也不影响它：
+时也不影响它。唯一的例外是压缩之后的一次读取，见 :func:`session_start_context`：
 
 - ``Stop``：把会话记录中最后一轮记为 ``completed``，再同步这份会话记录；
 - ``StopFailure``（因 API 错误结束，替代 ``Stop``）：最后一轮记为 ``failed``；
 - ``SessionStart``：登记这份会话记录（恢复的会话撤销已结束标记），并补发
-  全部已登记会话记录中尚未提交的已结束轮次；
+  全部已登记会话记录中尚未提交的已结束轮次；来源是压缩（``compact``）时，
+  再读出会话最近一轮所在话题的索引，作为 ``additionalContext`` 输出；
 - ``SessionEnd``：标记会话已结束，末尾没有结束记录的一轮按中断提交；
 - ``PreToolUse``（只匹配本插件的写入与更新工具）：把当前一轮的信息补进工具
   参数，HiveMemory 据此在写入时为这一轮确定话题，见 :func:`pre_tool_use`。
@@ -23,6 +25,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from connector.claude_code.reader import ClaudeCodeReader
+from connector.core.client import MemoryReadError
 from connector.core.log import ConnectorLog
 from connector.core.memory_tools import TURN_PARAM
 from connector.core.state import RECENT_TURNS, Outcome, StateStore
@@ -33,6 +36,14 @@ HOOK_EVENTS = frozenset({"Stop", "StopFailure", "SessionStart", "SessionEnd"})
 
 # 后台同步的参数，例如 ["sync", "--transcript", path] 或 ["sync", "--all"]。
 Spawn = Callable[[list[str]], None]
+
+# 经 MCP 读取：给出要读的句柄，返回结果文本，没有得到时抛出 MemoryReadError。
+ReadMemory = Callable[[list[str]], str]
+
+# Claude Code 的 additionalContext 每个 hook 至多 10,000 字符，超出时只把前 2,000 字符给模型；
+# 留出截断说明的余量。
+COMPACT_CONTEXT_MAX_CHARS = 9_500
+_TRUNCATED_NOTE = "\n…[truncated by the HiveMemory connector]"
 
 
 def handle_hook(
@@ -67,6 +78,37 @@ def handle_hook(
         # SessionStart：恢复的会话继续写入同一份会话记录，末尾的一轮重新算作进行中。
         store.set_session_ended(transcript, False)
     spawn(["sync", "--all"] if event == "SessionStart" else ["sync", "--transcript", transcript])
+
+
+def session_start_context(
+    payload: Mapping[str, Any], *, store: StateStore, read_memory: ReadMemory, log: ConnectorLog
+) -> dict[str, Any] | None:
+    """压缩之后为会话注入它最近一轮所在话题的进展记录索引，返回 SessionStart 的输出。
+
+    只处理来源为 ``compact`` 的 SessionStart：压缩之后模型失去了此前的上下文，话题的
+    进展记录告诉它工作进行到哪一步。话题取自导入确认带回、记在会话记录状态里的最近
+    一个，一轮中间的自动压缩发生时这一轮还没有导入，读的是上一轮所在的话题。
+
+    读取成功时，结果原样注入：通常是索引；话题已离开话题池时是 HiveMemory 的过期提示，
+    它指向检索，同样值得模型看到。没有记下话题、请求失败或超时、工具报错时不输出，
+    只写日志，会话照常继续。结果超过 ``COMPACT_CONTEXT_MAX_CHARS`` 时截断并注明。
+    """
+    transcript = payload.get("transcript_path")
+    if payload.get("source") != "compact" or not isinstance(transcript, str) or not transcript:
+        return None
+    state = store.load(transcript)
+    if state is None or not state.topic_id:
+        log.write(f"topic index not injected: no topic recorded transcript={transcript}")
+        return None
+    try:
+        # 句柄的写法与 HiveMemory 的话题句柄相同。
+        text = read_memory([f"topic:{state.topic_id}"])
+    except MemoryReadError as error:
+        log.write(f"topic index not injected: {error} transcript={transcript}")
+        return None
+    if len(text) > COMPACT_CONTEXT_MAX_CHARS:
+        text = text[:COMPACT_CONTEXT_MAX_CHARS] + _TRUNCATED_NOTE
+    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
 
 
 def pre_tool_use(

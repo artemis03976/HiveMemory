@@ -33,11 +33,13 @@ Tool names end with the names in the table below. A harness may add a prefix; in
 | Tool | Purpose | Key points |
 |:---|:---|:---|
 | `memory_search` | Search in natural language | Returns a fixed number of summaries, each with alias, type, archive time, confidence, tags and summary |
-| `memory_read` | Read the full text by alias | Can read several at once; can also read the handles returned by writes and updates |
+| `memory_read` | Read the full text by alias | Can read several at once; can also read the handles returned by writes and updates, and topic handles starting with `topic:` |
 | `memory_write` | Write one thing worth keeping | `content` is required, and `title` and `reason` should also be filled in; returns a handle starting with `draft_` |
 | `memory_update` | Correct an existing memory | `alias` is the formal alias from search or read, `instruction` says how to change it, `content` may carry new text; returns a handle starting with `rev_` |
 
 If a `turn` parameter appears in writes and updates, do not fill it in: the plugin adds it when the call is made.
+
+After the session is compacted, a HiveMemory topic index injected by the plugin may appear at the start of the conversation, listing the progress record of the topic this session is in. Each `topic:<id>#n` in it is a topic handle: when you need the details of an entry, read it with `memory_read` to get the entry's full text and the original turns it covers. Topic handles can only be read, not written or corrected.
 
 ## 3. Coexisting with the harness's own memory
 

@@ -102,4 +102,6 @@ async def import_turn(
     result = await service.import_turn(
         body.to_imported_turn(), actor=actor, target_workspace=actor.workspace
     )
-    return ImportTurnResponse(status=result.status, interaction_id=result.interaction_id)
+    return ImportTurnResponse(
+        status=result.status, interaction_id=result.interaction_id, topic_id=result.topic_id
+    )

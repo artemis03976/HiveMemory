@@ -267,7 +267,7 @@ class TranscriptSync:
     ) -> bool:
         """按提交结果处理游标；返回是否继续处理这份会话记录的后续轮次。"""
         if result.kind == "confirmed":
-            self._advance(path, turn, next_offset)
+            self._advance(path, turn, next_offset, topic_id=result.topic_id)
             report.confirmed += 1
             self._log.write(
                 f"confirmed turn={turn.turn_id} status={result.import_status} transcript={path}"
@@ -290,10 +290,15 @@ class TranscriptSync:
         )
         return False
 
-    def _advance(self, path: str, turn: TranscriptTurn, next_offset: int) -> None:
+    def _advance(
+        self, path: str, turn: TranscriptTurn, next_offset: int, *, topic_id: str | None = None
+    ) -> None:
         with self._store.update(path) as state:
             state.advance(
-                turn_id=turn.turn_id, turn_start=turn.start_offset, next_offset=next_offset
+                turn_id=turn.turn_id,
+                turn_start=turn.start_offset,
+                next_offset=next_offset,
+                topic_id=topic_id,
             )
 
     def _reject(

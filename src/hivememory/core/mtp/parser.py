@@ -38,7 +38,9 @@ class MTPParser:
     _KV_PATTERN = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
     _RAW_PATTERN = re.compile(r"(\w+)\s*=\s*`(.*?)`", re.DOTALL)
     _LIST_ARG_PATTERN = re.compile(r"(\w+)\s*=\s*\[\s*([^\]]*)\s*\]")
-    _LIST_TARGET_PATTERN = re.compile(r"\[\s*([\w\s,]+)\s*\]")
+    # 列表中的引用可以是记忆 alias，也可以是话题句柄（``topic:<id>``、``topic:<id>#<n>``，
+    # 话题 id 含连字符），一次 READ 因此能同时读记忆与话题。
+    _LIST_TARGET_PATTERN = re.compile(r"\[\s*([\w\s,:#-]+)\s*\]")
     _VALID_VERBS = {v.value for v in MTPVerb}
 
     def parse(self, text: str) -> MTPCommand:

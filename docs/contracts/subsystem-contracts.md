@@ -326,7 +326,7 @@ Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局�
 
 | 请求 | MTP 动词 | 参数 | 结果 `R` | actor 操作 |
 |:---|:---|:---|:---|:---|
-| `ResolveReferencesRequest` | READ（含 CALL 的 `context_refs`） | `aliases: tuple[str, ...]` | `list[ReferenceResolution]` | `memory.read` |
+| `ResolveReferencesRequest` | READ（含 CALL 的 `context_refs`） | `aliases: tuple[str, ...]`，可以混有话题句柄 | `list[ReferenceResolution]`（话题句柄读到话题时 kind 为 `topic`） | `memory.read` |
 | `RetrieveRequest` | SEARCH | `semantic_query`、`keywords=()`、`filters=None`；条数由 `retrieval.retriever.top_k` 决定 | `list[MemoryAtom]` | `memory.search` |
 | `ResolveRunTargetRequest` | RUN 的记忆目标（解析后一律以不可运行拒绝） | `alias: str` | `ReferenceResolution` | `memory.run` |
 | `SubmitWriteIntentRequest` | WRITE | `focus: WriteFocus` | `PendingAtom` | `memory.write` |

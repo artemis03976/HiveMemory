@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from hivememory.config.memory_compiler import RetrievalContextStrategyConfig
+from hivememory.config.patchouli import GenerationTranscriptConfig
 
 
 class MemoryCompileTarget(str, Enum):
@@ -73,3 +74,5 @@ class MemoryCompileOptions(BaseModel):
     format: Literal["xml", "markdown", "plain"] | None = None
     language: str | None = None
     retrieval_strategy_config: RetrievalContextStrategyConfig | None = None
+    # 读话题条目时原文的截断配置，与记忆生成的材料相同；缺省时取默认值。其余编译不读取此项。
+    transcript_config: GenerationTranscriptConfig | None = None

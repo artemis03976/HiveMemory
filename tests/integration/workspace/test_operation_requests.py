@@ -20,6 +20,7 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     PendingAtomStatus,
+    TopicData,
     UpdateFocus,
     WriteFocus,
 )
@@ -42,11 +43,13 @@ from hivememory.workspace.contracts import (
 from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_topic_data
 from tests.helpers.workspace import (
     INTENT_RECORD_FILE,
     INTENT_RETENTION,
     make_access_composition,
     make_actor_access_record,
+    make_workspace_identity,
 )
 
 
@@ -58,6 +61,7 @@ class _OperationHarness:
         self.bus = GlobalSystemBus()
         self.admission = install_intent_admission(self.bus)
         self.memories: dict[str, MemoryAtom] = {}
+        self.topics: dict[str, TopicData] = {}
         self.call_target = AgentProfile(
             agent_id="call_target", title="CALL 目标", persona="CALL 目标人设", model="call-model"
         )
@@ -77,6 +81,7 @@ class _OperationHarness:
             (PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, self._retrieve_by_aliases),
             (PatchouliRoutes.MEMORY_RETRIEVE, self._retrieve),
             (PatchouliRoutes.GET_AGENT_PROFILE, self._get_profile),
+            (PatchouliRoutes.TOPIC_GET_DATA, self._get_topic),
             (PatchouliRoutes.RECORD_MEMORY_CITATION, self._record_citation),
         ):
             self.bus.register(route, handler)
@@ -107,6 +112,10 @@ class _OperationHarness:
         self.owner_calls.append(PatchouliRoutes.MEMORY_RETRIEVE)
         return list(self.memories.values())
 
+    async def _get_topic(self, *, identity_scope, topic_id):
+        self.owner_calls.append(PatchouliRoutes.TOPIC_GET_DATA)
+        return self.topics.get(topic_id)
+
     async def _get_profile(self, agent_alias):
         self.owner_calls.append(PatchouliRoutes.GET_AGENT_PROFILE)
         if agent_alias != self.call_target.agent_id:
@@ -129,6 +138,7 @@ _READ_ROUTES = frozenset(
         PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
         PatchouliRoutes.MEMORY_RETRIEVE,
         PatchouliRoutes.GET_AGENT_PROFILE,
+        PatchouliRoutes.TOPIC_GET_DATA,
     }
 )
 
@@ -152,13 +162,16 @@ def _cold_reads(harness) -> int:
 
 
 def _seed_base(harness) -> None:
-    """为 READ、RUN 与 UPDATE 准备同一个可见正式原子。"""
+    """为 READ、RUN 与 UPDATE 准备同一个可见正式原子，为 READ 另备一个话题。"""
     harness.memories["base"] = MemoryAtom(
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             alias="base", title="基础", summary="基础内容", memory_type=MemoryType.FACT
         ),
         payload=PayloadLayer(content="正式基础内容"),
+    )
+    harness.topics["t1"] = make_topic_data(
+        workspace_identity=make_workspace_identity(), topic_id="t1"
     )
 
 
@@ -985,8 +998,8 @@ async def test_every_actor_request_is_rejected_after_stop_without_side_effects(
     [
         pytest.param(RetrieveRequest("查询基础内容"), {"result_count": 1}, id="search"),
         pytest.param(
-            ResolveReferencesRequest(("base", "missing")),
-            {"requested_count": 2, "delivered_count": 1},
+            ResolveReferencesRequest(("base", "missing", "topic:t1")),
+            {"requested_count": 3, "delivered_count": 2},
             id="read",
         ),
         pytest.param(ResolveRunTargetRequest("base"), {"resolution": "atom"}, id="run"),

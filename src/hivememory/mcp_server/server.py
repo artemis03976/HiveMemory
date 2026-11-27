@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from starlette.applications import Starlette
 
     from hivememory.config.memory_compiler import RetrievalContextStrategyConfig
+    from hivememory.config.patchouli import GenerationTranscriptConfig
     from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)
@@ -129,7 +130,13 @@ def create_mcp_server(
                 results = await _submit(
                     system, headers, ResolveReferencesRequest(aliases=tuple(aliases))
                 )
-                result, unresolved = _read_text(compiler, aliases, results, language)
+                result, unresolved = _read_text(
+                    compiler,
+                    aliases,
+                    results,
+                    system.config.patchouli.generation.transcript,
+                    language,
+                )
             except Exception as error:
                 return _failed("memory_read", headers, started, error)
             _log_call("memory_read", headers, started, f"unresolved={len(unresolved)}")
@@ -324,11 +331,13 @@ def _read_text(
     compiler: MemoryCompiler,
     aliases: list[str],
     results: list[ReferenceResolution],
+    transcript: "GenerationTranscriptConfig",
     language: Language,
 ) -> tuple[str, list[str]]:
     """按请求顺序逐项编译，未解析的 alias 列在末尾；全部未解析时以资源不存在拒绝。
 
-    哪些解析结果可以交付与 MTP READ 共用 ``readable_source``。
+    哪些解析结果可以交付与 MTP READ 共用 ``readable_source``。话题条目的原文与记忆生成的
+    材料使用同一份截断配置。
     """
     blocks: list[str] = []
     unresolved: list[str] = []
@@ -339,7 +348,9 @@ def _read_text(
             continue
         # pending 句柄自带 alias；其余结果按请求的 alias 呈现，redirect 才能标出原名。
         requested_alias = None if isinstance(source, PendingAtom) else alias
-        options = MemoryCompileOptions(requested_alias=requested_alias)
+        options = MemoryCompileOptions(
+            requested_alias=requested_alias, transcript_config=transcript
+        )
         blocks.append(compiler.compile(source, MemoryCompileTarget.READ_RESULT, options).text)
     if not blocks:
         raise ResourceNotFoundError(details={"aliases": unresolved})
