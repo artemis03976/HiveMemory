@@ -1,4 +1,4 @@
-"""Codex hooks 的处理：登记会话记录、写结束记录、唤醒后台同步，并为写入补上轮次信息。
+"""Codex hooks 的处理：登记会话记录、写结束记录、唤醒后台同步，并为写入与读当前话题补上轮次信息。
 
 hook 只做本地的快速工作（登记、写结束记录、读会话记录），网络提交交给脱离
 Codex 的后台同步进程，HiveMemory 不可用时不影响 Codex：
@@ -9,8 +9,8 @@ Codex 的后台同步进程，HiveMemory 不可用时不影响 Codex：
   ``cancelled``，再同步这份会话记录。两者都早于这一轮的结束记录写入会话记录，
   同步会短暂等待它写完；会话记录写明的结局优先于这里的记录；
 - ``SessionEnd``：标记会话已结束，同步这份会话记录；
-- ``PreToolUse``（只匹配本插件的写入与更新工具）：把当前一轮的信息补进工具
-  参数，见 :func:`pre_tool_use`。
+- ``PreToolUse``（只匹配本插件的写入、更新与读取工具）：写入、更新与读当前话题
+  时把当前一轮的信息补进工具参数，见 :func:`pre_tool_use`。
 
 失败的一轮不触发 ``Stop``，由会话记录中带 ``error`` 的结束记录判定，在下一次
 唤醒时提交。子 Agent 中触发的 hook（输入带 ``agent_id``）不登记、不同步：只导入
@@ -23,8 +23,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from connector.codex.reader import CodexReader
-from connector.core.memory_tools import TURN_PARAM
+from connector.codex.reader import CodexReader, hook_tool_name
+from connector.core.memory_tools import TURN_PARAM, reads_current_topic
 from connector.core.state import RECENT_TURNS, Outcome, StateStore
 from connector.core.sync import TranscriptSync, turn_info
 
@@ -36,6 +36,8 @@ _EXTENDED_PREFIX = "\\\\?\\"
 
 # 后台同步的参数，例如 ["sync", "--transcript", path] 或 ["sync", "--all"]。
 Spawn = Callable[[list[str]], None]
+
+_MEMORY_READ = hook_tool_name("memory_read")
 
 
 def handle_hook(
@@ -65,7 +67,10 @@ def handle_hook(
 def pre_tool_use(
     payload: Mapping[str, Any], *, reader: CodexReader, store: StateStore
 ) -> dict[str, Any] | None:
-    """为写入与更新补上当前一轮的信息，返回 PreToolUse 的输出；读不到当前一轮时为 ``None``。
+    """为写入、更新与读当前话题补上当前一轮的信息，返回 PreToolUse 的输出。
+
+    读不到当前一轮时为 ``None``。读取只在作用对象含 ``topic:current`` 时补上，其余
+    读取不需要确定话题，原样放行，同样为 ``None``。
 
     当前一轮是输入中 ``turn_id`` 那一轮。子 Agent 中的调用（输入带 ``agent_id``）
     归到派生它的那一轮：从子 Agent 自己的会话记录取得根轮，再在根会话（输入中
@@ -75,13 +80,15 @@ def pre_tool_use(
     输出原参数加上轮次信息，``updatedInput`` 整体替换工具参数，模型自己填写的
     轮次信息被覆盖；Codex 只在同时给出 ``permissionDecision: allow`` 时采用改写，
     审批仍按 MCP server 的审批设置进行。只读会话记录与连接器状态，不登记、不
-    唤醒同步，也不做网络请求；返回 ``None`` 时工具调用照常进行，由 HiveMemory
-    以缺少轮次信息拒绝。
+    唤醒同步，也不做网络请求；读不到当前一轮时工具调用照常进行，由 HiveMemory
+    以缺少轮次信息拒绝写入与更新，读取中的 ``topic:current`` 读不到。
     """
     transcript = _transcript_path(payload)
     turn_id = payload.get("turn_id")
     tool_input = payload.get("tool_input")
     if transcript is None or not isinstance(turn_id, str) or not isinstance(tool_input, dict):
+        return None
+    if payload.get("tool_name") == _MEMORY_READ and not reads_current_topic(tool_input):
         return None
     if payload.get("agent_id"):
         root_turn = reader.root_turn_id(transcript, turn_id)

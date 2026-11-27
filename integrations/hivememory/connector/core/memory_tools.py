@@ -6,7 +6,8 @@
 作为作用对象；写入为 ``WRITE``，没有作用对象；更新为 ``UPDATE``，参数 ``alias``
 移出参数、作为唯一的作用对象。检索与读取取回的是已有记忆，写入与更新的内容
 已经由显式写入保存，HiveMemory 生成时都不会把它们再提取一遍。写入与更新的
-参数 ``turn`` 是 ``PreToolUse`` hook 补上的轮次信息，不上传。
+参数 ``turn``，以及读当前话题时读取的参数 ``turn``，是 ``PreToolUse`` hook 补上的
+轮次信息，不上传。
 
 工具名与参数名和 HiveMemory 的 MCP server 一致，改名时同时修改。各 harness 的
 读取器负责认出哪些调用来自本插件的 server，再交给 :func:`tool_call_fields`。
@@ -14,11 +15,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-# 写入与更新工具中由 PreToolUse hook 填写的轮次信息参数。
+# 写入、更新与读当前话题时由 PreToolUse hook 填写的轮次信息参数。
 TURN_PARAM = "turn"
+
+# 这个会话这一轮所在话题的句柄，与 HiveMemory 的写法相同。HiveMemory 读它时先为这一轮
+# 确定话题，读取因此也要带上轮次信息。
+CURRENT_TOPIC_HANDLE = "topic:current"
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,12 @@ MEMORY_TOOLS = {
     "memory_write": MemoryTool("WRITE"),
     "memory_update": MemoryTool("UPDATE", target_param="alias", single_target=True),
 }
+
+
+def reads_current_topic(tool_input: Mapping[str, Any]) -> bool:
+    """读取工具的参数中是否要读当前话题：作用对象 ``aliases`` 里有 ``topic:current``。"""
+    aliases = tool_input.get("aliases")
+    return isinstance(aliases, list) and CURRENT_TOPIC_HANDLE in aliases
 
 
 def tool_call_fields(

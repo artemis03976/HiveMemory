@@ -1,9 +1,9 @@
 {
-  "description": "会话开始、轮次结束、中断与会话结束时登记会话记录并唤醒后台同步，网络提交在脱离 Codex 的进程中完成；写入与更新记忆前为工具参数补上当前一轮的信息。",
+  "description": "会话开始、轮次结束、中断与会话结束时登记会话记录并唤醒后台同步，网络提交在脱离 Codex 的进程中完成；写入与更新记忆、读取当前话题前为工具参数补上当前一轮的信息。",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "^mcp__hivememory__(memory_write|memory_update)$",
+        "matcher": "^mcp__hivememory__(memory_write|memory_update|memory_read)$",
         "hooks": [
           {
             "type": "command",

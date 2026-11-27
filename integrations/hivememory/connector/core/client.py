@@ -1,6 +1,4 @@
-"""连接器对 HiveMemory 的两种请求：向 Import Bus 提交一轮，经 MCP 读取一次。
-
-**提交**：把结果分类为确认、可重试、服务器错误或拒绝。
+"""连接器向 Import Bus 提交一轮，把结果分类为确认、可重试、服务器错误或拒绝。
 
 分类决定游标：确认（服务端在这一轮应用完成后才确认）后前进；可重试（网络
 错误、503 等服务暂不可用，含等待应用超时）时保留游标、停止处理这份会话
@@ -12,9 +10,6 @@
 
 每次提交以 ``X-Principal-ID`` 声明连接器的 principal、以 ``Authorization:
 Bearer`` 携带接入凭据，由服务端的统一认证网关核对。
-
-**读取**：以插件 MCP 配置相同的请求头，向 MCP 入口 POST 一次 JSON-RPC ``tools/call``
-调用 ``memory_read``。MCP 入口不保存会话，一次请求即完成，不先初始化。
 """
 
 from __future__ import annotations
@@ -29,10 +24,6 @@ from typing import Any, Literal
 from connector.core.config import ConnectorConfig
 
 IMPORT_PATH = "/api/v1/import/turns"
-MCP_PATH = "/mcp"
-
-# 读取在 hook 中同步进行，Claude Code 等它结束；HiveMemory 没有启动时立即失败。
-MCP_READ_TIMEOUT_SECONDS = 5.0
 
 # 服务暂不可用：关闭中、Gateway 暂不可用、提交队列拥塞，或前置代理的同类状态。
 RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
@@ -53,10 +44,6 @@ class SubmitResult:
     topic_id: str | None = None
     error: str | None = None
     reason: str | None = None
-
-
-class MemoryReadError(Exception):
-    """一次读取没有得到结果文本；消息是原因（不可达、状态码、工具报错或响应不合格）。"""
 
 
 # (url, body, headers, timeout) -> (status, response body)
@@ -110,48 +97,6 @@ class ImportClient:
         if status in TURN_REJECTED_STATUSES:
             return SubmitResult(kind="rejected", status=status, error=error, reason=reason)
         return SubmitResult(kind="misconfigured", status=status, error=error, reason=reason)
-
-
-def read_memory(
-    config: ConnectorConfig, aliases: list[str], transport: Transport = urllib_transport
-) -> str:
-    """经 MCP 调用一次 ``memory_read``，返回结果文本；没有得到时抛出 ``MemoryReadError``。
-
-    请求头与插件的 MCP 配置相同，另带 ``X-Agent-ID``：MCP 入口以它认证执行者。
-    """
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        **_identity_headers(config),
-        "X-Agent-ID": config.agent_id,
-    }
-    call = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {"name": "memory_read", "arguments": {"aliases": aliases}},
-    }
-    try:
-        status, raw = transport(
-            config.url + MCP_PATH,
-            json.dumps(call).encode("utf-8"),
-            headers,
-            MCP_READ_TIMEOUT_SECONDS,
-        )
-    except OSError as error:
-        raise MemoryReadError(f"unreachable: {type(error).__name__}") from error
-    if not 200 <= status < 300:
-        raise MemoryReadError(f"status={status}")
-    result = _json_object(raw).get("result")
-    if not isinstance(result, dict):
-        raise MemoryReadError("no JSON-RPC result")
-    content = result.get("content")
-    if result.get("isError") or not isinstance(content, list) or not content:
-        raise MemoryReadError("tool error")
-    text = content[0].get("text") if isinstance(content[0], dict) else None
-    if not isinstance(text, str) or not text:
-        raise MemoryReadError("no text content")
-    return text
 
 
 def _identity_headers(config: ConnectorConfig) -> dict[str, str]:

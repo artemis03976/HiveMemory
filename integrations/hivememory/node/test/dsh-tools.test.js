@@ -9,7 +9,7 @@ const TURN_SCHEMA = { anyOf: [{ $ref: '#/$defs/InFlightTurn' }, { type: 'null' }
 
 const SERVER_TOOLS = [
   { name: 'memory_search', description: 'search', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
-  { name: 'memory_read', description: 'read', inputSchema: { type: 'object', properties: { aliases: { type: 'array' } }, required: ['aliases'] } },
+  { name: 'memory_read', description: 'read', inputSchema: { type: 'object', properties: { aliases: { type: 'array' }, turn: TURN_SCHEMA }, required: ['aliases'] } },
   {
     name: 'memory_write',
     description: 'write',
@@ -67,6 +67,14 @@ test('writes carry the trusted turn and override one the model made up', async (
 
   assert.deepEqual(seen, ['session-1'])
   assert.deepEqual(client.calls, [{ name: 'memory_write', args: { content: 'fact', turn: { external_turn_id: '7' } } }])
+})
+
+test('a read of the current topic carries the trusted turn', async () => {
+  const client = fakeClient()
+
+  await definitions(client).memory_read.execute({ aliases: ['topic:current'] }, exec)
+
+  assert.deepEqual(client.calls, [{ name: 'memory_read', args: { aliases: ['topic:current'], turn: { external_turn_id: '7' } } }])
 })
 
 test('searches go out without turn information', async () => {

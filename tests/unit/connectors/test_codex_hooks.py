@@ -1,9 +1,9 @@
-"""Codex hooks 处理的单元测试：登记、结束记录与唤醒同步，以及写入前补上的轮次信息。
+"""Codex hooks 处理的单元测试：登记、结束记录与唤醒同步，以及写入与读当前话题前补上的轮次信息。
 
 保护的契约：子 Agent 中的事件不登记会话记录；``Stop`` 与 ``Interrupt`` 按输入中的
 轮次写结局；``PreToolUse`` 的输出带 ``permissionDecision: allow`` 与覆盖模型填写
-的轮次信息，子 Agent 中的写入归到派生它的那一轮，与之后导入的同名字段一致；
-命令行入口写出的输出是 ASCII 转义的 JSON。
+的轮次信息，子 Agent 中的写入归到派生它的那一轮，与之后导入的同名字段一致；读取
+只在读 ``topic:current`` 时补上，其余读取不输出；命令行入口写出的输出是 ASCII 转义的 JSON。
 """
 
 from __future__ import annotations
@@ -193,6 +193,47 @@ def test_pre_tool_use_without_the_named_turn_gives_no_output(tmp_path):
         pre_tool_use(_write_payload(rollout.path, "t9"), reader=reader, store=StateStore(tmp_path))
         is None
     )
+
+
+def _read_payload(transcript, turn_id, aliases):
+    return {
+        "session_id": THREAD_ID,
+        "transcript_path": str(transcript),
+        "turn_id": turn_id,
+        "tool_name": hook_tool_name("memory_read"),
+        "tool_input": {"aliases": aliases},
+    }
+
+
+def test_pre_tool_use_adds_the_turn_to_a_read_of_the_current_topic(tmp_path):
+    """读 ``topic:current`` 时像写入一样补上当前一轮，原参数保留。"""
+    rollout = RolloutWriter(tmp_path)
+    rollout.start("t1")
+    rollout.user("接着做之前的事")
+    aliases = ["topic:current", "fact_a"]
+
+    output = pre_tool_use(
+        _read_payload(rollout.path, "t1", aliases), reader=reader, store=StateStore(tmp_path)
+    )
+
+    updated = output["hookSpecificOutput"]["updatedInput"]
+    assert updated["aliases"] == aliases
+    assert updated["turn"]["external_turn_id"] == "t1"
+
+
+def test_pre_tool_use_leaves_other_reads_without_output(tmp_path):
+    """不读 ``topic:current`` 的读取不需要确定话题，不输出，照常经过 Codex 的审批。"""
+    rollout = RolloutWriter(tmp_path)
+    rollout.start("t1")
+    rollout.user("看看这条记忆")
+
+    output = pre_tool_use(
+        _read_payload(rollout.path, "t1", ["fact_a", "topic:t1"]),
+        reader=reader,
+        store=StateStore(tmp_path),
+    )
+
+    assert output is None
 
 
 def test_pre_tool_use_entry_writes_ascii_json(tmp_path, monkeypatch, capsys):

@@ -5,14 +5,14 @@
  * 工具名就是 HiveMemory 的工具名。每次调用经 MCP 端点转交 HiveMemory，结果的
  * 正文原样交给模型，HiveMemory 的工具错误作为 dsh 的工具错误交给模型。
  *
- * 写入与更新必须带上这一轮的信息，HiveMemory 据此在写入时为这一轮确定话题。dsh
- * 不允许在工具执行前改写模型给出的参数，插件因此在自己的工具中，以调用方
- * Agent 的会话构造轮次信息再交给 HiveMemory：参数 `turn` 从交给模型的 schema
- * 中去掉，模型无法填写，也无法绕过。子 Agent 的会话不导入，子 Agent 中的调用
+ * 写入、更新与读当前话题（`topic:current`）必须带上这一轮的信息，HiveMemory 据此
+ * 为这一轮确定话题。dsh 不允许在工具执行前改写模型给出的参数，插件因此在自己的
+ * 工具中，以调用方 Agent 的会话构造轮次信息再交给 HiveMemory：参数 `turn` 从交给
+ * 模型的 schema 中去掉，模型无法填写，也无法绕过。子 Agent 的会话不导入，子 Agent 中的调用
  * 落在顶层会话最近的一轮，与这一轮回流时在同一个话题。
  */
 
-import { MEMORY_TOOLS, TURN_PARAM } from '../core/memory-tools.js'
+import { MEMORY_TOOLS, TURN_PARAM, needsTurn } from '../core/memory-tools.js'
 import { isSubagentSession, sessionTurns, turnInfo } from './turns.js'
 
 /**
@@ -27,7 +27,7 @@ export function memoryToolDefinitions(serverTools, { client, turnInfoFor }) {
 }
 
 /**
- * 写入所属一轮的轮次信息，与这一轮结束后导入时的同名字段相同。
+ * 这次调用所属一轮的轮次信息，与这一轮结束后导入时的同名字段相同。
  *
  * 工具在一轮之中执行，调用方会话实时记录的最后一轮就是当前一轮，它还没有
  * 结束；之前几轮与导入时一样取该轮之前最近的已结束轮次，服务端因此推导出
@@ -40,7 +40,7 @@ export async function currentTurnInfo(session, { readSession }) {
   const index = turns.length - 1
   if (index === -1 || turns[index].closed) {
     // 连接器不知道 HiveMemory 的语言设置，进入 Agent 上下文的这条错误用英文。
-    throw new Error('No turn is in progress, so this write cannot be attributed to a turn')
+    throw new Error('No turn is in progress, so this call cannot be attributed to a turn')
   }
   return turnInfo(session.id, turns, index)
 }
@@ -61,7 +61,6 @@ async function topLevelTurnInfo(header, { readSession }) {
 }
 
 function toolDefinition(tool, { client, turnInfoFor }) {
-  const needsTurn = MEMORY_TOOLS[tool.name].needsTurn === true
   return {
     name: tool.name,
     description: tool.description ?? '',
@@ -73,7 +72,7 @@ function toolDefinition(tool, { client, turnInfoFor }) {
     async execute(args, exec) {
       const request = typeof args === 'object' && args !== null && !Array.isArray(args) ? { ...args } : {}
       delete request[TURN_PARAM]
-      if (needsTurn) request[TURN_PARAM] = await turnInfoFor(exec.agent.session)
+      if (needsTurn(tool.name, request)) request[TURN_PARAM] = await turnInfoFor(exec.agent.session)
       const result = await client.callTool(tool.name, request, exec.signal)
       const text = resultText(result)
       if (result.isError === true) throw new Error(text)

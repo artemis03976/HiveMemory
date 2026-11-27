@@ -214,7 +214,7 @@ def test_codex_declarations_match_connector_and_registration():
         for tool in ("memory_search", "memory_read", "memory_write", "memory_update")
         if re.search(pre_tool_use["matcher"], hook_tool_name(tool))
     }
-    assert matched == {"memory_write", "memory_update"}
+    assert matched == {"memory_write", "memory_update", "memory_read"}
     commands = [
         handler["command"]
         for groups in hooks.values()
