@@ -180,26 +180,21 @@ todo 与 plan 的渲染设计待定，取决于各家harness的实现细节与�
 
 **设计**：
 
-- 短期记忆的目的是让回到话题的 agent 知道话题进行到哪一步：一项工作做到哪了，或一段对话聊到哪了。两个使用点：另一个会话发来的消息被路由回已有话题时；会话压缩完成后，agent 可能处于短暂的失忆窗口。其他时间，正在交互中的 agent 大概率不会突然失忆。
-- 话题的归属按需确定，每轮至多一次：在第一次需要它的时刻确定，之后沿用。需要它的时刻是写入或更新之前、agent 读当前话题之前与轮次结束导入时，三者用同一个“为在途轮次确定话题”，输入相同，先到的确定；不单独在轮首路由。归属只是 HiveMemory 内部的记账，不碰前台的上下文。
-- 拉取是基线：每个 harness 都能经 MCP 或自己的工具拉取。推送只在 harness 支持、agent 确定处于失忆窗口时做，也就是会话压缩之后，而且只推送一个指针（话题句柄与一句读法），不推送话题或中期记忆的内容；plugin 模式下不推送中期记忆。
-- 被路由回已有话题时由 agent 拉取，系统不在用户提交时推送：轮首推送要先在轮首确定话题、再干预前台的上下文，而被动入口能捕捉的时点与能做的干预因 harness 而异。
-- 拉取与会话压缩之后的推送已经实现（推送的内容与上一条不同，见现状与差距）：
-  - 拉取：agent 经 actor API 的 READ 按话题句柄读话题，不新增 actor 操作，权限沿用 `memory.read`；句柄的形态、与 alias 的互斥、可见性与结局见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节，alias 的保留前缀见 [MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)第 1.2 节，索引与一条原文的渲染见 [MemoryCompiler](../patchouli/memory-compiler.md#41-话题句柄的读取结果)第 4.1 节；
-  - 压缩之后的推送：Claude Code 压缩会话之后，插件的钩子以导入结果带回、连接器记下的话题标识读出会话最近一轮所在话题的索引并注入；注入什么、为什么只注入索引、注入哪个话题与读不到时怎样，见 [Import Bus](../system/import-bus.md#82-hooks)第 8.2 节，MCP 一侧的约定见 [MCP 记忆访问](../contracts/mcp.md#31-读话题句柄)第 3.1 节；
-  - 推送是从话题到会话的单向读出，见[系统架构概览](../architecture/overview.md#7-短期记忆话题是前台与中期之间由-hivememory-持有的一环)第 7 节的跨层不变量。
-- 候选，当前话题的句柄：`topic:current` 表示这个会话这一轮所在的话题。读取之前连接器像写入一样补上这一轮的信息，MCP 入口按上面的归属规则为这一轮确定话题，再换成真实句柄去读；pi 与 DeepSeek Harness 用自己的工具做同样的事。skill 引导 agent 在用户回到之前的工作时先读它。
-- 候选：压缩之后的指针写明它来自 HiveMemory 与读取的方法，句柄取自连接器记下的话题，不写记忆内容。
+- 短期记忆的目的是让回到话题的 agent 知道话题进行到哪一步：一项工作做到哪了，或一段对话聊到哪了。使用点、拉取与推送的分工已经实现：
+  - 两个使用点（被路由回已有话题时、会话压缩之后的失忆窗口），拉取是基线、推送只在会话压缩之后且只推送一个指针、不推送话题或中期记忆的内容，以及为什么不在轮首推送：见[系统架构概览](../architecture/overview.md#7-短期记忆话题是前台与中期之间由-hivememory-持有的一环)第 7 节；
+  - 话题的归属按需确定、每轮至多一次，写入或更新之前、读当前话题之前与轮次结束导入时共用同一个为一轮确定话题：见 [Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)第 4.7 节；
+  - 拉取：agent 经 actor API 的 READ 按话题句柄读话题，不知道话题 id 时读 `topic:current`；句柄的形态、`topic:current` 的确定与替换、与 alias 的互斥、可见性与结局见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节，alias 的保留前缀见 [MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)第 1.2 节，索引与一条原文的渲染见 [MemoryCompiler](../patchouli/memory-compiler.md#41-话题句柄的读取结果)第 4.1 节，MCP 一侧的轮次信息与未解析时的说明见 [MCP 记忆访问](../contracts/mcp.md#31-读话题句柄)第 3.1 节；
+  - 压缩之后的指针：Claude Code 压缩会话之后，插件的钩子以连接器记下的话题写出句柄与一句读法，不发网络请求，见 [Import Bus](../system/import-bus.md#82-hooks)第 8.2 节；
+  - 话题向会话只是单向读出，见[系统架构概览](../architecture/overview.md#7-短期记忆话题是前台与中期之间由-hivememory-持有的一环)第 7 节的跨层不变量。
 - 候选：话题池也签发句柄，在话题池界面显示，需要先出样稿。
-- 长 turn 中压缩常发生在一轮中间，索引能否覆盖这一轮前面的部分，取决于一轮之内写一条（暂缓）与一轮进行中接收已完成的事件。
+- 长 turn 中压缩常发生在一轮中间，读到的索引能否覆盖这一轮前面的部分，取决于一轮之内写一条（暂缓）与一轮进行中接收已完成的事件。
 
 **现状与差距**：
 
-- 拉取已实现。压缩之后的推送已实现，但推送的是索引：钩子经 MCP 读出会话最近一轮所在话题的索引并注入（链接见上）；改为只推指针时，钩子直接用连接器记下的话题标识写出一句话，不再发网络请求。
-- `topic:current` 没有实现：MCP 的 `memory_read` 不带这一轮的信息，确定话题的 Import Bus 服务现在只在写入时由 MCP 入口调用（[MCP 记忆访问](../contracts/mcp.md)）。
+- 拉取、`topic:current` 与压缩之后的指针已实现（链接见上）；agent 是否按 skill 去读 `topic:current`、是否读指针中的句柄，要在日常使用里看。
 - 一个外部会话在哪个话题上，只记得最近一轮所在的那一个：连接器为每个会话记下导入结果带回的话题，随状态文件跨过后端重启（[Import Bus](../system/import-bus.md#84-结束判定与游标)第 8.4 节）；后端不保存外部会话。
-- controller 模式下 Alice 的上下文不含话题（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）；Alice 的 MTP READ 能读话题句柄，但没有地方发给它句柄。
-- `determine_topic` 已供任务进程的线程表与 Import Bus 编排器使用，MCP 写入时以它在一轮结束前确定话题（[能力层](../workspace/capability.md)）。日常一次话题路由约 3 秒。
+- controller 模式下 Alice 的上下文不含话题（[Agent Runtime](../alice/agent-runtime.md#3-输入上下文与-prompt-组装)）；Alice 的 MTP READ 能读话题句柄，但没有地方发给它句柄，`topic:current` 在 MTP 中按未命中处理。
+- `determine_topic` 已供任务进程的线程表与 Import Bus 编排器使用，MCP 写入与读当前话题时以它在一轮结束前确定话题（[能力层](../workspace/capability.md)）。日常一次话题路由约 3 秒。
 - Claude Code：`UserPromptSubmit` 与 `SessionStart` 都能返回 `additionalContext`；注入只保证交到模型手里，不保证模型会读；`PostCompact` 不能注入。Codex 的钩子是 `SessionStart`、`Stop`、`Interrupt` 与 `SessionEnd`；Codex、pi 与 DeepSeek Harness 的连接器不注入，它们能否注入内容没有核对。
 
 ## 8. 会话压缩（前台一侧）

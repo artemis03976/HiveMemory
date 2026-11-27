@@ -19,7 +19,7 @@ last_reviewed: 2026-11-03
 
 ## 问题与证据（2026-11-03）
 
-Import Bus 为导入轮次与写入时的在途轮次确定话题，经 Gateway 的话题路由在本 Workspace 的驻留话题中选择（[Gateway 分析](../gateway/analysis.md#3-topic-router只做选择)第 3 节，[Import Bus](../system/import-bus.md#47-写入时确定话题)第 4.7 节）。候选话题不区分来源与外部会话，外部会话的第一轮没有 `session_turns`，路由只凭这一轮的用户消息与候选话题的标题、摘要判断。
+Import Bus 为导入轮次与写入时的在途轮次确定话题，经 Gateway 的话题路由在本 Workspace 的驻留话题中选择（[Gateway 分析](../gateway/analysis.md#3-topic-router只做选择)第 3 节，[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)第 4.7 节）。候选话题不区分来源与外部会话，外部会话的第一轮没有 `session_turns`，路由只凭这一轮的用户消息与候选话题的标题、摘要判断。
 
 2026-11-02（UTC 11-03）的一次实例：
 

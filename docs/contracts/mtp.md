@@ -96,7 +96,7 @@ SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”�
 - 全部 alias 未命中时返回 error；
 - 部分未命中时返回已解析内容，并把缺失 alias 放入 warnings；
 - 提交 `ResolveReferencesRequest`；workspace 对交付的正式 atom 与可读 redirect 目标自动记录 `workspace.reference_read` citation，同次请求按正式 UUID 去重，缓存命中同样计数；
-- TARGET 也可以是话题句柄，可以与记忆 alias 混在一个列表里：`topic:<id>` 读话题的进展记录索引，`topic:<id>#<n>` 读第 n 条的全文与它覆盖的原文；话题已离开话题池时交付过期说明，不合语法或条目越界按未命中处理；读话题不记录 citation（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）。条目原文中的外部工具结果按缺省的截断上限截断：Alice 的装配不持有生成材料的截断配置。
+- TARGET 也可以是话题句柄，可以与记忆 alias 混在一个列表里：`topic:<id>` 读话题的进展记录索引，`topic:<id>#<n>` 读第 n 条的全文与它覆盖的原文；话题已离开话题池时交付过期说明，不合语法或条目越界按未命中处理；`topic:current` 同样按未命中处理：线程提交的读取不带确定话题的回调，不为这一轮确定话题；读话题不记录 citation（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）。条目原文中的外部工具结果按缺省的截断上限截断：Alice 的装配不持有生成材料的截断配置。
 
 alias 是运行期稳定称呼，不等于永久 UUID。它让模型使用可读、短小的引用，又允许 Runtime 把同一名称解析为正式 atom、尚未结算的 PendingAtom 或修订后的 redirect。redirect 保留旧称呼的可追踪性，但通过 warning 提醒 Agent 目标已经演化；terminal 状态则防止一个失败或过期意图继续伪装成有效记忆。
 

@@ -272,7 +272,7 @@ Import Bus 不在 user turn 开始时返回记忆 context，取得记忆属于�
 - WRITE 与 UPDATE 始终产生写入句柄（PendingAtom）并交还前台 actor，作为读写一致性的保障；记忆生成完成后由结算事件触发重定向。这条链路任何一个环节断开，都说明迁移没有到位，需要返工，而不是另行设计。
 - 记忆编译的命名与文案不再按 MTP 编写。
 
-**现状**：已实现，见 [MCP 记忆访问](../contracts/mcp.md)、[Import Bus](../system/import-bus.md#47-写入时确定话题)第 4.7 节与[读取视图与写入意图](../workspace/read-view-and-write-intents.md)；当时的范围与候选设计在[已归档的计划](../archive/plans/v0.7.2-plugin-write-update.md)中。
+**现状**：已实现，见 [MCP 记忆访问](../contracts/mcp.md)、[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)第 4.7 节与[读取视图与写入意图](../workspace/read-view-and-write-intents.md)；当时的范围与候选设计在[已归档的计划](../archive/plans/v0.7.2-plugin-write-update.md)中。
 
 ### controller 模式的步骤分析（退回候选方向）
 
@@ -374,7 +374,7 @@ Import Bus 不在 user turn 开始时返回记忆 context，取得记忆属于�
 
 **问题**：Import Bus 在一轮交互完整结束后才做 Gateway 路由，交互进行中没有目标话题，而写入意图恰好在这段时间内提交；写入意图派发到 Patchouli 时必须携带话题（`MemoryIntent.topic_id` 必填，[意图契约](../../src/hivememory/patchouli/contracts/memory_intent.py)）。plugin 模式没有进程与线程，MCP 请求头是插件配置中的静态值，不携带外部会话或轮次标识。
 
-**设计**：写入时就地确定话题（选项 D）。连接器以 `PreToolUse` hook 为 HiveMemory 的写入与更新工具补上外部会话与本轮的标识；本轮第一次写入时，以轮次结束时相同的输入对这一轮做话题路由并登记得到的话题，写入以该话题派发；轮次结束回流时，Import Bus 沿用登记的话题，不再路由。写入的话题因此就是本轮最终所在的话题，与主动链路中派发话题同义，生成材料同样不含本轮。现状见 [Import Bus](../system/import-bus.md#47-写入时确定话题)第 4.7 节与 [MCP 记忆访问](../contracts/mcp.md)第 6 节。
+**设计**：写入时就地确定话题（选项 D）。连接器以 `PreToolUse` hook 为 HiveMemory 的写入与更新工具补上外部会话与本轮的标识；本轮第一次写入时，以轮次结束时相同的输入对这一轮做话题路由并登记得到的话题，写入以该话题派发；轮次结束回流时，Import Bus 沿用登记的话题，不再路由。写入的话题因此就是本轮最终所在的话题，与主动链路中派发话题同义，生成材料同样不含本轮。现状见 [Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)第 4.7 节与 [MCP 记忆访问](../contracts/mcp.md)第 6 节。
 
 不采用的选项：
 

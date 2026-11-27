@@ -206,7 +206,7 @@ Import Bus 在交互应用完成之后才确认，失败按“重发能否得到
 
 请求进入 Import Bus 之前的拒绝沿用 server 与访问边界的分类：请求体超过 `import_bus.max_request_bytes` 在框架解析请求体之前以 413 `request.body_too_large` 拒绝，过大且不是合法 JSON 的请求不会落成 422；请求校验失败为 422，缺少 principal 声明（`request.principal_required`）、Agent 缺失或为 `system` 为 400，凭据缺失或不一致（`invalid_credential`）与其他未获准入为 403，认证网关已关闭为 503（第 4.4 节）。其中只有认证网关关闭的 503 可以稍后重发，其余拒绝重发也不会改变结果。
 
-外部 harness 经 MCP 写入与更新、actor API 授权通过之后，Import Bus 为这一轮确定话题，失败使用同一类型：Gateway 整体抛出可恢复异常为 `gateway_unavailable`，编排器关闭中为 `shutting_down`，这一轮已经提交、等待应用超时仍在应用时为 `apply_pending`。三者都直接交给等待中的写入方，写入方稍后重试即可，不发出 `import.turn.deferred`（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。
+外部 harness 经 MCP 写入、更新与读当前话题（`topic:current`）、actor API 授权通过之后，Import Bus 为这一轮确定话题，失败使用同一类型：Gateway 整体抛出可恢复异常为 `gateway_unavailable`，编排器关闭中为 `shutting_down`，这一轮已经提交、等待应用超时仍在应用时为 `apply_pending`。三者都直接交给等待中的写入方或读取方，调用方稍后重试即可，不发出 `import.turn.deferred`（[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)）。
 
 **提交队列的拥塞**：Patchouli 的公开提交路由在提交队列容量已满（`WorkQueueCapacityError`）或已停止（`WorkQueueStoppedError`）时抛出 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`），表示队列没有接管这次提交；Import Bus 把它转为 `queue_unavailable`，因此这两种拥塞以 503 返回，不落入 500；任务进程把它转为接纳阶段的 `ActiveInteractionFinalizationError`（第 4.5 节）。`InteractionAdmissionUnavailableError` 本身没有 HTTP 映射，由消费它的一方翻译。
 
@@ -262,7 +262,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 - 取消把 root 授权的拒绝（请求方驻留在其他 Workspace、不是 `system`）呈现为 `not_found`，不返回 403，不泄露进程是否存在。
 - 系统自身的 principal 未登记时，chat 注册、导入与 MCP 写入、更新以 `unknown_principal` 拒绝，与调用方自己的 principal 未登记同一原因（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。
 - 凭据错误与未登记分开报告（`invalid_credential` 与 `unknown_principal`），用户才能区分“没登记”和“凭据不对”；两者都不泄露凭据本身。外部入口缺少 principal 声明时在入口以 400 `request.principal_required` 拒绝，不经网关。
-- HTTP 映射由 server 的异常处理器统一完成（`server/error_handlers.py`），响应体包含稳定机器码 `error`、安全 `detail` 与可选 `reason`，不暴露接入凭据。MCP 入口复用同一投影，把结果写入 `isError` 的工具结果；写入与更新缺少连接器补上的轮次信息时，在认证前以 400 `request.turn_required` 拒绝（[MCP 记忆访问](./mcp.md#5-错误)）。
+- HTTP 映射由 server 的异常处理器统一完成（`server/error_handlers.py`），响应体包含稳定机器码 `error`、安全 `detail` 与可选 `reason`，不暴露接入凭据。MCP 入口复用同一投影，把结果写入 `isError` 的工具结果；写入与更新缺少连接器补上的轮次信息时，在认证前以 400 `request.turn_required` 拒绝；读取没有带轮次信息、全部 alias 都未解析且其中有 `topic:current` 时，同样以 400 `request.turn_required` 拒绝，而不是资源不存在（[MCP 记忆访问](./mcp.md#5-错误)）。
 - 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
 
 访问登记的运行时编辑（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节）被拒时，登记与文件都保持原样：要修改或删除的接入登记或访问记录不存在时抛 `AccessRegistrationNotFoundError`（`access.registration.not_found`，404）；与现有登记冲突，或该登记只能经文件修改时抛 `AccessRegistrationConflictError`（`access.registration.conflict`，409），`reason` 为 `protected`（进程内来源与保留的 `system` 记录）、`duplicate`（principal 已登记）、`credential_from_env`（凭据来自环境变量，不能轮换）或 `file_modified`（登记文件在运行中被手工改动）。两者定义在 `core.errors`，接入登记（System）与访问记录（workspace）共用。

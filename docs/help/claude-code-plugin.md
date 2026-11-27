@@ -21,8 +21,8 @@ last_reviewed: 2026-11-26
 仓库提供 Claude Code 插件 `hivememory-connector`，它做四件事：
 
 - **对话回流**：Claude Code 的每一轮对话结束后，插件把这一轮（用户消息、回复、Claude Code 本地记录的思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。它的 hook 只做本地记录，网络提交在后台进程中完成，HiveMemory 未运行时 Claude Code 照常工作，未导入的轮次在之后被唤醒时按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
-- **记忆访问**：插件声明了 HiveMemory 的 MCP server，Claude Code 的 agent 可以调用 `memory_search` 检索记忆、`memory_read` 按 alias 读取全文、`memory_write` 写入值得长期保存的内容、`memory_update` 修正检索到的已有记忆。插件不主动向 Claude Code 注入记忆，何时检索与写入由 agent 自己决定；写入与更新前，插件的 hook 在本地为调用补上当前一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题。契约见 [MCP 记忆访问](../contracts/mcp.md)。
-- **压缩之后的话题索引**：Claude Code 压缩会话之后，插件把这个会话所在话题的进展记录索引注入对话开头，告诉 agent 压缩之前的工作进行到哪一步；agent 可以照着索引中的句柄读回原文（第 8.1 节）。这是插件唯一的注入。
+- **记忆访问**：插件声明了 HiveMemory 的 MCP server，Claude Code 的 agent 可以调用 `memory_search` 检索记忆、`memory_read` 按 alias 读取全文、`memory_write` 写入值得长期保存的内容、`memory_update` 修正检索到的已有记忆。插件不主动向 Claude Code 注入记忆，何时检索与写入由 agent 自己决定；写入与更新前，插件的 hook 在本地为调用补上当前一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题。agent 要接上之前的工作时，可以读 `topic:current` 得到这一轮所在话题的进展记录索引，读之前 hook 同样补上这一轮的信息（第 6 节）。契约见 [MCP 记忆访问](../contracts/mcp.md)。
+- **压缩之后的话题指针**：Claude Code 压缩会话之后，插件在对话开头注入一个指针：这个会话所在话题的句柄与一句读法，不含记忆内容；agent 需要接上压缩之前的工作时读这个句柄，得到话题的进展记录索引（第 8.1 节）。这是插件唯一的注入。
 - **使用手册 skill**：插件附带 skill `hivememory`（`skills/hivememory/SKILL.md`），在 Claude Code 中名为 `hivememory-connector:hivememory`。它说明何时检索、怎样采信记忆、什么值得写入、怎样写才能被以后找到、何时修正已有记忆，以及怎样与 Claude Code 自己的记忆文件共存。Claude Code 按 skill 的描述在需要时加载，也可以输入 `/hivememory-connector:hivememory` 手动加载。skill 的内容不区分 harness，DeepSeek Harness 等其他 harness 用的是同一份。skill 的语言随 HiveMemory 的语言设置：后端每次启动时从插件目录的 `skill-languages/<语言>/SKILL.md` 写入 `skills/hivememory/SKILL.md`（[配置指南](./configuration.md#54-语言)）。Claude Code 保存的是插件的副本，改语言后要在插件页重新安装一次。
 
 这几部分都以 Claude Code 自己的接入来源 `harness:claude-code` 认证。新安装的 HiveMemory 不连接任何 harness：在设置页的“插件”页安装之后才有这个来源和它的凭据（第 2 节）。
@@ -42,16 +42,16 @@ last_reviewed: 2026-11-26
 
 在设置页的“插件”页点 Claude Code 的“安装”，HiveMemory 依次完成：
 
-1. 用 Claude Code 自己的命令安装插件：本地 marketplace `hivememory-local` 指向插件目录（安装版是程序目录中的 `resources\backend\integrations`，从仓库运行时是仓库的 `integrations`），再安装 `hivememory-connector@hivememory-local`。marketplace 已经指向别处（例如另一个 checkout）时先移除再添加；插件已经装过时改为更新。随后在 Claude Code 的用户设置中放行写入与更新两个工具（见下文）。
+1. 用 Claude Code 自己的命令安装插件：本地 marketplace `hivememory-local` 指向插件目录（安装版是程序目录中的 `resources\backend\integrations`，从仓库运行时是仓库的 `integrations`），再安装 `hivememory-connector@hivememory-local`。marketplace 已经指向别处（例如另一个 checkout）时先移除再添加；插件已经装过时改为更新。随后在 Claude Code 的用户设置中放行插件 hook 改写参数的三个工具（见下文）。
 2. 登记接入来源 `harness:claude-code`，初始只能声明 Agent `claude_code`，凭据由 HiveMemory 生成。
 3. `claude_code` 还没有访问记录时，为它补一条只开放检索、读取、写入与更新的记录（第 5 节）。
 4. 把凭据写进 Windows 用户环境变量 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，把运行 HiveMemory 的 Python 写进 `HIVEMEMORY_PYTHON`。插件的 hook 用它运行连接器，电脑上不需要另装 Python。
 
-**写入与更新的放行规则**：插件的 `PreToolUse` hook 在写入与更新之前给参数补上当前一轮的信息。auto 模式审查的是模型写的参数，hook 改写之后审查不覆盖实际执行的参数，Claude Code 以 “a hook changed this call's input after auto mode reviewed it” 拒绝执行，hook 自己给出放行也一样；用户设置中的 allow 规则匹配时不经这次审查。插件不能自带权限设置，所以第 1 步在用户设置 `~/.claude/settings.json`（设置了 `CLAUDE_CONFIG_DIR` 时是那个目录中的 `settings.json`）的 `permissions.allow` 中加入 `mcp__plugin_hivememory-connector_hivememory__memory_write` 与 `mcp__plugin_hivememory-connector_hivememory__memory_update`，其余设置与规则原样保留，卸载时删除这两条。检索与读取的参数不被改写，照常经 auto 模式审查。有了这两条规则，其他权限模式下写入与更新也不再逐次确认。设置文件不是有效的 JSON 时不改动它，安装以“设置文件读不懂”失败，页面给出文件位置，修好后重试。
+**放行规则**：插件的 `PreToolUse` hook 在写入、更新与读 `topic:current` 之前给参数补上当前一轮的信息。auto 模式审查的是模型写的参数，hook 改写之后审查不覆盖实际执行的参数，Claude Code 以 “a hook changed this call's input after auto mode reviewed it” 拒绝执行，hook 自己给出放行也一样；用户设置中的 allow 规则匹配时不经这次审查。插件不能自带权限设置，所以第 1 步在用户设置 `~/.claude/settings.json`（设置了 `CLAUDE_CONFIG_DIR` 时是那个目录中的 `settings.json`）的 `permissions.allow` 中放行 hook 匹配的工具。规则取自插件 `hooks/hooks.json` 中 `PreToolUse` 的 matcher，放行的工具与 hook 改写参数的工具因此是同一份清单，现在是 `mcp__plugin_hivememory-connector_hivememory__memory_write`、`mcp__plugin_hivememory-connector_hivememory__memory_update` 与 `mcp__plugin_hivememory-connector_hivememory__memory_read` 三条。已有的本插件规则（以 `mcp__plugin_hivememory-connector_hivememory__` 开头）不在清单中的删除，其余设置与规则原样保留；卸载时删除全部本插件规则。检索的参数不被改写，照常经 auto 模式审查；读取放行之后，不读 `topic:current` 的读取也不再经 auto 模式审查。有了这三条规则，其他权限模式下写入、更新与读取也不再逐次确认。设置文件不是有效的 JSON 时不改动它，安装以“设置文件读不懂”失败，页面给出文件位置，修好后重试。
 
 第 1 步失败时什么都不登记，页面给出失败的命令、输出的最后几行和手动安装的命令。之后完全退出 Claude Code 再打开：已经在运行的程序与终端读不到新写入的环境变量。
 
-插件挂载 `Stop`、`StopFailure`、`SessionStart`（超时 15 秒，其余为 10 秒）、`SessionEnd` 与只匹配本插件写入、更新工具的 `PreToolUse` 五个 hook，在 `.mcp.json` 中声明 MCP server `hivememory`，并附带 skill `hivememory`。安装时 Claude Code 保存的是插件的副本（第 10 节说明怎样更新）。
+插件挂载 `Stop`、`StopFailure`、`SessionStart`、`SessionEnd` 与只匹配本插件写入、更新与读取工具的 `PreToolUse` 五个 hook（超时都是 10 秒），在 `.mcp.json` 中声明 MCP server `hivememory`，并附带 skill `hivememory`。安装时 Claude Code 保存的是插件的副本（第 10 节说明怎样更新）。
 
 ## 3. 手动安装
 
@@ -62,14 +62,15 @@ last_reviewed: 2026-11-26
 /plugin install hivememory-connector@hivememory-local
 ```
 
-装好之后回到插件页，点“已用命令装好，完成登记”：HiveMemory 只完成第 2 节的第 2 至 4 步，不写放行规则。在 auto 模式下使用时，自己把两条规则加进 `~/.claude/settings.json`（已有 `permissions.allow` 时并进去）：
+装好之后回到插件页，点“已用命令装好，完成登记”：HiveMemory 只完成第 2 节的第 2 至 4 步，不写放行规则。在 auto 模式下使用时，自己把三条规则加进 `~/.claude/settings.json`（已有 `permissions.allow` 时并进去）：
 
 ```json
 {
   "permissions": {
     "allow": [
       "mcp__plugin_hivememory-connector_hivememory__memory_write",
-      "mcp__plugin_hivememory-connector_hivememory__memory_update"
+      "mcp__plugin_hivememory-connector_hivememory__memory_update",
+      "mcp__plugin_hivememory-connector_hivememory__memory_read"
     ]
   }
 }
@@ -105,7 +106,8 @@ last_reviewed: 2026-11-26
 配置完成并重新打开 Claude Code 后，在 Claude Code 中执行 `/mcp`：插件的 `hivememory` 应显示已连接，并提供 `memory_search`、`memory_read`、`memory_write` 与 `memory_update` 四个工具。
 
 - 工具说明要求 agent 把检索结果当作带日期的历史证据：仓库中的代码与文档、Claude Code 自己的项目指令与记忆文件优先于检索结果。
-- 写入与更新由插件页写入的放行规则放行，不逐次确认（第 2 节）；没有这两条规则时按 Claude Code 的权限设置确认，确认框中的参数带有 `turn`，是插件补上的当前一轮信息，不需要修改，auto 模式下则会被拦下。结果是一个 pending alias（写入以 `draft_` 开头，更新以 `rev_` 开头），表示已被接纳、正式记忆仍在后台生成；可以用 `memory_read` 读取它，生成完成后读取会转到正式记忆。工具结果提示缺少当前一轮的信息（`request.turn_required`）时，说明插件的 hook 没有运行，检查插件是否已更新并重启了 Claude Code。
+- 写入、更新与读取由插件页写入的放行规则放行，不逐次确认（第 2 节）；没有这些规则时按 Claude Code 的权限设置确认，写入、更新与读 `topic:current` 的确认框中参数带有 `turn`，是插件补上的当前一轮信息，不需要修改，auto 模式下则会被拦下。结果是一个 pending alias（写入以 `draft_` 开头，更新以 `rev_` 开头），表示已被接纳、正式记忆仍在后台生成；可以用 `memory_read` 读取它，生成完成后读取会转到正式记忆。工具结果提示缺少当前一轮的信息（`request.turn_required`）时，说明插件的 hook 没有运行，检查插件是否已更新并重启了 Claude Code。
+- 用户回到之前的工作时，agent 按 skill 读 `topic:current`，得到这个会话这一轮所在话题的进展记录索引；第一次读要等 HiveMemory 为这一轮确定话题，这一轮已经写入过时直接沿用。hook 没有运行时，读取结果说明 `topic:current` 需要插件补上这一轮的信息，只读它时返回 `request.turn_required`。
 - HiveMemory 未运行时，Claude Code 重试后把 `hivememory` 标为连接失败，四个工具不出现，工作照常进行；HiveMemory 恢复后，在 Claude Code 中执行 `/mcp reconnect all` 或重新打开会话。
 - 经 MCP 读取的正式记忆会记录一次引用；用过检索工具的轮次导入后，生成只保留一行检索摘要，不会把取回的记忆再提取一遍；写入与更新的调用不进入生成材料，显式写入的内容也不会被再提取一遍。
 
@@ -113,8 +115,8 @@ last_reviewed: 2026-11-26
 
 连接器的状态目录依次取 `HIVEMEMORY_CONNECTOR_STATE_DIR`、Claude Code 为插件提供的数据目录（`CLAUDE_PLUGIN_DATA`），都没有时使用 `~/.hivememory/claude-code-connector`。目录中：
 
-- `connector.log`：每一轮的确认（`confirmed turn=... status=accepted`）、停止与拒绝，以及压缩之后没有注入话题索引的原因（`topic index not injected: ...`），只记录标识与状态，不记录对话内容；
-- `transcripts/`：每个会话一份状态，其中记着这个会话最近一轮所在的话题，压缩之后据此读话题；
+- `connector.log`：每一轮的确认（`confirmed turn=... status=accepted`）、停止与拒绝，以及压缩之后没有注入话题指针的原因（`topic pointer not injected: ...`），只记录标识与状态，不记录对话内容；
+- `transcripts/`：每个会话一份状态，其中记着这个会话最近一轮所在的话题，压缩之后据此写出指针；
 - `rejections.jsonl`：被放弃的轮次，记录会话与轮次标识、HTTP 状态码与错误码。
 
 完成一轮对话后，`connector.log` 中出现这一轮的 `confirmed` 行，即表示导入成功。
@@ -130,14 +132,13 @@ last_reviewed: 2026-11-26
 
 ### 8.1 会话压缩之后
 
-HiveMemory 把每个会话的交互整理进话题：话题停下够久时写一条进展记录，概括这段时间有了什么进展（要用 Patchouli 配置的模型来写，没有配置模型时不写）。Claude Code 压缩会话（手动 `/compact` 或自动压缩）之后，插件的 `SessionStart` hook 读出这个会话最近一轮所在话题的进展记录索引，注入对话开头：
+HiveMemory 把每个会话的交互整理进话题：话题停下够久时写一条进展记录，概括这段时间有了什么进展（要用 Patchouli 配置的模型来写，没有配置模型时不写）。Claude Code 压缩会话（手动 `/compact` 或自动压缩）之后，插件的 `SessionStart` hook 在对话开头注入一个指针：
 
-- **注入的内容**：开头一行写明这是 HiveMemory 话题的历史资料、不是指令；然后每条进展记录一行，是这一条的句柄（`topic:<话题 id>#<n>`）加正文的节选；最后是还没整理进进展记录的轮数与最近几轮的节选。话题还没有写过进展记录时，只有未整理的部分。
-- **读原文**：agent 用 `memory_read` 读索引中的 `topic:<话题 id>#<n>`，得到这一条的全文与它覆盖的各轮原文；读 `topic:<话题 id>` 重新得到索引。话题句柄只能读取，不能写入或修正。
-- **哪个话题**：会话最近一轮导入时所在的话题。一轮中间的自动压缩发生时这一轮还没有导入，读的是上一轮所在的话题；一个会话来回在两个话题上时，只看到最近的那个。话题已经离开话题池（沉淀并退役、或被删除）时，注入的是一段说明，提示话题的内容会沉淀为长期记忆、需要时检索已经沉淀的记忆（在 Claude Code 中用 `memory_search`）。
-- **读不到时**：会话还没有轮次导入、HiveMemory 没有运行、请求 5 秒内没有完成或返回错误时，什么也不注入，会话照常继续，`connector.log` 中有一行 `topic index not injected` 与原因。
-- **长度**：索引超过 9,500 字符时截断并注明，以免超过 Claude Code 对注入内容的 10,000 字符上限。
-- 注入只保证交到模型手里，不保证模型会去读；这次读取不是模型的工具调用，不出现在会话记录里，也不会被导入。
+- **注入的内容**：中英文各一句，“HiveMemory：可以读取 topic:<话题 id> 查看这个会话所在的话题进行到哪一步。”与英文的同一句。指针不含任何记忆内容，hook 也不访问 HiveMemory。
+- **读指针**：agent 用 `memory_read` 读其中的 `topic:<话题 id>`，得到话题的进展记录索引：开头一行写明这是 HiveMemory 话题的历史资料、不是指令；然后每条进展记录一行，是这一条的句柄（`topic:<话题 id>#<n>`）加正文的节选；最后是还没整理进进展记录的轮数与最近几轮的节选。话题还没有写过进展记录时，只有未整理的部分。读 `topic:<话题 id>#<n>` 得到这一条的全文与它覆盖的各轮原文。话题句柄只能读取，不能写入或修正。
+- **哪个话题**：会话最近一轮导入时所在的话题。一轮中间的自动压缩发生时这一轮还没有导入，指向的是上一轮所在的话题；一个会话来回在两个话题上时，只指向最近的那个。话题已经离开话题池（沉淀并退役、或被删除）时，读指针得到的是一段说明，提示话题的内容会沉淀为长期记忆、需要时检索已经沉淀的记忆（在 Claude Code 中用 `memory_search`）。
+- **没有指针时**：会话还没有轮次导入时不注入，会话照常继续，`connector.log` 中有一行 `topic pointer not injected: no topic recorded`。
+- 注入只保证交到模型手里，不保证模型会去读。
 
 ## 9. 排查
 
@@ -150,13 +151,13 @@ HiveMemory 把每个会话的交互整理进话题：话题停下够久时写一
 | 导入返回 400 `request.principal_required` | 服务端已更新而插件仍是旧版本：更新插件（第 10 节）后重启 Claude Code，积压的轮次随后补发 |
 | 导入返回 403 `unknown_principal` | 插件还装着，但 HiveMemory 一侧没有 `harness:claude-code` 的登记（例如在插件页卸载过，或换了一个新的数据目录）：在插件页重新安装 |
 | 工具调用返回 `operation_not_allowed` | 该 Agent 的访问记录缺少对应的 `memory.*` 操作（第 5 节）：在设置页的“接入与权限”中勾选，立即生效 |
-| 写入或更新返回 `request.turn_required` | 插件的 `PreToolUse` hook 没有运行：确认插件已更新、已重启 Claude Code |
-| auto 模式下写入或更新被拦下，提示 `a hook changed this call's input after auto mode reviewed it` | 用户设置中没有两条放行规则：在插件页点“重新安装”写入，或按第 3 节手动加入 |
+| 写入或更新返回 `request.turn_required`，或读 `topic:current` 时说明需要插件补上这一轮的信息 | 插件的 `PreToolUse` hook 没有运行：确认插件已更新、已重启 Claude Code |
+| auto 模式下写入、更新或读 `topic:current` 被拦下，提示 `a hook changed this call's input after auto mode reviewed it` | 用户设置中没有对应的放行规则：在插件页点“重新安装”写入，或按第 3 节手动加入 |
 | 工具调用返回 `request.workspace_not_found` | `X-Workspace-ID` 只接受 `main_workspace` |
 | MCP 请求返回 421 | MCP 端点只接受带端口的本机地址（`localhost`、`127.0.0.1`、`[::1]`）；`HIVEMEMORY_URL` 改用这些地址 |
-| 压缩之后对话开头没有话题索引 | 看 `connector.log` 中 `topic index not injected` 一行的原因：`no topic recorded` 表示这个会话还没有轮次导入成功；`unreachable` 表示 HiveMemory 没有运行或 5 秒内没有响应；`status=...` 与 `tool error` 表示请求被拒绝，按上面几行检查凭据与访问登记。插件是旧版本时没有这项功能，更新插件（第 10 节） |
+| 压缩之后对话开头没有话题指针 | `connector.log` 中有 `topic pointer not injected: no topic recorded` 时，这个会话还没有轮次导入成功，先按第 7 节确认导入。插件是旧版本时注入的是索引或没有这项功能，更新插件（第 10 节） |
 
 ## 10. 更新与卸载
 
 - **更新**：Claude Code 保存的是插件的副本，插件目录更新后要重新安装才能读到。桌面客户端覆盖安装新版本之后，后端启动时自动为插件页装过的 Claude Code 重新安装插件，失败时插件页把它标为“需要更新”；从仓库运行时，更新代码后在插件页点“重新安装”，或执行 `claude plugin marketplace update hivememory-local` 与 `claude plugin update hivememory-connector@hivememory-local`。之后重启 Claude Code。插件与 HiveMemory 需要一起升级：新插件导入的轮次可能带旧版 HiveMemory 不认识的内容，会被整轮拒绝。
-- **卸载**：在插件页点 Claude Code 的“卸载”：卸载 Claude Code 中的插件（保留插件的数据目录，重新安装后不必从头补发）、移除本地 marketplace，删除用户设置中两条放行规则，删除 `harness:claude-code` 的登记、凭据与写入的环境变量；`claude_code` 的访问记录与已经写入的记忆保留。再重启 Claude Code。
+- **卸载**：在插件页点 Claude Code 的“卸载”：卸载 Claude Code 中的插件（保留插件的数据目录，重新安装后不必从头补发）、移除本地 marketplace，删除用户设置中本插件的放行规则，删除 `harness:claude-code` 的登记、凭据与写入的环境变量；`claude_code` 的访问记录与已经写入的记忆保留。再重启 Claude Code。

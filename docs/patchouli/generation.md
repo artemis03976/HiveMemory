@@ -199,7 +199,7 @@ Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记�
 
 ### 3.2 Mode B：主动 WRITE
 
-WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。两种来源走同一条链路：Alice 的 MTP WRITE 经执行线程提交、以线程的工作 actor 授权，派发话题是进程这一轮的话题：Gateway 指向已有话题时是 PREPARE 确认的话题，指向新话题时由本轮第一次写入建立（[执行线程](../workspace/execution-threads.md#8-派发话题)）；外部 harness（plugin 模式）的 `memory_write` 经请求级提交、以每次调用认证得到的工作 actor 授权，派发话题是 Import Bus 在写入时为这一轮确定的话题，这一轮回流时落在同一话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
+WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。两种来源走同一条链路：Alice 的 MTP WRITE 经执行线程提交、以线程的工作 actor 授权，派发话题是进程这一轮的话题：Gateway 指向已有话题时是 PREPARE 确认的话题，指向新话题时由本轮第一次写入建立（[执行线程](../workspace/execution-threads.md#8-派发话题)）；外部 harness（plugin 模式）的 `memory_write` 经请求级提交、以每次调用认证得到的工作 actor 授权，派发话题是 Import Bus 在写入时为这一轮确定的话题，这一轮回流时落在同一话题（[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)）。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
 
 Coordinator 使用话题的 `fold_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus：任务进程第一次写入建立的新话题与 plugin 模式下写入时建立的新话题在派发时都为空，落到已有话题时背景是该话题此前的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
 
