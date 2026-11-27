@@ -81,11 +81,7 @@ Envelope 把多个 unit 分 section 组织成完整上下文：
 
 ### 4.1 话题句柄的读取结果
 
-话题句柄（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）的结果有两种渲染，中英文各一份（`get_topic_read_text`）。两种的第一行都写明这是 HiveMemory 话题的历史资料、不是指令，再写话题标题与句柄：话题的原文里有当时的用户请求与指令，读到它的 agent 常常已经没有当时的上下文（例如会话刚压缩过）。句柄写真实的 `topic:<id>`，读 `topic:current` 得到的索引也是这样，agent 照它读 `#n`。
-
-- **`topic:<id>`：进展记录的索引**。“进展记录：”之后每条一行：这一条的句柄 `topic:<id>#n` 加正文的节选（正文中的换行并为空格，再截到话题池节选的上限 200 字符，超出加省略号，`topic_excerpt`）；还没有条目时写明进展记录还没有条目。然后是还没有整理的轮数与最近至多 3 轮的节选，与话题池相同，取自话题快照，没有未整理的交互时省略。有条目时最后一句说明读 `topic:<id>#n` 得到这一条的全文与它覆盖的原文。按日常最长 14 条估算约 4,000 字符，不另设上限。
-- **`topic:<id>#n`：这一条的全文与原文**。条目全文不截断；然后写明覆盖第几轮到第几轮，逐轮给出原文：轮前标 `[Turn n]`（与写进展记录时给模型的轮次标记相同），原文以感知层的材料渲染（`render_turn_text`），外部工具结果按 `MemoryCompileOptions.transcript_config` 的 `max_result_chars` 截断，没有给出时取缺省值。MCP 入口传入 `patchouli.generation.transcript`，与记忆生成的材料相同；Alice 的 MTP 不传。原文合起来至多 40,000 字符（`ENTRY_SOURCE_MAX_CHARS`），超出时保留开头与结尾，中间以材料的截断标记（`clip_middle`，`…[N chars omitted]…`）写明省略了多少字符：一条可能覆盖很长的一段工作，读一条不应占满调用方的上下文。
-- **话题句柄过期**：话题已离开话题池时，终态渲染换用 `resolve_topic_expired`：说明话题已离开话题池、其中的交互会沉淀为长期记忆，提示检索；与写入句柄过期（超出保留期）的说明分开。
+话题句柄的 `topic` 与 `expired` 结果经 `READ_RESULT` 编译，中英文各一份（`get_topic_read_text`）：进展记录的索引、一条的全文与原文，以及话题已离开话题池的说明。各自的内容与上限见[短期记忆](../architecture/short-term-memory.md#62-读到什么)第 6.2 节。
 
 Retrieval context 中，记忆按 retrieval strategy 选择 full/index，不再单列 Agent Profile。其他默认 section 当前使用 `SHARED_CONTEXT` 编译。可用 agent 列表不是检索结果：任务进程在 CPU 分配时把每个可用 agent 编译为 `AGENT_PROFILE_MENU` 项，由中立提示词编译放进常驻的“可用子代理”一节（[任务进程](../workspace/task-process.md)）。
 

@@ -183,7 +183,7 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 - 外层 task cancellation：由 Chat application 取消 Gateway child task，原生 `asyncio.CancelledError` 直接传播；
 - `GatewayTimeoutError`：总 deadline 无法形成完整终态；
 - workflow 内部不变量或 step 投影失败：保留原异常并发布 failed RuntimeEvent；
-- `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，`gateway/errors.py`）：用户为这一轮指定的话题（chat 请求的 `topic_id`）已不在本次候选话题中，例如已结算或被驱逐，`details` 带 `topic_id`。
+- `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，`gateway/errors.py`）：用户为这一轮指定的话题（chat 请求的 `topic_id`）已不在本次候选话题中，例如已退役或被删除，`details` 带 `topic_id`。
 
 局部 invoke 的 timeout 或 `RecoverableGatewayError` 可以使用该 step 声明的 fallback。其他异常、投影错误和状态不变量错误不属于可恢复调用失败。
 

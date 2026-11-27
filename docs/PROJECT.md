@@ -223,7 +223,7 @@ Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成
 
 代码入口：`src/hivememory/patchouli/system.py`、`runtime/`、`application/`、`services/`、`control/`、`memory_library/`，以及由它拥有的 `src/hivememory/engines/{perception,generation,retrieval,lifecycle,artifacts,memory_compiler}/`。
 
-当前设计入口：[Patchouli 总览](./patchouli/README.md)、[MemoryLibrary](./patchouli/memory-library.md)、[Artifacts](./patchouli/artifacts.md)、[感知](./patchouli/perception.md)、[生成](./patchouli/generation.md)、[检索](./patchouli/retrieval.md)、[生命周期](./patchouli/lifecycle.md)与 [MemoryCompiler](./patchouli/memory-compiler.md)。
+当前设计入口：[Patchouli 总览](./patchouli/README.md)、[MemoryLibrary](./patchouli/memory-library.md)、[Artifacts](./patchouli/artifacts.md)、[感知](./patchouli/perception.md)、[短期记忆](./architecture/short-term-memory.md)、[生成](./patchouli/generation.md)、[检索](./patchouli/retrieval.md)、[生命周期](./patchouli/lifecycle.md)与 [MemoryCompiler](./patchouli/memory-compiler.md)。
 
 ### 7.3 Alice
 
@@ -293,6 +293,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 ### 9.2 当前架构
 
 - [系统架构概览](./architecture/overview.md)
+- [短期记忆](./architecture/short-term-memory.md)
 - [系统边界与所有权](./architecture/boundaries.md)
 - [数据模型与可变性边界](./architecture/data-model.md)
 - [Architecture 索引](./architecture/README.md)

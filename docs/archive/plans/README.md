@@ -14,12 +14,12 @@ last_reviewed: 2026-11-24
 
 ## v0.8.1
 
-- 结算拆成沉淀与退役：空闲时只沉淀，话题留在话题池：2026-11-24，PR #240；删除前最后版本在 `e580a3b4`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
-- 话题跨重启保存：关闭时保存话题池，本话题的写入记录交还给话题：2026-11-24，PR #241；删除前最后版本在 `bcd3f35f`；[感知与短期话题](../../patchouli/perception.md#7-维护存储与启动时读回)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
-- 短期记忆代码整理：写回由存储层保证，折叠摘要改名，清理遗留：2026-11-25，PR #242；删除前最后版本在 `fc3e7b57`；[感知与短期话题](../../patchouli/perception.md#4-触发原因与具名用例)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)
-- 话题的存储介质：每个话题一条只追加的日志，沉淀进度在生成完成时推进：2026-11-25，PR #243；删除前最后版本在 `c1c8f45e`；[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)、[感知与短期话题](../../patchouli/perception.md#7-维护存储与启动时读回)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
-- 话题的进展记录：话题停顿时写一条，话题池展示：2026-11-26，PR #244；删除前最后版本在 `1f89d932`；[感知与短期话题](../../patchouli/perception.md#7-维护存储与启动时读回)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)、[前端管理页面](../../frontend/management-views.md#12-短期话题池)
-- 短期记忆代码可读性整理：统一用词，话题的位置与触发规则写在一处：2026-11-26，PR #245；删除前最后版本在 `0aed01f3`；[感知与短期话题](../../patchouli/perception.md)、[MemoryLibrary 与存储层](../../patchouli/memory-library.md#11-短期话题工作台)
+- 结算拆成沉淀与退役：空闲时只沉淀，话题留在话题池：2026-11-24，PR #240；删除前最后版本在 `e580a3b4`；[短期记忆](../../architecture/short-term-memory.md#45-沉淀)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
+- 话题跨重启保存：关闭时保存话题池，本话题的写入记录交还给话题：2026-11-24，PR #241；删除前最后版本在 `bcd3f35f`；[短期记忆](../../architecture/short-term-memory.md#7-保存与重启)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
+- 短期记忆代码整理：写回由存储层保证，折叠摘要改名，清理遗留：2026-11-25，PR #242；删除前最后版本在 `fc3e7b57`；[短期记忆](../../architecture/short-term-memory.md)
+- 话题的存储介质：每个话题一条只追加的日志，沉淀进度在生成完成时推进：2026-11-25，PR #243；删除前最后版本在 `c1c8f45e`；[短期记忆](../../architecture/short-term-memory.md)、[记忆生成](../../patchouli/generation.md#42-本话题生成的记忆)
+- 话题的进展记录：话题停顿时写一条，话题池展示：2026-11-26，PR #244；删除前最后版本在 `1f89d932`；[短期记忆](../../architecture/short-term-memory.md)、[前端管理页面](../../frontend/management-views.md#12-短期话题池)
+- 短期记忆代码可读性整理：统一用词，话题的位置与触发规则写在一处：2026-11-26，PR #245；删除前最后版本在 `0aed01f3`；[短期记忆](../../architecture/short-term-memory.md)
 - 压缩后推送与按句柄拉取：agent 经 READ 读话题，Claude Code 压缩之后注入进展记录的索引：2026-11-26，PR #246；删除前最后版本在 `ab450ea1`；[MCP 记忆访问](../../contracts/mcp.md)、[架构概览](../../architecture/overview.md)
 - 拉取当前话题与压缩后只推指针：topic:current 按需确定话题，会话压缩之后只推送句柄：2026-11-26，PR #248；删除前最后版本在 `1adeb4d2`；[读取视图与写入意图](../../workspace/read-view-and-write-intents.md)、[架构概览](../../architecture/overview.md)
 
@@ -72,7 +72,7 @@ last_reviewed: 2026-11-24
 - [v0.7.2 版本收尾审计](./v0.7.2-release-closeout-audit.md)：2026-11-01，PR #156；[PROJECT](../../PROJECT.md)
 - [一个话题提取多条记忆](./v0.7.2-multi-memory-extraction.md)：2026-11-01，PR #155；[Patchouli 生成](../../patchouli/generation.md#31-mode-a被动观察--archive)
 - [查重与更新：先落库再合并](./v0.7.2-dedup-merge.md)：2026-10-31，PR #154；[Patchouli 生成](../../patchouli/generation.md#4-查重与合并)、[读取视图与写入意图](../../workspace/read-view-and-write-intents.md)
-- [plugin 模式开放 WRITE 与 UPDATE](./v0.7.2-plugin-write-update.md)：2026-10-31，PR #152；[MCP 记忆访问](../../contracts/mcp.md)、[Import Bus](../../system/import-bus.md#47-写入时确定话题)
+- [plugin 模式开放 WRITE 与 UPDATE](./v0.7.2-plugin-write-update.md)：2026-10-31，PR #152；[MCP 记忆访问](../../contracts/mcp.md)、[Import Bus](../../system/import-bus.md#47-写入与读当前话题时确定话题)
 - [生成材料修正与 Topic 之后的原始证据保存](./v0.7.2-generation-material-and-raw-evidence.md)：2026-10-31，PR #150；[感知与短期话题](../../patchouli/perception.md)、[Patchouli 生成](../../patchouli/generation.md)
 
 ## v0.7.1

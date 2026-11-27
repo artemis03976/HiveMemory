@@ -89,7 +89,7 @@ Workspace 的访问、能力层与任务进程规则较多。改动这些区域�
 
 两条链路的完整控制流见[系统架构概览](docs/architecture/overview.md)第 5、6 节；停止、取消与收尾的细节见[任务进程](docs/workspace/task-process.md)。
 
-- 主动链路：`Gateway process -> PREPARE（Profile、派生主线程、以主线程预检索、确认已有话题、CPU 分配） -> Actor 执行（经 CPU 端口，当前为 Alice；新话题在第一次写入时建立） -> 有输出时封口交互记录 -> root API 提交交互并等待应用 -> 写入会话（话题取交互实际所在的话题）`。PREPARE 失败、进程异常、进入 FINALIZE 前断连或 CPU 无输出时不提交；提交没有成功时会话仍写入这一轮、话题为空，进程按失败收口。没有补偿或回滚：建立后没有接收交互的话题由空闲结算或 LRU 回收。附件租借随进程关闭释放。检索命中由 actor API 在每次检索时记录（含预检索），不依赖本轮的结局。
+- 主动链路：`Gateway process -> PREPARE（Profile、派生主线程、以主线程预检索、确认已有话题、CPU 分配） -> Actor 执行（经 CPU 端口，当前为 Alice；新话题在第一次写入时建立） -> 有输出时封口交互记录 -> root API 提交交互并等待应用 -> 写入会话（话题取交互实际所在的话题）`。PREPARE 失败、进程异常、进入 FINALIZE 前断连或 CPU 无输出时不提交；提交没有成功时会话仍写入这一轮、话题为空，进程按失败收口。没有补偿或回滚：建立后没有接收交互的话题停下超过沉淀阈值时直接退役，或在池满时退役。附件租借随进程关闭释放。检索命中由 actor API 在每次检索时记录（含预检索），不依赖本轮的结局。
 - 停止与取消：用户停止保留部分输出并提交，交付方离开与系统关闭丢弃本轮；进入 FINALIZE 后拒绝停止，提交不受交付方离开影响。停止被接受时全部线程即已结束，CPU 取消后的收尾不得依赖 actor 操作。
 - Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关（证明来源与参与的 Agent）+ 认证系统自身的 system -> 按外部会话串行编排 -> 共用封口 seal_interaction -> root API 提交交互（方法内查重、未确定话题时以 Gateway PASSIVE_MEMORY 只取话题路由、经 Patchouli 公开提交路由提交并等待感知应用，参与者显式传递） -> 按结局确认`；一轮导入只在 root 方法入口授权一次。经 MCP 写入或读当前话题的轮次已经 root API 的 `determine_topic` 确定话题，回流时沿用已确定的话题、不再路由（[Import Bus](docs/system/import-bus.md)）。Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
 - WRITE/UPDATE（Alice 的 MTP 与外部 harness 的 MCP）的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化；派发开始后，写入不因 CPU 失败、取消、停止、线程结束、进程关闭或 MCP 调用方断开而撤回。正式持久化只由 Patchouli 生成链结算，不能在 Alice（含 Koakuma）内直接写正式 Memory。详见[读取视图与写入意图](docs/workspace/read-view-and-write-intents.md)。

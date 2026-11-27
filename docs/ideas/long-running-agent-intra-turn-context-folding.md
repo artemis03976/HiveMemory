@@ -59,7 +59,7 @@ CPU 可能已处理但 Patchouli 尚未收到某条事件。CPU compact 的回�
 
 ## 1. 背景与当前约束
 
-当前主路径以完整 turn 为基本摄入单位：任务进程在 CPU 执行结束后封口 `InteractionPayload`，Import Bus 在外部 harness 的一轮结束后导入；Perception 把其中的事件集封装为一个 `TurnRecord` 与一个 `LogicalBlock`。Topic Page Folding 发生在 blocks 已经进入 Topic 工作集之后，详见[感知与短期话题](../patchouli/perception.md)。
+当前主路径以完整 turn 为基本摄入单位：任务进程在 CPU 执行结束后封口 `InteractionPayload`，Import Bus 在外部 harness 的一轮结束后导入；Perception 把其中的事件集封装为一个 `TurnRecord` 与一个 `LogicalBlock`。Topic Page Folding 发生在 blocks 已经进入 Topic 工作集之后，详见[短期记忆](../architecture/short-term-memory.md)。
 
 这套模型适用于“一个 turn 在一次模型上下文内自然结束”的常规对话，但面对长时间运行 Agent 会出现四类张力：
 
@@ -239,7 +239,7 @@ Generation 或审计可以按需沿来源引用分块读取；记忆生成时再
 
 两份视图由各自消费者决定何时生成、何时接受和何时失效，不要求同步生成，也不共用一个拥有双摘要字段的检查点。具体策略见[短期记忆](./short-term-memory-and-context-compaction.md)。
 
-话题的进展是另一份视图：它回答“进行到哪一步”，读者是不在场的前台（另一个会话被路由回来，或会话压缩之后），含当前计划与进展记录，每一条指回原文；它与 continuation summary 各自生成、各自保存，见[短期记忆](./short-term-memory-and-context-compaction.md)第 3、7 节。
+话题的进展是另一份视图：它回答“进行到哪一步”，读者是不在场的前台（另一个会话被路由回来，或会话压缩之后），由进展记录（每一条指回原文）与还没有整理的原始交互记录组成；它与 continuation summary 各自生成、各自保存，见[短期记忆](./short-term-memory-and-context-compaction.md)第 3、7 节。
 
 Alice 的 continuation summary 不进入 Topic、InteractionPayload 或 Patchouli 的记忆生成材料。外部 harness 另行交付的 summary 若在未来被评估为有价值的辅助输入，需要显式声明来源、覆盖范围和有损性质；它不能替代未收到的事件或原始证据，也不能作为 Patchouli 摘要失败时自动接受的事实来源。
 

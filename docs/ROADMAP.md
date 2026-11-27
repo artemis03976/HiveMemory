@@ -89,7 +89,7 @@ last_reviewed: 2026-11-24
 - 折叠只为材料服务，折叠摘要结构化。
 - 拉取是基线：被路由回已有话题时由 agent 拉取当前话题；推送只在会话压缩之后做，只推送一个话题句柄的指针；话题的归属按需确定，每轮至多一次，不单独在轮首路由。
 
-设计与开放问题见[短期记忆：话题的进展及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役（[感知与短期话题](./patchouli/perception.md#4-触发原因与具名用例)）与话题跨重启保存（同一文档[第 7 节](./patchouli/perception.md#7-维护存储与启动时读回)）已完成，进展落地之前的短期记忆代码整理与话题的存储介质（每个话题一条只追加的日志，[MemoryLibrary 与存储层](./patchouli/memory-library.md#11-短期话题工作台)）与话题的进展记录（话题停下够久时写一条，话题池展示，[感知与短期话题](./patchouli/perception.md#7-维护存储与启动时读回)）、短期记忆代码可读性整理（统一用词，话题的位置与触发规则写在感知服务的模块说明里，[感知与短期话题](./patchouli/perception.md)）、压缩之后的推送与按句柄拉取（agent 经 READ 读话题句柄，Claude Code 压缩之后插件注入进展记录的索引，[架构概览](./architecture/overview.md)）也已完成，计划见 [Archived Plans](./archive/plans/README.md#v081)；拉取当前话题与压缩后只推指针（agent 读 `topic:current`，读取时按需确定话题；压缩之后只推送话题句柄）也已完成；折叠摘要的结构化等其余部分还没有计划。
+设计与开放问题见[短期记忆：话题的进展及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役（[短期记忆](./architecture/short-term-memory.md#45-沉淀)）与话题跨重启保存（同一文档[第 7 节](./architecture/short-term-memory.md#7-保存与重启)）已完成，进展落地之前的短期记忆代码整理与话题的存储介质（每个话题一条只追加的日志，[短期记忆](./architecture/short-term-memory.md#7-保存与重启)）与话题的进展记录（话题停下够久时写一条，话题池展示，[短期记忆](./architecture/short-term-memory.md#7-保存与重启)）、短期记忆代码可读性整理（统一用词，话题的位置与触发规则写在感知服务的模块说明里，[短期记忆](./architecture/short-term-memory.md#102-话题上记的位置)）、压缩之后的推送与按句柄拉取（agent 经 READ 读话题句柄，[架构概览](./architecture/overview.md)）也已完成，计划见 [Archived Plans](./archive/plans/README.md#v081)；拉取当前话题与压缩后只推指针（agent 读 `topic:current`，读取时按需确定话题；压缩之后只推送话题句柄）也已完成；折叠摘要的结构化等其余部分还没有计划。
 
 ## 4. 版本之外的工作与候选方向
 

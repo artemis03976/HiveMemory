@@ -46,7 +46,7 @@ last_reviewed: 2026-11-26
 
 | operation | MTP 动词 | 请求 | actor API 方法 | 说明 |
 |:---|:---|:---|:---|:---|
-| `memory.read` | READ（CALL 的 `context_refs` 也以此请求逐项解析） | `ResolveReferencesRequest` | `ActorMemoryService.resolve_references` | 交付正式原子时记录引用；也解析话题句柄，读话题不记录引用；请求级提交给出确定话题的回调时，`topic:current` 在授权之后为这一轮确定话题再读（[读取视图与写入意图](./read-view-and-write-intents.md#41-话题句柄)） |
+| `memory.read` | READ（CALL 的 `context_refs` 也以此请求逐项解析） | `ResolveReferencesRequest` | `ActorMemoryService.resolve_references` | 交付正式原子时记录引用；也解析话题句柄，读话题不记录引用；请求级提交给出确定话题的回调时，`topic:current` 在授权之后为这一轮确定话题再读（[短期记忆](../architecture/short-term-memory.md#61-拉取按句柄读话题)） |
 | `memory.search` | SEARCH | `RetrieveRequest` | `ActorMemoryService.retrieve` | 结果预热原子缓存；为交付的记忆记录检索命中（第 7 节），不记录引用 |
 | `memory.run` | RUN 的记忆目标 | `ResolveRunTargetRequest` | `ActorMemoryService.resolve_run_target` | 交付中立解析结果，不记录引用：解析到的记忆一律被 Actor 的工具运行时以不可运行拒绝；`sys_*` 系统工具在 Alice 本地执行，不经能力层 |
 | `memory.write` | WRITE | `SubmitWriteIntentRequest` | `ActorMemoryService.submit_write_intent` | ACK 表示已登记并被生成队列接纳 |
@@ -100,7 +100,7 @@ root API 与阶段调用只接收工作 actor、目标 Workspace 与业务参数
 
 请求级提交 `execute_request(request, *, actor, dispatch_topic=None)` 只供 MCP 入口调用，门面以 `operation_entry` 交出同一个入口：外部 harness 的任务对 HiveMemory 不可见，没有进程与线程，每次工具调用由入口认证一次，得到的工作 actor 只在本次调用内交给这里（[MCP 记忆访问](../contracts/mcp.md)）。它接受检索、读取、写入与更新四种请求，与 `execute` 共用同一分派表；可提交的请求类型只写在这一处（[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程句柄)）。写入与更新登记意图后要以一个派发话题派发：线程提交经线程表取得进程这一轮的话题，请求级提交没有线程，由调用方给出 `dispatch_topic`——一个返回派发话题的异步回调。MCP 入口的回调经 Import Bus 为这一轮确定话题（[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)）。读 `topic:current` 也要这一轮的话题，同一个回调因此也交给读取。写入与更新必须给出回调；读取可以给出，actor API 只在引用含 `topic:current` 时调用它；检索不得给出；其余请求类型、或回调与请求类型不符时在分派前以 `TypeError` 拒绝，没有副作用。请求级提交不做存活判定。
 
-actor API 的写入与更新接收线程句柄或派发话题的回调，二者恰有其一，否则是接线缺陷，以 `TypeError` 拒绝。两条路径的顺序相同：授权，UPDATE 解析基础原子，取得派发话题（线程提交向线程表要，请求级提交调用回调），无挂起点的同步段登记，派发（[读取视图与写入意图](./read-view-and-write-intents.md#3-写入意图登记)）。回调在授权之后才被调用，没有对应许可的写入因此不会路由、建立话题或触发 LRU 结算。读取不登记意图：`resolve_references` 在 `memory.read` 授权之后、引用含 `topic:current` 时调用回调一次，换成真实句柄再解析（[读取视图与写入意图](./read-view-and-write-intents.md#41-话题句柄)第 4.1 节），未获准的读取同样不会确定话题；线程提交的读取不带回调。给出回调时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同。请求级提交到不了 RUN 与 CALL：经 `execute` 提交需要线程句柄，经 `execute_request` 提交时被类型表拒绝，CALL 的派生先判定调用方存活。
+actor API 的写入与更新接收线程句柄或派发话题的回调，二者恰有其一，否则是接线缺陷，以 `TypeError` 拒绝。两条路径的顺序相同：授权，UPDATE 解析基础原子，取得派发话题（线程提交向线程表要，请求级提交调用回调），无挂起点的同步段登记，派发（[读取视图与写入意图](./read-view-and-write-intents.md#3-写入意图登记)）。回调在授权之后才被调用，没有对应许可的写入因此不会路由、建立话题或触发 LRU 结算。读取不登记意图：`resolve_references` 在 `memory.read` 授权之后、引用含 `topic:current` 时调用回调一次，换成真实句柄再解析（[短期记忆](../architecture/short-term-memory.md#61-拉取按句柄读话题)第 6.1 节），未获准的读取同样不会确定话题；线程提交的读取不带回调。给出回调时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同。请求级提交到不了 RUN 与 CALL：经 `execute` 提交需要线程句柄，经 `execute_request` 提交时被类型表拒绝，CALL 的派生先判定调用方存活。
 
 请求只携带操作参数，不暴露工作 actor，也不能切换目标 Workspace、指定 process_id 或派发话题；线程提交的意图登记的 `process_id`、`thread_id` 取自线程表的解析结果，派发话题取自线程表为进程这一轮确定的话题。登记线程不授予操作许可：每个 actor 请求仍按线程的工作 actor 在白名单上授权。
 

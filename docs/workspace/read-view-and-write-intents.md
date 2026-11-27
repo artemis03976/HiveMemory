@@ -102,15 +102,7 @@ UPDATE 的基础冷读在取得派发话题与登记的同步段之前完成，�
 
 ### 4.1 话题句柄
 
-agent 经同一个 READ 读话题：话题是 READ 的另一种对象，不新增 actor 操作，授权沿用 `memory.read`；读什么由句柄的形态说明，不加显式的 target，MTP、MCP 与连接器的入口因此不变，一次读取可以同时读记忆与话题。
-
-- **形态**：`topic:<话题 id>` 读话题的进展记录索引，`topic:<话题 id>#<n>` 读进展记录第 n 条（从 1 数起）的全文与它覆盖的原文。这两种句柄只由系统签发（读话题的结果、插件在会话压缩之后注入的指针），agent 照抄；格式化与解析只有一对函数 `format_topic_handle` 与 `parse_topic_handle`（`core/models/topic.py`），签发与解析共用。另有一个由 agent 写出的 `topic:current`（下一条），它不是话题 id 句柄，`parse_topic_handle` 不解析它，也不解析带条目序号的写法；话题 id 是 uuid4 字符串，不会是 `current`。
-- **当前话题 `topic:current`**：这个会话这一轮所在的话题。被路由回已有话题时 agent 不知道话题 id，系统也不在轮首推送，读它即可。读它要先为这一轮确定话题：`ActorMemoryService.resolve_references` 在 `memory.read` 授权之后，引用中有 `topic:current` 且请求级提交给出了确定话题的回调时，调用回调一次（同一次读取中出现几次也只调用一次），把它换成真实句柄 `topic:<话题 id>` 再照常解析，读出的是这个话题的索引，开头一行就是真实句柄，agent 照它读 `#n`。回调与写入共用，经 Import Bus 为这一轮确定话题，可能为这一轮建立新话题、在池满时让最久没用的话题退役；这一轮之后的写入与回流沿用这个话题（[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)第 4.7 节）。引用中没有它时不调用回调，读取不确定话题；没有 `memory.read` 的读取在调用回调之前被拒绝，不路由、不建立话题。确定话题失败时整次读取以同一个错误失败，与写入相同，其余引用也不解析。没有回调（线程提交，或 MCP 调用没有带轮次信息）时不替换，它按不合语法的句柄解析为 `not_found`；Alice 的上下文没有发给它句柄的地方，controller 模式因此不读当前话题。
-- **与 alias 互斥**：记忆的 alias 不能以 `topic:` 开头，中期库在写入之前拒绝（[MemoryLibrary](../patchouli/memory-library.md#12-中期当前可检索书库)第 1.2 节）。所以读取器见到这个前缀就只按话题句柄解析，不沿用写入句柄“先查正式记忆”的顺序：同名的记忆不会静默遮住话题。
-- **读出**：经 `CanonicalReadBackend.get_topic` 以本次授权的 scope 调用 Patchouli 的公开路由 `patchouli.public.topic.get_data`。话题只有 Workspace 归属、没有 actor 读取策略，归属由 Patchouli 按 scope 的 Workspace 复查，读取器不另设可见性规则：同一 Workspace 内持有 `memory.read` 即可读，与本话题生成的记忆在 Workspace 内公开一致。话题不经原子缓存，每次读的都是当前的话题。
-- **结局**：读到话题为 `topic`，带读到的 `TopicData` 与条目序号（读索引时为空）；话题读不到为 `expired`：已经退役、已被删除、不属于这个 Workspace 或从未存在都是这样，不透露话题是否存在，Patchouli 只交出话题池中的话题（[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节）。不合语法的句柄与超出进展记录的条目序号是 `not_found`：句柄只由系统签发，这两种只会来自抄错的句柄；没有换成真实句柄的 `topic:current` 同样是 `not_found`。
-- **副作用**：读话题不记录引用，也不进入生命周期的命中；`actor.operation` 的交付数把读到的话题计入。RUN 解析到话题时以不可运行拒绝，CALL 的 `context_refs` 跳过话题句柄（[MTP 契约](../contracts/mtp.md#33-run)）。
-- **呈现**：`topic` 与话题句柄的 `expired` 经 MemoryCompiler 的 `READ_RESULT` 编译（[MemoryCompiler](../patchouli/memory-compiler.md#41-话题句柄的读取结果)第 4.1 节）。
+agent 经同一个 READ 读话题：话题是 READ 的另一种对象，不新增 actor 操作，授权沿用 `memory.read`，读什么由句柄的形态说明（`topic:<话题 id>`、`topic:<话题 id>#<n>` 与 `topic:current`）。句柄的形态、`topic:current` 在授权之后的确定与替换、与 alias 的互斥、可见性、结局、副作用与渲染见[短期记忆](../architecture/short-term-memory.md#61-拉取按句柄读话题)第 8.1、8.2 节。
 
 ## 5. 派发与结算
 
