@@ -259,7 +259,7 @@ def _previous_topic_or_new(selected: TopicRoutingInput) -> TopicRoutingResult:
     """续接上一轮所在的话题，没有可续接的话题时新建，标题与摘要都为空。
 
     同一会话的相邻轮次大多仍在同一话题上；只有上一轮的话题仍在本次的
-    候选话题中才续接，已被驱逐或结算的话题不会被续接。会话的第一轮、
+    候选话题中才续接，已退役或被删除的话题不会被续接。会话的第一轮、
     上一轮所在的话题未知或候选话题读取失败时新建。
     """
     previous = selected.session_turns[-1].topic_id if selected.session_turns else None

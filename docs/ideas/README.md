@@ -21,7 +21,7 @@ last_reviewed: 2026-11-24
 | [记忆核心：库的形状、图索引与保存形态](./memory-library-shape-and-index.md) | v0.8 | 中期库的形状、派生的时空图索引与记忆的保存形态 |
 | [记忆核心：类型体系](./memory-type-system.md) | v0.8 | 记忆类型的用途、划分与回放检验 |
 | [记忆核心：评测集](./memory-evaluation-benchmarks.md) | v0.8 | 用公开评测集与 agent 工作流数据检验记忆核心 |
-| [短期记忆：话题的进展及其维护](./short-term-memory-and-context-compaction.md) | v0.8.1 | 话题作为前台可读的进展记录：话题的进展、什么时候写一条、沉淀与退役、折叠与推送 |
+| [短期记忆：话题的进展及其维护](./short-term-memory-and-context-compaction.md) | v0.8.1 | 话题作为前台可读的进展记录：话题的进展、什么时候写一条、沉淀与退役、折叠与读回，两种模式的分工，从 V1 到 V2 的演进 |
 
 已实现、被替代或不再跟踪的 Idea 登记在 [Archived Ideas](../archive/ideas/README.md)。
 

@@ -214,7 +214,7 @@ owner 每天实际使用 HiveMemory，这本身就是现成的长程试验场；
 ## 6. 与其他文档的关系
 
 - 已归档的[统一的交互记忆](../archive/ideas/unified-interaction-memory.md)：轨迹、断言、整理与消费水位的设想，曾被视为 v0.8 可能的出发点；消费水位的语义已经退场（[写入链路](./memory-flow-write-path.md)第 2.3 节），断言层作为“生成之前汇合”的做法不采用为当前方向（同文第 5 节），“没写”算不算判断搁置在同文第 6 节。
-- [短期记忆](./short-term-memory-and-context-compaction.md)：短期这一层，话题的进展、生命周期、折叠与推送（v0.8.1）。
+- [短期记忆](./short-term-memory-and-context-compaction.md)：短期这一层，话题的进展、生命周期、折叠与读回。V1 在 v0.8.1 中实现，话题折叠的重构完成之后初步成立；之后是两种模式的统一（候选）与兼容长 turn 的 V2。
 - [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md)与记忆价值体系的重新设计（[ROADMAP](../ROADMAP.md) 第 4.7 节）：维护一侧；落库之后的演化质量（分裂与合并、冲突检测、对照轨迹纠错）记在其方向 6，边界见[写入链路](./memory-flow-write-path.md)第 4 节。
 - [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md)：多视图的记忆图能否优于平面检索，与[库的形状](./memory-library-shape-and-index.md)第 4.1 节相关。
 - [耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)：跨存储写入的事务边界、对账与 archive、revive 的恢复，与[库的形状](./memory-library-shape-and-index.md)第 3.2 节相关。
