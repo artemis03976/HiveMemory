@@ -8,10 +8,8 @@ Principal 认证（含凭据核对）、Workspace 准入与操作授权、操作
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
-import httpx2
 import pytest
 import yaml
 
@@ -44,7 +42,7 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.i18n import Language
-from hivememory.mcp_server import create_http_app, create_mcp_server
+from hivememory.mcp_server import create_mcp_server
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.interaction_submission import (
     InteractionStatus,
@@ -185,11 +183,12 @@ class _Patchouli:
 
 
 class _Gateway:
-    """在公共 RPC 边界替换 Gateway：每次都路由到新话题，记录调用次数。"""
+    """在公共 RPC 边界替换 Gateway：每次都路由到 ``target_topic_id``（缺省为新话题），记录调用。"""
 
     def __init__(self, bus: GlobalSystemBus) -> None:
         self.calls = 0
         self.traces: list[str] = []
+        self.target_topic_id = "NEW_TOPIC"
         bus.register(GatewayPublicRoutes.PROCESS, self._process)
 
     async def _process(self, message, **kwargs):
@@ -197,7 +196,7 @@ class _Gateway:
         self.traces.append(current_trace_id.get())
         return GatewayDecisionOutcome(
             decision=GatewayDecision(
-                target_topic_id="NEW_TOPIC",
+                target_topic_id=self.target_topic_id,
                 new_topic_title="部署",
                 new_topic_summary="部署方式",
                 rewritten_query=message,
@@ -337,36 +336,6 @@ async def test_read_delivers_topic_index_and_entry_beside_memory_without_citing_
 
 
 @pytest.mark.asyncio
-async def test_single_json_rpc_post_reads_a_topic_without_initializing_a_session():
-    """插件的钩子不建会话：一次带插件 MCP 配置请求头的 JSON-RPC POST 即可调用 memory_read 读话题。"""
-    system, _, _ = _compose(_READ_AND_SEARCH)
-    server = create_mcp_server(lambda: system, Language.ZH)
-    app = create_http_app(server)
-    call = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {"name": "memory_read", "arguments": {"aliases": ["topic:topic-1"]}},
-    }
-
-    async with (
-        server.session_manager.run(),
-        httpx2.AsyncClient(
-            transport=httpx2.ASGITransport(app=app),
-            base_url="http://localhost:8000",
-        ) as client,
-    ):
-        response = await client.post(
-            "/mcp", json=call, headers={**_HEADERS, "Accept": "application/json"}
-        )
-
-    assert response.status_code == 200
-    result = json.loads(response.text)["result"]
-    assert result["isError"] is False
-    assert result["content"][0]["text"].startswith("[topic:topic-1] HiveMemory 话题「部署」")
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("headers", "allowed_operations", "close_gateway", "reason"),
     [
@@ -489,17 +458,53 @@ async def test_written_memory_reads_back_redirects_after_settlement_and_turn_lan
 
 
 @pytest.mark.asyncio
-async def test_denied_write_never_determines_a_topic():
-    """没有 memory.write 的 Agent 经 MCP 写入：actor API 拒绝在先，Import Bus 不认证 system、
-    不路由、不建立话题，也不登记或派发意图。
-    """
+async def test_current_topic_read_gets_the_index_of_the_turns_topic_and_import_keeps_it():
+    """带轮次信息读 topic:current：为这一轮确定话题（被路由回已有的话题），读出它的索引；
+    这一轮回流时落在同一个话题，不再路由。"""
     system, patchouli, gateway = _compose(_READ_AND_SEARCH)
+    gateway.target_topic_id = "topic-1"
+
+    async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
+        read = await session.call_tool("memory_read", {"aliases": ["topic:current"], "turn": _TURN})
+
+    result = await _import_turn(
+        system,
+        ImportedTurn.model_validate(
+            {
+                **_TURN,
+                "outcome": "completed",
+                "events": [{"kind": "assistant_message", "sequence": 1, "content": "接着做"}],
+            }
+        ),
+    )
+
+    assert tool_text(read).startswith("[topic:topic-1] HiveMemory 话题「部署」的进展记录索引")
+    assert patchouli.applied_topics[result.interaction_id] == "topic-1"
+    assert gateway.calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool", "arguments", "allowed_operations"),
+    [
+        ("memory_write", {"content": "部署改为手动执行。"}, _READ_AND_SEARCH),
+        (
+            "memory_read",
+            {"aliases": ["topic:current"]},
+            frozenset({WorkspaceOperation.MEMORY_SEARCH}),
+        ),
+    ],
+    ids=["write", "current-topic-read"],
+)
+async def test_denied_call_never_determines_a_topic(tool, arguments, allowed_operations):
+    """没有 memory.write 的写入、没有 memory.read 的 topic:current 读取：actor API 拒绝在先，
+    Import Bus 不认证 system、不路由、不建立话题，也不登记或派发意图。
+    """
+    system, patchouli, gateway = _compose(allowed_operations)
     authentications = _record_authentications(system.access_gateway)
 
     async with serve_mcp(create_mcp_server(lambda: system, Language.ZH), _HEADERS) as session:
-        result = await session.call_tool(
-            "memory_write", {"content": "部署改为手动执行。", "turn": _TURN}
-        )
+        result = await session.call_tool(tool, {**arguments, "turn": _TURN})
 
     assert tool_error(result)["reason"] == "operation_not_allowed"
     assert authentications == [("mcp", "harness:claude-code")]

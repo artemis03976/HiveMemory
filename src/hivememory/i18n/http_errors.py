@@ -28,7 +28,7 @@ _HTTP_ERROR_TEXT_ZH = {
     "request.idempotency_key_too_long": "Idempotency-Key 过长",
     "request.body_too_large": "请求体超过允许的大小上限",
     "request.not_found": "请求的资源不存在",
-    "request.turn_required": "写入与更新必须由连接器补上当前一轮的信息",
+    "request.turn_required": "写入、更新与读取 topic:current 必须由连接器补上当前一轮的信息",
     "request.management_credential_invalid": "管理接口需要管理凭据：缺少凭据或凭据不正确",
     "request.input_invalid": "请求输入不符合要求",
     # 领域错误
@@ -132,7 +132,8 @@ _HTTP_ERROR_TEXT_EN = {
     "request.body_too_large": "The request body exceeds the size limit",
     "request.not_found": "The requested resource does not exist",
     "request.turn_required": (
-        "Writes and updates need the current turn, which the connector fills in"
+        "Writes, updates and reads of topic:current need the current turn, which the connector "
+        "fills in"
     ),
     "request.management_credential_invalid": (
         "Management endpoints need the management credential: it is missing or incorrect"

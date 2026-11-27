@@ -168,8 +168,19 @@ class TestTopicHandle:
 
     @pytest.mark.parametrize(
         "handle",
-        ["topic:", "topic:t1#", "topic:t1#0", "topic:t1#2a", "topic:t1#2#3", "topic:t 1", "fact_x"],
+        [
+            "topic:",
+            "topic:t1#",
+            "topic:t1#0",
+            "topic:t1#2a",
+            "topic:t1#2#3",
+            "topic:t 1",
+            "fact_x",
+            "topic:current",
+            "topic:current#1",
+        ],
     )
     def test_malformed_handles_are_not_parsed(self, handle):
-        """没有话题 id、条目序号不是正整数、带空白或不是话题句柄时解析不出话题。"""
+        """没有话题 id、条目序号不是正整数、带空白、不是话题句柄，或是当前话题的句柄（不论带不带
+        条目序号）时解析不出话题。"""
         assert parse_topic_handle(handle) is None

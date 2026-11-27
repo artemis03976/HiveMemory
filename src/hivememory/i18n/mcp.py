@@ -30,8 +30,9 @@ _MCP_TEXT_ZH = {
     "read_description": (
         "按 alias 读取 HiveMemory 记忆的全文，alias 来自 memory_search 的结果，"
         "或 memory_write、memory_update 返回的句柄。\n"
-        "也可以读 topic: 开头的话题句柄，它来自系统注入的话题索引：topic:<id> 读话题的进展记录"
-        "索引，topic:<id>#n 读第 n 条的全文与它覆盖的原文。\n"
+        "也可以读 topic: 开头的话题句柄：topic:current 读这个会话这一轮所在的话题；"
+        "topic:<id> 读话题的进展记录索引，topic:<id>#n 读第 n 条的全文与它覆盖的原文，"
+        "这两种句柄来自读到的索引或系统注入的指针。\n"
         "结果按请求顺序给出；找不到的 alias 列在末尾，全部找不到时返回错误。"
         "读到的内容同样是带日期的历史证据，引用前先核实。"
     ),
@@ -52,7 +53,7 @@ _MCP_TEXT_ZH = {
     ),
     "turn_description": "当前一轮的标识与上文，由 HiveMemory 插件在调用前自动填写；不要自行填写",
     "query_description": "用自然语言描述要找的内容",
-    "aliases_description": "要读取的记忆 alias 或话题句柄",
+    "aliases_description": "要读取的记忆 alias 或话题句柄；topic:current 是这个会话这一轮所在的话题",
     "write_content_description": "要保存的完整正文",
     "title_description": "正式记忆沿用的标题：具体、可检索，带项目或组件名",
     "reason_description": "为什么值得保存",
@@ -61,6 +62,10 @@ _MCP_TEXT_ZH = {
     "update_content_description": "替换或补充的正文",
     "no_results": "没有检索到相关记忆。",
     "unresolved": "未找到以下 alias：{aliases}",
+    "current_topic_unresolved": (
+        "topic:current 需要 HiveMemory 插件补上这一轮的信息，这次读取没有带上，"
+        "读不到这一轮所在的话题；重试不会改变结果。"
+    ),
     "write_accepted": (
         "写入已登记并被生成队列接纳，句柄 alias 为 {alias}；正式记忆尚未保存，由后台生成。"
         "可以用 memory_read 读取这个句柄，生成完成后读取会转到正式记忆。"
@@ -101,9 +106,10 @@ _MCP_TEXT_EN = {
     "read_description": (
         "Read the full text of HiveMemory memories by alias. Aliases come from memory_search "
         "results, or are handles returned by memory_write or memory_update.\n"
-        "Topic handles starting with topic: can be read too; they come from the topic index the "
-        "system injects: topic:<id> reads the topic's progress record index, topic:<id>#n reads "
-        "the full text of entry n and the original turns it covers.\n"
+        "Topic handles starting with topic: can be read too: topic:current reads the topic this "
+        "turn of the session belongs to; topic:<id> reads a topic's progress record index and "
+        "topic:<id>#n reads the full text of entry n and the original turns it covers, and these "
+        "two come from an index you read or a pointer the system injects.\n"
         "Results follow the requested order; aliases that are not found are listed at the end, and "
         "an error is returned when none is found. What you read is also dated historical evidence; "
         "verify it before relying on it."
@@ -134,7 +140,10 @@ _MCP_TEXT_EN = {
         "plugin before the call; do not fill it in yourself"
     ),
     "query_description": "What to find, described in natural language",
-    "aliases_description": "Aliases of the memories or topic handles to read",
+    "aliases_description": (
+        "Aliases of the memories or topic handles to read; topic:current is the topic this turn "
+        "of the session belongs to"
+    ),
     "write_content_description": "The complete text to keep",
     "title_description": (
         "Title the formal memory keeps: specific, searchable, naming the project or component"
@@ -145,6 +154,10 @@ _MCP_TEXT_EN = {
     "update_content_description": "Replacement or additional text",
     "no_results": "No relevant memories found.",
     "unresolved": "Aliases not found: {aliases}",
+    "current_topic_unresolved": (
+        "topic:current needs this turn's information, which the HiveMemory plugin fills in; this "
+        "read did not carry it, so the topic of this turn cannot be read. Retrying does not help."
+    ),
     "write_accepted": (
         "The write was registered and accepted by the generation queue; its handle alias is "
         "{alias}. The formal memory is not saved yet and is generated in the background. You can "

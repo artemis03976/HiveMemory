@@ -71,6 +71,7 @@ from .provenance import (
 )
 from .reference import ReferenceResolution
 from .topic import (
+    CURRENT_TOPIC_HANDLE,
     TOPIC_HANDLE_PREFIX,
     LogicalBlock,
     TopicData,
@@ -158,6 +159,7 @@ __all__ = [
     "TopicProgressEntry",
     "TopicTurnExcerpt",
     "LogicalBlock",
+    "CURRENT_TOPIC_HANDLE",
     "TOPIC_HANDLE_PREFIX",
     "format_topic_handle",
     "parse_topic_handle",
