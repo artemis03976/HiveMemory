@@ -68,7 +68,7 @@ class GenerationTranscriptBuilder:
         将 GenerationContext 渲染为 LLM 可用的文本（送入 {transcript} 占位符）。
 
         格式:
-            [Topic State]
+            [Folded Earlier Turns]
             {fold_summary}
 
             [Turn 1]
@@ -91,7 +91,7 @@ class GenerationTranscriptBuilder:
         """
         sections: list[str] = []
         if context.fold_summary:
-            sections.append(f"[Topic State]\n{context.fold_summary}")
+            sections.append(f"[Folded Earlier Turns]\n{context.fold_summary}")
         for idx, turn in enumerate(context.turns, 1):
             sections.append(self._format_turn(idx, turn))
         return "\n\n".join(sections)

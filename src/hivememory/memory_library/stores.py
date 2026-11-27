@@ -183,11 +183,15 @@ class ShortTermMemoryStore:
         folded: Sequence[LogicalBlock],
         summary: str,
     ) -> TopicData | None:
-        """把工作视图开头的 ``folded`` 折叠为 ``summary``；不是工作视图的前缀时构造校验失败。"""
+        """把工作视图开头的 ``folded`` 折叠，``summary`` 只是这一次的摘要。
+
+        ``folded`` 不是工作视图的前缀时构造校验失败。
+        """
         record = TopicFoldRecord(
             at=_now(),
             folded_block_ids=tuple(block.block_id for block in folded),
             summary=summary,
+            covers_earlier_folds=False,
         )
         return self._append(belong_to, topic_id, record, apply_fold)
 

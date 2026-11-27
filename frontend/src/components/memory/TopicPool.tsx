@@ -6,7 +6,7 @@ import { readPath } from '@/constants/settingsSchema';
 import { useNow } from '@/hooks/useNow';
 import { formatDateTime, formatFullDateTime } from '@/utils/dateTime';
 import { formatTimeAgo } from '@/utils/timeAgo';
-import { formatTokens, minutesUntilAutoSettle } from '@/utils/topicPool';
+import { formatTokens, minutesUntilAutoSettle, topicSubtitle } from '@/utils/topicPool';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import type { Topic, TopicProgressEntry, TopicTurnExcerpt } from '@/types';
 
@@ -201,6 +201,7 @@ export function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
   now: number;
   onSelect: () => void;
 }) {
+  const subtitle = topicSubtitle(topic);
   return (
     <button
       onClick={onSelect}
@@ -213,9 +214,7 @@ export function TopicRow({ topic, selected, settleMinutes, now, onSelect }: {
       <TopicIcon size="sm" />
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="truncate text-[15px] font-semibold text-fg">{topicTitle(topic)}</span>
-        {(topic.foldSummary || topic.topicSummary) && (
-          <span className="line-clamp-2 text-[13px] leading-normal text-fg-2">{topic.foldSummary || topic.topicSummary}</span>
-        )}
+        {subtitle && <span className="line-clamp-2 text-[13px] leading-normal text-fg-2">{subtitle}</span>}
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-fg-3">
           <span>{topic.blockCount} 个片段</span>
           <span>{formatTokens(topic.totalTokens)} tokens</span>
@@ -251,7 +250,7 @@ export function TopicDetail({ topic, settings, settleMinutes, now, onReference, 
   const shortId = topic.id.length > 12 ? `${topic.id.slice(0, 4)}…${topic.id.slice(-4)}` : topic.id;
   const soon = settleMinutes !== null && settleMinutes <= SETTLE_SOON_MINUTES;
   const hasProgress = topic.progressRecord.length > 0 || topic.unrecordedTurnCount > 0;
-  const hasContent = topic.topicSummary || hasProgress || topic.foldSummary || topic.lastTurn;
+  const hasContent = topic.topicSummary || hasProgress || topic.lastTurn;
 
   return (
     <section aria-label={topicTitle(topic)} className="flex min-w-0 flex-1 flex-col overflow-hidden wrap-break-word rounded-[18px] border border-line bg-surface-container shadow-pop">
@@ -315,12 +314,6 @@ export function TopicDetail({ topic, settings, settleMinutes, now, onReference, 
             </div>
           )}
           {hasProgress && <ProgressSection key={topic.id} topic={topic} recordAfterSeconds={settings?.progressRecordAfterSeconds ?? null} now={now} />}
-          {topic.foldSummary && (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-semibold text-fg-3">较早内容的摘要</span>
-              <p className="rounded-[14px] border border-line bg-surface-container-low px-4 py-3.5 text-sm leading-7 text-fg-2">{topic.foldSummary}</p>
-            </div>
-          )}
           {topic.lastTurn && (
             <div className="flex flex-col gap-2.5">
               <span className="text-xs font-semibold text-fg-3">最近一轮</span>

@@ -9,7 +9,13 @@ import pytest
 
 from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.errors import ModelProviderError
-from hivememory.core.models import ActorIdentity, TopicData, TopicFold
+from hivememory.core.models import (
+    ActorIdentity,
+    LogicalBlock,
+    TopicData,
+    TopicFold,
+    TopicProgressEntry,
+)
 from hivememory.core.protocol.gateway import IntentType
 from hivememory.engines.gateway.query_understanding import (
     QueryUnderstandingEngine,
@@ -20,24 +26,38 @@ from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
+def _progress_entry(text: str, *covered: LogicalBlock, covered_until: int) -> TopicProgressEntry:
+    last = covered[-1].turn
+    return TopicProgressEntry(
+        text=text,
+        from_turn_id=covered[0].turn.turn_id,
+        to_turn_id=last.turn_id,
+        to_event_seq=last.turn_events[-1].sequence,
+        covered_until=covered_until,
+        written_at=time.time(),
+    )
+
+
 def _build_topic_data() -> TopicData:
-    """一个折叠过的话题：状态摘要来自折叠，工作视图只剩最近一轮。"""
+    """一个折叠过、写过两条进展记录的话题：工作视图只剩最近一轮。"""
     now = time.time()
     identity = ActorIdentity(agent_id="omni_doll", user_id="u1")
     folded = make_logical_block("容器启动就退出", "看一下日志", identity=identity)
+    latest = make_logical_block("那个报错怎么修？", "可以增加内存限制", identity=identity)
     return TopicData(
         topic_id="topic-1",
         workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
         topic_title="Docker 部署",
         topic_summary="排查 Docker 部署问题",
-        interactions=(
-            folded,
-            make_logical_block("那个报错怎么修？", "可以增加内存限制", identity=identity),
-        ),
+        interactions=(folded, latest),
         folds=(
             TopicFold(
                 folded_block_ids=(folded.block_id,), summary="已定位到内存溢出", folded_at=now
             ),
+        ),
+        progress_record=(
+            _progress_entry("定位到容器内存溢出", folded, covered_until=1),
+            _progress_entry("决定把内存限制提高到 2G", latest, covered_until=2),
         ),
         last_update=now,
     )
@@ -70,6 +90,28 @@ async def test_analyze_parses_shared_result_and_renders_context() -> None:
     assert messages[1] == {"role": "user", "content": "那个报错怎么修？"}
     # 组件参数原样沿用，只追加 JSON 输出要求。
     assert llm.calls[-1].params == DEFAULT_LLM_PARAMS.model_copy(update={"json_output": True})
+
+
+@pytest.mark.asyncio
+async def test_topic_context_has_the_latest_progress_entry_and_no_fold_summary() -> None:
+    """话题背景依次是标题、话题摘要、最近一条进展记录与工作视图最近几轮，正文都按
+    context_text_limit 截断；折叠摘要与更早的进展记录不在其中。"""
+    llm = ScriptedLLMService('{"intent_type":"RAG","rewritten_query":"重写结果"}')
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(context_block_limit=1, context_text_limit=6),
+        llm_service=llm,
+        llm_params=DEFAULT_LLM_PARAMS,
+    )
+
+    await engine.analyze("那个报错怎么修？", topic_data=_build_topic_data())
+
+    system_prompt = llm.calls[-1].messages[0]["content"]
+    assert (
+        "Docker 部署\n排查 Docker 部署问题\nlatest progress: 决定把内存限\n"
+        "user: 那个报错怎么\nassistant: 可以增加内存"
+    ) in system_prompt
+    assert "已定位到内存溢出" not in system_prompt
+    assert "定位到容器内存溢出" not in system_prompt
 
 
 @pytest.mark.asyncio

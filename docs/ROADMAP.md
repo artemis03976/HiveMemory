@@ -86,10 +86,10 @@ last_reviewed: 2026-11-24
 
 - 话题的进展由已整理的部分（只增的进展记录，每一条指回原文）与未整理的原始交互记录组成；话题停下时写一条，一轮之内什么时候写暂缓。
 - 结算拆成沉淀与退役：话题停下够久只触发沉淀，退役只由容量与明确的结束触发。
-- 折叠只为材料服务，折叠摘要结构化。
+- 折叠是系统内部的材料压缩：记忆生成与写进展记录都读工作视图，每条折叠记录只存这一次的结构化摘要，折叠摘要不给前台与 Gateway。
 - 拉取是基线：被路由回已有话题时由 agent 拉取当前话题；推送只在会话压缩之后做，只推送一个话题句柄的指针；话题的归属按需确定，每轮至多一次，不单独在轮首路由。
 
-设计与开放问题见[短期记忆：话题的进展及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役（[短期记忆](./architecture/short-term-memory.md#45-沉淀)）与话题跨重启保存（同一文档[第 7 节](./architecture/short-term-memory.md#7-保存与重启)）已完成，进展落地之前的短期记忆代码整理与话题的存储介质（每个话题一条只追加的日志，[短期记忆](./architecture/short-term-memory.md#7-保存与重启)）与话题的进展记录（话题停下够久时写一条，话题池展示，[短期记忆](./architecture/short-term-memory.md#7-保存与重启)）、短期记忆代码可读性整理（统一用词，话题的位置与触发规则写在感知服务的模块说明里，[短期记忆](./architecture/short-term-memory.md#102-话题上记的位置)）、压缩之后的推送与按句柄拉取（agent 经 READ 读话题句柄，[架构概览](./architecture/overview.md)）也已完成，计划见 [Archived Plans](./archive/plans/README.md#v081)；拉取当前话题与压缩后只推指针（agent 读 `topic:current`，读取时按需确定话题；压缩之后只推送话题句柄）也已完成；折叠摘要的结构化等其余部分还没有计划。
+设计与开放问题见[短期记忆：话题的进展及其维护](./ideas/short-term-memory-and-context-compaction.md)；结算拆成沉淀与退役（[短期记忆](./architecture/short-term-memory.md#45-沉淀)）与话题跨重启保存（同一文档[第 7 节](./architecture/short-term-memory.md#7-保存与重启)）已完成，进展落地之前的短期记忆代码整理与话题的存储介质（每个话题一条只追加的日志，[短期记忆](./architecture/short-term-memory.md#7-保存与重启)）与话题的进展记录（话题停下够久时写一条，话题池展示，[短期记忆](./architecture/short-term-memory.md#7-保存与重启)）、短期记忆代码可读性整理（统一用词，话题的位置与触发规则写在感知服务的模块说明里，[短期记忆](./architecture/short-term-memory.md#102-话题上记的位置)）、压缩之后的推送与按句柄拉取（agent 经 READ 读话题句柄，[架构概览](./architecture/overview.md)）也已完成，计划见 [Archived Plans](./archive/plans/README.md#v081)；拉取当前话题与压缩后只推指针（agent 读 `topic:current`，读取时按需确定话题；压缩之后只推送话题句柄）也已完成；话题折叠的重构（折叠作为系统内部的材料压缩，写进展记录共用工作视图，[短期记忆](./architecture/short-term-memory.md#44-折叠)）也已完成，短期记忆 V1 初步成立。之后是两种接入模式的统一（候选）与兼容长 turn 的 V2，还没有计划。
 
 ## 4. 版本之外的工作与候选方向
 

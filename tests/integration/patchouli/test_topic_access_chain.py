@@ -38,9 +38,8 @@ from tests.helpers.workspace import make_identity_scope
 class _DeterministicSummaryWriter:
     """隔离外部摘要模型，保持折叠结果可重复。"""
 
-    async def generate_summary(self, *, blocks_to_fold, previous_summary=None):
-        prefix = f"{previous_summary}|" if previous_summary else ""
-        return f"{prefix}folded:{len(blocks_to_fold)}"
+    async def generate_summary(self, blocks_to_fold, *, first_turn_number, earlier_summary):
+        return f"folded:{first_turn_number}+{len(blocks_to_fold)}"
 
 
 class _FakeClock:

@@ -6,7 +6,6 @@ scope: topic-routing-and-user-query-analysis
 code_paths:
   - src/hivememory/gateway/analysis/
   - src/hivememory/gateway/context.py
-  - src/hivememory/gateway/topic_context.py
   - src/hivememory/gateway/workflow/topology.py
   - src/hivememory/engines/gateway/
   - src/hivememory/prompts/gateway.py
@@ -55,7 +54,7 @@ Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tup
 
 ## 3. Topic Router：只做选择
 
-`TopicRouterEngine` 接收原始消息、候选 `TopicSnapshot` 和会话 `session_turns`，只允许返回：
+`TopicRouterEngine` 接收原始消息、候选 `TopicSnapshot` 和会话 `session_turns`。候选话题在提示词中每个一行：`topic_id`、标题与话题摘要；话题写过进展记录时，再加最近一条进展记录的节选（截到 200 字符）。话题的折叠摘要不进入路由：它是给记忆生成读的材料。它只允许返回：
 
 - 候选列表中的一个 `topic_id`；
 - `NEW_TOPIC`，并在模型成功响应时同时提供非空 title 与 summary。
@@ -109,7 +108,7 @@ Tier 0 只覆盖低成本、高确定性的规则，命中时覆盖模型给出�
 
 Topic Router 与 QueryUnderstanding 的模型消息都只有 system 与当前输入两条：最近会话轮次与话题菜单一样渲染为编号列表（`prompts/gateway.py` 的 `render_session_turns`，每轮一个条目，`User:` 与 `Assistant:` 各占一行，多行内容续行缩进），放在 system 提示词的“当前会话最近轮次”段落中，并注明只用于理解指代与省略、不需要回答。会话轮次不作为对话消息发送：以用户/助手消息提供时，真实模型会接着对话回答用户而不是完成分析，JSON 输出随之为空，两项分析都会降级。消息经组合根注入的共享 LLM 服务以完整调用发出。请求参数由 `gateway.llm` 经模型注册表解析得到，两个 Engine 使用同一个模型，都追加 JSON 输出要求（[System 组合根](../system/composition.md#13-llm-bundle)）。Tier 1 的 `QueryUnderstandingEngine` 共享一次 LLM 调用，同时产生意图、重写与关键词。这是第一代实现的成本/延迟取舍，不是永久规定。Engine 还能解析 `sub_intents`，但 Resolver 当前没有把它投影到公共 `UserQueryAnalysisResult`，因此没有下游消费者，也不能被描述为已支持复合意图执行。
 
-路由到已有话题时，QueryUnderstanding 的输入另带该话题的辅助背景：标题、话题摘要与折叠摘要，以及最近若干个逻辑块（`context_block_limit`，默认 3）的用户消息与回复正文，各截断到 `context_text_limit` 字符（默认 200）。这两段文字由逻辑块从本轮事件读取，不另存；思考与工具过程不进入 Gateway 的提示词。
+路由到已有话题时，QueryUnderstanding 的输入另带该话题的辅助背景：标题、话题摘要、最近一条进展记录（`latest progress:`），以及最近若干个逻辑块（`context_block_limit`，默认 3）的用户消息与回复正文，各截断到 `context_text_limit` 字符（默认 200）。这两段文字由逻辑块从本轮事件读取，不另存；思考与工具过程不进入 Gateway 的提示词。
 
 Tier 2 不再调用模型。检索模式是 Gateway 根据已提交分析派生的提示，不代表 Patchouli 已经执行检索。
 

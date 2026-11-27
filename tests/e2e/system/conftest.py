@@ -158,7 +158,7 @@ class _Extractor:
 class _SummaryWriter:
     """本轮不会达到折叠阈值；意外调用模型边界时直接令测试失败。"""
 
-    async def generate_summary(self, *_args: Any) -> str:
+    async def generate_summary(self, *_args: Any, **_context: Any) -> str:
         raise AssertionError("this chat must not fold")
 
 

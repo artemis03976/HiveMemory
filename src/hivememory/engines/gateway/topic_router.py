@@ -6,7 +6,7 @@ from collections.abc import Sequence
 
 from hivememory.config.gateway import TopicRouterConfig
 from hivememory.core.errors import ModelProviderError
-from hivememory.core.models import TopicSnapshot
+from hivememory.core.models import TopicSnapshot, topic_excerpt
 from hivememory.core.protocol.gateway import GatewaySessionTurn
 from hivememory.engines.gateway.llm import json_analysis_params
 from hivememory.engines.gateway.models import TopicRoutingResult
@@ -74,14 +74,15 @@ class TopicRouterEngine:
 
     @staticmethod
     def _render_topics(topic_snapshots: Sequence[TopicSnapshot]) -> str:
+        """候选话题每个一行：标题与话题摘要，有进展记录时再加最近一条的节选。"""
         if not topic_snapshots:
             return ""
         lines: list[str] = []
         for snapshot in topic_snapshots:
-            lines.append(
-                f"- {snapshot.topic_id}: {snapshot.topic_title} | "
-                f"{snapshot.topic_summary or snapshot.fold_summary}"
-            )
+            line = f"- {snapshot.topic_id}: {snapshot.topic_title} | {snapshot.topic_summary}"
+            if snapshot.progress_record:
+                line += f" | {topic_excerpt(snapshot.progress_record[-1].text)}"
+            lines.append(line)
         return "\n".join(lines)
 
     @staticmethod

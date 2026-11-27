@@ -205,7 +205,7 @@ class TestBuildTranscript:
         )
 
         assert builder.build_transcript(ctx) == (
-            "[Topic State]\n重构进行中\n\n"
+            "[Folded Earlier Turns]\n重构进行中\n\n"
             "[Turn 1]\n[User]: 问题1\n[Assistant]: 答案1\n\n"
             "[Turn 2]\n[Outcome: cancelled] This turn did not complete normally.\n"
             "[User]: 问题2\n[Assistant]: 半截"
@@ -284,7 +284,7 @@ class TestEngineWithGenerationContext:
         transcript = extractor.extract.call_args.args[0]
         assert "[Turn 1]" in transcript
         assert "摘要" in transcript
-        assert "[Topic State]" in transcript
+        assert "[Folded Earlier Turns]" in transcript
 
     @pytest.mark.asyncio
     async def test_process_empty_context_skipped(self):

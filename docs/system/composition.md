@@ -100,7 +100,7 @@ HiveMemorySystem.build(config)
 
 System 只创建一个 `LiteLLMService`，它是 `infrastructure.llm.base.BaseLLMService` 的唯一实现，注入 Gateway、Patchouli 与 Alice。服务无状态：不读取配置、不持有默认模型或凭证，每次调用的模型、凭证与采样参数都由请求参数 `LLMRequestParams` 携带。服务不绑定配置是为了让共享实例不可能串用参数：按配置绑定实例再以单例共享时，后构造的组件会静默拿到先构造组件的模型与凭证；逐次携带参数从结构上排除这种情况。
 
-组合根把 `gateway.llm` 与 `patchouli.llm`（`ModelSelection`）各自经 `ModelRegistry.resolve` 解析为请求参数，不写回配置对象（见 [System 配置与注册表](./configuration.md#3-registry-解析)）：选择中给出的 temperature、top_p 与 max_tokens 覆盖模型默认值，未给出的取模型定义的默认值，停止序列不属于组件调参。配置为 `null` 的组件参数为 `None`：Gateway 按无 LLM 降级，Patchouli 的记忆抽取器以 No-Op 运行，Page Folding 回退为规则摘要。Alice 的请求参数逐帧由同一个 `resolve` 解析，见 [Agent Runtime](../alice/agent-runtime.md#4-模型选择与-mtp-生成器)。
+组合根把 `gateway.llm` 与 `patchouli.llm`（`ModelSelection`）各自经 `ModelRegistry.resolve` 解析为请求参数，不写回配置对象（见 [System 配置与注册表](./configuration.md#3-registry-解析)）：选择中给出的 temperature、top_p 与 max_tokens 覆盖模型默认值，未给出的取模型定义的默认值，停止序列不属于组件调参。配置为 `null` 的组件参数为 `None`：Gateway 按无 LLM 降级，Patchouli 的记忆抽取器以 No-Op 运行，折叠摘要只写标题与代码从原文取出的部分，不写进展记录。Alice 的请求参数逐帧由同一个 `resolve` 解析，见 [Agent Runtime](../alice/agent-runtime.md#4-模型选择与-mtp-生成器)。
 
 服务接口只有一个入口 `complete(messages, params, *, stream=False)`：
 

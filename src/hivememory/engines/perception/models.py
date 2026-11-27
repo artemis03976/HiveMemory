@@ -102,7 +102,7 @@ class TopicSettleMaterial(BaseModel):
 
     @property
     def fold_summary(self) -> str:
-        """最后一次折叠的摘要，没有折叠时为空串。"""
+        """全部折叠记录的摘要按顺序拼接，没有折叠时为空串。"""
         return topic_fold_summary(self.folds)
 
     @classmethod

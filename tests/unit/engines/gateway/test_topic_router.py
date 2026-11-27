@@ -1,4 +1,4 @@
-"""独立 TopicRouterEngine 测试。"""
+"""独立 TopicRouterEngine 测试：候选话题的渲染、输出校验与失败分类。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 
 from hivememory.config.gateway import TopicRouterConfig
 from hivememory.core.errors import ModelProviderError
-from hivememory.core.models import TopicSnapshot
+from hivememory.core.models import TopicProgressEntry, TopicSnapshot
 from hivememory.engines.gateway.topic_router import (
     TopicRouterEngine,
     TopicRouterError,
@@ -50,6 +50,57 @@ async def test_topic_router_only_returns_topic_routing_fields() -> None:
     }
     # 组件参数原样沿用，只追加 JSON 输出要求。
     assert llm.calls[-1].params == DEFAULT_LLM_PARAMS.model_copy(update={"json_output": True})
+
+
+def _progress_entry(text: str, covered_until: int) -> TopicProgressEntry:
+    return TopicProgressEntry(
+        text=text,
+        from_turn_id="turn-a",
+        to_turn_id="turn-b",
+        to_event_seq=1,
+        covered_until=covered_until,
+        written_at=1_700_000_000.0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_candidate_topics_show_the_summary_and_an_excerpt_of_the_latest_progress_entry():
+    """候选话题每个一行：标题与话题摘要，写过进展记录时再加最近一条的节选（截到 200 个字符）。"""
+    llm = ScriptedLLMService('{"target_topic":"topic-1","reason":"延续"}')
+    router = TopicRouterEngine(
+        config=TopicRouterConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
+    workspace = make_identity_scope(user_id="u1").workspace_identity
+
+    await router.route(
+        "继续",
+        topic_snapshots=(
+            TopicSnapshot(
+                last_update=1_700_000_000.0,
+                topic_id="topic-1",
+                topic_title="Gateway",
+                topic_summary="拆分话题路由",
+                workspace_identity=workspace,
+                progress_record=(
+                    _progress_entry("讨论了拆分方式", 2),
+                    _progress_entry("定" * 250, 4),
+                ),
+            ),
+            TopicSnapshot(
+                last_update=1_700_000_000.0,
+                topic_id="topic-2",
+                topic_title="部署",
+                topic_summary="发布流程",
+                workspace_identity=workspace,
+            ),
+        ),
+    )
+
+    system_prompt = llm.calls[-1].messages[0]["content"]
+    assert (
+        "- topic-1: Gateway | 拆分话题路由 | " + "定" * 200 + "…\n- topic-2: 部署 | 发布流程\n"
+    ) in system_prompt
+    assert "讨论了拆分方式" not in system_prompt
 
 
 @pytest.mark.asyncio

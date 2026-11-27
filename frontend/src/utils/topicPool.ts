@@ -8,6 +8,15 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
+ * 话题卡片与话题选择器的副标题：最近一条进展记录，还没有写过一条时用话题摘要；都没有时为 undefined。
+ * 显示处按行数截断，只露出开头的节选。
+ */
+export function topicSubtitle(topic: Pick<Topic, 'progressRecord' | 'topicSummary'>): string | undefined {
+  const entries = topic.progressRecord;
+  return (entries.length > 0 ? entries[entries.length - 1].text : '') || topic.topicSummary;
+}
+
+/**
  * 距离话题停下够久、自动沉淀还剩多少分钟（向上取整，已到期为 0）；话题没有还没沉淀的交互时为 null：
  * 只沉淀新的交互，沉淀之后话题留在池中，停下再久也不再沉淀，直到再次写入。按最近一次
  * 写入估算：后端以话题最近一次被确认或写入的时间计时，并由周期扫描沉淀，实际沉淀可能稍晚。

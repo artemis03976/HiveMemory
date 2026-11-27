@@ -72,7 +72,6 @@ def _make_snapshot(topic_id="t1", title="Test Topic"):
         workspace_identity=make_identity_scope(user_id="test_user").workspace_identity,
         topic_id=topic_id,
         topic_title=title,
-        fold_summary="summary",
         last_turn=TopicLastTurn(user="hi", assistant="hello"),
         block_count=3,
         total_tokens=100,
@@ -120,7 +119,6 @@ class TestTopicsRouter:
         assert data["topics"][0]["topic_id"] == "t1"
         assert data["topics"][0]["topic_title"] == "Topic 1"
         assert data["topics"][0]["topic_summary"] == "topic summary"
-        assert data["topics"][0]["fold_summary"] == "summary"
         assert data["topics"][0]["last_turn"] == {"user": "hi", "assistant": "hello"}
         assert data["topics"][0]["block_count"] == 3
         assert data["topics"][0]["total_tokens"] == 100
@@ -139,7 +137,21 @@ class TestTopicsRouter:
         assert data["topics"][0]["unrecorded_turns"] == [
             {"turn_number": 6, "user": "统计一下", "assistant": "共 4 次"}
         ]
-        assert "workspace_identity" not in data["topics"][0]
+        # 响应只投影前端读取的字段：不带 Workspace 归属，也不带只给内部模型读的折叠摘要。
+        assert set(data["topics"][0]) == {
+            "topic_id",
+            "topic_title",
+            "topic_summary",
+            "last_turn",
+            "block_count",
+            "total_tokens",
+            "model_used",
+            "last_update",
+            "has_unsettled_interactions",
+            "progress_record",
+            "unrecorded_turn_count",
+            "unrecorded_turns",
+        }
 
     def test_list_topics_empty(self):
         librarian_core = MagicMock()

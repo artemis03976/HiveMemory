@@ -18,10 +18,7 @@ from hivememory.config.gateway import (
 )
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import StorageReadError
-from hivememory.core.models import (
-    TopicLastTurn,
-    TopicSnapshot,
-)
+from hivememory.core.models import TopicSnapshot
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     IntentType,
@@ -39,7 +36,7 @@ from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.mark.asyncio
-async def test_provider_prepares_candidate_topics_and_menu() -> None:
+async def test_provider_prepares_candidate_topics() -> None:
     bus = GlobalSystemBus()
     identity_scope = make_identity_scope(user_id="u1")
     calls = []
@@ -48,8 +45,6 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
             last_update=1_700_000_000.0,
             topic_id="topic-1",
             topic_title="Gateway",
-            fold_summary="正在实现 Phase 3D",
-            last_turn=TopicLastTurn(user="继续", assistant="处理中"),
             workspace_identity=identity_scope.workspace_identity,
         ),
     )
@@ -68,9 +63,6 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
     result = await provider.prepare_candidate_topics(identity_scope=identity_scope)
 
     assert result.topic_snapshots == snapshots
-    assert "topic-1" in result.active_topics_menu
-    assert "正在实现 Phase 3D" in result.active_topics_menu
-    assert "User: 继续" in result.active_topics_menu
 
 
 @pytest.mark.asyncio
