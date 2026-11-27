@@ -56,7 +56,7 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 
 - 记忆的创建、语义搜索与列表、读取、编辑、反馈与删除：`/api/v1/memories`
 - 记忆生成任务的查询与取消：`/api/v1/memory-tasks`
-- 活跃话题列表、手动结算与驱逐：`/api/v1/topics`
+- 话题池列表、手动沉淀并退役与删除：`/api/v1/topics`
 - Agent Profile 的创建与列表：`/api/v1/agents`
 
 ### 配置与可观测性
@@ -141,8 +141,8 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 | `/api/v1/memory-tasks/{task_id}` | GET | 查询单个任务 |
 | `/api/v1/memory-tasks/{task_id}/cancel` | POST | 取消任务 |
 | `/api/v1/topics` | GET | 获取活跃话题 |
-| `/api/v1/topics/{topic_id}/settle` | POST | 手动结算话题 |
-| `/api/v1/topics/{topic_id}` | DELETE | 从活跃池驱逐话题 |
+| `/api/v1/topics/{topic_id}/settle` | POST | 手动沉淀并退役话题 |
+| `/api/v1/topics/{topic_id}` | DELETE | 删除话题（不沉淀、不写记忆） |
 | `/api/v1/agents` | GET / POST | 列出 / 创建 Agent Profile |
 | `/api/v1/workspace/assets` | POST | 上传附件 |
 | `/api/v1/models` | GET / POST | 列出 / 注册模型 |

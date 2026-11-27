@@ -27,11 +27,11 @@ last_reviewed: 2026-11-26
 
 本文是原始资料保存的设计：**ConversationSession 保存完整对话，Topic 保存已交接的完整资料，记忆生成阶段冻结相应来源 Artifact，再由 Memory 引用。** 从 Topic 往后的部分已经实现（第 0 节），交到 Topic 之前的环节与保存承诺是候选设计；会话原始数据是否持久化另行计划，本文不以新增独立原始记录仓库为前提。
 
-当前能力以 [Workspace](../workspace/README.md)、[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。正文是已定的设计，候选设计标“候选”。
+当前能力以 [Workspace](../workspace/README.md)、[短期记忆](../architecture/short-term-memory.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。正文是已定的设计，候选设计标“候选”。
 
 ## 0. Topic 之后的原始证据保存与生成材料
 
-从 Topic 往后的链路已经实现：Topic 保存全部交互记录与折叠记录，折叠只推进工作视图；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录（[感知与短期话题](../patchouli/perception.md)、[Artifacts](../patchouli/artifacts.md)）。交到 Topic 之前的环节（Session 侧的保存、进程与入口的交接、会话持久化）与第 7 节的保存承诺，是本文仍开放的范围。
+从 Topic 往后的链路已经实现：Topic 保存全部交互记录与折叠记录，折叠只推进工作视图；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录（[短期记忆](../architecture/short-term-memory.md)、[Artifacts](../patchouli/artifacts.md)）。交到 Topic 之前的环节（Session 侧的保存、进程与入口的交接、会话持久化）与第 7 节的保存承诺，是本文仍开放的范围。
 
 ### 0.1 已定的设计
 
@@ -62,11 +62,11 @@ last_reviewed: 2026-11-26
 |:---|:---|:---|
 | Session | [ConversationSessionService](../../src/hivememory/workspace/sessions/service.py)按封口顺序保存 `ConversationTurn` 与 payload 深拷贝；有容量限制，同会话只允许一个进程认领；删除不级联 Topic/Memory，关闭时清空（[会话资源](../workspace/sessions.md)） | 进程内记录，没有编辑、回退、分支或会话持久化；保存范围受 payload 与生产者实际输出约束 |
 | 主动交接 | [交互封口](../../src/hivememory/core/protocol/sealing.py)组装 `InteractionPayload`；任务进程对有输出的 completed/cancelled/failed 封口、写入会话并提交交互 | 只在轮次封口时交接；Session 写入与 Patchouli 应用不是跨系统原子事务 |
-| Topic | [PerceptionFamiliar](../../src/hivememory/patchouli/services/perception.py)按顺序保存全部交互记录与折叠记录，工作视图由二者派生，折叠只推进工作视图 | 话题是进程内状态，异常退出可能丢失未结算的交互记录；结算前保存全部记录，没有容量上限或背压（[感知与短期话题](../patchouli/perception.md)） |
+| Topic | [PerceptionFamiliar](../../src/hivememory/patchouli/services/perception.py)按顺序保存全部交互记录与折叠记录，工作视图由二者派生，折叠只推进工作视图 | 每个话题一条只追加的日志，发生时落盘，正常关闭与进程崩溃之后都读回（不 fsync，断电可能丢失最后几行）；退役前保存全部记录，没有容量上限以外的背压（[短期记忆](../architecture/short-term-memory.md#7-保存与重启)） |
 | 沉淀与生成 | [TopicSettleMaterial](../../src/hivememory/engines/perception/models.py)冻结全部记录，不按入口价值标记筛选；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`；主动写入取话题的折叠摘要与最近几个 block | 生成读取工作视图，不读取已折叠的原文；模型选择不能证明全部资料已保存 |
 | 来源 Artifact | [InteractionArtifactBuilder](../../src/hivememory/engines/artifacts/interaction.py)冻结交到它的全部记录，覆盖已折叠的轮次；来源 InteractionArtifact 在生成之前捕获 | 捕获是 best-effort，不能据此宣称完整证据必然保存；强制写入的 Memory version artifact 是另一项承诺 |
 
-Session 与 Topic 都是进程内资源；Artifact 已有文件保存能力，这不等于前面两层具备重启恢复。
+Session 是进程内资源，不跨重启恢复；Topic 的日志跨重启读回，Artifact 已有文件保存能力。
 
 ## 3. 候选资料链与所有权（候选）
 
@@ -101,7 +101,7 @@ flowchart TD
 
 Topic 完整资料保存“有哪些来源材料”；`fold_summary + recent_blocks` 等派生视图回答“当前分析或生成看什么”。两者独立演进：page folding 只推进后者，既不决定原文是否值得保存，也不自动宣告该段材料已被物化为正式记忆。
 
-这不要求 active blocks 始终保留全部历史：把所有正文留在同一个活跃输入中，Perception 就要同时管理模型窗口和资料保全，settlement extractor 仍可能超出上下文窗口。在 Topic 所有权下分开完整资料与工作窗口已经实现：Topic 按顺序保存全部交互记录与折叠记录，工作视图由它们派生（[感知与短期话题](../patchouli/perception.md)）。
+这不要求 active blocks 始终保留全部历史：把所有正文留在同一个活跃输入中，Perception 就要同时管理模型窗口和资料保全，settlement extractor 仍可能超出上下文窗口。在 Topic 所有权下分开完整资料与工作窗口已经实现：Topic 按顺序保存全部交互记录与折叠记录，工作视图由它们派生（[短期记忆](../architecture/short-term-memory.md)）。
 
 Alice compact 和 Topic folding 可以复用 token 计算、分段与摘要校验等机制，但拥有独立覆盖范围、检查点和保留策略。Alice 已压缩的进度不能证明 Patchouli 已接收资料，Topic 已折叠也不能证明 Memory 已生成。详细设计由[压缩 Idea](./short-term-memory-and-context-compaction.md)维护。
 
@@ -123,7 +123,7 @@ Alice compact 和 Topic folding 可以复用 token 计算、分段与摘要校�
 
 生成来源至少要能解释三件事：原始资料来自哪里、这份快照覆盖哪些交互与事件、某次提取实际消费哪些范围。记忆的版本记录已经引用到段（轮次标识加事件序号区间，[记忆生成](../patchouli/generation.md#22-段标签与记忆引用)）；其余粒度与引用结构需结合既有 Artifact 模型评估，不在本文冻结字段或新增类型。工具结果若只保存短标识、附件若只留下随时可能失效的临时 ref，也不能声称已经保存了其完整正文。
 
-候选生命周期要求：Topic 结束或被驱逐之前，仍有保留责任的资料应已由生成任务接管、形成独立来源快照，或按明确保留规则继续可用；不能因为模型只消费了摘要，就删除尚无其他承接方的完整资料。冻结任务接纳不等于 Artifact 已写入：二者之间由结算任务携带冻结的全部记录；Artifact 捕获失败时这次结算的原文不再保存在任何地方，是否允许这一缺口随第 7 节的保存承诺决定。
+候选生命周期要求：Topic 退役或被删除之前，仍有保留责任的资料应已由生成任务接管、形成独立来源快照，或按明确保留规则继续可用；不能因为模型只消费了摘要，就删除尚无其他承接方的完整资料。冻结任务接纳不等于 Artifact 已写入：二者之间由结算任务携带冻结的全部记录；Artifact 捕获失败时这次结算的原文不再保存在任何地方，是否允许这一缺口随第 7 节的保存承诺决定。
 
 ### 5.3 Memory 的来源关联
 

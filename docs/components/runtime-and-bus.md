@@ -195,7 +195,7 @@ retry-wait 与有限终态记录均不可恢复，因此当前入口只能声称
 payload 可以不同，新提交以递增的尝试号区分工作项标识。为查重保留的旁路索引只存编码 payload 的摘要。
 `topic:{topic_id}` ordering key 只保证成功 apply 的 topic-local
 顺序，不代表执行时读取的 topic snapshot 或 Agent 因果顺序。应用写入话题后，话题需要折叠时由队列以同一 ordering key
-排入折叠项，交互的应用结果不等折叠；话题停下够久时，进展记录扫描同样经队列排入写一条进展记录。折叠与进展记录的语义见[感知与短期话题](../patchouli/perception.md#5-折叠)第 5、7 节。
+排入折叠项，交互的应用结果不等折叠；话题停下够久时，进展记录扫描同样经队列排入写一条进展记录。折叠与进展记录的语义见[短期记忆](../architecture/short-term-memory.md#44-折叠)第 5、7 节。
 
 提交路由在 admission 后等待 applied gate 到终态或调用方给出的时限，只有 work `SUCCEEDED` 才以成功结局交回：
 任务进程不设时限，成功后才以实际所在的话题写入会话并交付终态；Import Bus 以 `import_bus.apply_wait_seconds`

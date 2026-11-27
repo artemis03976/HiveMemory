@@ -45,7 +45,7 @@ Memory 领域的时间语义已在 v0.7.0 统一（[归档计划](../archive/pla
 
 ## 动手前要确认
 
-- 话题已经跨重启恢复（[感知与短期话题](../patchouli/perception.md#7-维护存储与启动时读回)第 7 节）：驻留的访问时间仍是单调时钟、不写进话题的日志，读回时话题停下多久重新计时；日志记录的发生时间 `at`（读取值的 `last_update` 由它得到）与块的 `created_at` 仍是 naive epoch 秒，改为 UTC 业务时间时要兼顾读回已有的日志；
+- 话题已经跨重启恢复（[短期记忆](../architecture/short-term-memory.md#7-保存与重启)第 7 节）：驻留的访问时间仍是单调时钟、不写进话题的日志，读回时话题停下多久重新计时；日志记录的发生时间 `at`（读取值的 `last_update` 由它得到）与块的 `created_at` 仍是 naive epoch 秒，改为 UTC 业务时间时要兼顾读回已有的日志；
 - 限流器的桶语义改用 monotonic 之后，外部可见的行为是否变化；
 - `StreamMessage.timestamp` 删除还是迁到 UTC，这涉及公共模型；
 - 前端是否消费数值形态的后端时间字段。

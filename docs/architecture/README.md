@@ -13,6 +13,7 @@ last_reviewed: 2026-10-21
 ## 当前设计
 
 - [系统架构概览](./overview.md)：组合根、三个子系统、主动链路与 Import Bus、启停顺序；
+- [短期记忆](./short-term-memory.md)：话题怎样接收交互、记下进展、沉淀与退役、折叠，以及读回前台；
 - [系统边界与所有权](./boundaries.md)：职责、状态所有权、依赖方向与禁止越界；
 - [数据模型与可变性边界](./data-model.md)：MemoryAtom 语义结构、模型角色、冻结深度、受控可变与边界投影；
 - [架构决策记录](./decisions/README.md)：长期有效的设计决策及其理由。

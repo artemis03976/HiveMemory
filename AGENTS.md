@@ -89,7 +89,7 @@ Workspace 的访问、能力层与任务进程规则较多。改动这些区域�
 
 两条链路的完整控制流见[系统架构概览](docs/architecture/overview.md)第 5、6 节；停止、取消与收尾的细节见[任务进程](docs/workspace/task-process.md)。
 
-- 主动链路：`Gateway process -> PREPARE（Profile、派生主线程、以主线程预检索、确认已有话题、CPU 分配） -> Actor 执行（经 CPU 端口，当前为 Alice；新话题在第一次写入时建立） -> 有输出时封口交互记录 -> root API 提交交互并等待应用 -> 写入会话（话题取交互实际所在的话题）`。PREPARE 失败、进程异常、进入 FINALIZE 前断连或 CPU 无输出时不提交；提交没有成功时会话仍写入这一轮、话题为空，进程按失败收口。没有补偿或回滚：建立后没有接收交互的话题由空闲结算或 LRU 回收。附件租借随进程关闭释放。检索命中由 actor API 在每次检索时记录（含预检索），不依赖本轮的结局。
+- 主动链路：`Gateway process -> PREPARE（Profile、派生主线程、以主线程预检索、确认已有话题、CPU 分配） -> Actor 执行（经 CPU 端口，当前为 Alice；新话题在第一次写入时建立） -> 有输出时封口交互记录 -> root API 提交交互并等待应用 -> 写入会话（话题取交互实际所在的话题）`。PREPARE 失败、进程异常、进入 FINALIZE 前断连或 CPU 无输出时不提交；提交没有成功时会话仍写入这一轮、话题为空，进程按失败收口。没有补偿或回滚：建立后没有接收交互的话题停下超过沉淀阈值时直接退役，或在池满时退役。附件租借随进程关闭释放。检索命中由 actor API 在每次检索时记录（含预检索），不依赖本轮的结局。
 - 停止与取消：用户停止保留部分输出并提交，交付方离开与系统关闭丢弃本轮；进入 FINALIZE 后拒绝停止，提交不受交付方离开影响。停止被接受时全部线程即已结束，CPU 取消后的收尾不得依赖 actor 操作。
 - Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关（证明来源与参与的 Agent）+ 认证系统自身的 system -> 按外部会话串行编排 -> 共用封口 seal_interaction -> root API 提交交互（方法内查重、未确定话题时以 Gateway PASSIVE_MEMORY 只取话题路由、经 Patchouli 公开提交路由提交并等待感知应用，参与者显式传递） -> 按结局确认`；一轮导入只在 root 方法入口授权一次。经 MCP 写入或读当前话题的轮次已经 root API 的 `determine_topic` 确定话题，回流时沿用已确定的话题、不再路由（[Import Bus](docs/system/import-bus.md)）。Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
 - WRITE/UPDATE（Alice 的 MTP 与外部 harness 的 MCP）的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化；派发开始后，写入不因 CPU 失败、取消、停止、线程结束、进程关闭或 MCP 调用方断开而撤回。正式持久化只由 Patchouli 生成链结算，不能在 Alice（含 Koakuma）内直接写正式 Memory。详见[读取视图与写入意图](docs/workspace/read-view-and-write-intents.md)。
@@ -159,8 +159,12 @@ cd frontend && npm ci && npm run lint && npm test && npm run build
 文档的分类、状态、晋升门禁、删除与索引规则以[文档治理规范](docs/DOCUMENTATION.md)为准，新增、修改、移动或删除文档前先读它；Plans、Ideas、Todo、Archive、Governance、Baselines、Research 与 ADR 各自的写法在对应目录的 README，处理这几类文档时一并阅读。下面只列出最常被违反的几条：
 
 - 当前事实文档只写已经落地的内容。开发分支最终收尾之前，候选模型、目标接口、迁移步骤和“未来将支持”的设计只留在 Idea、Plan 或 Todo 中，也不用“计划中”“尚未实现”之类的措辞提前写进事实文档。
-- 当前设计文档既写可执行事实，也保留仍然有效的问题背景、所有权理由、关键取舍与失败语义；不要把代码目录逐文件翻译成文档。
-- 同一概念只在一处维护，其他文档链接过去，不复制内容。
+- 事实文档按机制写，不按模块写，读者是第一次接触项目的人：
+  - 用清楚的语言介绍机制，不概括代码；先讲要解决的问题，再用一个例子走一遍；
+  - 概念先定义再使用；字段名、方法名与配置键收在末尾的参考里；
+  - 保留仍然有效的问题背景、关键取舍与失败语义；
+  - 自述完备，不点开链接也能读懂（[文档治理规范](docs/DOCUMENTATION.md)第 2.4、2.5、7 节，样例是[短期记忆](docs/architecture/short-term-memory.md)）。
+- 同一机制只在一份文档中完整描述。其他文档用到它时，用一两句话说明它在自己这里的作用，不复述细节；收尾只更新受影响的机制文档与代码中的 docstring。
 - Idea 写设计现在是什么，不写设计怎样形成：owner 的决定写成设计陈述，放在它约束的那一部分，不带日期、不写取代关系，不设决定一览；候选设计显式标“候选”。开放问题只列阻塞下一份计划（见 [Plans 导航](docs/plans/README.md)）的，写背景、选项与影响，一个主题只设一个问题；不阻塞的发现只记一行搁置项，或在对话中提出，owner 要求时再展开。讨论过程与搁置的想法写进 `.hivememory/fields/` 的工作笔记，不写进 Idea（[Ideas 的规则](docs/ideas/README.md)）。
 - 新增或修改文档后，检查相对链接、状态、owner、`last_reviewed` 与相关代码入口，并运行 `git diff --check`。
 

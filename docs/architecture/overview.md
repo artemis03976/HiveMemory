@@ -25,6 +25,7 @@ related_docs:
   - docs/architecture/boundaries.md
   - docs/system/import-bus.md
   - docs/patchouli/perception.md
+  - docs/architecture/short-term-memory.md
   - docs/workspace/sessions.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
@@ -225,7 +226,7 @@ TaskProcessService（workspace.process）
 
 1. Gateway 必须先形成命令终态或完整决策；
 2. 预检索是执行者的 actor 操作，以主线程经操作入口提交，与 Alice 的 SEARCH 走同一条路：按执行者的白名单授权与可见性过滤，结果经读取视图交付，命中随检索记录、不依赖本轮的结局；执行者没有 `memory.search` 时不检索，对话照常进行；
-3. 话题按需确定，不预先建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在第一次写入时建立，没有写入时在交互应用时建立；因此没有任何补偿或清理话题的路径，建立后没有接收交互的话题由空闲结算或 LRU 回收；
+3. 话题按需确定，不预先建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在第一次写入时建立，没有写入时在交互应用时建立；因此没有任何补偿或清理话题的路径，建立后没有接收交互的话题停下超过沉淀阈值时直接退役，或在池满时退役；
 4. 任务进程在 CPU 分配时取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、不透明的线程句柄（只用于提交操作请求，CPU 执行结束线程即结束）和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
 5. 执行结果为 completed/cancelled/failed 且有输出时，进入 FINALIZE 提交交互，应用之后追加 ConversationSession；无输出、进程异常与 FINALIZE 前断连不提交、不追加；附件租借无论结局如何都在进程结束时释放；
 6. 任务进程封口交互记录（只组装、不解析：交互内容只以结构化 `turn_events` 表达，由感知层解析），经 root API 的提交交互原样提交，与 Import Bus 共用同一个方法；WRITE/UPDATE 已在 actor 操作内独立派发；
@@ -279,34 +280,7 @@ POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、us
 
 ## 7. 短期记忆：话题是前台与中期之间由 HiveMemory 持有的一环
 
-长上下文的遗忘与注意力衰减是短期记忆的问题。前台上下文不归 HiveMemory 管：plugin 模式下属于外部 harness，controller 模式下 Alice 有自己的会话压缩；两种模式共有的只有话题这一环。短期记忆因此是一条机制链，HiveMemory 在其中持有话题：
-
-```text
-前台上下文（plugin 模式属于 harness；controller 模式由 Alice 从会话资源构建）
-  -> 会话压缩：harness 自己的压缩，或 Alice 的工具结果减重与接力摘要；Alice 的检查点存进会话资源
-  -> 每一轮结束：任务进程或 Import Bus 经 root API 提交交互，Patchouli 感知把这一轮追加进话题
-  -> 话题（Patchouli 感知，每个话题一条只追加的日志）：
-       交互记录：完整原文，只追加
-       折叠：工作视图超过 token 阈值时折叠旧轮次，只为生成材料服务
-       进展记录：话题停下一段时间后写一条，每一条指回它覆盖的原文
-       沉淀与退役：话题停下更久时把交互交给生成，话题留在池中；池满或手动时沉淀并退役
-  -> 中期（Patchouli 生成）：从沉淀材料生成正式记忆，查重、合并
-  -> 读出（拉取）：agent 经 actor API 的 READ 读话题句柄或 topic:current；Claude Code 压缩会话之后，插件只推送话题句柄的指针
-```
-
-- **前台上下文**：controller 模式下，会话资源原样积累一个 Workspace 会话的全部轮次，Alice 每次 run 由它构建预算受限的上下文视图（[会话资源](../workspace/sessions.md)）；plugin 模式下前台上下文完全在 harness 中，HiveMemory 只收到每一轮的记录。
-- **会话压缩**：回答“这个会话下一次推理需要知道什么”。Alice 先减重工具结果，仍超出时以接力摘要覆盖较早的轮次，检查点由会话资源存储与接受，原文不删改（[Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)、[会话资源](../workspace/sessions.md#5-压缩检查点)）；外部 harness 的压缩由 harness 自己完成。
-- **话题**：回答“不在场的人回来时，话题进行到哪一步”。一个话题汇集可能来自多个会话的交互，按内容组织、原文完整；话题的进展是进展记录加还没有整理的原始交互记录，折叠只为生成材料服务（[感知与短期话题](../patchouli/perception.md)）。
-- **沉淀进中期**：沉淀冻结话题的全部交互与折叠记录交给生成，生成写出正式记忆并记下本话题生成的记忆；话题停下够久时只沉淀、不退役，连续的工作因此不被切成几个话题（[记忆生成](../patchouli/generation.md)、[感知与短期话题](../patchouli/perception.md#4-触发原因与具名用例)第 4 节）。
-- **读出**：回到话题的 agent 需要知道话题进行到哪一步，使用点有两个：另一个会话的消息被路由回已有话题时，与会话压缩之后的短暂失忆窗口。拉取是基线：话题句柄 `topic:<id>` 与 `topic:<id>#<n>` 经同一个 READ（MTP 的 READ、MCP 的 `memory_read`）读出进展记录的索引或一条的全文与原文，授权沿用 `memory.read`；agent 不知道话题 id 时读 `topic:current`，即这个会话这一轮所在的话题（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）。推送只在会话压缩之后、harness 支持时做，而且只推送一个指针：Claude Code 压缩会话之后，插件的 `SessionStart` hook 以 Import Bus 导入结果带回、连接器记下的话题标识，注入这个会话最近一轮所在话题的句柄与一句读法，不推送话题或中期记忆的内容（[Import Bus](../system/import-bus.md#82-hooks)第 8.2 节）。被路由回已有话题时由 agent 拉取，系统不在轮首推送：轮首推送要先在轮首确定话题、再干预前台的上下文，而被动入口能捕捉的时点与能做的干预因 harness 而异。
-- **话题的归属按需确定，每轮至多一次**：plugin 模式下一轮所在的话题在第一次需要它时确定——写入或更新之前、读 `topic:current` 之前与轮次结束导入时，三者经 Import Bus 的同一个“为一轮确定话题”，先到的确定，之后沿用；不单独在轮首路由。归属只是 HiveMemory 内部的记账，不碰前台的上下文（[Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题)第 4.7 节）。
-
-跨层不变量：
-
-- **会话与话题不共享状态、互不控制**：会话只在每一轮上记下交互实际所在的话题标识，删除或沉淀话题不删除会话；话题不读会话，会话压缩不缩减话题的交互记录，折叠也不替前台减少会话历史。plugin 模式下 HiveMemory 不保存外部会话，连接器只记下最近一轮所在的话题标识。
-- **会话压缩、折叠与进展记录各自回答一个问题、各自触发**：会话压缩由前台的上下文预算触发（Alice 按自己的触发比例，外部 harness 按它自己的规则），回答下一次推理需要什么；折叠由话题工作视图的 token 阈值触发，回答读材料的生成需要保留什么；进展记录由话题停下的时长触发，回答话题进行到哪一步。三者之间没有机制联系：CPU 已压缩某段内容，不证明话题已收到它，也不证明已生成对应的记忆。
-- **Alice 的接力摘要不进入话题**：它不进入 `TurnEvent`、`InteractionPayload`、话题或记忆生成，只是 Alice 的执行视图。
-- **话题向会话只是单向读出**：推送只有指针，不含记忆内容，由连接器从自己的状态写出，不读话题；内容只经 agent 自己的读取进入前台，读取经认证与 `memory.read` 授权，不写话题、不刷新话题的访问时间，也不影响导入。读 `topic:current` 可能为这一轮确定话题，与写入时相同，这是归属的记账，不改变话题的内容；话题也不控制前台怎样使用读到的内容。
+长上下文的遗忘与注意力衰减是短期记忆的问题。前台上下文不归 HiveMemory 管：plugin 模式下属于外部 harness，controller 模式下 Alice 有自己的会话压缩；两种模式共有的只有话题这一环。交互从会话流进话题，话题记下进展、沉淀进中期，回到话题的 agent 再按句柄把话题的进展读回前台：拉取是基线，会话压缩之后只推送一个指针；话题的归属按需确定，每轮至多一次。整条链、话题的生命周期与跨层不变量见[短期记忆](./short-term-memory.md)。
 
 ## 8. 生命周期顺序与设计理由
 

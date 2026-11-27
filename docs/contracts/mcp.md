@@ -87,7 +87,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 
 ### 3.1 读话题句柄
 
-`memory_read` 的 `aliases` 中以 `topic:` 开头的是话题句柄：`topic:<话题 id>` 读话题的进展记录索引，`topic:<话题 id>#<n>` 读第 n 条的全文与它覆盖的原文。解析、授权与可见性和 MTP 的 READ 相同，见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节；渲染见 [MemoryCompiler](../patchouli/memory-compiler.md#41-话题句柄的读取结果)第 4.1 节。MCP 一侧的约定：
+`memory_read` 的 `aliases` 中以 `topic:` 开头的是话题句柄：`topic:<话题 id>` 读话题的进展记录索引，`topic:<话题 id>#<n>` 读第 n 条的全文与它覆盖的原文。解析、授权与可见性和 MTP 的 READ 相同，见[短期记忆](../architecture/short-term-memory.md#61-拉取按句柄读话题)第 6.1 节；渲染见[短期记忆](../architecture/short-term-memory.md#62-读到什么)第 6.2 节。MCP 一侧的约定：
 
 - 话题已离开话题池（退役或删除）时，读取交付过期说明，提示需要时检索已经沉淀的记忆；它是正常的工具结果，不列入未解析的 alias，也不是 `isError`；
 - 不合语法的句柄与超出进展记录的条目序号算未解析，规则与找不到的 alias 相同；
@@ -102,7 +102,7 @@ MCP 入口与 Alice 的 MTP 适配器形态相同：都把协议调用归一为 
 
 - **确定话题**：回调以同一个工作 actor 调用门面取得的 `ImportBusService.place_turn(turn, actor, target_workspace)`。确定话题是系统级操作：服务以系统自身的 principal 认证参与者驻留 Workspace 的 `system`，编排器以它调用一次 root API 的为一轮确定话题（查进度、路由与确认或建立话题都在这个方法内，入口 root 授权一次），不检查参与 Agent 的操作白名单，在这一轮所属外部会话的串行门内返回这一轮的话题：已确定话题时直接返回；这一轮已经回流并应用时返回它实际所在的话题；已提交仍在应用时以 `apply_pending` 拒绝；否则路由、确认或建立话题并登记已确定的话题。规则见 [Import Bus](../system/import-bus.md#47-写入与读当前话题时确定话题) 第 4.7 节。目标 Workspace 取工作 actor 驻留的 Workspace，与导入入口相同。
 - **请求级提交**：操作入口 `WorkspaceOperationEntry` 的 `execute_request(request, actor, dispatch_topic=None)` 与线程提交的 `execute` 共用同一分派表。`dispatch_topic` 是返回这一轮话题的异步回调：写入与更新必须给出；读取可以给出，actor API 只在引用含 `topic:current` 时调用；检索不得给出；其余请求类型、或回调与请求类型不符时，在分派前以 `TypeError` 拒绝，没有副作用。它不做存活判定：工作 actor 是入口调用链内的局部值，没有线程可判定。
-- **actor API**：以 `authorize_agent` 授权，目标取工作 actor 驻留的 Workspace，白名单照常逐次检查。写入与更新接收线程句柄或派发话题的回调，二者恰有其一：线程提交给出句柄，向线程表取得派发话题；请求级提交给出回调。两种提交的顺序相同：授权，UPDATE 解析可读的正式基础原子，取得派发话题，再在无挂起点的同步段登记意图（线程提交在这里再解析一次线程），然后派发。CPU 一侧只持有不透明的线程句柄，取不到工作 actor，因此无法经请求级提交绕过线程的存活判定与派发话题（架构测试守护）。给出回调时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同，派发开始后调用方断开或取消不撤回写入（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。读取不登记意图：给出回调时，`resolve_references` 在 `memory.read` 授权之后、引用含 `topic:current` 时调用它一次，换成真实句柄再解析（[读取视图与写入意图](../workspace/read-view-and-write-intents.md#41-话题句柄)第 4.1 节）。请求级提交到不了 RUN 与 CALL：`execute_request` 的类型表拒绝它们，`execute` 只接收线程句柄。
+- **actor API**：以 `authorize_agent` 授权，目标取工作 actor 驻留的 Workspace，白名单照常逐次检查。写入与更新接收线程句柄或派发话题的回调，二者恰有其一：线程提交给出句柄，向线程表取得派发话题；请求级提交给出回调。两种提交的顺序相同：授权，UPDATE 解析可读的正式基础原子，取得派发话题，再在无挂起点的同步段登记意图（线程提交在这里再解析一次线程），然后派发。CPU 一侧只持有不透明的线程句柄，取不到工作 actor，因此无法经请求级提交绕过线程的存活判定与派发话题（架构测试守护）。给出回调时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同，派发开始后调用方断开或取消不撤回写入（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。读取不登记意图：给出回调时，`resolve_references` 在 `memory.read` 授权之后、引用含 `topic:current` 时调用它一次，换成真实句柄再解析（[短期记忆](../architecture/short-term-memory.md#61-拉取按句柄读话题)第 6.1 节）。请求级提交到不了 RUN 与 CALL：`execute_request` 的类型表拒绝它们，`execute` 只接收线程句柄。
 - **门面**：以 `operation_entry` 交出组合根装配的同一个操作入口，只供 MCP 入口调用 `execute_request`；以 `import_bus_service` 交出 Import Bus 服务。门面不暴露 actor API。
 - **结构守护**：`execute_request` 只由 MCP 入口调用；MCP 入口不导入 actor API、root API、任务进程与 Import Bus 的服务和编排器，在 Import Bus 中只导入在途轮次的输入模型（[能力层](../workspace/capability.md)）。
 
@@ -145,7 +145,7 @@ Claude Code 为插件 MCP 工具生成的调用名为 `mcp__plugin_<插件名>_<
 
 **回声标记**：经 MCP 取回的记忆、写入与更新的内容都会作为普通工具调用留在会话记录里，本轮结束时随对话回流再次导入；生成视图若渲染它们，提取模型会把已有记忆或已显式写入的内容再提取一遍。连接器因此把本插件四个工具的调用归一化为 HiveMemory 能力调用：按上表写 `verb` 与作用对象，不上传调用名，也不上传 `turn`（读取的作用对象仍是 agent 写的 `topic:current`）；其他工具写 `tool_name` 与完整参数。`aliases` 不是非空的字符串列表、`alias` 不是非空字符串时（模型传错了参数，MCP server 已以工具错误拒绝这次调用），读取与更新按普通工具写出，避免服务端因缺少作用对象拒绝整轮。Import Bus 接受这四个动词，READ 与 UPDATE 必须带作用对象（[Import Bus](../system/import-bus.md)）。生成视图对 `SEARCH`、`READ` 只渲染 `SEARCH: "查询"` 或 `READ: a, b` 一行摘要，不渲染结果，`WRITE`、`UPDATE` 不渲染，与 Alice 的 MTP 写出同形的事件、渲染相同（[Patchouli 生成](../patchouli/generation.md)）。交互记录与 Artifact 仍保存包括结果在内的原始事件。
 
-**压缩之后的指针**：Claude Code 压缩会话之后，插件的 `SessionStart` hook 注入一个指针：这个会话最近一轮所在话题的句柄 `topic:<话题 id>` 与一句读法，不含记忆内容，也不经本端点读取；agent 需要接上之前的工作时，自己用 `memory_read` 读这个句柄，这次读取照常认证与授权。话题标识的来源与指针的写法见 [Import Bus](../system/import-bus.md#82-hooks)第 8.2 节。
+**压缩之后的指针**：Claude Code 压缩会话之后，插件的 `SessionStart` hook 注入一个指针：这个会话最近一轮所在话题的句柄 `topic:<话题 id>` 与一句读法，不含记忆内容，也不经本端点读取；agent 需要接上之前的工作时，自己用 `memory_read` 读这个句柄，这次读取照常认证与授权。话题标识的来源与指针的写法见[短期记忆](../architecture/short-term-memory.md#63-推送会话压缩之后的指针)第 6.3 节。
 
 Claude Code 改变命名规则时识别会静默失效，回声恢复，表现为重复记忆；`PreToolUse` 的 matcher 同样失效，写入与更新以缺少轮次信息被拒绝，读 `topic:current` 读不到，模型在工具结果中看到错误或说明。连接器单元测试把调用名固定为上表的格式，并核对插件清单、`.mcp.json`、`hooks.json` 的 matcher 与连接器常量一致。工具参数改名时，MCP server、识别表与 matcher 同时修改。
 

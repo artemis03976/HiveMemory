@@ -79,7 +79,7 @@ Decision 分支固定经过三个步骤：
 
 `session_turns` 随公开/本地 process 路由进入 workflow，作为受保护的入口字段保存在 state/snapshot，steps 不得覆盖。Topic Routing、它的兜底与 User Query Analysis 都消费它，最终投影不输出它。近期轮数与各轮所在的话题由调用方（任务进程、Import Bus）按配置裁剪并附上，workflow 不读取 workspace 会话服务，也不查询 Patchouli 的交互状态。
 
-`designated_topic_id` 是用户为这一轮指定的话题，同样是受保护的入口字段；只有任务进程传入它（chat 请求的 `topic_id`，见[任务进程](../workspace/task-process.md#51-主动链路)），Import Bus 不传。给出它时，`topic_routing` 不调用 Topic Router：指定的话题在本次候选话题中就直接作为路由结果（标题与摘要为空），后续步骤照常进行；不在候选中时抛出 `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，`gateway/errors.py`，Workspace 领域错误，`details` 带 `topic_id`），这一轮在 Gateway 阶段失败。这个拒绝不是话题路由失败：它不是 `RecoverableGatewayError`，不进入续接上一轮的兜底（第 6 节）。用户明确选了话题，把这一轮悄悄落到上一轮的话题或新话题上，比让用户重新选择更难察觉、也更难纠正；只认候选中的话题，又保证指定不会落到已经结算或驱逐的话题上。
+`designated_topic_id` 是用户为这一轮指定的话题，同样是受保护的入口字段；只有任务进程传入它（chat 请求的 `topic_id`，见[任务进程](../workspace/task-process.md#51-主动链路)），Import Bus 不传。给出它时，`topic_routing` 不调用 Topic Router：指定的话题在本次候选话题中就直接作为路由结果（标题与摘要为空），后续步骤照常进行；不在候选中时抛出 `DesignatedTopicUnavailableError`（`gateway.topic.designated_unavailable`，`gateway/errors.py`，Workspace 领域错误，`details` 带 `topic_id`），这一轮在 Gateway 阶段失败。这个拒绝不是话题路由失败：它不是 `RecoverableGatewayError`，不进入续接上一轮的兜底（第 6 节）。用户明确选了话题，把这一轮悄悄落到上一轮的话题或新话题上，比让用户重新选择更难察觉、也更难纠正；只认候选中的话题，又保证指定不会落到已经退役或被删除的话题上。
 
 ## 3. Step 是一次受控提交
 
@@ -145,7 +145,7 @@ Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat app
 |:---|:---|:---|
 | `entry_interception` | 无 fallback | 入口分类失败会影响分支合法性，不能猜测 |
 | `candidate_topics_preparation` | 空 `CandidateTopics` | 仍可创建新话题，不伪造已有话题 |
-| `topic_routing` | 最近一轮会话的 `topic_id` 仍在候选话题中时续接该话题，否则 `NEW_TOPIC`；标题/摘要都为空 | 相邻轮次大多仍在同一话题，续接比新建无标题话题归错的代价小；只认候选中的话题，不落到已驱逐或结算的话题，也不在不知道上一轮所在的话题时猜测其他已有话题 |
+| `topic_routing` | 最近一轮会话的 `topic_id` 仍在候选话题中时续接该话题，否则 `NEW_TOPIC`；标题/摘要都为空 | 相邻轮次大多仍在同一话题，续接比新建无标题话题归错的代价小；只认候选中的话题，不落到已退役或被删除的话题，也不在不知道上一轮所在的话题时猜测其他已有话题 |
 | `routed_topic_preparation` | `None` | 查询分析可以在缺少历史上下文时继续 |
 | `simple_chat_defaults` | 原文、`CHAT`、写入 `SKIP`、检索 `SKIP` | 寒暄不值得因分析能力失败阻塞入口 |
 | `user_query_analysis` | 原文、`RAG`、写入 `UNKNOWN`、`HYBRID` | 保留检索机会，不把未知误判为明确写入或跳过 |
@@ -165,7 +165,7 @@ RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入�
 - fallback 不会回滚已经完成的外部只读调用；
 - `NEW_TOPIC` fallback 可以没有标题和摘要，下游必须把它视为保守路由，而不是完整的模型生成元数据；
 - 话题路由兜底续接上一轮时，用户恰在故障期间换了话题，这一轮会被归入旧话题；
-- 指定话题只认本次候选话题（与话题池列表一样默认不含空话题）：候选话题读取降级为空（例如存储暂时不可用）时，任何指定都以 `gateway.topic.designated_unavailable` 拒绝，调用方无法把它与话题确实已结算区分开；
+- 指定话题只认本次候选话题（与话题池列表一样默认不含空话题）：候选话题读取降级为空（例如存储暂时不可用）时，任何指定都以 `gateway.topic.designated_unavailable` 拒绝，调用方无法把它与话题确实已退役区分开；
 - 取消依赖被调用协程正确响应 asyncio cancellation，不能保证终止外部提供商已经接收的请求；
 - RuntimeEvent 可以解释发生了 fallback，但公共调用方不会直接得到逐 Step 诊断。
 

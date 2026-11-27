@@ -42,7 +42,7 @@ related_docs:
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/passive-extraction-volume-and-retention.md
   - docs/todo/cross-conversation-topic-placement.md
-last_reviewed: 2026-11-24
+last_reviewed: 2026-11-27
 ---
 
 # 记忆核心：短期到中期的流转
@@ -60,7 +60,7 @@ last_reviewed: 2026-11-24
 | [评测集](./memory-evaluation-benchmarks.md) | 用公开评测集与 agent 工作流数据检验记忆核心 |
 | [外部参考](../research/memory-core-external-references.md) | 调研过的项目与文章的外部事实 |
 
-三层存储的当前设计见 [MemoryLibrary 与存储层](../patchouli/memory-library.md)，生成、查重与合并见[记忆生成](../patchouli/generation.md)，话题与结算见[感知与短期话题](../patchouli/perception.md)。正文是已定的设计，候选设计标“候选”。
+三层存储的当前设计见 [MemoryLibrary 与存储层](../patchouli/memory-library.md)，生成、查重与合并见[记忆生成](../patchouli/generation.md)，话题与沉淀见[短期记忆](../architecture/short-term-memory.md)。正文是已定的设计，候选设计标“候选”。
 
 ## 1. 目标与原则
 
@@ -115,7 +115,7 @@ last_reviewed: 2026-11-24
 
 - `MemoryAtom` 只有 Workspace 归属、来源、读取策略与生命周期，索引层（标题、摘要、标签、类型、alias），正文与 Artifact 引用；关系层的 `relates_to`、`supersedes`、`depends_on` 是预留字段，生产代码不写入，前后端都没有读取方，却被序列化进每一个 Qdrant point，记忆版本快照也把它列为必备字段（[记忆模型](../../src/hivememory/core/models/memory.py)）。
 - 检索的业务过滤只有类型、来源 agent、时间范围、标签与最低置信度（`QueryFilters`），没有“属于哪一组”。
-- 话题是系统中唯一按内容归组的结构，但只存在于短期：结算时材料一经生成队列接纳，话题就被删除（`PerceptionFamiliar._settle_topic`）。之后一条记忆与它的话题只剩间接的联系：它引用的来源 InteractionArtifact 记着 `topic_id`。
+- 话题是系统中唯一按内容归组的结构，但只存在于短期：沉淀之后话题留在话题池，退役之后、最后一次沉淀完成时连同它的日志删除（[短期记忆](../architecture/short-term-memory.md#46-退役与删除)第 4.6 节）。之后一条记忆与它的话题只剩间接的联系：它引用的来源 InteractionArtifact 记着 `topic_id`。
 - 合并以另一种形式记录了“取代”：被吸收的记忆被删除，旧 alias 改指到保留的记忆，版本记录以 MERGE 来源记下这次合并。
 
 **生成的形式为平铺检索而定**（[生成提示词](../../src/hivememory/i18n/prompts.py)）：被动提取要求“将内容拆解为独立、自包含的知识点”，标题与摘要要让人能单独检索到它；主动写入沿用 agent 拟定的标题，但标题缺少让人检索到它的关键名词时要修改；合并要求标题与摘要覆盖合并后的全部要点，因为检索只使用标题、类型、标签与摘要，不读取正文。
@@ -144,7 +144,7 @@ last_reviewed: 2026-11-24
 - **USER_PROFILE** 是普通类型：由被动提取与写入产出，只能经相同的相似度检索找到，系统中没有任何常驻注入；它不按生命力归档，理由是“长时间未被检索不代表已经过时”（[垃圾回收器](../../src/hivememory/engines/lifecycle/garbage_collector.py)）。合并不排除它，合并结果的类型由模型给出，一条偏好可能被并进其他类型的记忆。
 - **Agent Profile** 不在中期库中：它是 AgentProfileStore 中的文件，可用 agent 的列表常驻提示词，检索结果中不再有 Profile（[MemoryLibrary 与存储层](../patchouli/memory-library.md#15-agent-profile人偶图纸)第 1.5 节）。
 - **外部入口**：外部 harness 经 MCP 只有检索、读取、写入、更新四个工具（[MCP 入口](../../src/hivememory/mcp_server/server.py)），交互原文没有检索入口；RUN 与 CALL 只在 Alice 的 MTP 中存在，RUN 的用户工具路径已关闭，解析到的记忆一律以不可运行拒绝。
-- **预检索只在 Alice 中存在**：Alice 的任务进程在 PREPARE 阶段以主线程做预检索（[任务进程](../workspace/task-process.md)）。外部 harness 上没有预检索：Claude Code 与 Codex 插件的 hook 只在会话开始、结束与每轮结束时登记会话记录，并在写入与更新前为工具参数补上当前一轮的信息（[hooks 配置](../../integrations/hivememory/hooks/hooks.json)）；dsh 与 pi 插件向系统提示词注入的是 MCP 的使用说明，不是记忆。记忆能否进入上下文，取决于 agent 依照这份说明与 skill 自己调用检索。
+- **预检索只在 Alice 中存在**：Alice 的任务进程在 PREPARE 阶段以主线程做预检索（[任务进程](../workspace/task-process.md)）。外部 harness 上没有预检索：Claude Code 与 Codex 插件的 hook 只在会话开始、结束与每轮结束时登记会话记录，并在写入、更新与读当前话题之前为工具参数补上当前一轮的信息（[hooks 配置](../../integrations/hivememory/hooks/hooks.json)）；Claude Code 压缩会话之后注入的只是话题句柄的指针，不含记忆内容（[短期记忆](../architecture/short-term-memory.md#63-推送会话压缩之后的指针)第 6.3 节）；dsh 与 pi 插件向系统提示词注入的是 MCP 的使用说明，不是记忆。记忆能否进入上下文，取决于 agent 依照这份说明与 skill 自己调用检索。
 
 ### 2.5 外部来源与 agent 循环
 
@@ -181,7 +181,6 @@ last_reviewed: 2026-11-24
 | 问题 | 位置 |
 |:---|:---|
 | 主动写入生成时能拿到什么材料 | [写入链路](./memory-flow-write-path.md)第 2.2 节 |
-| 短期记忆：轮前路由 | [短期记忆](./short-term-memory-and-context-compaction.md)第 9 节 |
 | 什么值得写成记忆 | 孵化中 |
 | 第一当事人“没写”算不算判断 | 搁置，[写入链路](./memory-flow-write-path.md)第 6 节 |
 | 记忆的保存形态 | [库的形状](./memory-library-shape-and-index.md)第 4.2 节 |
