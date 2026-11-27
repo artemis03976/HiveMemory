@@ -146,7 +146,7 @@ def _topic(turns, progress):
 
 def test_topic_index_lists_entry_excerpts_and_latest_unrecorded_turns():
     """索引每条进展记录一行（句柄与截到 200 字的节选，换行并为空格），其后是还没整理的轮数与
-    最近三轮的节选，以及怎样读一条的全文。"""
+    最近三轮的节选，以及怎样读一条的全文：只写读取这项能力，不写任何协议的工具名。"""
     turns = [(f"q{i}", f"a{i}") for i in range(1, 7)]
     topic = _topic(turns, [("Line one\nline two", 1), ("x" * 250, 2)])
 
@@ -161,7 +161,9 @@ def test_topic_index_lists_entry_excerpts_and_latest_unrecorded_turns():
         "- Turn 5 user: q5 / reply: a5",
         "- Turn 6 user: q6 / reply: a6",
     ]
-    assert "topic:t1#n with memory_read" in lines[8]
+    assert lines[8:] == [
+        "Read topic:t1#n to get the full text of entry n and the original turns it covers."
+    ]
 
 
 def test_topic_index_without_entries_says_so_and_omits_the_entry_hint():
@@ -217,14 +219,18 @@ def test_topic_entry_source_over_the_limit_keeps_head_and_tail():
 @pytest.mark.parametrize(
     ("language", "expected"),
     [
-        ("zh", "这个话题已离开话题池，其中的交互会沉淀为长期记忆。"),
+        (
+            "zh",
+            "这个话题已离开话题池，其中的交互会沉淀为长期记忆。\n提示: 如果需要，请检索已经沉淀的记忆。",
+        ),
         ("en", "This topic has left the topic pool"),
     ],
 )
 def test_expired_topic_handle_points_to_search_instead_of_write_handle_retention(
     language, expected
 ):
-    """话题句柄过期的提示与写入句柄的不同：话题离开了话题池，可以检索沉淀出的记忆。"""
+    """话题句柄过期的提示与写入句柄的不同：话题离开了话题池，可以检索沉淀出的记忆；只写检索这项
+    能力，不写任何协议的工具名。"""
     resolution = ReferenceResolution(kind="expired", requested_alias="topic:gone")
 
     text = (
@@ -238,5 +244,5 @@ def test_expired_topic_handle_points_to_search_instead_of_write_handle_retention
     )
 
     assert expected in text
-    assert "memory_search" in text
+    assert "memory_" not in text
     assert "7" not in text

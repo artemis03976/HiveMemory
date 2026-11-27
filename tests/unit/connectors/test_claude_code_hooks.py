@@ -481,7 +481,7 @@ def test_failed_topic_read_outputs_nothing_and_logs(tmp_path, transport):
 
 def test_expired_topic_notice_is_injected_as_read(tmp_path):
     """话题已离开话题池时，memory_read 交回的过期提示照样注入：它告诉模型去检索沉淀出的记忆。"""
-    notice = "[topic:t1]\n状态: expired（已过期）\n提示: 如果需要，请用 memory_search 检索。"
+    notice = "[topic:t1]\n状态: expired（已过期）\n提示: 如果需要，请检索已经沉淀的记忆。"
 
     output = _session_start_context(tmp_path, FakeMcp(notice))
 
