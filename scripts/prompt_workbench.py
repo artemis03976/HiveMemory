@@ -26,8 +26,8 @@
    Workspace（缺省 ``default`` / ``main_workspace``）。
 
 3. 打开打印出的地址：选目标（馆长或一次性生成）与材料，左右两栏各载入或编辑一个提示词版本，
-   运行一边或两边，每边可以重复几次。馆长的每一步显示模型输出的动作、交回模型的工具结果与
-   ``steps_left``，结束后显示暂存的记忆与 token；一次性生成显示模型输出与草稿。材料面板里有
+   运行一边或两边，每边可以重复几次。馆长的每次模型请求显示它调用的工具与参数、每个调用交回
+   模型的结果与 ``steps_left``，结束后显示暂存的记忆与 token；一次性生成显示模型输出与草稿。材料面板里有
    话题材料原文，以及生产中这份材料当时由结算产出的记忆。馆长的 ``list_generated_memories`` 列出的
    本话题生成的记忆要在页面上按 alias 给出，因为导出的材料不记录它们。
 
@@ -36,7 +36,7 @@
 运行结果只保存在工作台进程的内存中，重启后清空。
 
 替换提示词的方式：馆长与提取器在构造时经各自模块中的 ``get_generation_prompt_text`` 读取
-提示词，工作台只在构造期间把它换成返回编辑稿的函数，运行的仍是生产的循环、工具与解析。
+提示词，工作台只在构造期间把它换成返回编辑稿的函数，运行的仍是生产的循环与工具。
 """
 
 from __future__ import annotations
@@ -224,10 +224,17 @@ def load_materials(dataset: Path) -> dict[str, Material]:
 
 @dataclass
 class Step:
-    """一次模型调用。``output`` 为 None 表示还在等模型；``reply`` 是交回模型的工具结果。"""
+    """一次模型调用。``output`` 为 None 表示还在等模型。
+
+    馆长的调用：``calls`` 是模型调用的工具（id、名称与参数，参数不是 JSON 时保留原文），
+    ``replies`` 按调用 id 记交回模型的结果；模型没有调用工具时，``reply`` 是交回的那条错误。
+    一次性生成的调用：``parsed`` 是按生产的解析规则从输出中取出的 JSON。
+    """
 
     output: str | None = None
     parsed: Any = None
+    calls: list[dict[str, Any]] = field(default_factory=list)
+    replies: dict[str, Any] = field(default_factory=dict)
     reply: Any = None
     tokens: int | None = None
     seconds: float | None = None
@@ -264,20 +271,21 @@ def parse_or_none(text: str) -> Any:
 class RecordingLLM(BaseLLMService):
     """把每次模型调用记成运行的一步，调用原样转给真正的模型服务。
 
-    馆长在同一个消息列表上依次追加模型输出与工具结果：列表依次是系统消息、材料、输出 1、
-    结果 1、输出 2……所以每次调用时能补上前面各步的工具结果；循环结束后，同一个列表
-    已经带有最后一步的结果，由 ``sync_replies`` 补上。一次性生成的列表只有前两条。
-    提供商失败的调用也记成一步并带上错误，馆长在同一步内重试；它没有输出，也就没有结果。
+    馆长在同一个消息列表上依次追加模型返回的 assistant 消息与交回的结果：每个工具调用一条
+    ``tool`` 消息（按调用 id 对应），没有调用工具时一条 ``user`` 消息。所以每次调用时能补上
+    前面各步的结果；循环结束后，同一个列表已经带有最后一步的结果，由 ``sync_replies`` 补上。
+    一次性生成的列表只有前两条。提供商失败的调用也记成一步并带上错误，馆长在同一次请求内
+    重试；它没有输出，也就没有 assistant 消息与结果。
     """
 
     def __init__(self, inner: BaseLLMService, run: Run) -> None:
         self._inner = inner
         self._run = run
-        self._messages: list[dict[str, str]] = []
+        self._messages: list[dict[str, Any]] = []
 
     @override
     async def _complete(
-        self, messages: list[dict[str, str]], params: LLMRequestParams
+        self, messages: list[dict[str, Any]], params: LLMRequestParams
     ) -> LLMCompletion:
         self._messages = messages
         self.sync_replies()
@@ -292,20 +300,37 @@ class RecordingLLM(BaseLLMService):
         finally:
             step.seconds = round(time.monotonic() - started, 1)
         step.output = completion.text
-        step.parsed = parse_or_none(completion.text)
+        for call in completion.tool_calls:
+            arguments = call.parsed_arguments()
+            # 馆长判为 invalid_json 的参数保留原文显示。
+            shown = call.arguments if arguments is None else arguments
+            step.calls.append({"id": call.id, "name": call.name, "arguments": shown})
+        if not completion.tool_calls:
+            step.parsed = parse_or_none(completion.text)
         step.tokens = completion.usage.total_tokens if completion.usage is not None else None
         return completion
 
     @override
     def _stream(
-        self, messages: list[dict[str, str]], params: LLMRequestParams
+        self, messages: list[dict[str, Any]], params: LLMRequestParams
     ) -> AsyncGenerator[LLMStreamChunk, None]:
         return self._inner.complete(messages, params, stream=True)
 
     def sync_replies(self) -> None:
-        answered = [step for step in self._run.steps if step.error is None]
-        for step, message in zip(answered, self._messages[3::2], strict=False):
-            step.reply = json.loads(message["content"])
+        """每条 assistant 消息对应一个没有出错的步；其后的 tool 消息按调用 id 记进这一步，
+        其后的 user 消息是模型没有调用工具时交回的错误。"""
+        answered = iter([step for step in self._run.steps if step.error is None])
+        step: Step | None = None
+        for message in self._messages[2:]:
+            role = message.get("role")
+            if role == "assistant":
+                step = next(answered, None)
+            elif step is None:
+                continue
+            elif role == "tool":
+                step.replies[message["tool_call_id"]] = json.loads(message["content"])
+            elif role == "user":
+                step.reply = json.loads(message["content"])
 
 
 class Workbench:
@@ -1003,11 +1028,14 @@ function materialName(id) {
 
 function runCard(r) {
   const tokens = r.steps.reduce((sum, step) => sum + (step.tokens || 0), 0);
+  const calls = r.steps.reduce((sum, step) => sum + step.calls.length, 0);
   const kept = r.target === "librarian" ? "暂存" : "草稿";
+  const count = r.target === "librarian"
+    ? `${r.steps.length} 次请求 · ${calls} 个调用` : `${r.steps.length} 次请求`;
   const card = el("details", {class: "run"}, el("summary", {},
     el("strong", {}, `${r.label} #${r.repeat}`), " · ",
     el("span", {class: "status-" + r.status}, STATUS[r.status]),
-    ` · ${r.steps.length} 步 · ${kept} ${r.status === "running" ? "…" : r.drafts.length} 条`
+    ` · ${count} · ${kept} ${r.status === "running" ? "…" : r.drafts.length} 条`
       + ` · ${tokens} tokens · ${r.seconds}s`,
     el("span", {class: "hint"}, ` · ${r.target === "librarian" ? "馆长" : "一次性生成"} · ${materialName(r.material_id)}`)));
   r.steps.forEach((step, index) => card.append(stepView(r, step, index)));
@@ -1025,29 +1053,41 @@ function runCard(r) {
 }
 
 function stepView(r, step, index) {
-  const head = [`步骤 ${index + 1}`];
+  const head = [`请求 ${index + 1}`];
   if (step.seconds !== null) head.push(`${step.seconds}s`);
   if (step.tokens !== null) head.push(`${step.tokens} tokens`);
-  if (step.reply && step.reply.steps_left !== undefined) head.push(`steps_left ${step.reply.steps_left}`);
+  const last = step.calls.length ? step.replies[step.calls[step.calls.length - 1].id] : step.reply;
+  if (last && last.steps_left !== undefined) head.push(`steps_left ${last.steps_left}`);
   const box = el("div", {class: "step"}, el("div", {class: "step-head"}, head.join(" · ")));
   if (step.error) box.append(el("div", {class: "error"}, step.error));
   if (step.output === null) {
     if (!step.error) box.append(el("div", {class: "hint"}, "等待模型…"));
     return box;
   }
-  const shown = step.parsed !== null ? pretty(step.parsed) : step.output;
-  if (r.target === "librarian") {
-    box.append(el("div", {class: "hint"}, step.parsed !== null ? "动作" : "动作（无法解析为 JSON，显示原文）"),
-      el("pre", {}, shown));
+  if (r.target !== "librarian") {
+    const shown = step.parsed !== null ? pretty(step.parsed) : step.output;
+    box.append(el("details", {}, el("summary", {class: "hint"}, "模型原样输出"), el("pre", {}, shown)));
+    return box;
+  }
+  if (!step.calls.length) {
+    box.append(el("div", {class: "hint"}, "没有调用工具，模型的文字原样显示"), el("pre", {}, step.output));
     if (step.reply) {
       const {steps_left, ...result} = step.reply;
+      box.append(el("div", {class: "hint"}, "交回的结果"), el("pre", {}, pretty(result)));
+    }
+    return box;
+  }
+  if (step.output) box.append(el("div", {class: "hint"}, "模型的文字"), el("pre", {}, step.output));
+  step.calls.forEach((call) => {
+    box.append(el("div", {class: "hint"}, `调用 ${call.name}`), el("pre", {}, pretty(call.arguments)));
+    const reply = step.replies[call.id];
+    if (reply) {
+      const {steps_left, ...result} = reply;
       box.append(el("div", {class: "hint"}, "工具结果"), el("pre", {}, pretty(result)));
     } else if (r.status === "running") {
       box.append(el("div", {class: "hint"}, "执行工具…"));
     }
-  } else {
-    box.append(el("details", {}, el("summary", {class: "hint"}, "模型原样输出"), el("pre", {}, shown)));
-  }
+  });
   return box;
 }
 

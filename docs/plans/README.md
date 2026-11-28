@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-rules-and-navigation-by-version
-last_reviewed: 2026-11-27
+last_reviewed: 2026-11-28
 ---
 
 # Plans
@@ -28,7 +28,7 @@ last_reviewed: 2026-11-27
 
 当前没有活动计划。
 
-- 结算拆成沉淀与退役、话题跨重启保存、短期记忆代码整理、话题的存储介质、话题的进展记录、短期记忆代码可读性整理、压缩后推送与按句柄拉取、拉取当前话题与压缩后只推指针、话题折叠的重构、按量补齐短期记忆的生成触发：已完成，见 [Archived Plans](../archive/plans/README.md#v081)。
+- 结算拆成沉淀与退役、话题跨重启保存、短期记忆代码整理、话题的存储介质、话题的进展记录、短期记忆代码可读性整理、压缩后推送与按句柄拉取、拉取当前话题与压缩后只推指针、话题折叠的重构、按量补齐短期记忆的生成触发、馆长改用原生工具调用：已完成，见 [Archived Plans](../archive/plans/README.md#v081)。
 
 ## 已发布的版本
 

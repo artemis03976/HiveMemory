@@ -2,9 +2,9 @@
 HiveMemory - 馆长 (Librarian)
 
 话题结算的另一种生成方式。一次性生成看不到本话题已经写入的记忆，也看不到库，只能先尽量多地
-提取，再靠查重与合并的规则补救；馆长改为先探索再写：模型每一步输出一个 JSON 动作，调用
+提取，再靠查重与合并的规则补救；馆长改为先探索再写：模型以模型服务的原生工具调用使用
 Patchouli 定义的工具，先看本话题生成的记忆，再检索并阅读库中相关的记忆，然后只写两者
-都没有覆盖的内容。
+都没有覆盖的内容。工具的参数 Schema 由参数模型生成，工作顺序与各参数的含义写在系统提示词里。
 
 工具只读写 Patchouli 自己的数据：读取以结算的发起者（Workspace 的 system actor）直接访问
 中期库，只看得到 PUBLIC 记忆，也不经过检索服务，因此不刷新生命力。写入只暂存：新建的草稿与对
@@ -33,35 +33,20 @@ from hivememory.engines.generation.edits import (
     describe_validation_error,
 )
 from hivememory.engines.generation.models import ExtractedMemoryDraft, MemoryEditSet
-from hivememory.i18n import get_generation_prompt_text, resolve_language
+from hivememory.i18n import Language, get_generation_prompt_text, resolve_language
 from hivememory.infrastructure.llm.base import (
     BaseLLMService,
     LLMRequestParams,
+    LLMTool,
+    LLMToolCall,
     complete_with_provider_retry,
+    tool_result_message,
 )
-from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 if TYPE_CHECKING:
     from hivememory.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
-
-# 提示词中列出的工具；日志只按这些名字计数，模型编造的名字记为 unknown。
-_TOOLS = (
-    "list_generated_memories",
-    "search_memories",
-    "read_memory",
-    "write_memory",
-    "revise_memory",
-    "finish",
-)
-
-
-class _Action(BaseModel):
-    """模型每一步输出的动作。"""
-
-    tool: str
-    args: dict[str, Any] = Field(default_factory=dict)
 
 
 class _SearchArgs(BaseModel):
@@ -75,6 +60,58 @@ class _ReadArgs(BaseModel):
 
 class _ReviseArgs(MemoryEditSet):
     alias: str = Field(min_length=1)
+
+
+def _without_descriptions(node: Any) -> Any:
+    """去掉 JSON Schema 中各处的说明文字，只留结构。
+
+    参数的含义写在提示词里、与提示词同一语言；参数模型上的说明文字是中文，原样交给英文
+    提示词时，模型会跟着中文说明用中文写记忆。只去掉值是文字的 description，名为
+    description 的参数（值是 Schema）保留。
+    """
+    if isinstance(node, dict):
+        return {
+            key: _without_descriptions(value)
+            for key, value in node.items()
+            if not (key == "description" and isinstance(value, str))
+        }
+    if isinstance(node, list):
+        return [_without_descriptions(item) for item in node]
+    return node
+
+
+def _write_parameters() -> dict[str, Any]:
+    """write_memory 的参数：草稿去掉 has_value，是否值得写由馆长在写之前判断。"""
+    schema: dict[str, Any] = _without_descriptions(ExtractedMemoryDraft.model_json_schema())
+    del schema["properties"]["has_value"]
+    schema["required"].remove("has_value")
+    return schema
+
+
+_NO_PARAMETERS: dict[str, Any] = {"type": "object", "properties": {}}
+
+# 工具名到参数的 JSON Schema，按提示词中工具的顺序；日志只按这些名字计数，模型编造的名字
+# 记为 unknown。
+_TOOL_PARAMETERS: dict[str, dict[str, Any]] = {
+    "list_generated_memories": _NO_PARAMETERS,
+    "search_memories": _without_descriptions(_SearchArgs.model_json_schema()),
+    "read_memory": _without_descriptions(_ReadArgs.model_json_schema()),
+    "revise_memory": _without_descriptions(_ReviseArgs.model_json_schema()),
+    "write_memory": _write_parameters(),
+    "finish": _NO_PARAMETERS,
+}
+
+
+def _tools(language: Language) -> tuple[LLMTool, ...]:
+    """交给模型服务的工具定义；每个工具一句话说明，与提示词同一语言。"""
+    return tuple(
+        LLMTool(
+            name=name,
+            description=get_generation_prompt_text("librarian", f"tool_{name}", language),
+            parameters=parameters,
+        )
+        for name, parameters in _TOOL_PARAMETERS.items()
+    )
 
 
 @dataclass(frozen=True)
@@ -108,13 +145,20 @@ class _Run:
 
 
 class Librarian:
-    """话题结算的馆长：以 JSON 动作调用工具的循环，返回暂存的草稿与修订。
+    """话题结算的馆长：以原生工具调用使用工具的循环，返回暂存的草稿与修订。
+
+    循环与步数:
+        每次请求模型，把它返回的 assistant 消息原样追加进对话，再按顺序逐个执行其中的工具调用，
+        每个调用计一步，每个调用都以一条 tool 消息交回结果与剩余步数。一批调用执行到一半步数
+        用完时，余下的调用交回错误、不执行，循环结束；finish 之后同一批中的调用同样交回错误、
+        不执行。模型没有调用工具时，交回一条 user 消息要求调用工具，计一步。
 
     失败语义:
-        动作无法解析、工具不存在、参数不合格或修订不能落地时，把错误作为工具结果交回模型
-        并计一步，不中止循环；步数用完时照常返回已暂存的内容。提供商失败在同一步内重试一次、
-        不另计步，与提取器的模型调用相同，一次瞬时失败不让整次结算失败。重试耗尽或上下文超窗
-        时原样传播，生成任务以对应的原因码失败；取消原样传播。
+        没有调用工具、参数不是合法的 JSON 对象、工具不存在、参数不合格或修订不能落地时，把错误
+        交回模型并计一步，不中止循环；步数用完时照常返回已暂存的内容。提供商失败在同一次请求内
+        重试一次、不另计步，与提取器的模型调用相同，一次瞬时失败不让整次结算失败。重试耗尽或
+        上下文超窗时原样传播，生成任务以对应的原因码失败；模型不支持工具调用时由提供商拒绝请求，
+        同样以提供商失败结束；取消原样传播。
     """
 
     def __init__(
@@ -127,17 +171,27 @@ class Librarian:
     ) -> None:
         self._mid_term = mid_term
         self._llm_service = llm_service
-        # 每一步只输出一个 JSON 对象；提供商不支持 JSON 输出时退回普通补全，照样按文本解析。
-        self._llm_params = llm_params.model_copy(update={"json_output": True})
         self._config = config
         language = resolve_language()
+        # 重新校验而不是 model_copy：工具与 JSON 对象输出互斥，传入的参数要求 JSON 输出时
+        # 在装配时失败。
+        self._llm_params = LLMRequestParams.model_validate(
+            {**llm_params.model_dump(), "tools": _tools(language)}
+        )
         self._system_prompt = get_generation_prompt_text(
             "librarian", "system_prompt", language
         ).format(max_steps=config.max_steps, search_top_k=config.search_top_k)
         self._user_prompt = get_generation_prompt_text("librarian", "user_prompt", language)
-        self._error_unparsable = get_generation_prompt_text(
-            "librarian", "error_unparsable", language
+        self._error_no_tool_call = get_generation_prompt_text(
+            "librarian", "error_no_tool_call", language
         )
+        self._error_invalid_json = get_generation_prompt_text(
+            "librarian", "error_invalid_json", language
+        )
+        self._error_steps_exhausted = get_generation_prompt_text(
+            "librarian", "error_steps_exhausted", language
+        )
+        self._error_finished = get_generation_prompt_text("librarian", "error_finished", language)
         self._error_unknown_tool = get_generation_prompt_text(
             "librarian", "error_unknown_tool", language
         )
@@ -183,18 +237,18 @@ class Librarian:
             from_actor=from_actor,
             topic_generated_memory_ids=sorted(topic_generated_memory_ids),
         )
-        messages = [
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": self._system_prompt},
             {"role": "user", "content": self._user_prompt.format(transcript=transcript)},
         ]
         tool_calls: Counter[str] = Counter()
         revise_rejected = 0
         total_tokens = prompt_tokens = cached_prompt_tokens = 0
-        steps = 0
+        requests = steps = 0
         finished = False
         while steps < self._config.max_steps and not finished:
-            steps += 1
-            # 每一步都重发整段对话；消息只往后追加、前缀不变，所以第二步起的输入大部分
+            requests += 1
+            # 每次请求都重发整段对话；消息只往后追加、前缀不变，所以第二次起的输入大部分
             # 可以命中提供商的上下文缓存，日志分开记下命中的部分。
             completion = await complete_with_provider_retry(
                 self._llm_service, messages, self._llm_params
@@ -203,27 +257,44 @@ class Librarian:
                 total_tokens += completion.usage.total_tokens
                 prompt_tokens += completion.usage.prompt_tokens
                 cached_prompt_tokens += completion.usage.cached_prompt_tokens
-            messages.append({"role": "assistant", "content": completion.text})
-            action = _parse_action(completion.text)
-            if action is None:
-                tool_calls["unparsable"] += 1
-                reply: dict[str, Any] = {"error": self._error_unparsable}
-            else:
-                tool_calls[action.tool if action.tool in _TOOLS else "unknown"] += 1
-                finished = action.tool == "finish"
-                reply = {"tool": action.tool, **await self._run_tool(run, action)}
-                if action.tool == "revise_memory" and "error" in reply:
-                    revise_rejected += 1
-            reply["steps_left"] = self._config.max_steps - steps
-            messages.append({"role": "user", "content": json.dumps(reply, ensure_ascii=False)})
+            messages.append(completion.assistant_message)
+            if not completion.tool_calls:
+                steps += 1
+                tool_calls["no_tool_call"] += 1
+                reply = {
+                    "error": self._error_no_tool_call,
+                    "steps_left": self._config.max_steps - steps,
+                }
+                messages.append({"role": "user", "content": json.dumps(reply, ensure_ascii=False)})
+                continue
+            # 每个调用 id 都要有一条 tool 消息回应，不执行的调用也交回错误，并计为 not_run。
+            for call in completion.tool_calls:
+                if finished:
+                    tool_calls["not_run"] += 1
+                    reply = {"error": self._error_finished}
+                elif steps == self._config.max_steps:
+                    tool_calls["not_run"] += 1
+                    reply = {"error": self._error_steps_exhausted}
+                else:
+                    steps += 1
+                    label, reply = await self._run_call(run, call)
+                    tool_calls[label] += 1
+                    finished = label == "finish"
+                    if label == "revise_memory" and "error" in reply:
+                        revise_rejected += 1
+                reply["steps_left"] = self._config.max_steps - steps
+                messages.append(tool_result_message(call, json.dumps(reply, ensure_ascii=False)))
 
-        # 步数用完是预算截断：模型没有说写完，已暂存的照常提交。
+        # 步数用完是预算截断：模型没有说写完，已暂存的照常提交。步数多于请求次数，说明有请求
+        # 一次返回了多个调用；tool_calls 中的 not_run 是交回了错误、没有执行的调用。
         logger.log(
             logging.INFO if finished else logging.WARNING,
-            "馆长结算结束: end=%s, steps=%d, staged=%d, total_tokens=%d, prompt_tokens=%d, "
-            "cached_prompt_tokens=%d, tool_calls=%s, revised=%d, revise_rejected=%d",
+            "馆长结算结束: end=%s, steps=%d, requests=%d, staged=%d, total_tokens=%d, "
+            "prompt_tokens=%d, cached_prompt_tokens=%d, tool_calls=%s, revised=%d, "
+            "revise_rejected=%d",
             "finish" if finished else "max_steps",
             steps,
+            requests,
             len(run.staged),
             total_tokens,
             prompt_tokens,
@@ -234,14 +305,25 @@ class Librarian:
         )
         return LibrarianResult(drafts=run.staged, revisions=run.revisions)
 
-    async def _run_tool(self, run: _Run, action: _Action) -> dict[str, Any]:
+    async def _run_call(self, run: _Run, call: LLMToolCall) -> tuple[str, dict[str, Any]]:
+        """执行一个工具调用，返回日志中的计数项与交回模型的结果。
+
+        参数不是合法的 JSON 对象时不执行，计为 invalid_json；工具不存在时计为 unknown。
+        """
+        arguments = call.parsed_arguments()
+        if arguments is None:
+            return "invalid_json", {"error": self._error_invalid_json}
+        label = call.name if call.name in _TOOL_PARAMETERS else "unknown"
+        return label, await self._run_tool(run, call.name, arguments)
+
+    async def _run_tool(self, run: _Run, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """执行一个工具，返回交回模型的结果；参数不合格或读不到记忆时返回错误。"""
         try:
-            match action.tool:
+            match name:
                 case "list_generated_memories":
                     return {"result": await self._list_generated_memories(run)}
                 case "search_memories":
-                    args = _SearchArgs.model_validate(action.args)
+                    args = _SearchArgs.model_validate(arguments)
                     hits = await self._mid_term.search(
                         run.belong_to,
                         query=args.query,
@@ -260,7 +342,7 @@ class Librarian:
                         ]
                     }
                 case "read_memory":
-                    alias = _ReadArgs.model_validate(action.args).alias
+                    alias = _ReadArgs.model_validate(arguments).alias
                     memory = await self._mid_term.get_by_alias(
                         run.belong_to, alias, from_actor=run.from_actor
                     )
@@ -271,11 +353,11 @@ class Librarian:
                 case "write_memory":
                     # 写入只暂存：是否值得写由馆长在写之前判断，草稿一律视为有价值。
                     run.staged.append(
-                        ExtractedMemoryDraft.model_validate({**action.args, "has_value": True})
+                        ExtractedMemoryDraft.model_validate({**arguments, "has_value": True})
                     )
                     return {"result": {"staged": len(run.staged)}}
                 case "revise_memory":
-                    return self._revise_memory(run, _ReviseArgs.model_validate(action.args))
+                    return self._revise_memory(run, _ReviseArgs.model_validate(arguments))
                 case "finish":
                     return {"result": {"staged": len(run.staged)}}
                 case _:
@@ -315,14 +397,6 @@ class Librarian:
             if memory is not None:
                 views.append(_index_view(memory))
         return views
-
-
-def _parse_action(text: str) -> _Action | None:
-    """把模型输出解析为一个动作；不是 JSON 对象或结构不对时返回 None。"""
-    try:
-        return parse_llm_json(text, as_model=_Action)
-    except JSONParseError:
-        return None
 
 
 def _index_view(memory: MemoryAtom) -> dict[str, Any]:

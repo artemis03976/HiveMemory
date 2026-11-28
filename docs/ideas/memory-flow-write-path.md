@@ -24,7 +24,7 @@ related_docs:
   - docs/patchouli/perception.md
   - docs/archive/ideas/unified-interaction-memory.md
   - docs/ideas/short-term-memory-and-context-compaction.md
-last_reviewed: 2026-11-24
+last_reviewed: 2026-11-28
 ---
 
 # 记忆核心：写入链路
@@ -163,7 +163,7 @@ last_reviewed: 2026-11-24
 - **可评估**：模型在输出中写明它的判断，例如每条已写入的记忆覆盖了什么、还缺什么、为什么新建，结果可以直接核对，不必事后再用另一个模型推断。
 - **以后的角色**：跨经历的归纳、补知识缺口、决定归档什么，都适合交给馆长，由不同的事件唤醒（第 4 节）。馆长也可以在前台当参考咨询台：外部 agent 问“关于 X 我们知道什么”，馆长返回一段带引用的综合，同时保护调用方的上下文窗口（Perplexity 的检索子 agent，[外部参考](../research/memory-core-external-references.md)第 5 节）。
 
-**现状**：已实现。话题结算的生成方式是用户选项 `patchouli.generation.settle_mode`（`one_shot` 默认，或 `librarian`）；循环、JSON 动作协议、六个工具（含只改本次读过的记忆的 `revise_memory`）、预算与失败语义见[记忆生成](../patchouli/generation.md#31-mode-a被动观察--archive)第 3.1 节，修订的编辑集与基础变化规则见第 3.4 节。
+**现状**：已实现。话题结算的生成方式是用户选项 `patchouli.generation.settle_mode`（`one_shot` 默认，或 `librarian`）；循环、原生工具调用的动作协议、六个工具（含只改本次读过的记忆的 `revise_memory`）、预算与失败语义见[记忆生成](../patchouli/generation.md#31-mode-a被动观察--archive)第 3.1 节，修订的编辑集与基础变化规则见第 3.4 节。
 
 **差距**（[记忆生成](../patchouli/generation.md#8-当前限制)第 8 节）：
 
@@ -171,7 +171,6 @@ last_reviewed: 2026-11-24
 - 修订与“助手正文中的事实”的提示词只在 HaluMem 的试跑上看过，没有在日常结算材料上检查。
 - 只读中期库中的记忆本身，不读其他话题的原始轨迹、冷藏库与版本记录。
 - 同一 Workspace 的两次馆长结算可以同时运行，彼此看不到对方暂存的记忆。
-- 动作是文本中的 JSON，模型不按协议输出时只能交回错误、消耗步数。
 - 写什么由馆长的提示词决定，判据仍开放（第 2.4 节）。
 
 ### 3.2 保存来源与能力分级（候选）

@@ -42,7 +42,7 @@ related_docs:
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/passive-extraction-volume-and-retention.md
   - docs/todo/cross-conversation-topic-placement.md
-last_reviewed: 2026-11-27
+last_reviewed: 2026-11-28
 ---
 
 # 记忆核心：短期到中期的流转
@@ -148,7 +148,7 @@ last_reviewed: 2026-11-27
 
 ### 2.5 外部来源与 agent 循环
 
-- **agent 循环**：`agent_runtime` 是 Alice 走 MTP 的单帧执行内核，Patchouli 不能导入它；馆长的工具循环由 Patchouli 自己定义（`engines/generation/librarian.py`），动作是文本中的 JSON。
+- **agent 循环**：`agent_runtime` 是 Alice 走 MTP 的单帧执行内核，Patchouli 不能导入它；馆长的工具循环由 Patchouli 自己定义（`engines/generation/librarian.py`），以模型服务的原生工具调用使用工具。
 - **附件只留下了元数据**：Alice 对话中的附件在结算产出新建或更新时被提升为 DocumentArtifact（`MemoryGenerationFamiliar._promote_attachment_bindings`），但只写元数据：`source_uri` 指向不跨重启保留的附件存储，没有内容快照，返回的引用被丢弃，没有挂到任何记忆上。
 - **外部 harness 的工具结果完整保存，但没有被识别为来源**：网页、文件等工具结果作为轮次事件完整保存在交互 Artifact 中。
 - **DocumentArtifact 模型是齐的**：来源 URI、取回时间、内容快照地址，以及页码、标题路径、行号、引文等定位符都有，只是没有接入主流程（[Artifacts 与来源追踪](../patchouli/artifacts.md)第 2.2、7 节）。

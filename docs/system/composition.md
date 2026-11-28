@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-26
+last_reviewed: 2026-11-28
 ---
 
 # System 组合根与生命周期
@@ -104,7 +104,8 @@ System 只创建一个 `LiteLLMService`，它是 `infrastructure.llm.base.BaseLL
 
 服务接口只有一个入口 `complete(messages, params, *, stream=False)`：
 
-- 完整调用返回 `LLMCompletion`（首个候选的文本、提供商报告的 finish_reason 与可缺省用量）；提供商没有返回文本时以 `ModelProviderError` 结束，空字符串仍是文本；
+- 完整调用返回 `LLMCompletion`（首个候选的文本、工具调用、模型服务返回的 assistant 消息原样、提供商报告的 finish_reason 与可缺省用量）；只有工具调用时文本为空串，既没有文本也没有工具调用时以 `ModelProviderError` 结束，空字符串仍是文本；
+- 请求可以携带工具（`LLMRequestParams.tools`：名称、一句说明、参数的 JSON Schema），由模型决定调用哪些（`tool_choice` 固定为 `auto`：DeepSeek 在思考模式下不接受 `required`，`auto` 对各家都成立）；工具调用（`LLMToolCall`）带 id、名称与参数原文。调用方把交回的 assistant 消息原样追加进对话，为每个调用以 `tool_result_message` 交回一条 `tool` 消息，提供商要求回传的字段随之保留，调用方不需要知道是哪一家；`LLMToolCall.parsed_arguments` 把参数解析为 JSON 对象，不合法或顶层不是对象时为 `None`。工具与 JSON 输出互斥，同时给出时构造失败；流式调用不支持工具，带工具时直接拒绝。现在使用工具调用的只有馆长（[Patchouli 生成](../patchouli/generation.md)第 4 节）；
 - 流式调用返回可关闭的异步生成器，首次拉取时才发出请求；中间项是非空文本增量，正常耗尽时最后一项携带 finish_reason。流在耗尽、被关闭或拉取时被取消都会关闭提供商响应，关闭失败只记录日志，不替换正在传播的异常或取消；
 - 请求参数逐项传给 SDK，为 `None` 或为空的项不发送，凭证缺省时由 SDK 从环境变量读取；JSON 输出要求只在 SDK 明确报告不支持该参数时退回普通补全；
 - SDK 异常只在实现中转换为 `core.errors` 的中立错误，完整调用、流式启动与流式拉取采用同一转换，程序错误与取消原样传播，见[错误模型](../contracts/error-model.md#46-模型调用错误)；

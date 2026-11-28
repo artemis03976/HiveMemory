@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
+from uuid import uuid4
 
 from hivememory.infrastructure.llm.base import (
     BaseLLMService,
     LLMCompletion,
     LLMRequestParams,
     LLMStreamChunk,
+    LLMToolCall,
 )
 
 # 一项预置结果：文本或 LLMCompletion 是一次调用的完整输出（流式调用回放为单个增量与
@@ -17,13 +21,57 @@ from hivememory.infrastructure.llm.base import (
 type ScriptedResult = str | LLMCompletion | BaseException | Sequence[LLMStreamChunk]
 
 
+def tool_call_completion(*calls: tuple[str, dict[str, Any] | str]) -> LLMCompletion:
+    """模型只以工具调用作答的一次结果：每项是工具名与参数，参数是字典时序列化为 JSON，
+    是文字时原样作为参数原文；调用 id 各不相同，assistant 消息与真实服务交回的一样是
+    OpenAI 形态，可以原样追加进对话。"""
+    tool_calls = tuple(
+        LLMToolCall(
+            id=f"call_{uuid4().hex[:12]}",
+            name=name,
+            arguments=(
+                arguments
+                if isinstance(arguments, str)
+                else json.dumps(arguments, ensure_ascii=False)
+            ),
+        )
+        for name, arguments in calls
+    )
+    return LLMCompletion(
+        text="",
+        tool_calls=tool_calls,
+        assistant_message={
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.name, "arguments": call.arguments},
+                }
+                for call in tool_calls
+            ],
+        },
+        finish_reason="tool_calls",
+    )
+
+
 @dataclass(frozen=True)
 class LLMCall:
-    """替身收到的一次调用。"""
+    """替身收到的一次调用；消息是调用方的列表本身，调用方之后的追加也在其中。"""
 
-    messages: list[dict[str, str]]
+    messages: list[dict[str, Any]]
     params: LLMRequestParams
     stream: bool
+
+
+def text_completion(text: str) -> LLMCompletion:
+    """模型只以文本作答的一次结果；assistant 消息与真实服务交回的一样，可以原样追加进对话。"""
+    return LLMCompletion(
+        text=text,
+        finish_reason="stop",
+        assistant_message={"role": "assistant", "content": text},
+    )
 
 
 class ScriptedLLMService(BaseLLMService):
@@ -33,7 +81,7 @@ class ScriptedLLMService(BaseLLMService):
         self._results = list(results)
         self.calls: list[LLMCall] = []
 
-    def _next(self, messages: list[dict[str, str]], params: LLMRequestParams, *, stream: bool):
+    def _next(self, messages: list[dict[str, Any]], params: LLMRequestParams, *, stream: bool):
         self.calls.append(LLMCall(messages=messages, params=params, stream=stream))
         if not self._results:
             raise AssertionError("ScriptedLLMService 没有剩余的预置结果")
@@ -44,24 +92,24 @@ class ScriptedLLMService(BaseLLMService):
 
     async def _complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         params: LLMRequestParams,
     ) -> LLMCompletion:
         result = self._next(messages, params, stream=False)
         if isinstance(result, str):
-            return LLMCompletion(text=result, finish_reason="stop")
+            return text_completion(result)
         if isinstance(result, LLMCompletion):
             return result
         raise AssertionError("完整调用的预置结果必须是文本或 LLMCompletion")
 
     async def _stream(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         params: LLMRequestParams,
     ) -> AsyncGenerator[LLMStreamChunk, None]:
         result = self._next(messages, params, stream=True)
         if isinstance(result, str):
-            result = LLMCompletion(text=result, finish_reason="stop")
+            result = text_completion(result)
         if isinstance(result, LLMCompletion):
             if result.text:
                 yield LLMStreamChunk(delta=result.text)
@@ -72,10 +120,10 @@ class ScriptedLLMService(BaseLLMService):
 
 
 type CompleteHandler = Callable[
-    [list[dict[str, str]], LLMRequestParams], Awaitable[str | LLMCompletion]
+    [list[dict[str, Any]], LLMRequestParams], Awaitable[str | LLMCompletion]
 ]
 type StreamHandler = Callable[
-    [list[dict[str, str]], LLMRequestParams], AsyncIterable[str | LLMStreamChunk]
+    [list[dict[str, Any]], LLMRequestParams], AsyncIterable[str | LLMStreamChunk]
 ]
 
 
@@ -98,20 +146,18 @@ class CallbackLLMService(BaseLLMService):
 
     async def _complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         params: LLMRequestParams,
     ) -> LLMCompletion:
         self.calls.append(LLMCall(messages=messages, params=params, stream=False))
         if self._complete_handler is None:
             raise AssertionError("CallbackLLMService 未提供完整调用的回调")
         result = await self._complete_handler(messages, params)
-        return (
-            LLMCompletion(text=result, finish_reason="stop") if isinstance(result, str) else result
-        )
+        return text_completion(result) if isinstance(result, str) else result
 
     async def _stream(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         params: LLMRequestParams,
     ) -> AsyncGenerator[LLMStreamChunk, None]:
         self.calls.append(LLMCall(messages=messages, params=params, stream=True))
@@ -129,4 +175,10 @@ class CallbackLLMService(BaseLLMService):
 DEFAULT_LLM_PARAMS = LLMRequestParams(model="test-model", temperature=0.0, max_tokens=512)
 
 
-__all__ = ["CallbackLLMService", "DEFAULT_LLM_PARAMS", "LLMCall", "ScriptedLLMService"]
+__all__ = [
+    "CallbackLLMService",
+    "DEFAULT_LLM_PARAMS",
+    "LLMCall",
+    "ScriptedLLMService",
+    "tool_call_completion",
+]

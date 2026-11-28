@@ -23,6 +23,7 @@ from hivememory.infrastructure.llm.base import (
     LLMCompletion,
     LLMRequestParams,
     LLMStreamChunk,
+    LLMToolCall,
     LLMUsage,
 )
 
@@ -67,8 +68,11 @@ def _translate_provider_errors() -> Iterator[None]:
         raise ModelProviderError("Model provider request failed.") from error
 
 
-def _sdk_arguments(messages: list[dict[str, str]], params: LLMRequestParams) -> dict[str, Any]:
-    """按请求参数逐项构造 SDK 参数，不补入请求未携带的项。"""
+def _sdk_arguments(messages: list[dict[str, Any]], params: LLMRequestParams) -> dict[str, Any]:
+    """按请求参数逐项构造 SDK 参数，不补入请求未携带的项。
+
+    工具按 OpenAI 的 function 形态交给 SDK，由它转换成各提供商的格式。
+    """
     arguments: dict[str, Any] = {"model": params.model, "messages": messages}
     optional = {
         "api_key": params.api_key,
@@ -80,6 +84,19 @@ def _sdk_arguments(messages: list[dict[str, str]], params: LLMRequestParams) -> 
     arguments.update({key: value for key, value in optional.items() if value is not None})
     if params.stop:
         arguments["stop"] = list(params.stop)
+    if params.tools:
+        arguments["tools"] = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                },
+            }
+            for tool in params.tools
+        ]
+        arguments["tool_choice"] = "auto"
     return arguments
 
 
@@ -136,10 +153,14 @@ class LiteLLMService(BaseLLMService):
 
     async def _complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         params: LLMRequestParams,
     ) -> LLMCompletion:
-        """执行一次完整调用；提供商没有返回文本时以提供商失败结束。"""
+        """执行一次完整调用；提供商既没有返回文本也没有返回工具调用时以提供商失败结束。
+
+        assistant 消息取 SDK 归一之后的消息原样，提供商附带的字段（如 DeepSeek 的
+        ``reasoning_content``）随之交给调用方，调用方追加进对话即可原样传回。
+        """
         logger.debug("调用 LLM: %s, 消息数: %s", params.model, len(messages))
         with _translate_provider_errors():
             response = await _request(
@@ -147,27 +168,35 @@ class LiteLLMService(BaseLLMService):
             )
 
         choice = response.choices[0] if response.choices else None
-        content = choice.message.content if choice is not None else None
-        if choice is None or not isinstance(content, str):
-            logger.warning("LLM 响应缺少文本内容 (model=%s)", params.model)
-            raise ModelProviderError("Model provider returned no text.")
+        if choice is None or not (
+            isinstance(choice.message.content, str) or choice.message.tool_calls
+        ):
+            logger.warning("LLM 响应既没有文本也没有工具调用 (model=%s)", params.model)
+            raise ModelProviderError("Model provider returned no text or tool calls.")
 
+        message = choice.message
         completion = LLMCompletion(
-            text=content,
+            text=message.content if isinstance(message.content, str) else "",
+            tool_calls=tuple(
+                LLMToolCall(id=call.id, name=call.function.name, arguments=call.function.arguments)
+                for call in message.tool_calls or ()
+            ),
+            assistant_message=message.model_dump(),
             finish_reason=choice.finish_reason or None,
             usage=_usage(response),
         )
         logger.debug(
-            "LLM 调用成功 (model=%s, tokens=%s, finish_reason=%s)",
+            "LLM 调用成功 (model=%s, tokens=%s, tool_calls=%d, finish_reason=%s)",
             params.model,
             completion.usage.total_tokens if completion.usage else None,
+            len(completion.tool_calls),
             completion.finish_reason,
         )
         return completion
 
     async def _stream(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         params: LLMRequestParams,
     ) -> AsyncGenerator[LLMStreamChunk, None]:
         """流式调用；建立请求与每次拉取采用与完整调用相同的异常转换。"""
