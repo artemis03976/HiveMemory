@@ -72,6 +72,23 @@ class MemoryPerceptionConfig(BaseModel):
             "通常已经写过一条"
         ),
     )
+    progress_record_after_tokens: int = Field(
+        default=8192,
+        gt=0,
+        description=(
+            "还没整理的交互积了多少 token 后写一条进展记录：按各轮写入时的估算计，与"
+            "progress_record_after_seconds 任一满足即写，连续进行、从不停下的话题因此也有进展记录；"
+            "要小于 settle_after_tokens"
+        ),
+    )
+    settle_after_tokens: int = Field(
+        default=16384,
+        gt=0,
+        description=(
+            "还没沉淀的交互积了多少 token 后沉淀：与 settle_after_seconds 任一满足即沉淀，话题仍留在"
+            "话题池；不超过 engine.fold_token_threshold，折叠时还没沉淀、只剩摘要的部分因此少一些"
+        ),
+    )
     topic_dir: str = Field(
         default=".hivememory/topics",
         description=(
@@ -86,6 +103,20 @@ class MemoryPerceptionConfig(BaseModel):
     engine: PerceptionEngineConfig = Field(default_factory=PerceptionEngineConfig)
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _volume_thresholds_within_fold(self) -> "MemoryPerceptionConfig":
+        # 按量的阈值越小于折叠阈值，两次折叠之间按量写进展记录、沉淀的次数越多，折叠时还没整理或
+        # 还没沉淀、只剩摘要的部分就越少；进展记录的更小，沉淀时通常已经写过一条。
+        progress = self.progress_record_after_tokens
+        settle = self.settle_after_tokens
+        fold = self.engine.fold_token_threshold
+        if not progress < settle <= fold:
+            raise ValueError(
+                "按量触发的阈值必须满足 progress_record_after_tokens < settle_after_tokens <= "
+                f"engine.fold_token_threshold，当前为 {progress}、{settle}、{fold}"
+            )
+        return self
 
 
 # ========== 生成 ==========

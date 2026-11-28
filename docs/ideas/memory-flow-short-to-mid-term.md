@@ -181,6 +181,7 @@ last_reviewed: 2026-11-27
 | 问题 | 位置 |
 |:---|:---|
 | 主动写入生成时能拿到什么材料 | [写入链路](./memory-flow-write-path.md)第 2.2 节 |
+| 短期记忆：话题进度的判定 | [短期记忆](./short-term-memory-and-context-compaction.md)第 9 节 |
 | 什么值得写成记忆 | 孵化中 |
 | 第一当事人“没写”算不算判断 | 搁置，[写入链路](./memory-flow-write-path.md)第 6 节 |
 | 记忆的保存形态 | [库的形状](./memory-library-shape-and-index.md)第 4.2 节 |

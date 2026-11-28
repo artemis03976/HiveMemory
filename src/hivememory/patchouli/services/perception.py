@@ -20,9 +20,14 @@
 触发表
 ======
 
-每个触发写四项：看什么、做什么、推进哪个位置、失败与关闭时怎样。写进展记录与沉淀两个触发看的
-都是话题停下多久，即驻留记录的同一个访问时间，只是阈值不同：``progress_record_after_seconds``
-比 ``settle_after_seconds`` 短，沉淀时通常已经写过一条进展记录。
+每个触发写四项：看什么、做什么、推进哪个位置、失败与关闭时怎样。写进展记录与沉淀两个触发各看
+两个维度，任一满足即可：话题停下多久，即驻留记录的同一个访问时间；以及各自的位置之后积了多少
+材料，即这些轮次写入时的 token 估算之和。连续进行、从不停下的话题因此也会写进展记录、也会沉淀。
+两组阈值都是写进展记录的更小：``progress_record_after_seconds`` 比 ``settle_after_seconds`` 短，
+``progress_record_after_tokens`` 比 ``settle_after_tokens`` 小，沉淀时通常已经写过一条进展记录；
+按量的阈值不超过折叠阈值（配置加载时校验），折叠时还没整理、还没沉淀而只剩摘要的部分因此少一些。
+两个维度推进的是同一个位置，刚因一个维度生成过，另一个维度从这个位置之后重新算，同一段不会再
+生成一次。
 
 接收一轮交互（``receive_interaction``，交互提交队列调用）
     看什么：目标是不是新话题；新话题时池是否已满。
@@ -45,8 +50,9 @@
 
 写进展记录（调度任务 ``perception_progress_record`` 调用 ``scan_for_progress_record_once`` 排入
 维护项，``write_progress_entry`` 执行）
-    看什么：话题停下超过 ``progress_record_after_seconds`` 且没有被占用；``recorded_until`` 之后有
-        交互；``progress_failed_until`` 小于 ``interaction_count``。没有写进展记录的模型时不写。
+    看什么：话题没有被占用；``recorded_until`` 之后有交互；``progress_failed_until`` 小于
+        ``interaction_count``；话题停下超过 ``progress_record_after_seconds``，或 ``recorded_until``
+        之后各轮的 token 之和超过 ``progress_record_after_tokens``。没有写进展记录的模型时不写。
     做什么：排一项维护；执行时不取 lease，以旧进展记录与 ``recorded_until`` 之后的交互写一条，
         写完才追加；不刷新访问时间。这些交互的开头已经被折叠时（``recorded_until`` 小于
         ``folded_until``），被折叠的部分只给覆盖它们的折叠记录的摘要，其后给原文：写进展记录
@@ -57,11 +63,13 @@
         或队列已满时这一轮不排。关闭时进行中的被取消，什么也不写。
 
 沉淀（调度任务 ``perception_settle`` 调用 ``scan_for_settle_once``）
-    看什么：话题停下超过 ``settle_after_seconds`` 且没有被占用；``settled_until`` 与
-        ``settling_until`` 中较远的那个之后有没有交互。
+    看什么：话题没有被占用；话题停下超过 ``settle_after_seconds``，或 ``settled_until`` 与
+        ``settling_until`` 中较远的那个之后各轮的 token 之和超过 ``settle_after_tokens``；这个位置
+        之后有没有交互。停下够久时触发原因记为 ``IDLE_TIMEOUT``，同时积够了也一样；没停下够久、
+        只是积够了时记为 ``VOLUME_THRESHOLD``。
     做什么：有新交互：取 lease，冻结全部交互与折叠记录交给生成队列，话题留在池中，访问时间不变，
         话题停下的同一段时间里因此不会反复沉淀。从没接收过交互（为写入预先建立、这一轮却没有
-        交互）：退役，日志直接删除。其余什么也不做。
+        交互）：停下够久时退役，日志直接删除；它没有材料，按量不会成立。其余什么也不做。
     推进：``settling_until``。协调器在材料里没有可生成的轮次时不建任务，这时直接推进
         ``settled_until``；工作视图总保留最近几轮，正常不会走到这一支。
     失败：接纳失败（任何异常）时只记日志，话题原样保留，下一轮再看；正被占用时这一轮跳过。
@@ -199,7 +207,8 @@ class PerceptionFamiliar:
         self._store = store
         self._working_set = working_set
         self._bus = bus
-        # 两个阈值在每次扫描时读取，配置对象被原地改写后下一次扫描即按新值判断。
+        # 两个扫描的阈值（停下的秒数与积累的 token 各两个）在每次扫描时读取，配置对象被原地改写后
+        # 下一次扫描即按新值判断。
         self._config = config
         self._events = (runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())).scoped(
             subsystem="patchouli", component="perception"
@@ -314,9 +323,7 @@ class PerceptionFamiliar:
                 belong_to=belong_to,
                 reason=reason,
                 retires_topic=retire,
-                settled_until=max(
-                    topic.settled_until, self._working_set.settling_until(belong_to, topic_id)
-                ),
+                settled_until=self._settled_or_settling_until(belong_to, topic),
             )
             if material is None:  # 已沉淀与在途的沉淀覆盖了全部交互，不触发生成
                 if not retire:
@@ -583,18 +590,19 @@ class PerceptionFamiliar:
     async def scan_for_settle_once(self) -> list[str]:
         """沉淀扫描，返回被沉淀或退役的话题；触发规则见模块说明的触发表：沉淀。"""
         settled: list[str] = []
-        for belong_to, topic_id in self._working_set.list_inactive(
-            self._config.settle_after_seconds
-        ):
-            logger.debug("话题停下超过沉淀阈值: topic_id=%s", topic_id)
+        for belong_to, topic_id, idle_seconds in self._working_set.list_unleased():
             topic = self._store.get(belong_to, topic_id)
+            reason = self._settle_reason(belong_to, topic, idle_seconds)
+            if reason is None:
+                continue
+            logger.debug("话题到了沉淀的时候: topic_id=%s, reason=%s", topic_id, reason.value)
             # 读取与 _settle_topic 取得 lease 之间没有 await，判断时的空话题在 lease 内仍为空。
             retire = topic is not None and topic.is_empty
             try:
                 completed, _ = await self._settle_topic(
                     belong_to,
                     topic_id,
-                    reason=TriggerReason.IDLE_TIMEOUT,
+                    reason=reason,
                     retire=retire,
                     raise_on_admission_failure=False,
                 )
@@ -603,6 +611,25 @@ class PerceptionFamiliar:
             if completed:
                 settled.append(topic_id)
         return settled
+
+    def _settle_reason(
+        self, belong_to: WorkspaceIdentity, topic: TopicData | None, idle_seconds: float
+    ) -> TriggerReason | None:
+        """沉淀扫描对一个话题的判断：停下够久时记为停下，这时还没沉淀的材料积够了也一样；没停下
+        够久、还没沉淀的材料积够了时记为按量；都不满足时为 ``None``。
+
+        从没接收过交互的空话题没有材料，按量对它不成立，只在停下够久时退役。
+        """
+        if idle_seconds > self._config.settle_after_seconds:
+            return TriggerReason.IDLE_TIMEOUT
+        if topic is None:
+            return None
+        unsettled_tokens = self._tokens_after(
+            topic, self._settled_or_settling_until(belong_to, topic)
+        )
+        if unsettled_tokens > self._config.settle_after_tokens:
+            return TriggerReason.VOLUME_THRESHOLD
+        return None
 
     async def scan_for_progress_record_once(
         self, schedule_progress_entry: Callable[[WorkspaceIdentity, str], Awaitable[bool]]
@@ -614,9 +641,7 @@ class PerceptionFamiliar:
         if self._progress_writer is None:
             return []
         scheduled: list[str] = []
-        for belong_to, topic_id in self._working_set.list_inactive(
-            self._config.progress_record_after_seconds
-        ):
+        for belong_to, topic_id, idle_seconds in self._working_set.list_unleased():
             topic = self._store.get(belong_to, topic_id)
             if topic is None:
                 continue
@@ -625,6 +650,13 @@ class PerceptionFamiliar:
             if self._working_set.progress_failed_until(belong_to, topic_id) >= (
                 topic.interaction_count
             ):
+                continue
+            stopped = idle_seconds > self._config.progress_record_after_seconds
+            piled_up = (
+                self._tokens_after(topic, topic.recorded_until)
+                > self._config.progress_record_after_tokens
+            )
+            if not (stopped or piled_up):
                 continue
             if await schedule_progress_entry(belong_to, topic_id):
                 scheduled.append(topic_id)
@@ -713,6 +745,17 @@ class PerceptionFamiliar:
             RuntimeEventType.TOPIC_CREATED, data={"created_by": created_by}
         )
         return topic.topic_id
+
+    def _settled_or_settling_until(self, belong_to: WorkspaceIdentity, topic: TopicData) -> int:
+        """已经完成与仍在途的沉淀中较远的那个覆盖到第几轮：在途的只记在进程内，话题的读取值只有
+        已经完成的。按量判断与冻结材料都从这里算起，刚按量沉淀过的一段因此不会再沉淀一次。
+        """
+        return max(topic.settled_until, self._working_set.settling_until(belong_to, topic.topic_id))
+
+    @staticmethod
+    def _tokens_after(topic: TopicData, position: int) -> int:
+        """第 ``position`` 轮之后各轮的 token 估算之和；按各轮写入时的估算，已经折叠的轮次也算。"""
+        return sum(block.total_tokens for block in topic.interactions[position:])
 
     @staticmethod
     def _fold_summaries_after(topic: TopicData, position: int) -> list[str]:

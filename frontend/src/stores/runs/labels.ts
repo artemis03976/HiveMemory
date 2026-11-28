@@ -8,13 +8,14 @@ export const GENERATION_SOURCE_LABEL: Record<string, string> = {
 
 export const SETTLE_REASON_LABEL: Record<string, string> = {
   idle_timeout: '空闲超时',
+  volume_threshold: '按量',
   manual_settle: '手动结算',
   shutdown: '系统关闭',
   lru_eviction: 'LRU 回收',
 };
 
 /**
- * `topic.settled` 的名称：空闲时只沉淀、话题留在池中；退役时话题离开话题池，有新内容时先沉淀。
+ * `topic.settled` 的名称：空闲或按量时只沉淀、话题留在池中；退役时话题离开话题池，有新内容时先沉淀。
  * 没有 `retired` 的事件来自区分二者之前，那时每次结算都结束话题，仍叫“话题结算”。
  */
 export function topicSettledLabel(data: Record<string, unknown> | undefined): string {

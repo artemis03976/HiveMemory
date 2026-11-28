@@ -40,7 +40,7 @@ last_reviewed: 2026-11-26
 | MCP | `mcp-` 开头的 trace | `MCP · {工具名}` | `actor.operation` 的完成、拒绝或失败 |
 | 生成 | `memory.task.*` 的 `task_id` | `生成 · {写入/更新/结算/合并}`，副标题为待生成记忆的别名 | `memory.task.completed/cancelled/failed` |
 | 维护 | 单条 `maintenance.task.*` | `维护 · {任务名}` | 自身 |
-| 话题 | 不在运行内的单条 `topic.*`；话题折叠的 work | `话题沉淀 · {原因}`、`话题沉淀并退役 · {原因}`、`话题退役（没有新内容） · {原因}`（按 `topic.settled` 的 `retired` 与 `generation_submitted`；没有 `retired` 的旧事件仍为 `话题结算 · {原因}`）、`话题建立`、`话题删除`、`话题折叠` | 自身 |
+| 话题 | 不在运行内的单条 `topic.*`；话题折叠的 work | `话题沉淀 · {原因}`（原因取 `reason` 的中文标签，如“空闲超时”“按量”）、`话题沉淀并退役 · {原因}`、`话题退役（没有新内容） · {原因}`（按 `topic.settled` 的 `retired` 与 `generation_submitted`；没有 `retired` 的旧事件仍为 `话题结算 · {原因}`）、`话题建立`、`话题删除`、`话题折叠` | 自身 |
 | 系统 | 相邻的 `system.*` 及其间的 `subsystem.operation.*`；挂不上的 work | `系统启动`、`系统关闭`、`队列任务 · {lane}` | `ready`、`start_failed`、`stopped`、`stop_failed`；work 的终态 |
 
 - **work 的挂接**：`work.*` 不单独归组。work id 为 `memory_generation:{task_id}` 的挂到同一 task 的生成运行；`interaction:{interaction_id}` 的挂到交互标识相同的导入（`data.interaction_id`），或进程标识相同的对话（对话的交互标识就是进程标识）；`topic_fold:` 开头的（交互提交队列的折叠维护项）各自合成一次话题折叠；写进展记录的 `topic_progress_entry:` 不归组，按下文自成一次系统运行。挂不上的（例如它所属的运行已超出缓冲）自成一次系统运行，状态取 work 的终态。work id 的前缀改变时挂接失效，运行退化为单独显示，不会出错。

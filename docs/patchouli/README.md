@@ -184,8 +184,8 @@ RetrievalRequest
 
 Patchouli 向全局调度器注册四个维护任务：
 
-- `perception_settle`：扫描停下超过 `patchouli.perception.settle_after_seconds` 的话题，沉淀有新交互的、让从没接收过交互的空话题退役，返回被沉淀或退役的话题 ID；
-- `perception_progress_record`：扫描停下超过 `progress_record_after_seconds` 的话题（阈值比沉淀的短，两者看同一个访问时间），为有还没整理的交互的话题在交互提交队列中排入写一条进展记录，返回排入了的话题 ID（[短期记忆](../architecture/short-term-memory.md#43-写进展记录)第 4.3 节）；
+- `perception_settle`：扫描没有被占用的驻留话题，停下超过 `patchouli.perception.settle_after_seconds`、或上次沉淀之后积了超过 `settle_after_tokens` 的，沉淀有新交互的；从没接收过交互的空话题只在停下够久时退役；返回被沉淀或退役的话题 ID；
+- `perception_progress_record`：扫描没有被占用的驻留话题，停下超过 `progress_record_after_seconds`（比沉淀的短，两者看同一个访问时间）、或上一条进展记录之后积了超过 `progress_record_after_tokens` 的，为有还没整理的交互的话题在交互提交队列中排入写一条进展记录，返回排入了的话题 ID（[短期记忆](../architecture/short-term-memory.md#43-写进展记录)第 4.3 节）；
 - `memory_gardening`：刷新生命力并归档低生命力中期记忆，返回归档数与耗时；
 - `model_idle_unload`：卸载空闲超过各自时限的 `idle_unload` 模型（第 4.1 节），返回本次卸载的模型名。
 

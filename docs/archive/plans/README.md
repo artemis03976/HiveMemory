@@ -23,6 +23,7 @@ last_reviewed: 2026-11-24
 - 压缩后推送与按句柄拉取：agent 经 READ 读话题，Claude Code 压缩之后注入进展记录的索引：2026-11-26，PR #246；删除前最后版本在 `ab450ea1`；[MCP 记忆访问](../../contracts/mcp.md)、[架构概览](../../architecture/overview.md)
 - 拉取当前话题与压缩后只推指针：topic:current 按需确定话题，会话压缩之后只推送句柄：2026-11-26，PR #248；删除前最后版本在 `1adeb4d2`；[读取视图与写入意图](../../workspace/read-view-and-write-intents.md)、[架构概览](../../architecture/overview.md)
 - 话题折叠的重构：折叠作为系统内部的材料压缩，写进展记录共用工作视图：2026-11-27，PR #251；删除前最后版本在 `b8f64a72`；[短期记忆](../../architecture/short-term-memory.md#44-折叠)
+- 按量补齐短期记忆的生成触发：进展记录与沉淀也按积累的材料量生成：2026-11-27，PR #252；删除前最后版本在 `da947f46`；[短期记忆](../../architecture/short-term-memory.md#45-沉淀)
 
 ## v0.8.0
 
