@@ -4,10 +4,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MaintenanceTasksConfig(BaseModel):
-    # 检查话题是否停下到该沉淀；阈值是感知配置的 settle_after_seconds。
+    # 检查话题是否停下或积够了材料、该沉淀；阈值是感知配置的 settle_after_seconds 与
+    # settle_after_tokens。
     perception_settle_interval_seconds: float = Field(default=30.0)
     enable_perception_settle: bool = Field(default=True)
-    # 检查话题是否停下到该写一条进展记录；阈值是感知配置的 progress_record_after_seconds。
+    # 检查话题是否停下或积够了材料、该写一条进展记录；阈值是感知配置的
+    # progress_record_after_seconds 与 progress_record_after_tokens。
     perception_progress_record_interval_seconds: float = Field(default=30.0)
     enable_perception_progress_record: bool = Field(default=True)
     lifecycle_gc_interval_hours: int = Field(default=24)

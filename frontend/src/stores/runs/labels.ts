@@ -8,6 +8,7 @@ export const GENERATION_SOURCE_LABEL: Record<string, string> = {
 
 export const SETTLE_REASON_LABEL: Record<string, string> = {
   idle_timeout: '空闲超时',
+  volume_threshold: '按量',
   manual_settle: '手动结算',
   shutdown: '系统关闭',
   lru_eviction: 'LRU 回收',

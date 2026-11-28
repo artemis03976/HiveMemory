@@ -23,6 +23,8 @@ IMMEDIATE_FIELDS: tuple[str, ...] = (
     "patchouli.retrieval.retriever.dense.enable_time_decay",
     "patchouli.retrieval.retriever.dense.time_decay_days",
     "patchouli.perception.settle_after_seconds",
+    "patchouli.perception.progress_record_after_tokens",
+    "patchouli.perception.settle_after_tokens",
     "patchouli.generation.deduplicator.high_similarity_threshold",
     "patchouli.generation.deduplicator.low_similarity_threshold",
     "patchouli.lifecycle.garbage_collector.low_watermark",

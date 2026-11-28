@@ -36,6 +36,33 @@ def test_thresholds_are_read_by_their_action_names() -> None:
         MemoryPerceptionConfig.model_validate({"idle_timeout_seconds": 60})
 
 
+def test_volume_thresholds_may_reach_the_fold_threshold() -> None:
+    """沉淀的阈值可以等于折叠阈值，进展记录的只要比它小。"""
+    config = MemoryPerceptionConfig(
+        progress_record_after_tokens=1,
+        settle_after_tokens=4096,
+        engine={"fold_token_threshold": 4096},
+    )
+    assert config.settle_after_tokens == config.engine.fold_token_threshold
+
+
+@pytest.mark.parametrize(
+    ("progress_tokens", "settle_tokens", "fold_tokens"),
+    [(4096, 4096, 8192), (1024, 8192, 4096)],
+    ids=["progress-not-below-settle", "settle-above-fold"],
+)
+def test_volume_thresholds_must_stay_ordered_below_the_fold_threshold(
+    progress_tokens, settle_tokens, fold_tokens
+) -> None:
+    """进展记录的阈值不小于沉淀的、或沉淀的超过折叠阈值时，配置加载失败。"""
+    with pytest.raises(ValidationError, match="progress_record_after_tokens < settle_after_tokens"):
+        MemoryPerceptionConfig(
+            progress_record_after_tokens=progress_tokens,
+            settle_after_tokens=settle_tokens,
+            engine={"fold_token_threshold": fold_tokens},
+        )
+
+
 def test_max_resident_topics_is_read_from_the_perception_section() -> None:
     """驻留容量在 perception 段；engine 段的旧位置是未知键，启动时显式失败。"""
     assert MemoryPerceptionConfig(max_resident_topics=3).max_resident_topics == 3

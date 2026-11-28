@@ -104,6 +104,11 @@ patchouli:
     # 话题停下多久后写一条进展记录：以旧进展记录与还没整理的交互（已经折叠的部分只给摘要）写出
     # 一段总结，话题池里可以看到；与沉淀看同一个访问时间，阈值更短，沉淀时通常已经写过一条
     progress_record_after_seconds: 1800
+    # 还没整理的交互超过多少 token 时写一条进展记录，与停下的时长任一满足即可，话题不停下也会写
+    progress_record_after_tokens: 32768
+    # 还没沉淀的交互超过多少 token 时沉淀，与停下的时长任一满足即可；启动时校验
+    # progress_record_after_tokens < settle_after_tokens <= engine.fold_token_threshold
+    settle_after_tokens: 65536
     # 每个 Workspace 同时驻留的话题数；建新话题时池满，最久没用的话题先沉淀再退役
     max_resident_topics: 5
     engine:

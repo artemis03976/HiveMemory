@@ -32,8 +32,7 @@ class ResidentTopic:
     """一个驻留话题在进程内的状态，进程退出时全部丢失。
 
     - ``accessed_at``：最近一次访问的时间（注入时钟的时基），话题停下多久按它计，写进展记录
-      与沉淀的两个阈值都看它；重启后从
-      读回时重新计时。
+      与沉淀按时间的两个阈值都看它；重启后从读回时重新计时。
     - ``settling_until``：被生成队列接纳、还没到终态的沉淀覆盖到第几轮，没有时为 0；重启后
       在途的沉淀已经丢失，日志停在上一次完成的位置，这段交互由沉淀扫描重新沉淀。
     - ``progress_failed_until``：最近一次写进展记录失败时要覆盖到第几轮，没有时为 0；话题的
@@ -120,23 +119,17 @@ class TopicWorkingSet:
             return topic_id
         return None
 
-    def list_inactive(
-        self,
-        timeout_seconds: float,
-        *,
-        now: float | None = None,
-    ) -> list[tuple[WorkspaceIdentity, str]]:
-        """返回全部 Workspace 中超过 ``timeout_seconds`` 没有访问、且未被占用的驻留话题。
+    def list_unleased(self) -> list[tuple[WorkspaceIdentity, str, float]]:
+        """返回全部 Workspace 中没有被占用的驻留话题，以及各自停下了多少秒（距最近一次访问）。
 
-        沉淀扫描与进展记录扫描共用，阈值不同。返回 ``(belong_to, topic_id)`` 对，后台维护只保留
-        资源归属，不保存访问者；``now`` 可显式指定判定时钟，但须与注入时钟同一时基（单调时钟
-        勿传墙钟值）。
+        沉淀扫描与进展记录扫描共用，停下够不够久由各自的阈值判断。返回
+        ``(belong_to, topic_id, 停下的秒数)``，后台维护只保留资源归属，不保存访问者。
         """
-        current = now if now is not None else self._clock()
+        now = self._clock()
         return [
-            key
-            for key, resident in self._resident.items()
-            if (current - resident.accessed_at) > timeout_seconds and key not in self._leases
+            (belong_to, topic_id, now - resident.accessed_at)
+            for (belong_to, topic_id), resident in self._resident.items()
+            if (belong_to, topic_id) not in self._leases
         ]
 
     # ========== 在途沉淀与写进展记录失败的位置 ==========

@@ -3,7 +3,7 @@
 测试覆盖:
 - LRU 顺序: touch 刷新排序、候选按最久未访问选择、Workspace 隔离
 - 占用权: acquire 互斥（含同 Workspace 不同执行者）、不要求驻留、过期令牌释放被忽略
-- 候选查询: 停下多久的阈值过滤、占用过滤、显式 now
+- 扫描的候选: 全部未被占用的驻留话题及各自停下的秒数、跨 Workspace、只携带归属
 - 容量: needs_eviction 的上限判断与 Workspace 隔离
 - 在途沉淀与写进展记录失败的位置: 只记最远的在途、刷新访问不改位置、只记在驻留话题上
 - 移除: 驻留记录整条删除（访问时间与两个位置一起消失），不清理 lease
@@ -186,11 +186,11 @@ class TestCapacity:
             TopicWorkingSet(max_resident=0)
 
 
-# ========== 停下多久的候选查询 ==========
+# ========== 扫描的候选 ==========
 
 
 class TestCandidateQueries:
-    def test_inactive_candidates_only_include_timeout_topics(self):
+    def test_candidates_report_how_long_each_topic_has_been_stopped(self):
         ws, clock = _make_working_set()
         scope = _identity_scope()
 
@@ -198,52 +198,34 @@ class TestCandidateQueries:
         clock.advance(150)
         ws.touch(scope.workspace_identity, "topic-2")
 
-        candidates = ws.list_inactive(timeout_seconds=100)
-        assert [topic_id for _, topic_id in candidates] == ["topic-1"]
+        candidates = ws.list_unleased()
+        assert [(topic_id, idle) for _, topic_id, idle in candidates] == [
+            ("topic-1", 150),
+            ("topic-2", 0),
+        ]
         # 返回的坐标只携带归属，后台维护无需保存访问者。
         assert candidates[0][0].workspace_id == "main_workspace"
 
-        clock.advance(100)  # topic-2 恰好达到阈值，还不算停下够久（严格大于）
-        assert [topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100)] == ["topic-1"]
-
-    def test_inactive_candidates_exclude_leased_topics(self):
-        ws, clock = _make_working_set()
+    def test_candidates_exclude_leased_topics(self):
+        ws, _ = _make_working_set()
         scope = _identity_scope()
 
         ws.touch(scope.workspace_identity, "topic-1")
-        clock.advance(50)
         ws.touch(scope.workspace_identity, "topic-2")
-        clock.advance(200)  # 两个话题均已超时
-
         ws.acquire(scope.workspace_identity, "topic-1")
 
-        assert [topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100)] == ["topic-2"]
+        assert [topic_id for _, topic_id, _ in ws.list_unleased()] == ["topic-2"]
 
-    def test_inactive_candidates_honor_explicit_now(self):
-        ws, clock = _make_working_set()
-        scope = _identity_scope()
-
-        touched_at = clock.now
-        ws.touch(scope.workspace_identity, "topic-1")
-        clock.advance(200)
-
-        # 显式 now 早于真实流逝时间时不得误判为停下够久
-        assert ws.list_inactive(timeout_seconds=100, now=touched_at + 50) == []
-        assert [
-            topic_id for _, topic_id in ws.list_inactive(timeout_seconds=100, now=touched_at + 150)
-        ] == ["topic-1"]
-
-    def test_inactive_candidates_cover_all_workspaces(self):
-        ws, clock = _make_working_set()
+    def test_candidates_cover_all_workspaces(self):
+        ws, _ = _make_working_set()
         scope_a = _identity_scope(user_id="u1", workspace_id="ws_a")
         scope_b = _identity_scope(user_id="u2", workspace_id="ws_b")
 
         ws.touch(scope_a.workspace_identity, "topic-a1")
         ws.touch(scope_b.workspace_identity, "topic-b1")
-        clock.advance(500)
 
-        candidates = ws.list_inactive(timeout_seconds=100)
-        assert {(belong_to.workspace_id, topic_id) for belong_to, topic_id in candidates} == {
+        candidates = ws.list_unleased()
+        assert {(belong_to.workspace_id, topic_id) for belong_to, topic_id, _ in candidates} == {
             ("ws_a", "topic-a1"),
             ("ws_b", "topic-b1"),
         }
@@ -258,14 +240,12 @@ class TestCandidateQueries:
         ws.touch(scope_agent_b.workspace_identity, "topic-1")
         clock.advance(10)
 
-        assert ws.list_inactive(timeout_seconds=5) == [
-            (scope_agent_a.workspace_identity, "topic-1")
-        ]
+        assert ws.list_unleased() == [(scope_agent_a.workspace_identity, "topic-1", 10)]
 
-    def test_inactive_candidates_on_empty_working_set(self):
+    def test_candidates_on_empty_working_set(self):
         ws, _ = _make_working_set()
 
-        assert ws.list_inactive(timeout_seconds=0) == []
+        assert ws.list_unleased() == []
 
 
 # ========== 在途沉淀与写进展记录失败的位置 ==========
@@ -297,7 +277,7 @@ class TestPositions:
 
         ws.touch(belong_to, "topic-1")
 
-        assert ws.list_inactive(timeout_seconds=100) == []
+        assert ws.list_unleased() == [(belong_to, "topic-1", 0)]
         assert (
             ws.settling_until(belong_to, "topic-1"),
             ws.progress_failed_until(belong_to, "topic-1"),

@@ -12,15 +12,18 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
   未超保留块数不折叠
 - settle_and_retire_topic / delete_topic 具名用例，含 admission 失败可重试、已沉淀的话题退役不生成
 - scan_for_settle_once：话题停下够久时只沉淀，话题留在话题池、访问时间不变，没有新交互不再沉淀；
-  从没接收过交互的空话题停下够久时直接退役；折叠后沉淀携带被折叠的轮次
+  从没接收过交互的空话题停下够久时直接退役；从不停下的话题积够了还没沉淀的交互时按量沉淀、留在
+  池中，在途的那一段不再计入，空话题不因按量退役；两个维度同时成立时记为停下；折叠后沉淀携带
+  被折叠的轮次
 - 沉淀进度在生成完成时推进：接纳后只记在途，在途期间不重复沉淀同一段，完成后日志记下进度；
   协调器没有建任务时立即记下
 - 退役与删除：退役话题的日志保留到最后一次沉淀完成再删除，其间照样记下与交出本话题生成的记忆；
   没有未完成沉淀的退役与手动删除立即删除日志
 - 本话题生成的记忆不取 lease：折叠等待摘要、沉淀等待接纳期间记下的生成的记忆在写回之后仍在
-- 进展记录：话题停下超过阈值且有还没整理的交互时排入写一条，写一条只看旧进展记录与还没整理的
-  交互（其中已经被折叠的只给覆盖它们的折叠记录的摘要），写下之后没有新交互不再排入；失败后同一
-  位置不重试，有新交互后再写；写一条不取 lease，生成期间话题退役时这一条不记
+- 进展记录：话题停下超过阈值、或还没整理的交互积累超过阈值时排入写一条，写一条只看旧进展记录与
+  还没整理的交互（其中已经被折叠的只给覆盖它们的折叠记录的摘要），写下之后两个维度都从这一条之后
+  算，没有新交互不再排入；失败后同一位置不重试，有新交互后再写；写一条不取 lease，生成期间话题
+  退役时这一条不记
 """
 
 import asyncio
@@ -121,12 +124,15 @@ def _make_familiar(
     clock=None,
     events: RecordingRuntimeEventSink | None = None,
     progress_record_after=30,
+    progress_record_after_tokens=999999,
+    settle_after_tokens=999999,
     progress_llm=None,
 ):
     """构造 (familiar, store, working_set, bus) 测试组合。
 
     Engine、写进展记录的 ProgressRecordWriter、Store、WorkingSet 与日志为真实对象；折叠摘要的
     写作者与模型是边界外的替身，没有给出 ``progress_llm`` 时不写进展记录；时间使用可控时钟。
+    按量的两个阈值缺省足够大，只看停下多久的测试不受它们影响。
     """
     clock = clock or _FakeClock()
     store = ShortTermMemoryStore(JsonlShortTermStorage(tmp_path / "topics"))
@@ -154,7 +160,10 @@ def _make_familiar(
         working_set=working_set,
         bus=bus,
         config=SimpleNamespace(
-            settle_after_seconds=settle_after, progress_record_after_seconds=progress_record_after
+            settle_after_seconds=settle_after,
+            progress_record_after_seconds=progress_record_after,
+            settle_after_tokens=settle_after_tokens,
+            progress_record_after_tokens=progress_record_after_tokens,
         ),
         runtime_events=RuntimeEventPublisher(events) if events is not None else None,
     )
@@ -390,6 +399,15 @@ async def _apply_to_topic(familiar, scope, topic_id: str, *messages: str) -> Non
             target_topic_id=topic_id,
             interaction_id=f"i-{topic_id}-{message}",
         )
+
+
+# 按量触发的测试用的阈值：``_medium_turn`` 的一轮连同回复约 107 token，一轮没超过，两轮超过。
+_VOLUME_TOKENS = 150
+
+
+def _medium_turn(letter: str) -> str:
+    """约 100 token 的一条用户消息；不同的字母给出不同的交互 id。"""
+    return letter * 200
 
 
 class TestFold:
@@ -766,8 +784,11 @@ class TestMaintenance:
         assert flushed == [stale_id]
         assert store.get(scope.workspace_identity, stale_id).settled_until == 1
         assert store.get(scope.workspace_identity, fresh_id).settled_until == 0
-        # 访问时间没有被沉淀刷新：话题仍在驻留集合中，也仍是沉淀扫描的候选。
-        assert working_set.list_inactive(30) == [(scope.workspace_identity, stale_id)]
+        # 访问时间没有被沉淀刷新：话题仍在驻留集合中，停下的时长照旧。
+        assert working_set.list_unleased() == [
+            (scope.workspace_identity, stale_id, 100),
+            (scope.workspace_identity, fresh_id, 0),
+        ]
         route, settlement = bus.request.await_args.args
         assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         assert settlement.reason == TriggerReason.IDLE_TIMEOUT
@@ -913,6 +934,59 @@ class TestMaintenance:
                 "retired": True,
             },
         )
+
+    @pytest.mark.asyncio
+    async def test_active_topic_settles_by_volume_and_stays_in_pool(self, tmp_path):
+        """从不停下的话题，还没沉淀的交互积累超过阈值时按量沉淀，话题留在池中；在途的沉淀覆盖的
+        那一段不再计入，之后的交互没积够时不再沉淀。从没接收过交互的空话题不因按量退役。"""
+        events = RecordingRuntimeEventSink()
+        familiar, store, working_set, bus = _make_familiar(
+            tmp_path, settle_after_tokens=_VOLUME_TOKENS, events=events
+        )
+        bus.request.side_effect = _accept_settlement_task
+        scope = _identity_scope()
+        workspace = scope.workspace_identity
+        empty_id = await familiar.prepare_topic("NEW_TOPIC", None, None, workspace)
+        store.create(workspace, topic_id="t1")
+
+        await _apply_to_topic(familiar, scope, "t1", _medium_turn("a"))
+        below = await familiar.scan_for_settle_once()
+        await _apply_to_topic(familiar, scope, "t1", _medium_turn("b"))
+        over = await familiar.scan_for_settle_once()
+        await _apply_to_topic(familiar, scope, "t1", _medium_turn("c"))
+        after_in_flight = await familiar.scan_for_settle_once()
+
+        assert (below, over, after_in_flight) == ([], ["t1"], [])
+        settlement = bus.request.await_args.args[1]
+        assert (settlement.reason, settlement.retires_topic) == (
+            TriggerReason.VOLUME_THRESHOLD,
+            False,
+        )
+        assert {topic_id for _, topic_id, _ in working_set.list_unleased()} == {empty_id, "t1"}
+        assert _topic_events(events)[-1] == (
+            "topic.settled",
+            "t1",
+            {
+                "reason": TriggerReason.VOLUME_THRESHOLD.value,
+                "generation_submitted": True,
+                "retired": False,
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_topic_both_stopped_and_piled_up_settles_as_stopped(self, tmp_path):
+        """停下够久与还没沉淀的交互积够了同时成立时，触发原因记为停下。"""
+        clock = _FakeClock()
+        familiar, store, _, bus = _make_familiar(
+            tmp_path, settle_after=30, settle_after_tokens=_VOLUME_TOKENS, clock=clock
+        )
+        scope = _identity_scope()
+        store.create(scope.workspace_identity, topic_id="t1")
+        await _apply_to_topic(familiar, scope, "t1", _medium_turn("a"), _medium_turn("b"))
+        clock.advance(100)
+
+        assert await familiar.scan_for_settle_once() == ["t1"]
+        assert bus.request.await_args.args[1].reason == TriggerReason.IDLE_TIMEOUT
 
     @pytest.mark.asyncio
     async def test_settle_scan_after_folding_carries_folded_turns_with_working_view(self, tmp_path):
@@ -1108,6 +1182,36 @@ class TestProgressRecord:
         )
         assert "[Turn 3]\n[User]: q3" in second_input
         assert "q1" not in second_input and "q2" not in second_input
+
+    @pytest.mark.asyncio
+    async def test_active_topic_gets_an_entry_once_its_unrecorded_turns_pile_up(self, tmp_path):
+        """从不停下的话题，还没整理的交互积累超过阈值时排入写一条，没超过时不排；写下一条之后
+        两个维度都从它之后算：话题停下够久不再为同一段排入，之后的交互没积够时也不排。"""
+        clock = _FakeClock()
+        llm = ScriptedLLMService('{"entry": "讨论了发布顺序"}')
+        familiar, store, _, _ = _make_familiar(
+            tmp_path,
+            clock=clock,
+            progress_record_after=30,
+            progress_record_after_tokens=_VOLUME_TOKENS,
+            progress_llm=llm,
+        )
+        scope = _identity_scope()
+        belong_to = scope.workspace_identity
+        store.create(belong_to, topic_id="t1")
+
+        await _apply_to_topic(familiar, scope, "t1", _medium_turn("a"))
+        below = await familiar.scan_for_progress_record_once(_ScheduledEntries())
+        await _apply_to_topic(familiar, scope, "t1", _medium_turn("b"))
+        over = await familiar.scan_for_progress_record_once(_ScheduledEntries())
+        await familiar.write_progress_entry(belong_to, "t1")
+        clock.advance(100)
+        stopped_after_entry = await familiar.scan_for_progress_record_once(_ScheduledEntries())
+        await _apply_to_topic(familiar, scope, "t1", _medium_turn("c"))
+        after_new_turn = await familiar.scan_for_progress_record_once(_ScheduledEntries())
+
+        assert (below, over, stopped_after_entry, after_new_turn) == ([], ["t1"], [], [])
+        assert [entry.covered_until for entry in store.get(belong_to, "t1").progress_record] == [2]
 
     @pytest.mark.asyncio
     async def test_unrecorded_turns_past_the_fold_boundary_are_written_from_their_summaries(

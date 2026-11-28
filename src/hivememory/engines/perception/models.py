@@ -35,6 +35,8 @@ class TriggerReason(str, Enum):
     """
 
     IDLE_TIMEOUT = "idle_timeout"  # 话题停下超过 settle_after_seconds（值沿用旧名）
+    # 话题没停下够久，但还没沉淀的交互超过 settle_after_tokens：只沉淀，话题留在池中
+    VOLUME_THRESHOLD = "volume_threshold"
     LRU_EVICTION = "lru_eviction"  # 话题池满时最久没用的话题被挤出：先沉淀再退役
     MANUAL_SETTLE = "manual_settle"  # 用户手动沉淀并退役话题
 
