@@ -66,7 +66,7 @@ from hivememory.engines.generation.models import (
     GenerationRequest as GenerationRequestModel,
 )
 from hivememory.infrastructure.llm.base import LLMRequestParams
-from tests.helpers.llm import ScriptedLLMService
+from tests.helpers.llm import ScriptedLLMService, tool_call_completion
 from tests.helpers.memory import (
     make_memory_identity_scope,
     make_memory_metadata,
@@ -1125,13 +1125,12 @@ class TestCitedSegments:
 
 def _librarian_writes(*drafts: ExtractedMemoryDraft) -> ScriptedLLMService:
     """馆长依次写下每条草稿后结束。"""
-    actions = [
-        {"tool": "write_memory", "args": draft.model_dump(exclude={"has_value"})}
-        for draft in drafts
-    ]
     return ScriptedLLMService(
-        *(json.dumps(action, ensure_ascii=False) for action in actions),
-        json.dumps({"tool": "finish", "args": {}}),
+        *(
+            tool_call_completion(("write_memory", draft.model_dump(exclude={"has_value"})))
+            for draft in drafts
+        ),
+        tool_call_completion(("finish", {})),
     )
 
 
@@ -1232,24 +1231,20 @@ class TestGenerationEngineSettleMode:
         self.mock_storage.get_by_alias = AsyncMock(return_value=self.existing)
         draft = _make_draft(title="另一件事", alias_suffix="other_thing")
         llm = ScriptedLLMService(
-            json.dumps({"tool": "read_memory", "args": {"alias": "fact_manual_deploy"}}),
-            json.dumps(
-                {
-                    "tool": "revise_memory",
-                    "args": {
+            tool_call_completion(("read_memory", {"alias": "fact_manual_deploy"})),
+            tool_call_completion(
+                (
+                    "revise_memory",
+                    {
                         "alias": "fact_manual_deploy",
                         "edits": [_replace("content", "旧内容", "新内容")],
                         "changelog": "部署方式变了",
                         "source_segments": ["2.2"],
                     },
-                },
-                ensure_ascii=False,
+                )
             ),
-            json.dumps(
-                {"tool": "write_memory", "args": draft.model_dump(exclude={"has_value"})},
-                ensure_ascii=False,
-            ),
-            json.dumps({"tool": "finish", "args": {}}),
+            tool_call_completion(("write_memory", draft.model_dump(exclude={"has_value"}))),
+            tool_call_completion(("finish", {})),
         )
         engine = self._engine(MemoryGenerationConfig(settle_mode="librarian"), llm)
 

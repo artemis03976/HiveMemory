@@ -106,9 +106,9 @@ def test_update_prompt_handwritten_format_includes_citations(language):
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
-def test_librarian_prompt_orders_the_three_steps_and_gives_the_action_format(language):
-    """工作顺序依次是列出本话题生成的记忆、检索库、修订、新建、结束；动作是单个 JSON 对象，
-    步数与检索条数的上限随配置印出。"""
+def test_librarian_prompt_orders_the_three_steps_and_prints_the_limits(language):
+    """工作顺序依次是列出本话题生成的记忆、检索库、修订、新建、结束；步数与检索条数的上限
+    随配置印出。"""
     prompt = get_generation_prompt_text("librarian", "system_prompt", language).format(
         max_steps=7, search_top_k=3
     )
@@ -127,5 +127,4 @@ def test_librarian_prompt_orders_the_three_steps_and_gives_the_action_format(lan
         < order.index("write_memory")
         < order.index("finish")
     )
-    assert '{"tool": "' in prompt
     assert [text for text in budget if text not in prompt] == []

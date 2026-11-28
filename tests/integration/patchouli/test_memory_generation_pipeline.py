@@ -78,7 +78,7 @@ from hivememory.patchouli.services.memory_generation import MemoryGenerationFami
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from tests.helpers.generation_bus import register_topic_routes
-from tests.helpers.llm import ScriptedLLMService
+from tests.helpers.llm import ScriptedLLMService, tool_call_completion
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_interaction_payload, make_logical_block
 from tests.helpers.workspace import make_identity_scope
@@ -993,10 +993,10 @@ async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_
     ).model_dump_json()
     new_fact = _draft("deploy is manual", "deploys are now run by hand")
     llm = ScriptedLLMService(
-        json.dumps({"tool": "list_generated_memories", "args": {}}),
-        json.dumps({"tool": "search_memories", "args": {"query": "deploy"}}),
-        json.dumps({"tool": "write_memory", "args": new_fact.model_dump(exclude={"has_value"})}),
-        json.dumps({"tool": "finish", "args": {}}),
+        tool_call_completion(("list_generated_memories", {})),
+        tool_call_completion(("search_memories", {"query": "deploy"})),
+        tool_call_completion(("write_memory", new_fact.model_dump(exclude={"has_value"}))),
+        tool_call_completion(("finish", {})),
     )
     engine = MemoryGenerationEngine(
         mid_term=memory_library.mid_term,
@@ -1020,8 +1020,8 @@ async def test_librarian_settlement_lists_this_topics_write_and_creates_what_is_
     settled = await controller.wait_task(settle_task.task_id)
 
     assert settled.status == MemoryGenerationTaskStatus.COMPLETED
-    # 前两条是系统提示词与话题材料，其后每个工具结果跟在模型的动作之后。
-    replies = [json.loads(m["content"]) for m in llm.calls[-1].messages[2:] if m["role"] == "user"]
+    # 前两条是系统提示词与话题材料，其后每个工具结果以 tool 消息跟在模型的工具调用之后。
+    replies = [json.loads(m["content"]) for m in llm.calls[-1].messages[2:] if m["role"] == "tool"]
     written_alias = replies[0]["result"][0]["alias"]
     assert written_alias in [hit["alias"] for hit in replies[1]["result"]]
     stored = await memory_library.mid_term.search(
@@ -1065,21 +1065,21 @@ async def test_librarian_settlement_revises_an_existing_memory_instead_of_adding
     existing.payload.content = "deploys run from CI"
     await memory_library.mid_term.upsert(existing, recompute_vectors=True)
     llm = ScriptedLLMService(
-        json.dumps({"tool": "search_memories", "args": {"query": "deploy"}}),
-        json.dumps({"tool": "read_memory", "args": {"alias": "memory_alias"}}),
-        json.dumps(
-            {
-                "tool": "revise_memory",
-                "args": {
+        tool_call_completion(("search_memories", {"query": "deploy"})),
+        tool_call_completion(("read_memory", {"alias": "memory_alias"})),
+        tool_call_completion(
+            (
+                "revise_memory",
+                {
                     "alias": "memory_alias",
                     "edits": [
                         {"op": "replace", "field": "content", "old": "from CI", "new": "by hand"}
                     ],
                     "changelog": "deploys moved off CI",
                 },
-            }
+            )
         ),
-        json.dumps({"tool": "finish", "args": {}}),
+        tool_call_completion(("finish", {})),
     )
     engine = MemoryGenerationEngine(
         mid_term=memory_library.mid_term,

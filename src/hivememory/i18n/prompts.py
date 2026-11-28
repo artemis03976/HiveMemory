@@ -791,7 +791,7 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
    - **新建**：只有已有记忆承载不了的内容，才用 write_memory 新建，每件事调用一次。
 4. 写完调用 finish。整段话题没有值得写的内容，或者库里的记忆都不需要改时，直接调用 finish。
 
-你最多有 {max_steps} 步，每输出一个动作算一步；每个工具结果中的 steps_left 是剩余的步数。步数用完时已经暂存的新建与修订照常保存，因此不要把它们留到最后一步。
+你最多有 {max_steps} 步，每个工具调用算一步；每个工具结果中的 steps_left 是剩余的步数。步数用完时已经暂存的新建与修订照常保存，因此不要把它们留到最后一步。
 
 ## 怎样写修订
 - 修订之前先用 read_memory 读全文：只能修订本次读过的记忆。一条记忆一次结算只修订一次，几处修改放进同一次 revise_memory。
@@ -800,17 +800,13 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
 - 补充新的一段用 append；只有大部分正文都变了才用 rewrite 整篇改写正文。
 - 修订被拒时工具结果带 error：原文对不上就照读到的全文重新抄。
 
-## 动作格式
-每次只输出一个 JSON 对象，不要输出其他文字：
-{{"tool": "工具名", "args": {{...}}}}
-
 ## 工具
-- **list_generated_memories**，args 为 {{}}：返回本话题生成的记忆（agent 主动写入的，以及本话题此前沉淀出的），每条有 alias、title、summary。
-- **search_memories**，args 为 {{"query": "一句检索语", "mode": "dense"}}：mode 为 dense（按语义）或 sparse（按关键词），缺省为 dense。返回最多 {search_top_k} 条记忆，每条有 alias、title、summary、memory_type 与 score。检索只比较标题、类型、标签与摘要，不比较正文。
-- **read_memory**，args 为 {{"alias": "..."}}：返回一条记忆的 title、summary、tags、memory_type 与 content。
-- **revise_memory**，args 为对一条读过的记忆的编辑集：{{"alias": "...", "edits": [...], "add_tags": ["..."], "remove_tags": ["..."], "changelog": "一句话说明改了什么、为什么", "source_segments": ["2.3"]}}。edits 按顺序应用，后一处在前一处的结果上查找原文，每处是以下三种之一：{{"op": "replace", "field": "content", "old": "原文片段", "new": "新文"}}（field 为 content、title 或 summary）；{{"op": "append", "text": "追加到正文末尾的一段"}}；{{"op": "rewrite", "text": "整篇新正文"}}。类型不能改。成功时返回 revised。
-- **write_memory**，args 为一条新记忆：{{"title": "...", "summary": "...", "tags": ["..."], "memory_type": "FACT", "content": "...", "confidence_score": 0.9, "alias_suffix": "...", "source_segments": ["2.3"]}}。title 不超过 100 字，summary 一句话、不超过 200 字，tags 3-5 个，content 为 Markdown。
-- **finish**，args 为 {{}}：结束本次结算。
+- **list_generated_memories**，没有参数：返回本话题生成的记忆（agent 主动写入的，以及本话题此前沉淀出的），每条有 alias、title、summary。
+- **search_memories**：query 是一句检索语；mode 为 dense（按语义）或 sparse（按关键词），缺省为 dense。返回最多 {search_top_k} 条记忆，每条有 alias、title、summary、memory_type 与 score。检索只比较标题、类型、标签与摘要，不比较正文。
+- **read_memory**：alias 是要读的记忆。返回这条记忆的 title、summary、tags、memory_type 与 content。
+- **revise_memory**：对一条读过的记忆的编辑集。alias 是这条记忆；edits 按顺序应用，后一处在前一处的结果上查找原文，每处的 op 是以下三种之一：replace 把 field（content、title 或 summary，缺省为 content）中的原文片段 old 换成新文 new；append 把 text 作为一段追加到正文末尾；rewrite 以 text 整篇改写正文。add_tags 与 remove_tags 是要增加与删除的标签；changelog 一句话说明改了什么、为什么；source_segments 是支撑这次修订的段。类型不能改。成功时返回 revised。
+- **write_memory**：暂存一条新记忆。title 不超过 100 字，summary 一句话、不超过 200 字，tags 3-5 个，memory_type 见下文的记忆类型，content 为 Markdown，confidence_score 为 0 到 1 的置信度，alias_suffix 与 source_segments 见下文。
+- **finish**，没有参数：结束本次结算。
 
 工具出错时结果中带 error，按说明改正后再试。
 
@@ -859,11 +855,18 @@ add_tags 与 remove_tags 逐个增删标签，只增删受影响的；类型不�
 ## 话题材料
 {transcript}
 
-请按工作顺序开始，输出第一个动作。
+请按工作顺序开始，调用第一个工具。
 """,
-        "error_unparsable": (
-            '输出无法解析为动作。每次只输出一个 JSON 对象：{"tool": "工具名", "args": {...}}'
-        ),
+        "tool_list_generated_memories": "列出本话题生成的记忆。",
+        "tool_search_memories": "在库中检索已有的记忆。",
+        "tool_read_memory": "按 alias 读一条记忆的全文。",
+        "tool_revise_memory": "暂存对一条本次读过的记忆的修订。",
+        "tool_write_memory": "暂存一条新记忆。",
+        "tool_finish": "结束本次结算。",
+        "error_no_tool_call": "没有调用工具。每次回复都要调用工具；写完时调用 finish",
+        "error_invalid_json": "参数不是合法的 JSON 对象，这次调用没有执行。按工具的参数定义重新调用",
+        "error_steps_exhausted": "步数已用完，这次调用没有执行",
+        "error_finished": "本次结算已经结束，finish 之后的调用没有执行",
         "error_unknown_tool": (
             "没有这个工具。可用的工具：list_generated_memories、search_memories、read_memory、"
             "revise_memory、write_memory、finish"
@@ -1183,7 +1186,7 @@ You are Patchouli, the librarian of the HiveMemory system. A topic has paused; i
    - **Create**: only content that no existing memory can hold becomes a new memory with write_memory, one call per thing.
 4. Call finish when you are done. If nothing in the topic is worth writing and no memory in the library needs to change, call finish right away.
 
-You have at most {max_steps} steps; each action you output is one step, and steps_left in each tool result is the number of steps remaining. When the steps run out, the new memories and revisions you have staged are still saved, so do not leave them to the last step.
+You have at most {max_steps} steps; each tool call is one step, and steps_left in each tool result is the number of steps remaining. When the steps run out, the new memories and revisions you have staged are still saved, so do not leave them to the last step.
 
 ## How to Write a Revision
 - Read the full text with read_memory before revising: you can revise only memories you read in this run. A memory is revised at most once per settlement; put several changes into one revise_memory call.
@@ -1192,19 +1195,15 @@ You have at most {max_steps} steps; each action you output is one step, and step
 - Use append for a new passage; use rewrite to replace the whole body only when most of it has changed.
 - When a revision is rejected, the tool result carries an error: if the old text does not match, copy it again from the full text you read.
 
-## Action Format
-Output exactly one JSON object each time and nothing else:
-{{"tool": "tool name", "args": {{...}}}}
-
 ## Tools
-- **list_generated_memories**, args {{}}: returns the memories generated from this topic (those agents wrote explicitly, and those earlier settlements of this topic produced), each with alias, title, and summary.
-- **search_memories**, args {{"query": "one search sentence", "mode": "dense"}}: mode is dense (by meaning) or sparse (by keywords), dense by default. Returns at most {search_top_k} memories, each with alias, title, summary, memory_type, and score. Search compares only title, type, tags, and summary, not the body.
-- **read_memory**, args {{"alias": "..."}}: returns a memory's title, summary, tags, memory_type, and content.
-- **revise_memory**, args are an edit set on a memory you read: {{"alias": "...", "edits": [...], "add_tags": ["..."], "remove_tags": ["..."], "changelog": "one sentence on what changed and why", "source_segments": ["2.3"]}}. edits are applied in order, each looking for its old text in the result of the previous ones, and each is one of: {{"op": "replace", "field": "content", "old": "original fragment", "new": "new text"}} (field is content, title, or summary); {{"op": "append", "text": "a passage appended to the end of the body"}}; {{"op": "rewrite", "text": "the whole new body"}}. The type cannot be changed. On success it returns revised.
-- **write_memory**, args are one new memory: {{"title": "...", "summary": "...", "tags": ["..."], "memory_type": "FACT", "content": "...", "confidence_score": 0.9, "alias_suffix": "...", "source_segments": ["2.3"]}}. Title at most 100 characters, summary one sentence of at most 200 characters, 3-5 tags, content in Markdown.
-- **finish**, args {{}}: ends this settlement.
+- **list_generated_memories**, no parameters: returns the memories generated from this topic (those agents wrote explicitly, and those earlier settlements of this topic produced), each with alias, title, and summary.
+- **search_memories**: query is one search sentence; mode is dense (by meaning) or sparse (by keywords), dense by default. Returns at most {search_top_k} memories, each with alias, title, summary, memory_type, and score. Search compares only title, type, tags, and summary, not the body.
+- **read_memory**: alias is the memory to read. Returns its title, summary, tags, memory_type, and content.
+- **revise_memory**: an edit set on a memory you read. alias is that memory; edits are applied in order, each looking for its old text in the result of the previous ones, and the op of each is one of: replace swaps the original fragment old in field (content, title, or summary; content by default) for the new text new; append adds text as a passage at the end of the body; rewrite replaces the whole body with text. add_tags and remove_tags are the tags to add and remove; changelog is one sentence on what changed and why; source_segments are the segments that support the revision. The type cannot be changed. On success it returns revised.
+- **write_memory**: stages one new memory. Title at most 100 characters, summary one sentence of at most 200 characters, 3-5 tags, memory_type as described under Memory Types below, content in Markdown, confidence_score a confidence from 0 to 1, and alias_suffix and source_segments as described below.
+- **finish**, no parameters: ends this settlement.
 
-When a tool fails, its result carries an error; fix the action as it says and try again.
+When a tool fails, its result carries an error; fix the call as it says and try again.
 
 ## Memory Types (memory_type)
 - **FACT**: Explicit facts, business rules, parameter definitions. Content that states how something works is a FACT even when it cites a file path or URL. Code that exists only in the conversation (a script written for the user and never committed, a query run in a console, a one-line command that fixed a problem) is also a FACT; keep the code verbatim.
@@ -1251,12 +1250,23 @@ Generate a short snake_case alias suffix for each memory for semantic addressing
 ## Topic Material
 {transcript}
 
-Start with the order of work and output your first action.
+Start with the order of work and call your first tool.
 """,
-        "error_unparsable": (
-            "The output could not be parsed as an action. Output exactly one JSON object "
-            'each time: {"tool": "tool name", "args": {...}}'
+        "tool_list_generated_memories": "List the memories generated from this topic.",
+        "tool_search_memories": "Search the library for existing memories.",
+        "tool_read_memory": "Read the full text of one memory by its alias.",
+        "tool_revise_memory": "Stage a revision of one memory you read in this run.",
+        "tool_write_memory": "Stage one new memory.",
+        "tool_finish": "End this settlement.",
+        "error_no_tool_call": (
+            "No tool was called. Call a tool in every reply; call finish when you are done"
         ),
+        "error_invalid_json": (
+            "The arguments are not a valid JSON object, so this call was not run. Call the tool "
+            "again with arguments that follow its parameters"
+        ),
+        "error_steps_exhausted": "No steps are left, so this call was not run",
+        "error_finished": "This settlement has finished; calls after finish were not run",
         "error_unknown_tool": (
             "No such tool. Available tools: list_generated_memories, search_memories, read_memory, "
             "revise_memory, write_memory, finish"

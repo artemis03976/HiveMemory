@@ -1,17 +1,19 @@
-"""LiteLLMService：请求参数透传、两种调用形态、异常转换与流的关闭；SDK 使用确定性替身。"""
+"""LiteLLMService：请求参数透传、两种调用形态、工具调用、异常转换与流的关闭；SDK 使用确定性替身。"""
 
 import asyncio
 from types import SimpleNamespace
 
 import litellm
 import pytest
-from litellm.types.utils import Usage
+from litellm.types.utils import Message, Usage
+from pydantic import ValidationError
 
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.infrastructure.llm.base import (
-    LLMCompletion,
     LLMRequestParams,
     LLMStreamChunk,
+    LLMTool,
+    LLMToolCall,
     LLMUsage,
 )
 from hivememory.infrastructure.llm.litellm_service import LiteLLMService
@@ -64,10 +66,15 @@ class _FakeStreamResponse:
             raise self._close_error
 
 
-def _completion_response(content, finish_reason="stop", total_tokens=None) -> SimpleNamespace:
+def _completion_response(
+    content, finish_reason="stop", total_tokens=None, **message_fields
+) -> SimpleNamespace:
+    """SDK 的完整调用响应；消息是 SDK 归一之后的消息类型，提供商附带的字段经它保留。"""
     return SimpleNamespace(
         choices=[
-            SimpleNamespace(message=SimpleNamespace(content=content), finish_reason=finish_reason)
+            SimpleNamespace(
+                message=Message(content=content, **message_fields), finish_reason=finish_reason
+            )
         ],
         usage=SimpleNamespace(total_tokens=total_tokens) if total_tokens is not None else None,
     )
@@ -109,6 +116,13 @@ _FULL_SDK_ARGUMENTS = {
 }
 
 
+_SEARCH_TOOL = LLMTool(
+    name="search",
+    description="Search the library.",
+    parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+)
+
+
 def _provider_error(error_type):
     return error_type(message="private provider detail", model="mock-model", llm_provider="openai")
 
@@ -118,7 +132,7 @@ async def _drain(stream) -> list[LLMStreamChunk]:
 
 
 class TestComplete:
-    """完整调用：参数逐项透传、响应解析与 JSON 模式。"""
+    """完整调用：参数逐项透传、响应与工具调用的解析、JSON 模式。"""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -126,13 +140,32 @@ class TestComplete:
         [
             (_FULL_PARAMS, _FULL_SDK_ARGUMENTS),
             (LLMRequestParams(model="mock-model"), {"model": "mock-model", "messages": _MESSAGES}),
+            (
+                LLMRequestParams(model="mock-model", tools=(_SEARCH_TOOL,)),
+                {
+                    "model": "mock-model",
+                    "messages": _MESSAGES,
+                    "tools": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "search",
+                                "description": "Search the library.",
+                                "parameters": _SEARCH_TOOL.parameters,
+                            },
+                        }
+                    ],
+                    "tool_choice": "auto",
+                },
+            ),
         ],
-        ids=["all-params", "model-only"],
+        ids=["all-params", "model-only", "tools"],
     )
     async def test_sdk_receives_exactly_the_params_the_request_carries(
         self, monkeypatch, params, expected
     ):
-        """请求携带的参数逐项传给 SDK，未携带的项不由实现补入默认值。"""
+        """请求携带的参数逐项传给 SDK，未携带的项不由实现补入默认值；带工具时以 function 形态
+        传入，tool_choice 固定为 auto。"""
         sdk = _RecordingSDK(_completion_response("ok"))
         _install(monkeypatch, sdk)
 
@@ -149,9 +182,51 @@ class TestComplete:
 
         completion = await LiteLLMService().complete(_MESSAGES, _FULL_PARAMS)
 
-        assert completion == LLMCompletion(
-            text="回复", finish_reason="length", usage=LLMUsage(total_tokens=42)
+        assert (completion.text, completion.finish_reason, completion.usage) == (
+            "回复",
+            "length",
+            LLMUsage(total_tokens=42),
         )
+
+    @pytest.mark.asyncio
+    async def test_tool_calls_and_the_assistant_message_are_returned(self, monkeypatch):
+        """只有工具调用、没有文本时不报错：工具调用按顺序读出，assistant 消息原样交回，其中
+        提供商附带的思考内容保留，调用方追加进对话即可传回。"""
+        response = _completion_response(
+            None,
+            finish_reason="tool_calls",
+            tool_calls=[
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "search", "arguments": '{"query": "部署"}'},
+                },
+                {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {"name": "finish", "arguments": "{"},
+                },
+            ],
+            reasoning_content="先检索部署相关的记忆",
+        )
+        _install(monkeypatch, _RecordingSDK(response))
+
+        completion = await LiteLLMService().complete(
+            _MESSAGES, LLMRequestParams(model="mock-model", tools=(_SEARCH_TOOL,))
+        )
+
+        assert (completion.text, completion.tool_calls) == (
+            "",
+            (
+                LLMToolCall(id="call_1", name="search", arguments='{"query": "部署"}'),
+                LLMToolCall(id="call_2", name="finish", arguments="{"),
+            ),
+        )
+        assert completion.assistant_message["reasoning_content"] == "先检索部署相关的记忆"
+        assert [call["id"] for call in completion.assistant_message["tool_calls"]] == [
+            "call_1",
+            "call_2",
+        ]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -188,12 +263,17 @@ class TestComplete:
         )
 
     @pytest.mark.asyncio
-    async def test_missing_text_is_a_provider_failure(self, monkeypatch):
-        """提供商没有返回文本时显式失败，不把缺失伪装成空文本。"""
+    async def test_missing_text_and_tool_calls_is_a_provider_failure(self, monkeypatch):
+        """提供商既没有返回文本也没有返回工具调用时显式失败，不把缺失伪装成空文本。"""
         _install(monkeypatch, _RecordingSDK(_completion_response(None)))
 
-        with pytest.raises(ModelProviderError, match="returned no text"):
+        with pytest.raises(ModelProviderError, match="returned no text or tool calls"):
             await LiteLLMService().complete(_MESSAGES, _FULL_PARAMS)
+
+    def test_tools_cannot_be_requested_together_with_json_output(self):
+        """工具调用与 JSON 对象输出是互斥的作答方式，同时给出时构造请求参数失败。"""
+        with pytest.raises(ValidationError, match="tools and json_output"):
+            LLMRequestParams(model="mock-model", tools=(_SEARCH_TOOL,), json_output=True)
 
     @pytest.mark.asyncio
     async def test_json_output_requests_json_object_format(self, monkeypatch):
@@ -253,7 +333,19 @@ class TestComplete:
 
 
 class TestStream:
-    """流式调用：延迟请求、分块语义与底层响应的关闭。"""
+    """流式调用：延迟请求、分块语义、底层响应的关闭，以及不支持工具。"""
+
+    def test_streaming_with_tools_is_rejected_before_any_request(self, monkeypatch):
+        """流式调用不支持工具：带工具时构造流就失败，不发出请求。"""
+        sdk = _RecordingSDK()
+        _install(monkeypatch, sdk)
+
+        with pytest.raises(ValueError, match="do not support tools"):
+            LiteLLMService().complete(
+                _MESSAGES, LLMRequestParams(model="mock-model", tools=(_SEARCH_TOOL,)), stream=True
+            )
+
+        assert sdk.calls == []
 
     @pytest.mark.asyncio
     async def test_stream_requests_on_first_pull_and_yields_deltas_then_finish_reason(
